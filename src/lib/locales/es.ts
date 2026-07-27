@@ -123,7 +123,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   "edit-pdf": {
     name: "Editar PDF",
     description:
-      "Añade texto, formas y resaltados sobre las páginas del documento.",
+      "Añade texto, imágenes, formas y resaltados sobre las páginas del documento.",
   },
   "sign-pdf": {
     name: "Firmar PDF",
@@ -151,7 +151,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   "unlock-pdf": {
     name: "Desbloquear PDF",
     description:
-      "Quita la contraseña de un PDF cuando ya la conoces y tienes permiso para hacerlo.",
+      "Quita lo que bloquea el documento: la contraseña o la certificación de una firma digital.",
   },
   "redact-pdf": {
     name: "Censurar PDF",
@@ -336,8 +336,13 @@ export const es = {
       unknown: "Algo ha fallado durante el proceso. Vuelve a intentarlo.",
       cancelled: "Proceso cancelado.",
       wrongPassword: "Esa contraseña no abre el documento.",
-      notEncrypted:
-        "Este PDF no está cifrado: no hay contraseña que quitar.",
+      notProtected: "Este documento no tiene ninguna protección que quitar.",
+      certificateEncryption:
+        "Este PDF usa cifrado por certificado digital: no es compatible con esta herramienta.",
+      unsupportedSecurityHandler:
+        "Este PDF usa un método de cifrado que no reconocemos.",
+      consentRequired:
+        "Esta operación invalidaría las firmas del documento: hace falta confirmarlo antes.",
       nothingSelected: "Selecciona o marca algo antes de procesar.",
     },
   },

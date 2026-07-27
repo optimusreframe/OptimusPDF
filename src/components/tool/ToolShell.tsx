@@ -127,6 +127,15 @@ export function ToolShell<TOptions>({
       setError(minFiles > 1 ? "needTwo" : "empty");
       return;
     }
+    // La condicion propia de la herramienta se vuelve a evaluar aqui, no
+    // solo al pintar el boton. Confiar en `disabled` deja pasar cualquier
+    // ejecucion que arranque desde un render con estado ya obsoleto, y en
+    // herramientas con consentimiento explicito eso es saltarse la
+    // confirmacion.
+    if (canRunProp && !canRunProp(files, options)) {
+      setError("nothingSelected");
+      return;
+    }
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
 
@@ -156,7 +165,7 @@ export function ToolShell<TOptions>({
       setError(toPdfError(caught).code);
       setPhase("files");
     }
-  }, [files, minFiles, options, process, tool.slug]);
+  }, [canRunProp, files, minFiles, options, process, tool.slug]);
 
   const cancel = useCallback(() => {
     runIdRef.current += 1;

@@ -27,7 +27,14 @@ export type PdfErrorCode =
   | "cancelled"
   | "unknown"
   | "wrongPassword"
-  | "notEncrypted"
+  /** El documento no tiene ninguna proteccion que retirar. */
+  | "notProtected"
+  /** Cifrado por certificado digital (`/Adobe.PubSec`). */
+  | "certificateEncryption"
+  /** Manejador de seguridad distinto de `/Standard` que no reconocemos. */
+  | "unsupportedSecurityHandler"
+  /** La operacion invalida firmas y falta el consentimiento explicito. */
+  | "consentRequired"
   | "nothingSelected";
 
 /** Error tipado del motor: la UI traduce `code` mediante i18n. */

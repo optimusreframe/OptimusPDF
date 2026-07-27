@@ -111,7 +111,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "edit-pdf": {
     name: "Edit PDF",
-    description: "Add text, shapes and highlights on top of the document pages.",
+    description: "Add text, images, shapes and highlights on top of the document pages.",
   },
   "sign-pdf": {
     name: "Sign PDF",
@@ -138,7 +138,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   "unlock-pdf": {
     name: "Unlock PDF",
     description:
-      "Remove the password from a PDF when you already know it and you are allowed to.",
+      "Remove what locks the document: its password or the certification of a digital signature.",
   },
   "redact-pdf": {
     name: "Redact PDF",
@@ -317,8 +317,13 @@ export const en: Dictionary = {
       unknown: "Something went wrong during processing. Please try again.",
       cancelled: "Process cancelled.",
       wrongPassword: "That password does not open the document.",
-      notEncrypted:
-        "This PDF is not encrypted: there is no password to remove.",
+      notProtected: "This document has no protection left to remove.",
+      certificateEncryption:
+        "This PDF uses digital certificate encryption: it is not supported by this tool.",
+      unsupportedSecurityHandler:
+        "This PDF uses an encryption method we do not recognise.",
+      consentRequired:
+        "This would invalidate the document's signatures: confirm it first.",
       nothingSelected: "Select or mark something before processing.",
     },
   },
