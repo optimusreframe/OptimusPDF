@@ -42,3 +42,6 @@ next-env.d.ts
 
 # OX validation evidence (transient logs, not project source)
 /.evidence/
+
+# fixtures de prueba locales (nunca commitear PDFs reales de usuarios)
+/.local-test-assets/

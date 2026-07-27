@@ -23,6 +23,10 @@ export type UnlockStrings = {
   /** Tras fallar el intento automatico. */
   passwordNeededTitle: string;
   passwordNeededBody: string;
+  /** Boton que valida la contrasena escrita sin descargar nada todavia. */
+  checkPasswordButton: string;
+  /** Estado mientras se comprueba esa contrasena. */
+  checkingPassword: string;
 
   /** Cifrado por certificado (`/Adobe.PubSec`): no soportado. */
   certificateTitle: string;
@@ -37,6 +41,18 @@ export type UnlockStrings = {
   signaturesWarning: string;
   signaturesConsent: string;
   signaturesConsentHint: string;
+
+  /**
+   * Firma activa (`/V` real) pero SIN restriccion (sin DocMDP, sin
+   * FieldMDP, sin `/Lock`), Y ademas hay algo que hacer (cifrado o
+   * restriccion real): el documento se puede editar igualmente, pero
+   * guardar una copia desde aqui invalida esa firma de todos modos, asi
+   * que el panel de consentimiento la menciona con este aviso. No hay
+   * titulo/cuerpo propios para "solo firma activa, sin restriccion, sin
+   * cifrado": ese caso no ofrece ninguna operacion (ronda 6) y usa el
+   * mismo aviso neutro que `noProtectionTitle`/`noProtectionBody`.
+   */
+  activeSignatureWarning: string;
 
   /** Nada que quitar. */
   noProtectionTitle: string;
@@ -70,7 +86,9 @@ const es: UnlockStrings = {
     unsupportedSecurityHandler:
       "Este PDF usa un método de cifrado no reconocido: no sabemos abrirlo y ninguna contraseña lo cambiaría.",
     consentRequired:
-      "Este documento tiene firmas que restringen los cambios. Marca la confirmación para crear la copia.",
+      "Crear esta copia invalidará una firma del documento. Marca la confirmación para continuar.",
+    inspectionIncomplete:
+      "No pudimos comprobar con seguridad las restricciones de este PDF, así que no vamos a crear una copia que podría conservar protecciones sin avisarte.",
   },
 
   inspecting: "Mirando qué protege a este documento…",
@@ -85,7 +103,9 @@ const es: UnlockStrings = {
 
   passwordNeededTitle: "Ahora sí necesitamos la contraseña",
   passwordNeededBody:
-    "El intento sin contraseña no ha funcionado: este documento pide una de verdad para abrirse. Escríbela en el panel de opciones y vuelve a procesar. Si no la conoces, aquí no hay atajo.",
+    "El intento sin contraseña no ha funcionado: este documento pide una de verdad para abrirse. Escríbela en el panel de opciones y pulsa «Abrir y comprobar». Si no la conoces, aquí no hay atajo.",
+  checkPasswordButton: "Abrir y comprobar",
+  checkingPassword: "Comprobando la contraseña…",
 
   certificateTitle: "Cifrado con certificado digital",
   certificateBody:
@@ -104,6 +124,9 @@ const es: UnlockStrings = {
     "Entiendo que la copia resultante no conservará firmas válidas",
   signaturesConsentHint:
     "Sin esta confirmación no creamos la copia: es un cambio que no se puede deshacer sobre el archivo descargado.",
+
+  activeSignatureWarning:
+    "Esta copia invalidará una firma que no te impedía editar el documento, pero que de todas formas dejará de ser válida en cuanto se guarde: los lectores ya no podrán confirmar que coincide con lo firmado. Guarda el original firmado para trámites, auditorías o cualquier uso legal.",
 
   noProtectionTitle: "Sin protección que quitar",
   noProtectionBody:
@@ -135,7 +158,9 @@ const en: UnlockStrings = {
     unsupportedSecurityHandler:
       "This PDF uses an encryption method we do not recognise: we cannot open it, and no password would change that.",
     consentRequired:
-      "This document has signatures that restrict changes. Tick the confirmation to build the copy.",
+      "Building this copy will invalidate a signature on the document. Tick the confirmation to continue.",
+    inspectionIncomplete:
+      "We could not safely check this PDF's restrictions, so we will not build a copy that might keep protections without telling you.",
   },
 
   inspecting: "Looking at what protects this document…",
@@ -150,7 +175,9 @@ const en: UnlockStrings = {
 
   passwordNeededTitle: "Now we do need the password",
   passwordNeededBody:
-    "Opening it without a password did not work: this document truly requires one. Type it in the options panel and process again. If you do not know it, there is no shortcut here.",
+    "Opening it without a password did not work: this document truly requires one. Type it in the options panel and press \"Open and check\". If you do not know it, there is no shortcut here.",
+  checkPasswordButton: "Open and check",
+  checkingPassword: "Checking the password…",
 
   certificateTitle: "Encrypted with a digital certificate",
   certificateBody:
@@ -168,6 +195,9 @@ const en: UnlockStrings = {
   signaturesConsent: "I understand the resulting copy will keep no valid signatures",
   signaturesConsentHint:
     "Without this confirmation we do not build the copy: it is a change you cannot undo on the downloaded file.",
+
+  activeSignatureWarning:
+    "This copy will invalidate a signature that never stopped you from editing the document, but it will stop being valid as soon as it is saved: readers will no longer be able to confirm it matches what was signed. Keep the signed original for paperwork, audits or any legal use.",
 
   noProtectionTitle: "Nothing to unlock",
   noProtectionBody:

@@ -343,6 +343,8 @@ export const es = {
         "Este PDF usa un método de cifrado que no reconocemos.",
       consentRequired:
         "Esta operación invalidaría las firmas del documento: hace falta confirmarlo antes.",
+      inspectionIncomplete:
+        "No pudimos comprobar con seguridad las restricciones de este PDF, así que no vamos a crear una copia que podría conservar protecciones sin avisarte.",
       nothingSelected: "Selecciona o marca algo antes de procesar.",
     },
   },

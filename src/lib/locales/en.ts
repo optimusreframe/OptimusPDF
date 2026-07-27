@@ -324,6 +324,8 @@ export const en: Dictionary = {
         "This PDF uses an encryption method we do not recognise.",
       consentRequired:
         "This would invalidate the document's signatures: confirm it first.",
+      inspectionIncomplete:
+        "We could not safely check this PDF's restrictions, so we will not build a copy that might keep protections without telling you.",
       nothingSelected: "Select or mark something before processing.",
     },
   },

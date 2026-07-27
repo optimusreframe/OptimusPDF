@@ -35,6 +35,13 @@ export type PdfErrorCode =
   | "unsupportedSecurityHandler"
   /** La operacion invalida firmas y falta el consentimiento explicito. */
   | "consentRequired"
+  /**
+   * La estructura del documento no se pudo comprobar con seguridad
+   * (referencia rota, tipo inesperado, arbol de campos sin terminar de
+   * recorrer, u objetos invalidos tras descifrar). Nunca se interpreta
+   * como "sin restriccion".
+   */
+  | "inspectionIncomplete"
   | "nothingSelected";
 
 /** Error tipado del motor: la UI traduce `code` mediante i18n. */
