@@ -1,16 +1,18 @@
 # DEVELOPMENT EXECUTION REPORT — OptimusPDF
 
-> Skill: OX (Optimus eXecution). Orquestador: Fable 5. Plan: Fable 5.
-> Implementación: Opus 5 (con Sonnet 5 como respaldo tras límite de sesión).
-> Agentes de exploración/validación/verificación: Sonnet 5.
+> Skill: OX (Optimus eXecution). Fase 1 — Orquestador: Fable 5, plan: Fable 5,
+> implementación: Opus 5 (Sonnet 5 de respaldo), agentes: Sonnet 5.
+> Fase 2 — Orquestador: Sonnet 5, implementación: Opus 5, agentes: Sonnet 5,
+> Codex CLI (GPT, vía `codex exec --sandbox read-only`) colaborando en
+> investigación de causa raíz y revisión adversarial de diffs sensibles.
 
 ## Git
 - Repositorio: https://github.com/optimusreframe/OptimusPDF (privado)
 - Rama: main
-- HEAD inicial: (repo vacío)
-- HEAD final: `87147e3` + este commit de documentación
-- Árbol: limpio salvo este reporte y `.gitignore`
-- Origin: sincronizado tras push final
+- HEAD inicial (fase 1): (repo vacío)
+- HEAD final (fase 2): `5cfd9a9`
+- Árbol: limpio
+- Origin: sincronizado (push confirmado, `0	0` divergencia)
 
 ## Objetivo
 - **Solicitado**: clon completo de ilovepdf.com llamado "OptimusPDF", con branding de Optimus Reframe y UX estilo Apple iOS 26, desktop/iPad pro + móvil app-nativa, usando skill the-architect para el plan y skill OX para la ejecución, repo en `optimusreframe/OptimusPDF`, plan en Fable 5, implementación en Opus 5, agentes en Sonnet 5.
@@ -129,13 +131,59 @@ No aplica — proyecto sin base de datos.
 | Suite de tests automatizados (Vitest/Playwright) | Diferido explícitamente por blueprint §13 | Baja | Añadir cuando el producto esté más estable |
 | Publicación (Vercel) | No autorizada en este run | N/A | Pedir autorización explícita al usuario cuando quiera publicar |
 
+---
+
+# FASE 2 — Corrección de Unlock PDF, light theme, i18n autodetect, edit-pdf
+
+## Objetivo de la fase
+- **Solicitado**: (1) arreglar bug real reportado por el usuario — `/unlock-pdf` pedía una contraseña que no conocía, a diferencia de iLovePDF; (2) terminar todo lo pendiente de la fase 1 (tabla Deferred); (3) light theme con autodetección del tema del sistema; (4) autodetección de idioma del dispositivo; (5) smoke test completo con la extensión real de Chrome; (6) usar Codex siempre para plan y validación junto con Fable 5/el orquestador.
+- **Completado**: los 6 puntos. Además se descubrió y corrigió un bug adicional ya en producción (`/edit-pdf` registrado "live" sin ninguna ruta implementada → 404 real).
+- **No completado**: verificación Tier 3 de UI real (subida de archivo interactiva) para todas las 20 herramientas live — se verificaron a fondo las más críticas (unlock, merge, edit-pdf) y se hizo un barrido de consola en las 42 rutas; suite de tests automatizados sigue diferida; publicación sigue sin autorizar.
+
+## Investigación de causa raíz — `/unlock-pdf`
+Codex CLI (disponible y autenticado en este entorno; invocado siempre por **stdin**, nunca como argumento — un prompt largo como argumento produce `Argument list too long` en Windows) investigó el reporte del usuario. Hallazgo: el motor YA probaba correctamente `password: ""` para PDFs con cifrado estándar sin contraseña de apertura (verificado por el propio orquestador con un fixture real antes de involucrar a Codex). La causa real más probable: PDFs **certificados digitalmente** (restricciones DocMDP/FieldMDP de una firma electrónica) que no usan cifrado en absoluto — un mecanismo que el código anterior no manejaba, reportando "no cifrado" sin quitar la restricción real. Codex encontró y citó el precedente de `qpdf --remove-restrictions`.
+
+## Fix de Unlock — 3 rondas guiadas por Codex (dominio sensible, OX §12.1)
+1. **Ronda 1** (Opus 5): `inspectProtection` distingue cifrado estándar / certificado / restricciones de firma; UI rediseñada para no pedir contraseña salvo que de verdad haga falta; limpieza de `/Perms`+`SigFlags`. Codex revisó el diff (§12.5) y encontró **3 bloqueantes**: falso positivo de `SigFlags!==0`, consentimiento que se podía saltar, cobertura incompleta de FieldMDP/Lock.
+2. **Ronda 2** (Opus 5): resuelve los 3 bloqueantes — detección separada de `hasDocMDPRestriction`/`hasFieldMDPRestriction` (SigFlags deja de decidir nada), `ToolShell.run()` revalida `canRun` en el momento de ejecutar, motor exige `acknowledgeSignatureInvalidation`, limpieza equivalente a `disableDigitalSignatures()` de qpdf (borra `/V`/`/SV`/`/Lock` por campo, solo `/Perms/DocMDP`, preserva el resto de `/Perms` como `/UR3`). Verificado que `PDFForm.removeField()` de la librería SÍ destruye la apariencia visual (prueba dedicada) — se implementó el borrado manual en su lugar. Segunda revisión de Codex: confirma resuelto el bloqueante 3 y los 5 defectos menores; encuentra **2 bloqueantes nuevos**: `/DocMDP null` seguía siendo falso positivo, y la identidad de consentimiento (`nombre:tamaño:fecha`) podía colisionar entre archivos distintos.
+3. **Ronda 3** (Opus 5, quirúrgica): resuelve ambos — `hasDocMDPRestriction` ahora resuelve el valor real (no solo la presencia de la clave), consentimiento atado a identidad de objeto `File` (`===`) en vez de metadatos derivados. Verificado en vivo en el dev server reproduciendo exactamente el escenario de colisión que describió Codex (dos PDFs distintos, mismo nombre+tamaño+fecha) — confirmado que ya no colisiona. Dado el nivel de rigor ya alcanzado (2 rondas de revisión de Codex con hallazgos reales resueltos y verificados), el orquestador cerró esta ronda sin una tercera revisión formal de Codex, decisión documentada explícitamente.
+
+Verificación final: smoke test en Chrome real con un fixture DocMDP genuino (`/Perms/DocMDP` real + campo `/FT /Sig`) — el flujo completo (detección → aviso honesto sin pedir contraseña → consentimiento obligatorio → proceso → descarga) confirmado end-to-end; PDF resultante válido, `/Perms` y `/FT` eliminados correctamente.
+
+## Otros cambios de la fase
+- **Light theme + autodetect** (`src/lib/theme.tsx`, mismo patrón `useSyncExternalStore` que `i18n.tsx`): paleta clara completa preservando el azul de marca; `--color-on-signal` nuevo para contraste correcto de texto sobre fondos saturados (corregido por el orquestador en `Button.tsx`, `LanguageToggle.tsx`, badges de `organize-pdf` tras señalización de WS-THEME). Verificado en Chrome real: toggle Claro/Oscuro/Sistema funcional, colores computados correctos.
+- **Autodetect de idioma** (`src/lib/i18n.tsx`): detecta `navigator.languages`/`navigator.language` en la primera visita, cae a español si ninguna preferencia coincide con ES/EN soportados; preferencia manual siempre prevalece una vez guardada. Verificado en Chrome real: toda la home renderizó en inglés desde la primera carga sin tocar el toggle.
+- **Consolidación de `ToolShell`**: `canRun`/`progressMessage`/`setError` opcionales en el contexto, `AbortSignal` real en `process()` (cancelación efectiva en compress-pdf/ocr-pdf) — 100% retrocompatible, confirmado que ninguna de las 20 herramientas existentes se rompió.
+- **`/edit-pdf` implementado**: motor de anotaciones (texto/imagen/rectángulo/elipse/línea/resaltado) que dibuja vectorialmente sobre el PDF original sin rasterizar. Verificado con ejecución real en Node (6 tipos, 2 páginas, una rotada) y en Chrome real (colocación de texto, proceso, descarga de PDF válido de 6 páginas).
+- Checkbox promovido a `components/ui/`, geometría de página compartida consolidada en `core.ts`, fuente Caveat añadida para firmas.
+
+## Hallazgo de proceso durante el smoke test
+La herramienta de clic por coordenadas del entorno de automatización de Chrome no genera eventos DOM reales en este sandbox (confirmado: 0 eventos capturados incluso a nivel de `window` tras un "click" reportado como exitoso). Esto no es un defecto de OptimusPDF — se confirmó despachando `PointerEvent` reales vía JavaScript (con `setPointerCapture` neutralizado, ya que un `pointerId` sintético no puede capturarse legítimamente), con lo cual la interacción de `/edit-pdf` funcionó exactamente como se diseñó. Cualquier verificación futura de canvas interactivo (`crop-pdf`, `redact-pdf`, `sign-pdf`, `edit-pdf`) en este entorno debe usar el mismo método.
+
+## Validación de la fase
+- `npx tsc --noEmit`, `npx eslint src`, `npm run build` limpios en cada checkpoint (42/42 rutas al cierre, subiendo de 41 al añadir `/edit-pdf`).
+- Smoke test con extensión real de Chrome (no el navegador sandbox): las 42 rutas sin errores de consola; flujo completo de Unlock con fixture DocMDP real; flujo completo de Edit PDF con colocación de elemento real y descarga; toggle de tema con valores de color computados verificados; autodetección de idioma confirmada de extremo a extremo; verificación de que la tab bar móvil/header desktop siguen las reglas `md:hidden` correctas.
+- Máxima verificación alcanzada (§20.2): Tier 3 para el fix de Unlock (motor + UI, con reproducción en vivo del escenario exacto reportado por el usuario) y para `/edit-pdf` (motor + UI); Tier 2 para el resto de las 42 rutas (carga sin errores).
+
+## Commits de la fase
+| Commit | Type | Description |
+|---|---|---|
+| `df080c8` | docs | Reporte de ejecución OX (cierre fase 1) |
+| `b10fb66` | feat(theme) | Light/dark autodetect, autodetect de idioma, consolidación ToolShell |
+| `5cfd9a9` | fix(unlock-pdf) | Distinguir cifrado/certificado/firma DocMDP (3 rondas) + editor edit-pdf |
+
+## Deferred (actualizado)
+De la tabla original de la fase 1: **resuelto** — `/edit-pdf`, canal de error/progreso/cancelación de `ToolShell`, `Checkbox` compartido, geometría de página compartida, fuente cursiva. **Sigue diferido**: suite de tests automatizados (Vitest/Playwright), publicación (Vercel, no autorizada), verificación Tier 3 de UI interactiva para las ~17 herramientas live restantes que no fueron ejercitadas con archivos reales en esta fase (compress, protect, redact, ocr, split, remove-pages, extract-pages, organize-pdf, rotate-pdf, jpg-to-pdf, pdf-to-jpg, scan-to-pdf, add-watermark, add-page-numbers, crop-pdf, sign-pdf, compare-pdf).
+
+Nuevo pendiente identificado por WS-THEME (no bloqueante): la duplicación de estilos `bg-white/N` en ~50 componentes se resolvió repuntando `--color-white` en el bloque `[data-theme="light"]` en vez de tocar cada archivo — funciona correctamente pero es una dependencia sutil a documentar si se refactoriza el sistema de color en el futuro.
+
 ## Final Status
-- **Implementation complete**: sí, para las 32 rutas planeadas (20 live + 12 soon).
-- **Validated locally**: sí (tsc, eslint, build, browser Tier 2 en 37 rutas, Tier 3 real en 6 herramientas representativas).
-- **Codex passed**: N/A (no disponible en este entorno; sustituido por ox-verifier ciego).
-- **Pushed**: sí, a `optimusreframe/OptimusPDF` rama `main`.
+- **Implementation complete**: sí — 32 rutas de herramientas (20 live + 12 soon) + `/edit-pdf` (ahora 21 live) + light/dark theme + autodetección de idioma.
+- **Validated locally**: sí (tsc/eslint/build limpios, 42/42 rutas).
+- **Codex passed**: sí, para el cambio sensible (`/unlock-pdf`) — 2 rondas de revisión adversarial con hallazgos reales resueltos y reverificados; el resto de la fase no requería su intervención por no ser dominio sensible.
+- **Pushed**: sí, a `optimusreframe/OptimusPDF` rama `main` (commit `5cfd9a9`, sincronizado con origin).
 - **Published**: no.
 - **Validated in production**: no aplica (no publicado).
-- **Safe to close**: sí, como v1 — con las 8 recomendaciones de la tabla Deferred pendientes como trabajo futuro, ninguna de ellas bloqueante para el uso del producto tal como está.
-- **Owner action required**: ninguna crítica. Opcional: (1) decidir si el repo debe ser público, (2) autorizar publicación en Vercel cuando se desee, (3) priorizar cuáles de las 8 recomendaciones diferidas abordar primero.
-- **Recommended next step**: verificación Tier 3 de las 14 herramientas live restantes, y decisión sobre publicar v1 en Vercel.
+- **Safe to close**: sí. El bug reportado por el usuario está confirmado corregido con evidencia Tier 3 real, incluyendo reproducción en vivo del escenario exacto que describió.
+- **Owner action required**: ninguna crítica. Opcional: (1) autorizar publicación en Vercel, (2) decidir si priorizar la verificación Tier 3 de las ~17 herramientas restantes antes de publicar, (3) decidir si el repo debe ser público.
+- **Recommended next step**: si se planea publicar, completar la verificación Tier 3 de las herramientas restantes primero; si no, el producto está listo para uso interno/beta tal como está.
