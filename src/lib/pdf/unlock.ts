@@ -40,15 +40,17 @@ export const DEFAULT_UNLOCK_OPTIONS: UnlockOptions = { password: "" };
 export type UnlockFailure = "notEncrypted" | "wrongPassword";
 
 /**
- * Error de desbloqueo. Hereda de `PdfError` con codigo `unknown` para
- * que `ToolShell` lo trate como cualquier fallo generico, mientras la
- * herramienta muestra el motivo exacto junto al campo de contrasena.
+ * Error de desbloqueo. Hereda de `PdfError` usando el propio `reason`
+ * como codigo (`wrongPassword` / `notEncrypted`), asi que `ToolShell`
+ * muestra el mensaje especifico en el banner generico mientras la
+ * herramienta ademas resalta el motivo exacto junto al campo de
+ * contrasena.
  */
 export class UnlockError extends PdfError {
   readonly reason: UnlockFailure;
 
   constructor(reason: UnlockFailure) {
-    super("unknown", `unlock:${reason}`);
+    super(reason, `unlock:${reason}`);
     this.name = "UnlockError";
     this.reason = reason;
   }

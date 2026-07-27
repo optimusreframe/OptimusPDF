@@ -38,7 +38,7 @@ export function RedactToolClient() {
     ): Promise<ProcessResult> => {
       if (options.boxes.length === 0) {
         setMissingBoxes(true);
-        throw new PdfError("empty", "redact:noBoxes");
+        throw new PdfError("nothingSelected", "redact:noBoxes");
       }
       setMissingBoxes(false);
 

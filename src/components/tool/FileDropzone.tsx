@@ -5,7 +5,7 @@ import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { matchesAccept } from "@/lib/pdf/core";
+import { MAX_SAFE_FILE_SIZE, matchesAccept } from "@/lib/pdf/core";
 import type { PdfErrorCode } from "@/lib/pdf/core";
 import type { Tool } from "@/lib/tools-registry";
 
@@ -46,6 +46,9 @@ export function FileDropzone({
       }
       if (valid.length < candidates.length) {
         onError("invalidType");
+      }
+      if (valid.some((file) => file.size > MAX_SAFE_FILE_SIZE)) {
+        onError("tooLarge");
       }
 
       onFilesChange(

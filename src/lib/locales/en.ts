@@ -149,6 +149,24 @@ const tools: Record<ToolSlug, ToolCopy> = {
 
 const filenames: Partial<Record<ToolSlug, string>> = {
   "merge-pdf": "merged-document",
+  "split-pdf": "split-document",
+  "remove-pages": "trimmed-document",
+  "extract-pages": "extracted-pages",
+  "organize-pdf": "organised-document",
+  "rotate-pdf": "rotated-document",
+  "jpg-to-pdf": "converted-document",
+  "pdf-to-jpg": "page-images",
+  "scan-to-pdf": "scanned-document",
+  "add-watermark": "watermarked-document",
+  "add-page-numbers": "numbered-document",
+  "crop-pdf": "cropped-document",
+  "sign-pdf": "signed-document",
+  "compare-pdf": "compared-document",
+  "compress-pdf": "compressed-document",
+  "protect-pdf": "protected-document",
+  "unlock-pdf": "unlocked-document",
+  "redact-pdf": "redacted-document",
+  "ocr-pdf": "document-ocr",
 };
 
 const categories: Record<
@@ -295,6 +313,10 @@ export const en: Dictionary = {
         "The file is over 100 MB: your browser may run out of memory.",
       unknown: "Something went wrong during processing. Please try again.",
       cancelled: "Process cancelled.",
+      wrongPassword: "That password does not open the document.",
+      notEncrypted:
+        "This PDF is not encrypted: there is no password to remove.",
+      nothingSelected: "Select or mark something before processing.",
     },
   },
   soon: {

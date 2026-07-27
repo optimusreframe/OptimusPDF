@@ -167,6 +167,24 @@ const tools: Record<ToolSlug, ToolCopy> = {
  */
 const filenames: Partial<Record<ToolSlug, string>> = {
   "merge-pdf": "documento-unido",
+  "split-pdf": "documento-dividido",
+  "remove-pages": "documento-sin-paginas",
+  "extract-pages": "paginas-extraidas",
+  "organize-pdf": "documento-organizado",
+  "rotate-pdf": "documento-girado",
+  "jpg-to-pdf": "documento-convertido",
+  "pdf-to-jpg": "paginas-imagen",
+  "scan-to-pdf": "documento-escaneado",
+  "add-watermark": "documento-con-marca",
+  "add-page-numbers": "documento-numerado",
+  "crop-pdf": "documento-recortado",
+  "sign-pdf": "documento-firmado",
+  "compare-pdf": "documento-comparado",
+  "compress-pdf": "documento-comprimido",
+  "protect-pdf": "documento-protegido",
+  "unlock-pdf": "documento-desbloqueado",
+  "redact-pdf": "documento-censurado",
+  "ocr-pdf": "documento-ocr",
 };
 
 const categories: Record<
@@ -314,6 +332,10 @@ export const es = {
         "El archivo supera los 100 MB: el navegador puede quedarse sin memoria.",
       unknown: "Algo ha fallado durante el proceso. Vuelve a intentarlo.",
       cancelled: "Proceso cancelado.",
+      wrongPassword: "Esa contraseña no abre el documento.",
+      notEncrypted:
+        "Este PDF no está cifrado: no hay contraseña que quitar.",
+      nothingSelected: "Selecciona o marca algo antes de procesar.",
     },
   },
   soon: {

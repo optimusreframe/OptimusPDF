@@ -18,7 +18,10 @@ export type PdfErrorCode =
   | "empty"
   | "needTwo"
   | "cancelled"
-  | "unknown";
+  | "unknown"
+  | "wrongPassword"
+  | "notEncrypted"
+  | "nothingSelected";
 
 /** Error tipado del motor: la UI traduce `code` mediante i18n. */
 export class PdfError extends Error {
