@@ -5,6 +5,9 @@
 > Fase 2 — Orquestador: Sonnet 5, implementación: Opus 5, agentes: Sonnet 5,
 > Codex CLI (GPT, vía `codex exec --sandbox read-only`) colaborando en
 > investigación de causa raíz y revisión adversarial de diffs sensibles.
+> Fase 3 — Orquestador: Sonnet 5, implementación y agentes: Sonnet 5 (a
+> petición explícita del usuario), Codex en 8 rondas de revisión
+> adversarial sobre un bug real reportado con un PDF certificado genuino.
 
 ## Git
 - Repositorio: https://github.com/optimusreframe/OptimusPDF (privado)
@@ -177,13 +180,88 @@ De la tabla original de la fase 1: **resuelto** — `/edit-pdf`, canal de error/
 
 Nuevo pendiente identificado por WS-THEME (no bloqueante): la duplicación de estilos `bg-white/N` en ~50 componentes se resolvió repuntando `--color-white` en el bloque `[data-theme="light"]` en vez de tocar cada archivo — funciona correctamente pero es una dependencia sutil a documentar si se refactoriza el sistema de color en el futuro.
 
-## Final Status
+## Final Status (fase 2)
 - **Implementation complete**: sí — 32 rutas de herramientas (20 live + 12 soon) + `/edit-pdf` (ahora 21 live) + light/dark theme + autodetección de idioma.
 - **Validated locally**: sí (tsc/eslint/build limpios, 42/42 rutas).
 - **Codex passed**: sí, para el cambio sensible (`/unlock-pdf`) — 2 rondas de revisión adversarial con hallazgos reales resueltos y reverificados; el resto de la fase no requería su intervención por no ser dominio sensible.
 - **Pushed**: sí, a `optimusreframe/OptimusPDF` rama `main` (commit `5cfd9a9`, sincronizado con origin).
 - **Published**: no.
 - **Validated in production**: no aplica (no publicado).
-- **Safe to close**: sí. El bug reportado por el usuario está confirmado corregido con evidencia Tier 3 real, incluyendo reproducción en vivo del escenario exacto que describió.
-- **Owner action required**: ninguna crítica. Opcional: (1) autorizar publicación en Vercel, (2) decidir si priorizar la verificación Tier 3 de las ~17 herramientas restantes antes de publicar, (3) decidir si el repo debe ser público.
-- **Recommended next step**: si se planea publicar, completar la verificación Tier 3 de las herramientas restantes primero; si no, el producto está listo para uso interno/beta tal como está.
+- **Safe to close (en su momento)**: sí, pero el bug de unlock-pdf resultó estar solo parcialmente corregido — ver fase 3.
+- **Nota retrospectiva**: la fase 2 dio por cerrado el fix de `/unlock-pdf` tras verificarlo contra fixtures sintéticas propias. El usuario lo probó con un PDF real certificado por Adobe y seguía fallando — la causa era una clase de bug que las fixtures sintéticas no podían exponer (objetos `/Perms`/`/AcroForm` dentro de streams de objetos comprimidos y cifrados). Lección para futuras fases: para bugs de parsing/estructura de archivos, un archivo real del usuario reproduce categorías de fallo que ninguna fixture hecha a mano cubre por diseño.
+
+---
+
+# FASE 3 — Bug real con PDF certificado genuino: 8 rondas de fix + verificación Tier 3 completa + suite de tests
+
+## Objetivo de la fase
+- **Solicitado**: (1) el usuario probó el fix de la fase 2 con un PDF real certificado y seguía sin poder editarlo — pidió revisarlo con la skill OX y Codex; (2) revisar todo lo que quedaba pendiente; (3) agentes en Sonnet 5 esta vez (cambio explícito respecto a Opus 5 de fases anteriores).
+- **Completado**: los 3 puntos. El bug real quedó identificado, corregido en 8 rondas de revisión adversarial con Codex, y verificado contra el archivo real del usuario tanto a nivel de motor como en navegador real. Las 17 herramientas restantes de la tabla Deferred de fase 2 quedaron verificadas con evidencia Tier 3 (16 confirmadas, 1 no verificable por requerir cámara real). Se añadió una suite de tests automatizados (Vitest) que estaba diferida desde el blueprint original.
+- **No completado**: publicación en producción (sigue sin autorizar).
+
+## Investigación de causa raíz (con archivo real del usuario)
+El usuario compartió el PDF real que seguía fallando (formulario de seguros de 11 páginas, 1.1MB, certificado con firma Adobe.PPKLite genuina). Diagnóstico propio del orquestador, verificado con ejecución real antes de involucrar a Codex:
+
+- El archivo tiene `/Encrypt /Filter/Standard` (AES-128) Y `/Perms/DocMDP` real (`P=1`, máxima restricción) simultáneamente — el caso combinado cifrado+certificado.
+- El documento usa cross-reference stream + `/ObjStm` (streams de objetos comprimidos) — estructura moderna típica, no un caso raro.
+- **Causa raíz confirmada con ejecución real**: `inspectProtection()` de la fase 2 detectaba DocMDP/FieldMDP sobre un documento cargado con `ignoreEncryption:true` (sin descifrar). Cuando `/Perms`/`/AcroForm` viven dentro de un `/ObjStm` cifrado (como en este archivo), leerlos sin descifrar devuelve `undefined` silenciosamente — el código interpretaba "no pude leerlo" como "no existe la restricción". Verificado leyendo el mismo archivo con y sin descifrar: sin descifrar, `Perms`/`AcroForm` resuelven a `undefined`; descifrando con la contraseña vacía (que sí funcionaba), ambos resuelven correctamente con el DocMDP real dentro.
+- La salida que la herramienta de fase 2 ya había generado para este archivo se confirmó que seguía teniendo `/Perms/DocMDP` intacto.
+
+## 8 rondas de fix/revisión adversarial con Codex (dominio sensible, OX §12.1)
+Cada ronda: implementación (Sonnet 5) → verificación con ejecución real (motor + archivo real del usuario) → revisión adversarial de Codex sobre el diff → siguiente ronda si Codex encuentra algo real. Resumen de qué encontró cada ronda de Codex y cómo se cerró:
+
+1. **Rediseño arquitectónico** (propuesto por Codex tras el diagnóstico): separar `readEncryptionEnvelope` (solo `/Encrypt`, nunca toca firmas) de `analyzeSignatures` (solo sobre documento ya descifrado), con una unión discriminada `ready | passwordRequired | unsupported` que impide leer resultados antes de completar la inspección.
+2. **Codex encuentra 3 bloqueantes** en la primera implementación: `SigFlags!==0` como falso positivo de restricción (en realidad solo indica que existe un campo de firma, firmado o no), el consentimiento se podía saltar (`ToolShell.run()` no revalidaba `canRun` al ejecutar), y no se cubría `FieldMDP`/`/Lock` de campos de firma. Resueltos con detección separada de `hasDocMDPRestriction`/`hasFieldMDPRestriction`, revalidación de `canRun` en el motor de ejecución, y limpieza equivalente a `qpdf --remove-restrictions`.
+3. **Codex encuentra 2 bloqueantes nuevos**: `/DocMDP null` seguía siendo falso positivo (comprobaba presencia de clave, no que resolviera a un diccionario real), y la identidad de consentimiento usaba `nombre:tamaño:fecha` que puede colisionar entre archivos distintos. Resueltos con resolución estricta del valor y consentimiento atado a la identidad del objeto `File` (`===`, nunca colisiona).
+4. **Codex confirma el bug original resuelto**, pero encuentra 2 bloqueantes nuevos al profundizar: una firma de aprobación normal (sin restricción) se invalidaba sin pedir consentimiento (solo se protegían firmas restrictivas, no cualquier firma activa que la reescritura fuera a invalidar como efecto colateral), y el recorrido del árbol de campos no manejaba la herencia real de `/FT`/`/V` (un padre no terminal con `/FT /Sig` no bajaba a sus `/Kids`). Resueltos con `hasActiveSignatures` como señal independiente que también exige consentimiento, y recorrido reescrito para heredar correctamente.
+5. Continuación de la ronda 4 con evidencia de "motor ciego" (una copia del motor con la detección inicial deliberadamente rota, para probar que la postcondición de guardar+releer+verificar SÍ atrapa el fallo).
+6. **Codex encuentra que la postcondición reforzada no cubría el caso que debía cubrir**: solo re-analizaba firmas cuando `signaturesInvalidated` ya era `true`, es decir, nunca revisaba si la PRIMERA inspección se había equivocado. Y la herencia debía ascender por `/Parent` real (no solo descender por `/Kids`) para cubrir árboles irregulares. Resueltos: la postcondición ahora corre siempre que se va a devolver un resultado, y el ascenso replica el método `getParent()` de la propia librería con detección de ciclos y límite de profundidad. En esta ronda el orquestador también tomó una decisión de producto: un PDF sin cifrar con una firma activa pero sin restricción real vuelve a `notProtected` (la herramienta no ofrece quitar firmas que no bloqueaban nada — se mantiene estrictamente en su alcance de "desbloquear").
+7. **Codex confirma los 2 bloqueantes cerrados**, encuentra que la UI no reflejaba la decisión de producto de la ronda 6 (mi propio error de alcance: solo pedí tocar el motor) y que el tokenizador de reconocimiento de restos de tabla de referencias cruzadas (`hasOuterXrefType`) aún aceptaba `/Type /XRef` dentro de comentarios PDF o en posición de valor en vez de clave. Ambos resueltos.
+8. **Codex encuentra un último caso residual** en el mismo tokenizador (seguía escaneando después de cerrar el diccionario exterior, pudiendo confundirse con un segundo diccionario no relacionado más adelante en los mismos bytes) — corregido directamente por el orquestador (cambio de una función, sin agente) dado lo acotado, verificado y confirmado por Codex.
+
+**Codex confirma explícitamente el cierre**: *"Listo para cerrar y dar por terminado el fix completo de /unlock-pdf."*
+
+## Verificación final en navegador real
+1. El PDF real del usuario, subido vía inyección de `File` real en Chrome real: la herramienta detecta la certificación (`hasDocMDPRestriction:true`), muestra el aviso honesto sin pedir contraseña (ya que la contraseña vacía funciona), exige el checkbox de consentimiento (deshabilitando "Procesar" hasta marcarlo), y produce una copia editable con `/Perms` y `/FT /Sig` eliminados — confirmado reabriendo el resultado con pdf-lib y con pdfjs (lector independiente).
+2. Caso de la decisión de producto (PDF sin cifrar con firma activa sin restricción, el más recientemente tocado en las rondas 6-7): confirmado en Chrome real que muestra "nada que desbloquear", sin checkbox, con "Procesar" deshabilitado.
+3. Se descubrió durante esta verificación una limitación del propio entorno de pruebas (no del producto): la herramienta de clic por coordenadas de la extensión de Chrome usada en este entorno no genera eventos DOM reales de forma fiable, y las pestañas en segundo plano sufren *throttling* de temporizadores de Chrome que puede hacer parecer "colgado" un proceso que en realidad tarda menos de 1 segundo (confirmado con medición aislada en Node: ~700-800ms para el archivo real de 1.1MB). Documentado para futuras verificaciones de este proyecto.
+
+## Verificación Tier 3 del resto de herramientas (2 agentes Sonnet 5 en paralelo, extensión real de Chrome)
+17 herramientas pendientes de la tabla Deferred de fase 2, subida de archivos reales + validación independiente del resultado fuera del navegador:
+- **Grupo A** (organizar/convertir): split-pdf, remove-pages, extract-pages, organize-pdf, rotate-pdf, jpg-to-pdf, pdf-to-jpg — **7/7 CONFIRMADO**. scan-to-pdf — **NO VERIFICABLE** (requiere concesión real de permiso de cámara del sistema operativo, inalcanzable en este entorno automatizado).
+- **Grupo B** (editar/seguridad): add-watermark, add-page-numbers, crop-pdf, sign-pdf, compare-pdf, compress-pdf, protect-pdf, redact-pdf, ocr-pdf — **9/9 CONFIRMADO**.
+- **Total: 16/17 confirmadas, 0 defectos de producto encontrados** — los únicos problemas reportados por ambos agentes fueron limitaciones del propio entorno de automatización (throttling de descargas de Chrome, necesidad de pausas entre eventos de puntero sintéticos), no bugs de la aplicación.
+
+## Suite de tests automatizados (Vitest)
+Diferida desde el blueprint original de fase 1; priorizada ahora dado el historial de 8 rondas en `unlock.ts`. Instalada y configurada por un agente Sonnet 5:
+- `src/lib/pdf/unlock.test.ts` — 16 tests cubriendo cada rama de decisión real del motor descubierta durante las 8 rondas (cifrado estándar con/sin contraseña, DocMDP con/sin cifrar, filtros no soportados, herencia `/Parent`, `/Lock` roto/ausente, identidad de consentimiento, postcondición).
+- `src/lib/pdf/protect.test.ts` — 9 tests (ciclo completo de protección, validación de formulario, permisos completos).
+- `src/lib/pdf/merge.test.ts` / `split.test.ts` — 4 tests de humo.
+- **29/29 tests pasan**; `tsc`/`eslint`/`build` siguen limpios sin necesitar tocar configuración de Next.js o ESLint.
+
+## Validación de la fase
+- `npx tsc --noEmit`, `npx eslint src`, `npm run build` (42/42 rutas), `npm test` (29/29) limpios en el estado final.
+- Máxima verificación alcanzada (§20.2): **Tier 3 real con archivo de producción genuino del usuario** para el fix de Unlock (el nivel más alto posible — no una fixture sintética, sino el caso real que motivó todo el trabajo de esta fase). Tier 3 para 16 de las 17 herramientas restantes.
+- 8 rondas de revisión adversarial de Codex sobre el mismo cambio es un nivel de escrutinio inusualmente alto — justificado por tratarse de una operación de seguridad/integridad de datos (invalidación de firmas digitales, remoción de cifrado) donde un "éxito" que en realidad no cumplió su promesa es peor que un fallo visible.
+
+## Commits de la fase
+| Commit | Type | Description |
+|---|---|---|
+| `20cdd48` | fix(unlock-pdf) | 8 rondas de revisión adversarial con Codex contra PDF certificado real |
+| `05d2e90` | test | Suite de Vitest para motores PDF críticos |
+
+## Deferred (actualizado, acumulado desde fase 1)
+**Resuelto en fase 3**: bug real de unlock-pdf con PDF certificado genuino, verificación Tier 3 de las 17 herramientas restantes (16/17, scan-to-pdf sigue pendiente por requerir cámara real), suite de tests automatizados.
+
+**Sigue diferido**: publicación en producción (Vercel, no autorizada); decisión sobre si el repositorio debe ser público; verificación Tier 3 de `scan-to-pdf` (requiere un entorno con cámara real o un dispositivo físico, no solo automatización de navegador); ampliar la suite de Vitest a los motores restantes (watermark, pageNumbers, redact, compress, ocr, sign, crop, compare, organize, rotate, removePages, imagesToPdf, pdfToImages) si se desea cobertura total — se priorizaron los dos motores de seguridad por ser los que ya demostraron ser los más propensos a fallos sutiles.
+
+## Final Status (fase 3)
+- **Implementation complete**: sí — bug real corregido, 17 herramientas restantes verificadas, suite de tests instalada.
+- **Validated locally**: sí (tsc/eslint/build/test limpios).
+- **Codex passed**: sí — 8 rondas de revisión adversarial con cierre explícito ("listo para cerrar y dar por terminado el fix completo de /unlock-pdf").
+- **Pushed**: sí, a `optimusreframe/OptimusPDF` rama `main` (commit `05d2e90`, sincronizado con origin).
+- **Published**: no.
+- **Validated in production**: no aplica (no publicado).
+- **Safe to close**: sí, con alta confianza — esta vez el cierre se apoya en verificación contra el archivo real del usuario (no solo fixtures sintéticas) tanto a nivel de motor como en navegador real, y en 8 rondas de escrutinio adversarial independiente.
+- **Owner action required**: ninguna crítica. Opcional: (1) autorizar publicación en Vercel, (2) decidir si el repo debe ser público, (3) priorizar si se quiere verificar `scan-to-pdf` con un dispositivo real antes de publicar, (4) decidir si ampliar la cobertura de Vitest a más motores.
+- **Recommended next step**: probar tú mismo el PDF real en la app (ya verificado por el orquestador, pero la confirmación del propio usuario cierra el ciclo); si todo es satisfactorio, decidir sobre publicación.
