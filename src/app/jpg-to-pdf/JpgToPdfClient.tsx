@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { useI18n } from "@/lib/i18n";
@@ -15,7 +16,6 @@ import {
 } from "@/lib/pdf/imagesToPdf";
 import { getTool } from "@/lib/tools-registry";
 import { ImageOrderGrid } from "@/app/jpg-to-pdf/ImageOrderGrid";
-import { OptionCheckbox } from "@/app/jpg-to-pdf/OptionCheckbox";
 import { STRINGS } from "@/app/jpg-to-pdf/strings";
 
 const TOOL = getTool("jpg-to-pdf");
@@ -111,7 +111,7 @@ export function JpgToPdfClient() {
             ]}
           />
 
-          <OptionCheckbox
+          <Checkbox
             label={s.mergeLabel}
             checked={options.merge}
             onChange={(merge) => setOptions({ merge })}

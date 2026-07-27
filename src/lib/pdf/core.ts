@@ -1,4 +1,11 @@
-import { PDFDocument, EncryptedPDFError } from "@cantoo/pdf-lib";
+import {
+  PDFDocument,
+  EncryptedPDFError,
+  StandardFonts,
+  rgb,
+  type Color,
+  type PDFPage,
+} from "@cantoo/pdf-lib";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 
 /**
@@ -71,6 +78,19 @@ export type PageRef = {
 
 /** Progreso normalizado 0..1. */
 export type ProgressCallback = (progress: number) => void;
+
+/**
+ * Corta el trabajo en curso si el usuario ya ha cancelado.
+ *
+ * Se llama al principio de cada iteracion de los bucles largos (una
+ * pagina = una unidad de trabajo cara). Lanza `PdfError("cancelled")`,
+ * el mismo codigo que `ToolShell` ya muestra al cancelar, asi que la
+ * interfaz no necesita distinguir entre "cancelado por el usuario antes
+ * de empezar" y "cancelado a mitad".
+ */
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new PdfError("cancelled");
+}
 
 /* ------------------------------------------------------------------ *
  * Lectura de archivos
@@ -274,6 +294,253 @@ export async function renderPageToDataUrl(
   canvas.width = 0;
   canvas.height = 0;
   return url;
+}
+
+/* ------------------------------------------------------------------ *
+ * Geometria de pagina (compartida por los motores de edicion)
+ * ------------------------------------------------------------------ */
+
+export type Box = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * Relacion entre el espacio de usuario del PDF (origen abajo-izquierda,
+ * sin rotacion aplicada) y el espacio "de vista": lo que el lector
+ * muestra en pantalla despues de aplicar `/Rotate`, tambien con origen
+ * abajo-izquierda.
+ */
+export type PageGeometry = {
+  /** CropBox en espacio de usuario (o MediaBox si no hay CropBox). */
+  box: Box;
+  /** `/Rotate` normalizado a 0, 90, 180 o 270 grados (horario). */
+  rotation: number;
+  /** Ancho tal y como lo ve el usuario. */
+  viewWidth: number;
+  /** Alto tal y como lo ve el usuario. */
+  viewHeight: number;
+};
+
+function normalizeAngle(angle: number): number {
+  const value = Math.round(angle / 90) * 90;
+  return ((value % 360) + 360) % 360;
+}
+
+export function getPageGeometry(page: PDFPage): PageGeometry {
+  const box = page.getCropBox();
+  const rotation = normalizeAngle(page.getRotation().angle);
+  const swapped = rotation === 90 || rotation === 270;
+  return {
+    box,
+    rotation,
+    viewWidth: swapped ? box.height : box.width,
+    viewHeight: swapped ? box.width : box.height,
+  };
+}
+
+/**
+ * Convierte un punto del espacio de vista (lo que el usuario ve) al
+ * espacio de usuario del PDF, deshaciendo `/Rotate`.
+ */
+export function viewPointToUser(
+  geometry: PageGeometry,
+  vx: number,
+  vy: number,
+): { x: number; y: number } {
+  const { box, rotation } = geometry;
+  switch (rotation) {
+    case 90:
+      return { x: box.x + box.width - vy, y: box.y + vx };
+    case 180:
+      return { x: box.x + box.width - vx, y: box.y + box.height - vy };
+    case 270:
+      return { x: box.x + vy, y: box.y + box.height - vx };
+    default:
+      return { x: box.x + vx, y: box.y + vy };
+  }
+}
+
+/**
+ * Convierte un rectangulo normalizado (0..1) medido sobre la vista
+ * renderizada, con origen ARRIBA-izquierda como en el DOM, en la caja
+ * equivalente del espacio de usuario del PDF.
+ */
+export type NormalizedRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export function normalizedRectToUserBox(
+  geometry: PageGeometry,
+  rect: NormalizedRect,
+): Box {
+  const vx = rect.x * geometry.viewWidth;
+  const vw = rect.width * geometry.viewWidth;
+  // El DOM mide desde arriba; el espacio de vista, desde abajo.
+  const vy = (1 - rect.y - rect.height) * geometry.viewHeight;
+  const vh = rect.height * geometry.viewHeight;
+
+  const corners = [
+    viewPointToUser(geometry, vx, vy),
+    viewPointToUser(geometry, vx + vw, vy),
+    viewPointToUser(geometry, vx, vy + vh),
+    viewPointToUser(geometry, vx + vw, vy + vh),
+  ];
+
+  const xs = corners.map((corner) => corner.x);
+  const ys = corners.map((corner) => corner.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(...xs) - minX,
+    height: Math.max(...ys) - minY,
+  };
+}
+
+/**
+ * Punto de dibujo (`x`/`y` de pdf-lib) para que un elemento de tamano
+ * `width` x `height` quede centrado en (`cx`, `cy`) despues de rotarlo
+ * `angle` grados en sentido antihorario alrededor de ese mismo punto de
+ * dibujo. `baselineOffset` es la distancia entre el borde inferior de la
+ * caja y el origen de dibujo (0 para imagenes, el descendente para texto).
+ */
+export function originForCenter(
+  cx: number,
+  cy: number,
+  width: number,
+  height: number,
+  baselineOffset: number,
+  angle: number,
+): { x: number; y: number } {
+  const radians = (angle * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const localX = width / 2;
+  const localY = height / 2 - baselineOffset;
+  return {
+    x: cx - (localX * cos - localY * sin),
+    y: cy - (localX * sin + localY * cos),
+  };
+}
+
+/** Tamano de la caja envolvente de un rectangulo `w` x `h` rotado. */
+export function rotatedBounds(
+  width: number,
+  height: number,
+  angle: number,
+): { width: number; height: number } {
+  const radians = (angle * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  return {
+    width: width * cos + height * sin,
+    height: width * sin + height * cos,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Tipografia y color del documento (compartido por los motores)
+ * ------------------------------------------------------------------ */
+
+export type PdfFontFamily = "helvetica" | "times" | "courier";
+
+export const PDF_FONT_FAMILIES: readonly PdfFontFamily[] = [
+  "helvetica",
+  "times",
+  "courier",
+] as const;
+
+export function standardFontFor(
+  family: PdfFontFamily,
+  bold: boolean,
+  italic: boolean,
+): StandardFonts {
+  if (family === "times") {
+    if (bold && italic) return StandardFonts.TimesRomanBoldItalic;
+    if (bold) return StandardFonts.TimesRomanBold;
+    if (italic) return StandardFonts.TimesRomanItalic;
+    return StandardFonts.TimesRoman;
+  }
+  if (family === "courier") {
+    if (bold && italic) return StandardFonts.CourierBoldOblique;
+    if (bold) return StandardFonts.CourierBold;
+    if (italic) return StandardFonts.CourierOblique;
+    return StandardFonts.Courier;
+  }
+  if (bold && italic) return StandardFonts.HelveticaBoldOblique;
+  if (bold) return StandardFonts.HelveticaBold;
+  if (italic) return StandardFonts.HelveticaOblique;
+  return StandardFonts.Helvetica;
+}
+
+/**
+ * Tintas disponibles para texto del documento. NO son tokens de la
+ * interfaz: son datos que el usuario elige y que acaban impresos en el
+ * PDF, por eso viven aqui como valores hexadecimales y no en el CSS.
+ */
+export const INK_COLORS = [
+  "#000000",
+  "#5b6470",
+  "#c0c6cf",
+  "#0d4bff",
+  "#0f9d68",
+  "#e11d48",
+  "#f59e0b",
+  "#ffffff",
+] as const;
+
+export type InkColor = (typeof INK_COLORS)[number];
+
+export function hexToPdfColor(hex: string): Color {
+  const clean = hex.replace("#", "").trim();
+  const full =
+    clean.length === 3
+      ? clean
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : clean;
+  const value = Number.parseInt(full, 16);
+  if (full.length !== 6 || Number.isNaN(value)) return rgb(0, 0, 0);
+  return rgb(
+    ((value >> 16) & 0xff) / 255,
+    ((value >> 8) & 0xff) / 255,
+    (value & 0xff) / 255,
+  );
+}
+
+/**
+ * Los tipos estandar de PDF solo codifican WinAnsi. Se sustituye todo lo
+ * que quede fuera para que un caracter exotico no aborte el proceso
+ * entero (los acentos del espanol si estan cubiertos).
+ */
+const WIN_ANSI_EXTRA = new Set([
+  0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030,
+  0x0160, 0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022,
+  0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178,
+]);
+
+export function toWinAnsiSafe(text: string): string {
+  let out = "";
+  for (const char of text.normalize("NFC")) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code === 10 || code === 13) {
+      out += " ";
+    } else if ((code >= 32 && code <= 255) || WIN_ANSI_EXTRA.has(code)) {
+      out += char;
+    } else {
+      out += "?";
+    }
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ *

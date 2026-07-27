@@ -31,9 +31,10 @@ export function OcrToolClient() {
       files: File[],
       options: OcrOptions,
       onProgress: ProgressCallback,
+      signal: AbortSignal,
     ): Promise<ProcessResult> => {
       const file = files[0];
-      const blob = await ocrPdf(file, options, onProgress);
+      const blob = await ocrPdf(file, options, onProgress, signal);
       return { blob, filename: withSuffix(file.name, s.filenameSuffix) };
     },
     [s.filenameSuffix],

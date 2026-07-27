@@ -216,6 +216,9 @@ export const en: Dictionary = {
     language: "Language",
     spanish: "Spanish",
     english: "English",
+    light: "Light",
+    dark: "Dark",
+    system: "System",
     skipToContent: "Skip to content",
     openMenu: "Open menu",
     closeMenu: "Close menu",
@@ -336,6 +339,9 @@ export const en: Dictionary = {
   },
   settings: {
     title: "Settings",
+    themeTitle: "Appearance",
+    themeBody:
+      "Pick the light or dark theme. On “System” the app follows whatever your device is set to, and switches along with it.",
     languageTitle: "Language",
     languageBody: "Change the language of the whole interface.",
     dataTitle: "Local data",

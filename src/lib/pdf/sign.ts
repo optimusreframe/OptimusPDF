@@ -1,17 +1,15 @@
 import { degrees } from "@cantoo/pdf-lib";
 import {
   PdfError,
+  getPageGeometry,
   loadPdf,
+  originForCenter,
   savePdfToBlob,
   toPdfError,
-  type ProgressCallback,
-} from "@/lib/pdf/core";
-import {
-  getPageGeometry,
-  originForCenter,
   viewPointToUser,
   type NormalizedRect,
-} from "@/lib/pdf/watermark";
+  type ProgressCallback,
+} from "@/lib/pdf/core";
 
 /**
  * Motor de firma: empotra la firma (siempre un PNG generado en el

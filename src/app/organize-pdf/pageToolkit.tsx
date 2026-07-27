@@ -203,11 +203,11 @@ export function PageTile({
       {badge ? (
         <span className="pointer-events-none absolute top-3 right-3">
           {badge === "check" ? (
-            <span className="flex size-5 items-center justify-center rounded-full bg-signal text-foreground">
+            <span className="flex size-5 items-center justify-center rounded-full bg-signal text-[var(--color-on-signal)]">
               <Check aria-hidden="true" className="size-3" />
             </span>
           ) : badge === "cross" ? (
-            <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-foreground">
+            <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-[var(--color-on-signal)]">
               <X aria-hidden="true" className="size-3" />
             </span>
           ) : (

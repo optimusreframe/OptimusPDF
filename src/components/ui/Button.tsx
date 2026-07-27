@@ -13,7 +13,7 @@ const BASE =
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "bg-signal text-foreground glow-signal hover:bg-glow active:scale-[0.98]",
+    "bg-signal text-[var(--color-on-signal)] glow-signal hover:bg-glow active:scale-[0.98]",
   secondary:
     "border border-white/14 bg-white/5 text-foreground hover:border-white/25 hover:bg-white/10 active:scale-[0.98]",
   ghost:

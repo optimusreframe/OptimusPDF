@@ -234,6 +234,9 @@ export const es = {
     language: "Idioma",
     spanish: "Español",
     english: "Inglés",
+    light: "Claro",
+    dark: "Oscuro",
+    system: "Sistema",
     skipToContent: "Ir al contenido",
     openMenu: "Abrir menú",
     closeMenu: "Cerrar menú",
@@ -355,6 +358,9 @@ export const es = {
   },
   settings: {
     title: "Ajustes",
+    themeTitle: "Apariencia",
+    themeBody:
+      "Elige el tema claro u oscuro. Con «Sistema» la app sigue lo que tenga configurado tu dispositivo, y cambia sola cuando él cambia.",
     languageTitle: "Idioma",
     languageBody: "Cambia el idioma de toda la interfaz.",
     dataTitle: "Datos locales",

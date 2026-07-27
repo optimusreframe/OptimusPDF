@@ -28,7 +28,7 @@ export function LanguageToggle({ className }: { className?: string }) {
             className={cn(
               "hud-label rounded-full px-2.5 py-1 text-[10px] transition-all duration-200 ease-spring",
               active
-                ? "bg-signal text-foreground"
+                ? "bg-signal text-[var(--color-on-signal)]"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >

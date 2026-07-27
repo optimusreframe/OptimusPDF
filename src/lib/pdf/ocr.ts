@@ -13,10 +13,11 @@ import {
   openPdfDocument,
   renderPageToCanvas,
   savePdfToBlob,
+  throwIfAborted,
   toPdfError,
+  toWinAnsiSafe,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { toWinAnsiSafe } from "@/lib/pdf/watermark";
 
 /**
  * Motor de OCR.
@@ -175,6 +176,12 @@ export async function ocrPdf(
   file: File,
   options: OcrOptions = DEFAULT_OCR_OPTIONS,
   onProgress?: ProgressCallback,
+  /**
+   * Cancelacion real: el reconocimiento de una pagina cuesta segundos,
+   * asi que se comprueba antes de empezar cada una en vez de dejar que
+   * el trabajo siga consumiendo CPU despues de cancelar.
+   */
+  signal?: AbortSignal,
 ): Promise<Blob> {
   const language: OcrLanguage = OCR_LANGUAGES.includes(options.language)
     ? options.language
@@ -213,6 +220,7 @@ export async function ocrPdf(
     const pages = document.getPages();
 
     for (let index = 0; index < total; index += 1) {
+      throwIfAborted(signal);
       currentPage = index;
       report(0);
 

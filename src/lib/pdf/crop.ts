@@ -1,15 +1,13 @@
 import {
   PdfError,
+  getPageGeometry,
   loadPdf,
+  normalizedRectToUserBox,
   savePdfToBlob,
   toPdfError,
+  type NormalizedRect,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import {
-  getPageGeometry,
-  normalizedRectToUserBox,
-  type NormalizedRect,
-} from "@/lib/pdf/watermark";
 
 /**
  * Motor de recorte: traduce la seleccion hecha sobre la vista previa a

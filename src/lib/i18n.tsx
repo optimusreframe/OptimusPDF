@@ -35,14 +35,47 @@ function isLanguage(value: string | null): value is Language {
 let cachedLanguage: Language | null = null;
 const listeners = new Set<() => void>();
 
+/**
+ * Detecta el idioma preferido del navegador limitado a los idiomas soportados.
+ * Recorre `navigator.languages` en orden de preferencia (o `navigator.language`
+ * si el array no existe) y devuelve el primer codigo base ("es-MX" -> "es") que
+ * coincida con `LANGUAGES`. Si nada coincide, el fallback sigue siendo español.
+ * Solo se usa en la primera visita, cuando no hay preferencia guardada.
+ */
+function detectBrowserLanguage(): Language {
+  try {
+    if (typeof navigator === "undefined") return DEFAULT_LANGUAGE;
+
+    const preferred =
+      navigator.languages && navigator.languages.length > 0
+        ? navigator.languages
+        : navigator.language
+          ? [navigator.language]
+          : [];
+
+    for (const tag of preferred) {
+      const base = tag.toLowerCase().split("-")[0];
+      if (isLanguage(base)) return base;
+    }
+  } catch {
+    // Navegador sin API de idiomas o acceso restringido.
+  }
+  return DEFAULT_LANGUAGE;
+}
+
 function readStoredLanguage(): Language {
   try {
     const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return isLanguage(stored) ? stored : DEFAULT_LANGUAGE;
+    if (isLanguage(stored)) return stored;
   } catch {
-    // Modo privado o storage bloqueado.
-    return DEFAULT_LANGUAGE;
+    // Modo privado o storage bloqueado: se cae a la deteccion del navegador.
   }
+  // Primera visita (o storage inaccesible): autodeteccion del dispositivo.
+  // No se persiste aqui a proposito: `readStoredLanguage` corre dentro de
+  // `getSnapshot` durante el render, y escribir notificaria a los listeners
+  // en fase de render. La deteccion es determinista, asi que repetirla en
+  // cada carga da el mismo resultado hasta que el usuario use el toggle.
+  return detectBrowserLanguage();
 }
 
 function subscribe(listener: () => void): () => void {

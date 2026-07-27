@@ -7,6 +7,7 @@ import {
   readFileBytes,
   renderPageToCanvas,
   savePdfToBlob,
+  throwIfAborted,
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
@@ -87,6 +88,12 @@ export async function compressPdf(
   file: File,
   options: CompressOptions = DEFAULT_COMPRESS_OPTIONS,
   onProgress?: ProgressCallback,
+  /**
+   * Cancelacion real: rasterizar y recodificar una pagina cuesta lo
+   * suyo, asi que se comprueba antes de empezar cada una en vez de
+   * dejar que el trabajo siga consumiendo CPU despues de cancelar.
+   */
+  signal?: AbortSignal,
 ): Promise<CompressResult> {
   const preset = presetFor(options.level);
   const originalSize = file.size;
@@ -100,6 +107,7 @@ export async function compressPdf(
     const output = await PDFDocument.create();
 
     for (let index = 0; index < total; index += 1) {
+      throwIfAborted(signal);
       const page = await source.getPage(index + 1);
       // Viewport a escala 1: ancho y alto en puntos PDF, con la
       // rotacion de la pagina ya aplicada.

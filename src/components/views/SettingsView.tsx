@@ -6,10 +6,12 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useI18n, type Language } from "@/lib/i18n";
+import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { clearRecentEntries } from "@/lib/recent";
 
 export function SettingsView() {
   const { t, language, setLanguage } = useI18n();
+  const { theme, setTheme } = useTheme();
   const [cleared, setCleared] = useState(false);
 
   return (
@@ -19,6 +21,25 @@ export function SettingsView() {
       </h1>
 
       <div className="mt-8 space-y-4">
+        <GlassCard className="p-6">
+          <h2 className="hud-label text-[11px] text-foreground">
+            {t.settings.themeTitle}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t.settings.themeBody}
+          </p>
+          <SegmentedControl<ThemeChoice>
+            className="mt-5"
+            value={theme}
+            onChange={setTheme}
+            options={[
+              { value: "light", label: t.common.light },
+              { value: "dark", label: t.common.dark },
+              { value: "system", label: t.common.system },
+            ]}
+          />
+        </GlassCard>
+
         <GlassCard className="p-6">
           <h2 className="hud-label text-[11px] text-foreground">
             {t.settings.languageTitle}

@@ -65,10 +65,11 @@ export function CompressToolClient() {
       files: File[],
       options: CompressOptions,
       onProgress: ProgressCallback,
+      signal: AbortSignal,
     ): Promise<ProcessResult> => {
       const file = files[0];
       const runId = runRef.current;
-      const result = await compressPdf(file, options, onProgress);
+      const result = await compressPdf(file, options, onProgress, signal);
       const filename = withSuffix(file.name, s.filenameSuffix);
       if (runRef.current === runId) {
         setStats({

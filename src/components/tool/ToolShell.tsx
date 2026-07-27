@@ -29,6 +29,12 @@ export type ToolRenderContext<TOptions> = {
   files: File[];
   options: TOptions;
   setOptions: (patch: Partial<TOptions>) => void;
+  /**
+   * Publica un error en el banner del shell. Opcional para quien lo
+   * necesite: una herramienta puede seguir mostrando su propio aviso
+   * local sin usar esto.
+   */
+  setError: (code: PdfErrorCode) => void;
 };
 
 export type ToolShellProps<TOptions> = {
@@ -38,13 +44,29 @@ export type ToolShellProps<TOptions> = {
   renderOptions?: (context: ToolRenderContext<TOptions>) => ReactNode;
   /** Contenido extra de la columna principal (miniaturas, previews...). */
   renderMain?: (context: ToolRenderContext<TOptions>) => ReactNode;
+  /**
+   * `signal` se aborta al cancelar. Los motores que no lo necesiten
+   * pueden declarar menos parametros: una funcion de aridad 3 sigue
+   * siendo asignable a este tipo.
+   */
   process: (
     files: File[],
     options: TOptions,
     onProgress: ProgressCallback,
+    signal: AbortSignal,
   ) => Promise<ProcessResult>;
   /** Numero minimo de archivos para habilitar el procesado. */
   minFiles?: number;
+  /**
+   * Condicion adicional para habilitar el boton de procesar. Se suma al
+   * minimo de archivos; sin ella el comportamiento es el de siempre.
+   */
+  canRun?: (files: File[], options: TOptions) => boolean;
+  /**
+   * Mensaje del overlay de progreso. Por defecto, el nombre de la
+   * herramienta; una herramienta con pasos largos puede narrarlos.
+   */
+  progressMessage?: string;
 };
 
 type Phase = "idle" | "files" | "options" | "processing" | "done";
@@ -56,6 +78,8 @@ export function ToolShell<TOptions>({
   renderMain,
   process,
   minFiles = 1,
+  canRun: canRunProp,
+  progressMessage,
 }: ToolShellProps<TOptions>) {
   const t = useT();
   const Icon = tool.icon;
@@ -68,12 +92,19 @@ export function ToolShell<TOptions>({
   const [error, setError] = useState<PdfErrorCode | null>(null);
   const [result, setResult] = useState<ProcessResult | null>(null);
   const runIdRef = useRef(0);
+  /** Controlador de la ejecucion en curso; `cancel()` lo aborta. */
+  const abortRef = useRef<AbortController | null>(null);
 
   const setOptions = useCallback((patch: Partial<TOptions>) => {
     setOptionsState((previous) => ({ ...previous, ...patch }));
   }, []);
 
-  const context: ToolRenderContext<TOptions> = { files, options, setOptions };
+  const context: ToolRenderContext<TOptions> = {
+    files,
+    options,
+    setOptions,
+    setError,
+  };
 
   const onFilesChange = useCallback((next: File[]) => {
     setFiles(next);
@@ -99,15 +130,23 @@ export function ToolShell<TOptions>({
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setError(null);
     setProgress(0);
     setPhase("processing");
 
     try {
-      const output = await process(files, options, (value) => {
-        if (runIdRef.current !== runId) return;
-        setProgress(Math.round(Math.min(1, Math.max(0, value)) * 100));
-      });
+      const output = await process(
+        files,
+        options,
+        (value) => {
+          if (runIdRef.current !== runId) return;
+          setProgress(Math.round(Math.min(1, Math.max(0, value)) * 100));
+        },
+        controller.signal,
+      );
       if (runIdRef.current !== runId) return;
       setResult(output);
       addRecentEntry(tool.slug, output.filename);
@@ -121,12 +160,18 @@ export function ToolShell<TOptions>({
 
   const cancel = useCallback(() => {
     runIdRef.current += 1;
+    // Ademas de ignorar el resultado, se pide al motor que pare: los
+    // que escuchan la senal dejan de gastar CPU en el acto.
+    abortRef.current?.abort();
+    abortRef.current = null;
     setPhase("files");
     setProgress(0);
     setError("cancelled");
   }, []);
 
-  const canRun = files.length >= minFiles;
+  const canRun =
+    files.length >= minFiles &&
+    (canRunProp ? canRunProp(files, options) : true);
   const showWorkspace = phase === "files" || phase === "options";
 
   return (
@@ -272,7 +317,7 @@ export function ToolShell<TOptions>({
       {phase === "processing" ? (
         <ProcessingOverlay
           progress={progress}
-          message={copy.name}
+          message={progressMessage ?? copy.name}
           onCancel={cancel}
         />
       ) : null}

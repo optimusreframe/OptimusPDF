@@ -1,21 +1,19 @@
 import { degrees } from "@cantoo/pdf-lib";
 import {
   PdfError,
-  loadPdf,
-  savePdfToBlob,
-  toPdfError,
-  type ProgressCallback,
-} from "@/lib/pdf/core";
-import {
   getPageGeometry,
   hexToPdfColor,
+  loadPdf,
   originForCenter,
+  savePdfToBlob,
   standardFontFor,
+  toPdfError,
   toWinAnsiSafe,
   viewPointToUser,
-  type GridAnchor,
   type PdfFontFamily,
-} from "@/lib/pdf/watermark";
+  type ProgressCallback,
+} from "@/lib/pdf/core";
+import type { GridAnchor } from "@/lib/pdf/watermark";
 
 /**
  * Motor de numeracion de paginas: escribe un texto por pagina con

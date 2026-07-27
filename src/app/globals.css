@@ -86,8 +86,98 @@
 }
 
 @layer base {
+  /* ------------------------------------------------------------------ *
+   * Tema oscuro (por defecto). Los valores de @theme son la identidad de
+   * marca Optimus Reframe y no se tocan; aqui solo se anaden los tokens
+   * que las utilidades liquid glass necesitan para poder invertirse.
+   * ------------------------------------------------------------------ */
   :root {
     color-scheme: dark;
+
+    /* Superficies liquid glass: velo claro sobre negro. */
+    --glass-bg: color-mix(in oklab, white 6%, transparent);
+    --glass-highlight: color-mix(in oklab, white 8%, transparent);
+    --glass-bar-bg: color-mix(
+      in oklab,
+      var(--color-background) 72%,
+      transparent
+    );
+
+    /* Texto que se pinta ENCIMA del azul de marca. */
+    --color-on-signal: oklch(100% 0 0);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Tema claro. Mismo lenguaje visual (HUD tecnico x iOS) invertido:
+   * fondo casi blanco en vez de blanco puro, tinta casi negra, el mismo
+   * azul "signal" como acento de marca y hairlines de negro en baja
+   * opacidad en lugar de blanco.
+   * <ThemeProvider> escribe data-theme en <html>.
+   * ------------------------------------------------------------------ */
+  :root[data-theme="light"] {
+    color-scheme: light;
+
+    /* Superficies */
+    --color-background: oklch(97% 0 0);
+    --color-surface: oklch(99.5% 0 0);
+    --color-elevated: oklch(100% 0 0);
+
+    /* Texto */
+    --color-foreground: oklch(18% 0 0);
+    --color-muted-foreground: oklch(45% 0 0);
+
+    /* Marca: el azul signal es identico en ambos temas. */
+    --color-signal: oklch(52% 0.27 264);
+    --color-glow: oklch(56% 0.24 264);
+
+    /* Semanticos: bajados de luminosidad para leerse sobre fondo claro. */
+    --color-destructive: oklch(50% 0.21 25);
+    --color-success: oklch(48% 0.13 160);
+
+    /* Acentos por categoria (mismo tono, luminosidad legible en claro) */
+    --color-accent-organize: oklch(52% 0.27 264);
+    --color-accent-optimize: oklch(48% 0.13 160);
+    --color-accent-convert: oklch(48% 0.24 300);
+    --color-accent-edit: oklch(55% 0.14 75);
+    --color-accent-security: oklch(50% 0.21 25);
+
+    /* Lineas tecnicas: negro translucido en vez de blanco. */
+    --color-hairline: color-mix(in oklab, black 12%, transparent);
+    --color-hairline-strong: color-mix(in oklab, black 20%, transparent);
+    --color-grid-line: color-mix(in oklab, black 6%, transparent);
+
+    /* Liquid glass invertido: velo blanco sobre gris muy claro. */
+    --glass-bg: color-mix(in oklab, white 72%, transparent);
+    --glass-highlight: color-mix(in oklab, white 90%, transparent);
+    /*
+     * Literal a proposito: si se escribe como color-mix sobre
+     * var(--color-background), el fallback estatico que genera el
+     * compilador se resuelve contra el fondo del tema oscuro y la barra
+     * sale negra. Es el mismo valor que --color-background al 78%.
+     */
+    --glass-bar-bg: oklch(97% 0 0 / 0.78);
+
+    /*
+     * Los componentes expresan sus veladuras y hairlines como utilidades
+     * Tailwind `*-white/N` (border-white/10, bg-white/5, hover:bg-white/10,
+     * el indicador del SegmentedControl...). En Tailwind v4 esas utilidades
+     * compilan a color-mix(..., var(--color-white) N%, transparent), asi que
+     * reapuntar --color-white invierte todas de golpe sin editar componente
+     * alguno. Es una sola linea y quitarla revierte el efecto.
+     * OJO: tambien afecta a `bg-white` solido (ver Blockers del workstream).
+     */
+    --color-white: oklch(20% 0 0);
+  }
+
+  /*
+   * Excepcion al reapuntado anterior: `bg-white` a secas (sin barra de
+   * opacidad) se usa para lienzos que deben ser blancos de verdad —hoy el
+   * canvas y la vista previa de firma— y no como veladura. Se le devuelve
+   * el blanco real en su propio elemento, asi el token invertido sigue
+   * valiendo para todos los `*-white/N`.
+   */
+  :root[data-theme="light"] .bg-white {
+    --color-white: oklch(100% 0 0);
   }
 
   html {
@@ -105,7 +195,7 @@
 
   ::selection {
     background-color: var(--color-signal);
-    color: var(--color-foreground);
+    color: var(--color-on-signal);
   }
 
   :focus-visible {
@@ -124,18 +214,18 @@
   }
 }
 
-/* iOS 26 liquid glass sobre negro Optimus */
+/* iOS 26 liquid glass. El velo sale de tokens para invertirse en claro. */
 @utility glass {
-  background-color: color-mix(in oklab, white 6%, transparent);
+  background-color: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
   border: 1px solid var(--color-hairline);
-  box-shadow: inset 0 1px 0 0 color-mix(in oklab, white 8%, transparent);
+  box-shadow: inset 0 1px 0 0 var(--glass-highlight);
 }
 
 /* Variante mas densa para barras fijas (header / tab bar) */
 @utility glass-bar {
-  background-color: color-mix(in oklab, var(--color-background) 72%, transparent);
+  background-color: var(--glass-bar-bg);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
 }

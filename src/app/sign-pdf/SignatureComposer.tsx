@@ -41,23 +41,54 @@ type ComposerMode = "draw" | "type" | "upload";
 const SIGNATURE_INKS = ["#0b0b0c", "#12327d", "#3d3d42"] as const;
 
 /**
- * Familias tipográficas para la firma escrita. No se puede añadir una
- * fuente cursiva al bundle desde este workstream (`layout.tsx` está
- * fuera de alcance), así que se usan pilas del sistema con respaldo
- * genérico `cursive`/`serif`: si el equipo no tiene la primera, cae en
- * la siguiente sin romper nada.
+ * Familias tipográficas para la firma escrita.
+ *
+ * La primera es Caveat, una fuente real servida con el propio sitio a
+ * través de la variable CSS `--font-caveat`: se ve igual en cualquier
+ * equipo. Las demás son pilas del sistema con respaldo genérico
+ * `cursive`/`serif`, así que si el equipo no tiene la primera cae en la
+ * siguiente sin romper nada.
  */
 const SIGNATURE_FONTS = [
+  "var(--font-caveat), cursive",
   '"Segoe Script", "Bradley Hand", "Snell Roundhand", "Apple Chancery", cursive',
   'italic "Brush Script MT", "Lucida Handwriting", "Zapfino", cursive',
   'italic "Times New Roman", Georgia, serif',
   '500 system-ui, "Segoe UI", sans-serif',
 ] as const;
 
+/**
+ * Nombre visible de la opción de Caveat. Es el nombre propio de la
+ * fuente, así que no se traduce ni necesita entrada en `strings.ts`
+ * (cuyo `styleNames` sigue describiendo las cuatro pilas del sistema,
+ * en su mismo orden, a partir del índice 1).
+ */
+const CAVEAT_STYLE_NAME = "Caveat";
+
 const DRAW_WIDTH = 640;
 const DRAW_HEIGHT = 220;
 const EXPORT_SCALE = 3;
 const TYPE_FONT_SIZE = 96;
+
+/**
+ * El contexto 2D del canvas no entiende `var(...)`: si se le pasa sin
+ * resolver, descarta la cadena entera y dibuja con la fuente por
+ * defecto. Se sustituye por el valor real leído de la raíz del
+ * documento, y si la variable no estuviera definida se elimina el hueco
+ * para que quede el respaldo genérico (`cursive`) en vez de una familia
+ * inválida.
+ */
+function resolveFontFamily(family: string): string {
+  if (!family.includes("var(")) return family;
+  const root = getComputedStyle(document.documentElement);
+  return family
+    .replace(/var\((--[\w-]+)\)/g, (_match, name: string) =>
+      root.getPropertyValue(name).trim(),
+    )
+    .replace(/^\s*,\s*/, "")
+    .replace(/,\s*,/g, ",")
+    .trim();
+}
 
 function trimTransparent(source: HTMLCanvasElement): HTMLCanvasElement {
   const context = source.getContext("2d");
@@ -247,7 +278,9 @@ export function SignatureComposer({
     const measure = document.createElement("canvas");
     const measureContext = measure.getContext("2d");
     if (!measureContext) return null;
-    const font = `${TYPE_FONT_SIZE}px ${SIGNATURE_FONTS[fontIndex]}`;
+    const font = `${TYPE_FONT_SIZE}px ${resolveFontFamily(
+      SIGNATURE_FONTS[fontIndex],
+    )}`;
     measureContext.font = font;
     const width = Math.ceil(measureContext.measureText(text).width);
 
@@ -363,13 +396,17 @@ export function SignatureComposer({
               <div role="radiogroup" className="grid gap-2">
                 {SIGNATURE_FONTS.map((font, index) => {
                   const active = index === fontIndex;
+                  const styleName =
+                    index === 0
+                      ? CAVEAT_STYLE_NAME
+                      : strings.styleNames[index - 1];
                   return (
                     <button
                       key={font}
                       type="button"
                       role="radio"
                       aria-checked={active}
-                      aria-label={strings.styleNames[index]}
+                      aria-label={styleName}
                       onClick={() => setFontIndex(index)}
                       className={cn(
                         "flex min-h-14 items-center justify-center rounded-ios-sm border px-3 py-2 transition-all duration-200 ease-spring",
@@ -382,7 +419,7 @@ export function SignatureComposer({
                         className="truncate text-2xl text-foreground"
                         style={{ fontFamily: font }}
                       >
-                        {typed.trim() || strings.styleNames[index]}
+                        {typed.trim() || styleName}
                       </span>
                     </button>
                   );
