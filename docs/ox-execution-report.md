@@ -265,3 +265,106 @@ Diferida desde el blueprint original de fase 1; priorizada ahora dado el histori
 - **Safe to close**: sí, con alta confianza — esta vez el cierre se apoya en verificación contra el archivo real del usuario (no solo fixtures sintéticas) tanto a nivel de motor como en navegador real, y en 8 rondas de escrutinio adversarial independiente.
 - **Owner action required**: ninguna crítica. Opcional: (1) autorizar publicación en Vercel, (2) decidir si el repo debe ser público, (3) priorizar si se quiere verificar `scan-to-pdf` con un dispositivo real antes de publicar, (4) decidir si ampliar la cobertura de Vitest a más motores.
 - **Recommended next step**: probar tú mismo el PDF real en la app (ya verificado por el orquestador, pero la confirmación del propio usuario cierra el ciclo); si todo es satisfactorio, decidir sobre publicación.
+
+---
+
+# FASE 4 — Las 12 herramientas pendientes: decisión arquitectónica, spike de ZetaOffice, 6 herramientas nuevas, cobertura total de Vitest
+
+## Objetivo de la fase
+- **Solicitado**: (1) avanzar con las 12 herramientas "Próximamente" sin asumir que son viables 100% client-side — planificar con Fable 5 apoyándose en Codex la arquitectura de cada una (client-side / requiere backend / fuera de alcance) y **pedir autorización explícita** antes de tocar nada que implique backend o costo de infraestructura real; (2) ampliar la cobertura de Vitest a los motores restantes; (3) Sonnet 5 ejecutando agentes delegados, uno por herramienta o grupo pequeño, en paralelo.
+- **Completado**: análisis arquitectónico completo de las 12 herramientas (Codex + verificación independiente propia); 6 herramientas nuevas implementadas, verificadas con archivos reales y publicadas como "live" (`html-to-pdf`, `repair-pdf`, `pdf-to-markdown`, `pdf-summarizer`, y 2 con alcance reducido explícitamente acordado: `pdf-to-pdfa` → verificador de conformidad, `translate-pdf` → informe de traducción); spike de viabilidad técnica de ZetaOffice/ZetaJS para Word/PowerPoint/Excel-a-PDF (resultado GO-WITH-CAVEATS, pero el usuario decidió omitirlas por el costo de infraestructura real); cobertura de Vitest ampliada de 4 a 20 motores (511 tests); 4 hallazgos reales de una revisión de seguridad/integridad de Codex sobre las 6 herramientas nuevas, evaluados y corregidos.
+- **No completado**: `word-to-pdf`, `powerpoint-to-pdf`, `excel-to-pdf` (diferidas por decisión del usuario tras el spike — ver más abajo); `pdf-to-word`, `pdf-to-powerpoint`, `pdf-to-excel` (Grupo B — requieren backend, no autorizado); verificación Tier 3 de inferencia real de IA end-to-end en `pdf-summarizer` (descarga de modelo de 677 MB no ejecutada por costo de tiempo/ancho de banda de la sesión, ver Deferred); publicación en producción (sigue sin autorizar).
+
+## Planificación arquitectónica (Codex + verificación independiente)
+Se corrió `codex exec --sandbox read-only` con un prompt detallado pidiendo, para cada una de las 12 herramientas: viabilidad 100% client-side (con librería concreta si aplica), diseño mínimo de backend si no, si rompe la arquitectura "cero servidor", y disposición final (`CLIENT_SIDE_VIABLE` / `REQUIRES_BACKEND` / `OUT_OF_SCOPE_FOR_NOW`). Codex investigó documentación primaria (no solo generó de memoria) y encontró un dato crítico: **ZetaOffice/ZetaJS permite correr LibreOffice completo compilado a WebAssembly dentro del navegador**, lo que en teoría habilitaría Word/PowerPoint/Excel-a-PDF sin backend.
+
+Por disciplina de §12.7 (nunca aceptar a Codex sin verificar), el orquestador hizo una verificación independiente vía WebSearch: confirmado que ZetaOffice/ZetaJS es real, pero está en **beta abierta** con su última versión (1.2.0) sin actualizaciones hace aproximadamente un año — un riesgo de madurez real que Codex no había puesto en su disposición final.
+
+**Resultado presentado al usuario, con pregunta explícita de autorización (no se asumió nada):**
+- **Grupo A — proceder ya, 100% client-side, sin decisión de infraestructura**: `html-to-pdf` (Paged.js/html2canvas+jsPDF), `pdf-to-markdown` (heurísticas sobre pdfjs-dist ya instalado), `repair-pdf` (pdf-lib/pdfjs-dist, con qpdf-wasm como stretch goal), `pdf-summarizer` (pdfjs-dist/tesseract.js + WebLLM, IA 100% local).
+- **Grupo A2 — mismo enfoque pero con spike técnico previo por el riesgo de madurez**: `word-to-pdf`, `powerpoint-to-pdf`, `excel-to-pdf` vía ZetaOffice/ZetaJS.
+- **Grupo B — requiere backend + costo recurrente real (decisión de infraestructura)**: `pdf-to-word`, `pdf-to-powerpoint`, `pdf-to-excel` — necesitarían una API de pago (Adobe PDF Services / CloudConvert) o servidor propio, y romperían la promesa de privacidad "cero servidor".
+- **Grupo C — recomendado fuera de alcance por ahora**: `pdf-to-pdfa` (conversión real de conformidad exige Ghostscript+veraPDF en servidor) y `translate-pdf` (traducir preservando maquetación exige backend; enviar contenido de documentos a una API de traducción es un cambio real de privacidad).
+
+El usuario decidió, vía pregunta explícita: (1) **no autorizar** el Grupo B por ahora; (2) **sí** hacer el spike técnico del Grupo A2 antes de comprometerse; (3) para el Grupo C, explorar una **versión reducida** en vez de descartarlo del todo (verificador de PDF/A en vez de conversor; informe de traducción en vez de PDF traducido).
+
+## Spike de viabilidad — ZetaOffice/ZetaJS (agente `ox-architect`, Tier 3)
+Spike real: cargó ZetaOffice en una ruta aislada (`_spike-zeta`, revertida al cierre), sirvió los assets auto-alojados (sin depender del CDN de terceros), y convirtió documentos reales (.docx con tabla/imagen/salto de página, .xlsx con fórmulas vivas, .pptx con 3 diapositivas) a PDF, inspeccionando el resultado página por página.
+
+**Resultado: funcionó, con fidelidad excelente** (Word/PowerPoint prácticamente production-grade; Excel correcto salvo formato de números dependiente del locale del navegador). **Pero el costo es real y sustancial**: 53 MB comprimidos / 251 MB descomprimidos de assets WASM, 1 GB de memoria WASM reservada por pestaña, ~7 segundos de inicialización, requiere aislamiento cross-origin (COOP/COEP) que rompe la vista previa de PDF embebida en esas rutas, viabilidad en móvil **sin probar y con riesgo alto** (1 GB de memoria es un riesgo serio en gama media/iOS), y una decisión real de hosting (auto-alojar 251 MB de assets estáticos vs. depender del CDN de ZetaOffice, que sí debilitaría la posición de privacidad). Estimación de esfuerzo si se procede: 2.5–3.5 semanas.
+
+**Decisión del usuario, presentada la evidencia**: omitir las 3 herramientas por el costo de infraestructura real. Código del spike revertido (`git checkout` sobre `next.config.ts`, directorios `src/app/spike-zeta` y `public/spike-zeta` eliminados), dependencia `zetajs` desinstalada. `word-to-pdf`, `powerpoint-to-pdf`, `excel-to-pdf` quedan diferidas junto al Grupo B.
+
+## Implementación de las 6 herramientas aprobadas
+Delegación paralela (Opus 5, agentes `ox-builder`/`ox-architect`, ~15-30 min cada uno), cada agente restringido a sus propios archivos para evitar conflictos de escritura concurrente (tools-registry.ts, locales y package.json coordinados centralmente por el orquestador después). El usuario interrumpió la espera larga (los 5 agentes de implementación llevaban más de una hora corriendo) y pidió que cerraran con lo que tuvieran; al enviarles el mensaje de cierre, los 5 ya habían sido detenidos por el propio usuario. El orquestador asumió directamente la verificación y el cierre de cada una:
+
+- **`html-to-pdf`** — sandboxing de HTML no confiable en iframe aislado (`sandbox="allow-same-origin"` sin `allow-scripts`, CSP inyectada). Verificado con un HTML real con tabla, imagen y un `<script>` de prueba (XSS): produjo un PDF real de 48.8 KB y el script **no se ejecutó**. Codex encontró que la CSP original permitía `img-src`/`style-src`/`font-src` sobre `http:`/`https:`, lo que dejaba disparar peticiones de red reales (con cookies del propio origen) desde HTML no confiable pese a que la copia decía "nada sale de tu dispositivo" — **corregido**: solo `data:` permitido, ningún recurso remoto carga.
+- **`repair-pdf`** — reparación estructural con `@cantoo/pdf-lib`/`pdfjs-dist` (sin backend ni dependencia nueva). Verificado con 3 escenarios de corrupción real construidos a mano (xref corrupto, cabecera/cola dañadas): diagnóstico preciso, reparación exitosa. Codex encontró que el motor reserializaba **incluso un PDF sano sin ningún daño detectado**, lo cual invalidaría en silencio una firma digital por rango de bytes que el archivo pudiera tener — **corregido**: sin daño detectado, se devuelve el archivo original byte a byte, sin tocarlo.
+- **`pdf-to-markdown`** — heurísticas sobre `pdfjs-dist` (encabezados por tamaño de fuente, listas, tablas, bloques de código) + fallback OCR. Verificado con un PDF real de 9 páginas (contrato certificado de terceros) y un fixture escaneado: encontró y corrigió un bug real de heurística (párrafo legal en mayúsculas se leía como 10 encabezados apilados).
+- **`pdf-summarizer`** — IA local (WebLLM + Llama 3.2 1B cuantizado a 4 bits) gateada por disponibilidad de WebGPU, sin fallback a nube. El agente dejó un bug de sintaxis JSX real (uso de argumento de tipo genérico explícito `<SegmentedControl<T>>` en una etiqueta JSX, que TypeScript acepta pero el parser SWC/Turbopack de Next.js no soporta bien y se desincroniza más adelante en el archivo) — **corregido** quitando el genérico explícito y dejando que TypeScript lo infiera de los props. Verificado: la página renderiza completo, sube archivos, y el flujo de consentimiento de descarga del modelo funciona. La inferencia real de 677 MB no se ejecutó de punta a punta por el costo de tiempo/ancho de banda de la sesión (ver Deferred).
+- **`pdf-to-pdfa`** (alcance reducido a **verificador de conformidad**, acordado explícitamente con el usuario) — inspecciona metadatos XMP, fuentes incrustadas, OutputIntent, cifrado, JavaScript y adjuntos; nunca convierte ni certifica. Verificado con un PDF real sin metadatos PDF/A: reportó correctamente 2 incumplimientos, 1 aviso, 3 comprobaciones superadas. Codex encontró que varios chequeos podían dar **"CUMPLE" en falso positivo** cuando el recorrido del documento fallaba a medias (enumeración de objetos indirectos interrumpida) — **corregido**: cuando el barrido de JavaScript o de adjuntos no puede completarse, el estado pasa a "desconocido" en vez de "cumple".
+- **`translate-pdf`** (alcance reducido a **informe de traducción bilingüe**, acordado explícitamente con el usuario) — modelo local Xenova/opus-mt (OPUS-MT), sin backend, con consentimiento explícito antes de descargar. Se encontró y depuró un bug real de compatibilidad: el backend WASM de onnxruntime-web fallaba al crear sesión con este modelo cuantizado (`Missing required scale: model.shared.weight_merged_0_scale`) para **cualquier** `dtype` probado (aislado con una ruta de prueba desechable); la causa era la pasada de optimización de grafo `TransposeDQWeightsForMatMulNBits` — **corregido** desactivando `graphOptimizationLevel` para esa sesión (confirmado que la traducción sigue siendo correcta sin esa optimización). Verificado de punta a punta con un PDF real en español: produjo un informe Markdown bilingüe real y correcto.
+
+## Codex — revisión de seguridad/integridad sobre las 6 herramientas nuevas (OX §12.5)
+`codex exec --sandbox read-only` sobre los 6 archivos de motor más sensibles (`htmlToPdf.ts`, `translate.ts`, `summarize.ts`, `repair.ts`, `pdfaCheck.ts`). 4 hallazgos reales, evaluados uno por uno (§12.7, nunca aceptados a ciegas) y todos corregidos:
+1. **P1 — `htmlToPdf.ts`**: CSP permitía peticiones de red reales desde HTML no confiable pese a la promesa de privacidad. Corregido (ver arriba).
+2. **P1 — `pdfaCheck.ts`**: chequeos de JavaScript/adjuntos podían devolver "cumple" en falso positivo tras un recorrido incompleto del documento. Corregido (ver arriba).
+3. **P2 — `repair.ts`**: reserializaba archivos sanos sin necesidad, arriesgando invalidar firmas digitales existentes. Corregido (ver arriba).
+4. **P2 — `translate.ts`/`summarize.ts`**: la copia decía "la única petición de red es la descarga del modelo", pero el fallback de OCR (Tesseract.js) descarga sus propios archivos desde el CDN por defecto de Tesseract — un endpoint adicional no declarado (aunque nunca con contenido del documento, y el mismo patrón ya lo usa `ocr-pdf` en producción). Corregido: copia actualizada en ambos idiomas para ser precisa sobre esta descarga adicional cuando el OCR está activado.
+
+Un quinto punto (Codex: el chequeo de OutputIntent de `pdfaCheck.ts` no valida el perfil ICC en sí, solo su presencia) se evaluó y se dejó como está: ya está explícitamente declarado en la propia copia de la herramienta ("No comprobamos qué colores usa el contenido"), y validar un perfil ICC real es una pieza de scope claramente desproporcionada para este chequeo heurístico.
+
+## Cobertura de Vitest ampliada (4 agentes Sonnet 5 en paralelo + fixes del orquestador)
+De 4 motores cubiertos (unlock, protect, merge, split — 29 tests) a **20 motores, 511 tests**. Los 4 agentes paralelos escribieron tests para: watermark/pageNumbers/crop/rotate, compress/redact/organize/removePages, imagesToPdf/pdfToImages/scanToPdf/editPdf, sign/compare/ocr/core.
+
+Al reconciliar el trabajo de los 4 agentes, el orquestador encontró y corrigió 4 problemas reales:
+- **`scanToPdf.test.ts`**: asumía que `navigator` no existe en Node — falso desde Node 24 (que ya expone un `navigator` global propio). Corregido para comprobar `navigator.mediaDevices` específicamente.
+- **`editPdf.test.ts`**: el fixture de "PDF sin páginas" no llegaba realmente vacío al motor porque `pdf-lib` añade una página por defecto al guardar un documento de 0 páginas salvo que se pida `addDefaultPage:false` explícitamente. Corregido.
+- **`imagesToPdf.test.ts`**: un test (`merge=false`, ZIP de PDFs reales) hacía que el **proceso worker de Vitest reventara** al mezclar JSZip con `Blob` reales de Node — reproducible de forma aislada (throw limpio en un script suelto) pero crashea el worker dentro de Vitest. No es un bug de producción (el mismo patrón ya está verificado en navegador real en `jpg-to-pdf`, una de las 21 herramientas en producción). Documentado y omitido (`it.skip`) con una nota explicando la causa, en vez de dejar que envenenara toda la corrida de tests.
+- **`pdfToImages.test.ts`**: 6 de 10 tests fallaban porque el mock de `canvasToBlob` devolvía un `Blob` real, y JSZip en Node no puede leer `Blob` (solo Buffer/Uint8Array/ArrayBuffer) pese a reportar `support.blob:true` (falso positivo de detección). Corregido cambiando el mock para devolver `Uint8Array` en vez de `Blob` — la lógica de negocio bajo prueba (selección/orden de páginas, nombrado, ZIP vs JPG) no depende del tipo exacto.
+
+Motores que siguen sin cobertura de la ruta que depende de pdf.js/canvas real (`compress.ts`, `redact.ts`, `compare.ts`, `ocr.ts`, y los render-helpers de `core.ts`): confirmado que `pdfjs-dist` no puede abrir documentos en el entorno `environment:"node"` de Vitest (`DOMMatrix is not defined`, y tras un shim, un segundo fallo resolviendo el worker como módulo de Node) — limitación de entorno, no de producto. Documentado como brecha conocida; ver Deferred.
+
+## Limpieza previa al commit
+Se eliminaron antes de integrar: `__pdfa_make_fixtures.mjs` (script suelto en la raíz), `public/__pdfa_fixtures/` (incluía sin querer `real-certified.pdf`, el mismo PDF certificado real del usuario usado en la fase 3 — nunca debió quedar en `public/`), `public/__tftest/` (assets de prueba de transformers.js) — ninguno de estos debía llegar a un commit ni a producción.
+
+## Validación de la fase
+- `npx tsc --noEmit`: limpio.
+- `npx eslint .`: limpio (0 errores, 2 warnings preexistentes menores de variables no usadas en archivos de test).
+- `npx vitest run`: **511/512 tests pasan, 1 omitido documentado** (26 archivos de test).
+- `npx next build`: build de producción exitoso, 42 rutas generadas, 0 errores.
+- **Browser (Tier 3, con archivos reales)**: `html-to-pdf` (HTML con tabla/imagen/XSS → PDF real, XSS neutralizado), `repair-pdf` (3 escenarios de corrupción real + caso sano-no-tocado, ambos verificados), `pdf-to-markdown` (contrato real de 9 páginas + escaneo simulado con OCR), `pdf-to-pdfa` (PDF real no conforme → reporte preciso), `translate-pdf` (PDF real en español → informe bilingüe real de punta a punta), `pdf-summarizer` (carga de archivo y flujo de consentimiento; inferencia completa no ejecutada — ver Deferred).
+- **Security**: revisión adversarial de Codex sobre las 6 herramientas nuevas, 4 hallazgos reales corregidos (ver arriba).
+- **Highest verification tier reached (§20.2)**: Tier 3 para 5 de las 6 herramientas nuevas (todo el flujo real, con archivos reales); Tier 2 para `pdf-summarizer` (UI y flujo de consentimiento verificados en navegador real, inferencia de IA no ejercida de punta a punta).
+
+## Commits de la fase
+| Commit | Type | Description |
+|---|---|---|
+| (pendiente) | feat(tools) | 6 herramientas nuevas (html-to-pdf, repair-pdf, pdf-to-markdown, pdf-summarizer, pdf-to-pdfa, translate-pdf) + cobertura de Vitest ampliada a 20 motores + 4 fixes de seguridad/integridad de Codex |
+| (pendiente) | docs | Reporte de ejecución OX — fase 4 |
+
+## Deferred (actualizado, acumulado desde fase 1)
+**Resuelto en fase 4**: decisión arquitectónica documentada para las 12 herramientas pendientes; 6 implementadas y verificadas; cobertura de Vitest ampliada de 4 a 20 motores.
+
+**Sigue diferido**:
+| Item | Reason | Severity | Recommended Next Step |
+|---|---|---|---|
+| `word-to-pdf`, `powerpoint-to-pdf`, `excel-to-pdf` | Spike técnico GO-WITH-CAVEATS, pero el usuario decidió omitirlas por el costo de infraestructura real (251 MB de assets, 1 GB de RAM por pestaña, 2.5–3.5 semanas de esfuerzo, decisión de hosting pendiente) | Media | Retomar solo si se autoriza el costo de infraestructura y se resuelve la viabilidad en móvil con un dispositivo real |
+| `pdf-to-word`, `pdf-to-powerpoint`, `pdf-to-excel` (Grupo B) | Requieren backend + costo recurrente real (Adobe PDF Services/CloudConvert); romperían la privacidad "cero servidor" | Media | Pedir autorización explícita de presupuesto e infraestructura antes de implementar |
+| Verificación Tier 3 de inferencia real de IA en `pdf-summarizer` | Descarga de modelo de 677 MB no ejecutada por costo de tiempo/ancho de banda de esta sesión | Media | Ejecutar una vez con un dispositivo/entorno que tolere la descarga completa, confirmar un resumen real |
+| Cobertura de Vitest de `compress.ts`/`redact.ts`/`compare.ts`/`ocr.ts` (rutas dependientes de pdf.js/canvas) | `pdfjs-dist` no abre documentos en `environment:"node"` de Vitest (falta `DOMMatrix`/canvas real) | Baja | Evaluar añadir `jsdom` + `canvas` como devDependencies solo-test, o aceptar la brecha (ya verificados en navegador real en fases anteriores) |
+| Test omitido en `imagesToPdf.test.ts` (`merge=false`) | JSZip + `Blob` real revienta el proceso worker de Vitest en Node (no reproducible en navegador real) | Baja | Sin acción necesaria — documentado, motor ya verificado en producción vía `jpg-to-pdf` |
+| Verificación Tier 3 de `scan-to-pdf` | Requiere cámara real, heredado de fase 3 | Media | Sin cambios desde fase 3 |
+| Publicación (Vercel) | No autorizada en este run | N/A | Pedir autorización explícita al usuario cuando quiera publicar |
+| Decisión sobre repositorio público/privado | No solicitada en este run | N/A | Pedir al usuario cuando lo decida |
+
+## Final Status (fase 4)
+- **Implementation complete**: sí, dentro del alcance aprobado — 6 herramientas nuevas + cobertura de Vitest ampliada. 3 herramientas explícitamente omitidas por decisión del usuario, 3 explícitamente diferidas por requerir backend no autorizado.
+- **Validated locally**: sí (tsc/eslint/build/test limpios; 511/512 tests).
+- **Codex passed**: sí — revisión arquitectónica de las 12 herramientas y revisión de seguridad/integridad de las 6 nuevas, con 4 hallazgos reales evaluados y corregidos.
+- **Pushed**: pendiente de este commit.
+- **Published**: no.
+- **Validated in production**: no aplica (no publicado).
+- **Safe to close**: sí — cada herramienta nueva tiene evidencia Tier 3 con archivos reales salvo `pdf-summarizer` (Tier 2, inferencia de IA no ejercida por costo de la descarga), documentado explícitamente como brecha conocida, no oculta.
+- **Owner action required**: (1) decidir si en el futuro se autoriza el costo de infraestructura para Word/PowerPoint/Excel-a-PDF (ZetaOffice) o para el Grupo B (backend de conversión); (2) opcional: correr `pdf-summarizer` una vez con la descarga completa del modelo para confirmar la inferencia real; (3) autorizar publicación en Vercel cuando se desee; (4) decidir sobre repositorio público/privado.
+- **Recommended next step**: probar las 6 herramientas nuevas en la app; si todo es satisfactorio, decidir sobre publicación y sobre las herramientas diferidas.
