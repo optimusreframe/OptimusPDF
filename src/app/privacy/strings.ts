@@ -83,8 +83,8 @@ export const STRINGS: Record<Language, PrivacyStrings> = {
     ],
     thirdPartyLinks: [
       { label: "Política de privacidad de Hugging Face", href: "https://huggingface.co/privacy" },
-      { label: "Declaración de privacidad de GitHub", href: "https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement" },
-      { label: "Política de privacidad de jsDelivr", href: "https://www.jsdelivr.com/privacy-policy-jsdelivr-net" },
+      { label: "Declaración de privacidad de GitHub", href: "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" },
+      { label: "Política de privacidad de jsDelivr", href: "https://www.jsdelivr.com/terms/privacy-policy" },
     ],
     contactTitle: "Cambios y contacto",
     contactBody:
@@ -144,8 +144,8 @@ export const STRINGS: Record<Language, PrivacyStrings> = {
     ],
     thirdPartyLinks: [
       { label: "Hugging Face's privacy policy", href: "https://huggingface.co/privacy" },
-      { label: "GitHub's privacy statement", href: "https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement" },
-      { label: "jsDelivr's privacy policy", href: "https://www.jsdelivr.com/privacy-policy-jsdelivr-net" },
+      { label: "GitHub's privacy statement", href: "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" },
+      { label: "jsDelivr's privacy policy", href: "https://www.jsdelivr.com/terms/privacy-policy" },
     ],
     contactTitle: "Changes and contact",
     contactBody:
