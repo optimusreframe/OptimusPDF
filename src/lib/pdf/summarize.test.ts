@@ -17,6 +17,7 @@ import {
   normalizePageText,
   pageMarker,
   renderChunkSummaryLine,
+  sanitizePageCitations,
   renderSummaryDocument,
   splitIntoSegments,
   trimToLastSentence,
@@ -188,6 +189,60 @@ describe("formatPageRange / pageMarker", () => {
 
   it("la marca incrustada es reconocible dentro del texto", () => {
     expect(pageMarker(12)).toBe("[p.12]");
+  });
+});
+
+describe("sanitizePageCitations", () => {
+  it("deja intacta una cita de una sola pagina dentro de rango", () => {
+    expect(sanitizePageCitations("Texto [p.2] con dato.", 2)).toBe(
+      "Texto [p.2] con dato.",
+    );
+  });
+
+  it("deja intacta una cita de rango dentro de limite", () => {
+    expect(sanitizePageCitations("Ver [p.1-2] para mas.", 2)).toBe(
+      "Ver [p.1-2] para mas.",
+    );
+  });
+
+  it("quita una cita que excede el total real de paginas (alucinacion observada en pruebas Tier 3)", () => {
+    expect(sanitizePageCitations("Dato final [p.3].", 2)).toBe("Dato final.");
+  });
+
+  it("quita una cita de rango cuyo extremo superior excede el total", () => {
+    expect(sanitizePageCitations("Resumen [p.2-4] completo.", 2)).toBe(
+      "Resumen completo.",
+    );
+  });
+
+  it("quita una cita con pagina 0 o negativa (fuera de rango por abajo)", () => {
+    expect(sanitizePageCitations("Nota [p.0] rara.", 2)).toBe("Nota rara.");
+  });
+
+  it("quita un rango invertido (firstPage > lastPage)", () => {
+    expect(sanitizePageCitations("Caso [p.4-2] raro.", 5)).toBe("Caso raro.");
+  });
+
+  it("conserva varias citas cuando todas son validas", () => {
+    expect(
+      sanitizePageCitations("[p.1] uno, [p.2] dos, [p.3] tres.", 3),
+    ).toBe("[p.1] uno, [p.2] dos, [p.3] tres.");
+  });
+
+  it("quita solo la cita invalida y conserva las validas del mismo texto", () => {
+    expect(sanitizePageCitations("[p.1] uno, [p.9] nueve.", 1)).toBe(
+      "[p.1] uno, nueve.",
+    );
+  });
+
+  it("no hace nada si totalPages es 0 o negativo (documento no medido)", () => {
+    expect(sanitizePageCitations("Dato [p.3].", 0)).toBe("Dato [p.3].");
+  });
+
+  it("no toca texto sin citas de pagina", () => {
+    expect(sanitizePageCitations("Sin citas aqui.", 2)).toBe(
+      "Sin citas aqui.",
+    );
   });
 });
 

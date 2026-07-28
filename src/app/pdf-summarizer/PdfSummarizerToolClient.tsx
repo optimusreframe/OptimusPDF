@@ -93,7 +93,13 @@ export function PdfSummarizerToolClient() {
   const [files, setFiles] = useState<File[]>([]);
   const [modelKey, setModelKey] =
     useState<SummarizerModelKey>(DEFAULT_SUMMARIZER_MODEL);
-  const [cached, setCached] = useState(false);
+  // Por `model.id`, no un booleano suelto: Llama y Qwen son modelos
+  // distintos con cache independiente, y un booleano unico afirmaria que
+  // el modelo actualmente seleccionado esta listo solo porque CUALQUIERA
+  // de los dos termino de usarse.
+  const [cachedModelIds, setCachedModelIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [consented, setConsented] = useState(false);
   const [length, setLength] = useState<SummaryLength>("medium");
   const [outputLanguage, setOutputLanguage] = useState<Language>(language);
@@ -110,6 +116,7 @@ export function PdfSummarizerToolClient() {
   const abortRef = useRef<AbortController | null>(null);
 
   const model = SUMMARIZER_MODELS[modelKey];
+  const cached = cachedModelIds.has(model.id);
 
   /* --------------------------------------------------------------- *
    * Compuerta de capacidades. Solo consulta al driver: no descarga
@@ -133,7 +140,10 @@ export function PdfSummarizerToolClient() {
     if (gpu !== "ready") return;
     let alive = true;
     void isModelCached(model).then((value) => {
-      if (alive) setCached(value);
+      if (!alive || !value) return;
+      setCachedModelIds((prev) =>
+        prev.has(model.id) ? prev : new Set(prev).add(model.id),
+      );
     });
     return () => {
       alive = false;
@@ -245,12 +255,19 @@ export function PdfSummarizerToolClient() {
       setResult(output);
       addRecentEntry("pdf-summarizer", file.name);
       setPhase("done");
-      // El efecto que llama a `isModelCached` solo corre al montar o al
-      // cambiar de modelo: sin esto, tras acabar de descargar y usar el
-      // modelo en esta misma pestana, "cached" se quedaria en `false` y
-      // un segundo resumen en la misma sesion volveria a pedir
-      // consentimiento como si el modelo no estuviera ya disponible.
-      setCached(true);
+      // Se marca por `output.modelId` (el modelo con el que de verdad se
+      // corrio esta ejecucion), nunca por el `modelKey`/`model.id` del
+      // render actual: si el usuario cambia de modelo en los controles
+      // mientras una ejecucion previa todavia esta en vuelo, no hay que
+      // afirmar que el modelo recien seleccionado esta listo. El efecto de
+      // `isModelCached` de arriba solo corre al montar o cambiar de
+      // modelo, asi que sin esto "cached" se quedaria en `false` para el
+      // modelo que SI se acaba de usar, y un segundo resumen en la misma
+      // sesion volveria a pedir consentimiento como si no estuviera
+      // disponible.
+      setCachedModelIds((prev) =>
+        prev.has(output.modelId) ? prev : new Set(prev).add(output.modelId),
+      );
     } catch (caught) {
       if (runIdRef.current !== runId) return;
       const pdfError = toPdfError(caught);

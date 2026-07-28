@@ -154,6 +154,41 @@ reproducible, o (b) implementar una verificación propia más simple
 (consultar `caches.open('webllm/model')` directamente y contar las entradas
 esperadas) en vez de depender de la función de la librería.
 
+## Corrección tras auditoría de Codex (segunda vuelta)
+
+La primera auditoría de Codex sobre el commit `0164238` encontró 2 problemas
+reales en el fix inicial, y los dos quedaron corregidos y re-verificados con
+una tercera corrida real en el navegador:
+
+1. **`cached` no distinguía entre modelos.** `setCached(true)` se aplicaba
+   sobre el `model.id` del render actual, no sobre el modelo con el que
+   realmente se acababa de correr — un cambio de Llama a Qwen a mitad de una
+   ejecución podría haber afirmado que Qwen ya estaba listo sin serlo.
+   **Corregido**: `cachedModelIds` es ahora un `Set<string>` de IDs de modelo
+   realmente usados con éxito (`output.modelId`, no `modelKey`/`model.id` del
+   render), y `cached` se deriva como `cachedModelIds.has(model.id)`.
+2. **Cita de página fuera de rango (`[p.3]` en un documento de 2 páginas)
+   mostrada sin validar.** Codex señaló correctamente que, aunque la causa es
+   el modelo (no un bug de prompt), el producto sí puede y debe validar el
+   rango antes de mostrar la cita como un hecho. **Corregido**: nueva función
+   pura `sanitizePageCitations(text, totalPages)` en `summarize.ts` que quita
+   cualquier `[p.N]`/`[p.N-M]` fuera de `[1, totalPages]`, aplicada a cada
+   fragmento por trozo y a cada ronda de síntesis. 10 tests nuevos en
+   `summarize.test.ts` cubriendo cita válida, cita fuera de rango, rango
+   invertido, página 0, y texto sin citas.
+
+**Re-verificación real en navegador (tercera corrida):** el resumen generado
+esta vez terminó con *"La tasa de supervivencia reportada... 87%..."* **sin
+ninguna cita de página** al final — confirmando que el sanitizador quitó
+limpiamente la cita inventada sin tocar el resto de la frase. Una cuarta
+corrida (mismo modelo, "Empezar de nuevo") mostró correctamente **"Este
+modelo ya está descargado en tu navegador: no hará falta volver a
+bajarlo."** — confirmando que el fix de `cachedModelIds` funciona para el
+caso real dentro de la misma sesión.
+
+`npx tsc --noEmit`, `npx eslint .` y `npx vitest run` (521/522 tests, 1
+omitido documentado) limpios tras ambas correcciones.
+
 ## Conclusión
 
 `pdf-summarizer` pasa de Tier 2 a **Tier 3**: se observó inferencia de IA real,

@@ -235,6 +235,37 @@ export function pageMarker(pageNumber: number): string {
   return `[p.${pageNumber}]`;
 }
 
+/** Reconoce `[p.4]` o `[p.4-6]` dentro del texto generado por el modelo. */
+const PAGE_CITATION = /\[p\.(\d+)(?:-(\d+))?\]/g;
+
+/**
+ * Quita las citas de pagina que el modelo pudo inventar fuera del rango
+ * real del documento (visto en pruebas: un modelo de 1B parametros puede
+ * citar `[p.3]` en un documento de 2 paginas, extrapolando el patron
+ * numerico de las citas legitimas en vez de razonar sobre el limite real).
+ * No se corrige el numero -- inventar un reemplazo seria el mismo problema
+ * con otro numero -- se quita la marca y se deja el resto de la frase.
+ */
+export function sanitizePageCitations(text: string, totalPages: number): string {
+  if (totalPages <= 0) return text;
+  return text
+    .replace(PAGE_CITATION, (match, first: string, last?: string) => {
+      const firstPage = Number(first);
+      const lastPage = last ? Number(last) : firstPage;
+      const inRange =
+        firstPage >= 1 &&
+        lastPage >= firstPage &&
+        lastPage <= totalPages &&
+        firstPage <= totalPages;
+      return inRange ? match : "";
+    })
+    // La cita fuera de rango puede dejar un espacio doble o un espacio
+    // antes de la puntuacion; se recorta sin tocar el resto del texto.
+    .replace(/ {2,}/g, " ")
+    .replace(/ ([.,;:])/g, "$1")
+    .trim();
+}
+
 export type TextChunk = {
   /** Posicion del trozo en la secuencia, base 0. */
   index: number;
@@ -994,7 +1025,7 @@ export async function summarizePdf(
         step: chunk.index + 1,
         stepCount: chunks.length,
       });
-      const text = await complete(
+      const rawText = await complete(
         engine,
         buildChunkPrompt(chunk, {
           language: options.language,
@@ -1002,6 +1033,9 @@ export async function summarizePdf(
         }),
         budget.reservedOutputTokens,
       );
+      // El modelo cita paginas por convencion aprendida, no por indice real:
+      // puede extrapolar mas alla del ultimo numero que de verdad vio.
+      const text = sanitizePageCitations(rawText, pages.length);
       // Un trozo del que el modelo no saca nada no genera seccion: mejor
       // una seccion menos que una cita de pagina vacia.
       if (text.length === 0) continue;
@@ -1034,7 +1068,7 @@ export async function summarizePdf(
       const next: ChunkSummary[] = [];
       for (const group of groups) {
         throwIfAborted(signal);
-        const text = await complete(
+        const rawText = await complete(
           engine,
           buildSynthesisPrompt(group, {
             language: options.language,
@@ -1043,6 +1077,7 @@ export async function summarizePdf(
           }),
           budget.reservedOutputTokens,
         );
+        const text = sanitizePageCitations(rawText, pages.length);
         next.push({
           firstPage: group[0].firstPage,
           lastPage: group[group.length - 1].lastPage,
