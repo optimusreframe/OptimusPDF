@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { useI18n } from "@/lib/i18n";
@@ -41,6 +42,22 @@ export function PrivacyView() {
                   {paragraph}
                 </p>
               ))}
+              {section.key === "thirdParties" ? (
+                <ul className="list-inside list-disc space-y-1">
+                  {s.thirdPartyLinks.map((link) => (
+                    <li key={link.href}>
+                      <a
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-foreground underline underline-offset-2 hover:text-muted-foreground md:text-base"
+                      >
+                        {link.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           </section>
         ))}
@@ -51,7 +68,14 @@ export function PrivacyView() {
           {s.contactTitle}
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          {s.contactBody}
+          {s.contactBody}{" "}
+          <Link
+            href="/about"
+            className="text-foreground underline underline-offset-2 hover:text-muted-foreground"
+          >
+            {s.contactLinkLabel}
+          </Link>
+          .
         </p>
       </GlassCard>
     </div>
