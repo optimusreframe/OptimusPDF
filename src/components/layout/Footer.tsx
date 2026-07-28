@@ -45,7 +45,7 @@ export function Footer() {
           </FooterColumn>
 
           <FooterColumn title={t.footer.legal}>
-            <FooterLink href="/about">{t.footer.privacy}</FooterLink>
+            <FooterLink href="/privacy">{t.footer.privacy}</FooterLink>
             <FooterLink href="/about">{t.footer.terms}</FooterLink>
             <FooterLink href="/about">{t.footer.cookies}</FooterLink>
             <FooterLink href="/about">{t.footer.licenses}</FooterLink>

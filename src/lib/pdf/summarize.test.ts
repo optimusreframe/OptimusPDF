@@ -5,6 +5,7 @@ import {
   MAX_CHUNKS,
   SUMMARIZER_MODELS,
   SUMMARIZER_MODEL_KEYS,
+  WEBLLM_APP_CONFIG,
   buildChunkPrompt,
   buildSynthesisPrompt,
   chunkCharBudget,
@@ -96,6 +97,38 @@ describe("SUMMARIZER_MODELS", () => {
     expect(SUMMARIZER_MODELS["llama-3.2-1b"].approxDownloadBytes).toBe(
       Math.min(...sizes),
     );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Cadena de suministro: URLs de descarga fijadas a un commit
+ * ------------------------------------------------------------------ */
+
+describe("WEBLLM_APP_CONFIG", () => {
+  const SHA_SEGMENT = /\/[0-9a-f]{40}\//;
+
+  it("tiene exactamente una entrada por cada SummarizerModel declarado", () => {
+    const ids = WEBLLM_APP_CONFIG.model_list.map((record) => record.model_id);
+    expect(ids.sort()).toEqual(
+      SUMMARIZER_MODEL_KEYS.map((key) => SUMMARIZER_MODELS[key].id).sort(),
+    );
+  });
+
+  it("no descarga pesos ni motor de ejecucion desde una rama movil", () => {
+    for (const record of WEBLLM_APP_CONFIG.model_list) {
+      // Un commit SHA de 40 hex, no "/main/" ni ninguna otra rama: si el
+      // repo de origen cambia de contenido, esta URL no lo notaria nunca.
+      expect(record.model).toMatch(SHA_SEGMENT);
+      expect(record.model).not.toMatch(/\/main\//);
+      expect(record.model_lib).toMatch(SHA_SEGMENT);
+      expect(record.model_lib).not.toMatch(/\/main\//);
+    }
+  });
+
+  it("conserva la ventana de contexto de 4096 que el resto del motor asume", () => {
+    for (const record of WEBLLM_APP_CONFIG.model_list) {
+      expect(record.overrides?.context_window_size).toBe(4096);
+    }
   });
 });
 

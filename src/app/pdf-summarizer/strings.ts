@@ -116,13 +116,13 @@ const es: SummarizerStrings = {
   howItWorksBody:
     "Se extrae el texto del PDF, se parte en trozos que quepan en la memoria del modelo, se resume cada trozo y al final se combinan todos en un único resumen. Cada resumen parcial lleva las páginas de las que sale.",
   privacyNotice:
-    "El modelo se ejecuta dentro de tu navegador. El PDF y su texto no salen de tu equipo: nunca se suben a ningún servidor. Resumir en sí solo genera una petición de red, la descarga del modelo. Si activas el reconocimiento OCR para páginas escaneadas, esa función descarga aparte sus propios archivos de reconocimiento (también sin tu documento).",
+    "El modelo se ejecuta dentro de tu navegador. El PDF y su texto no salen de tu equipo: nunca se suben a ningún servidor. Resumir en sí solo genera peticiones de red a Hugging Face y GitHub para descargar el modelo (nunca tu documento). Si activas el reconocimiento OCR para páginas escaneadas, esa función descarga aparte sus propios archivos de reconocimiento (también sin tu documento).",
   slowNotice:
     "Es lento: la descarga del modelo tarda varios minutos la primera vez y cada trozo del documento cuesta decenas de segundos. No cierres la pestaña mientras avanza.",
 
   consentTitle: "Hay que descargar el modelo",
   consentBody: (size) =>
-    `Para resumir sin enviar nada a ningún servidor hay que descargar el modelo completo a tu navegador: unos ${size}. Se queda en la caché del navegador, así que solo se descarga la primera vez. Con datos móviles piénsalo dos veces.`,
+    `Para resumir sin enviar nada a ningún servidor hay que descargar el modelo completo desde Hugging Face (los pesos) y GitHub (el motor de ejecución): unos ${size}. Se queda en la caché del navegador, así que solo se descarga la primera vez. Con datos móviles piénsalo dos veces.`,
   consentCached:
     "Este modelo ya está descargado en tu navegador: no hará falta volver a bajarlo.",
   consentCheckbox: "Entiendo que se descargará el modelo y que el resumen lo escribe una IA que puede equivocarse",
@@ -222,13 +222,13 @@ const en: SummarizerStrings = {
   howItWorksBody:
     "The text is extracted from the PDF, split into chunks that fit the model's memory, each chunk is summarised, and finally all of them are combined into a single summary. Every partial summary carries the pages it came from.",
   privacyNotice:
-    "The model runs inside your browser. The PDF and its text never leave your machine: they are never uploaded anywhere. Summarizing itself only makes one network request, the model download. If you enable OCR for scanned pages, that feature separately downloads its own recognition files (also without your document).",
+    "The model runs inside your browser. The PDF and its text never leave your machine: they are never uploaded anywhere. Summarizing itself only makes network requests to Hugging Face and GitHub to download the model (never your document). If you enable OCR for scanned pages, that feature separately downloads its own recognition files (also without your document).",
   slowNotice:
     "It is slow: the model download takes several minutes the first time and each chunk costs tens of seconds. Keep the tab open while it runs.",
 
   consentTitle: "The model has to be downloaded",
   consentBody: (size) =>
-    `To summarise without sending anything to a server, the whole model has to be downloaded into your browser: about ${size}. It stays in the browser cache, so it is only downloaded the first time. On mobile data, think twice.`,
+    `To summarise without sending anything to a server, the whole model has to be downloaded from Hugging Face (the weights) and GitHub (the runtime engine): about ${size}. It stays in the browser cache, so it is only downloaded the first time. On mobile data, think twice.`,
   consentCached:
     "This model is already downloaded in your browser: no new download is needed.",
   consentCheckbox:

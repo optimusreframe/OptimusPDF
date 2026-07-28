@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { AppConfig } from "@mlc-ai/web-llm";
 import {
   PdfError,
   closePdfDocument,
@@ -122,6 +123,54 @@ export const SUMMARIZER_MODEL_KEYS: readonly SummarizerModelKey[] = [
 ] as const;
 
 export const DEFAULT_SUMMARIZER_MODEL: SummarizerModelKey = "llama-3.2-1b";
+
+/**
+ * Las 2 entradas de `prebuiltAppConfig.model_list` de web-llm 0.2.84 que
+ * usamos, pero con `model`/`model_lib` fijados a un commit concreto en
+ * vez de la rama movil `main` que web-llm resuelve por defecto (ver
+ * `modelLibURLPrefix`/`modelVersion` en su `config.js`). Sin esto, un
+ * cambio silencioso en esos repos podria servir pesos o binario distinto
+ * de los que este codigo probo, sin que ninguna version aqui lo refleje.
+ *
+ * Commits verificados manualmente contra la API de Hugging Face/GitHub
+ * (y las URLs resultantes contra una peticion HTTP real) en 2026-07-28:
+ * - huggingface.co/mlc-ai/Llama-3.2-1B-Instruct-q4f16_1-MLC @ 2a37b0a
+ * - huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC @ 9bd564b
+ * - github.com/mlc-ai/binary-mlc-llm-libs @ 025bcaf3 (rama main)
+ */
+const WEBLLM_MODEL_LIB_VERSION = "v0_2_84/base";
+const WEBLLM_BINARY_LIBS_COMMIT = "025bcaf3780fa8254f5e5efd3bfea0a5397248f4";
+
+function pinnedModelLibUrl(wasmFileName: string): string {
+  return `https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/${WEBLLM_BINARY_LIBS_COMMIT}/web-llm-models/${WEBLLM_MODEL_LIB_VERSION}/${wasmFileName}`;
+}
+
+export const WEBLLM_APP_CONFIG: AppConfig = {
+  model_list: [
+    {
+      model:
+        "https://huggingface.co/mlc-ai/Llama-3.2-1B-Instruct-q4f16_1-MLC/resolve/2a37b0a5ecb622d51ddc2fac74de0b95872affd7/",
+      model_id: "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+      model_lib: pinnedModelLibUrl(
+        "Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+      ),
+      vram_required_MB: 879.04,
+      low_resource_required: true,
+      overrides: { context_window_size: 4096 },
+    },
+    {
+      model:
+        "https://huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC/resolve/9bd564b064631febf14deadcac492efb761d60c3/",
+      model_id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
+      model_lib: pinnedModelLibUrl(
+        "Qwen2-1.5B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+      ),
+      vram_required_MB: 1629.75,
+      low_resource_required: true,
+      overrides: { context_window_size: 4096 },
+    },
+  ],
+};
 
 /**
  * Estimacion conservadora de caracteres por token.
@@ -737,7 +786,7 @@ export async function detectWebGpuSupport(): Promise<WebGpuStatus> {
 export async function isModelCached(model: SummarizerModel): Promise<boolean> {
   try {
     const webllm = await import("@mlc-ai/web-llm");
-    return await webllm.hasModelInCache(model.id, webllm.prebuiltAppConfig);
+    return await webllm.hasModelInCache(model.id, WEBLLM_APP_CONFIG);
   } catch {
     return false;
   }
@@ -941,6 +990,7 @@ async function loadEngine(
   const engine = await webllm.CreateMLCEngine(
     model.id,
     {
+      appConfig: WEBLLM_APP_CONFIG,
       initProgressCallback: (progressReport) => {
         report?.({
           stage: "loadingModel",

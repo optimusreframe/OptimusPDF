@@ -85,6 +85,20 @@ describe("pares de idiomas", () => {
     }
   });
 
+  it("cada par fija un commit SHA real, no la rama movil 'main'", () => {
+    // Cadena de suministro: si Hugging Face sirviera otro contenido bajo
+    // el mismo nombre de repo, un commit fijo no lo notaria -- pero al
+    // menos no cambia de peso sin que este codigo se entere.
+    const revisions = new Set<string>();
+    for (const pair of TRANSLATION_PAIRS) {
+      expect(pair.revision).toMatch(/^[0-9a-f]{40}$/);
+      expect(pair.revision).not.toBe("main");
+      revisions.add(pair.revision);
+    }
+    // Cada par es un repo distinto: no deberian compartir revision.
+    expect(revisions.size).toBe(TRANSLATION_PAIRS.length);
+  });
+
   it("targetsFor devuelve los dos destinos restantes", () => {
     expect([...targetsFor("es")].sort()).toEqual(["en", "fr"]);
     expect([...targetsFor("en")].sort()).toEqual(["es", "fr"]);

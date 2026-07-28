@@ -79,6 +79,13 @@ export type TranslationPair = {
   /** Repositorio del hub con la conversion ONNX. */
   model: string;
   /**
+   * Commit SHA fijo del repositorio en el momento en que se probo este
+   * par (no una rama movil como `main`): protege contra que alguien
+   * reemplace los pesos publicados sin que este codigo se entere. Se
+   * pasa como `revision` a `transformers.pipeline` en `loadTranslator`.
+   */
+  revision: string;
+  /**
    * Descarga aproximada en MB de lo que el pipeline pide de verdad:
    * `encoder_model_quantized.onnx` + `decoder_model_merged_quantized.onnx`
    * + `tokenizer.json` + los JSON de config. Medido contra la API del
@@ -89,12 +96,48 @@ export type TranslationPair = {
 };
 
 export const TRANSLATION_PAIRS: readonly TranslationPair[] = [
-  { source: "es", target: "en", model: "Xenova/opus-mt-es-en", approxDownloadMb: 115 },
-  { source: "en", target: "es", model: "Xenova/opus-mt-en-es", approxDownloadMb: 115 },
-  { source: "fr", target: "en", model: "Xenova/opus-mt-fr-en", approxDownloadMb: 110 },
-  { source: "en", target: "fr", model: "Xenova/opus-mt-en-fr", approxDownloadMb: 110 },
-  { source: "es", target: "fr", model: "Xenova/opus-mt-es-fr", approxDownloadMb: 125 },
-  { source: "fr", target: "es", model: "Xenova/opus-mt-fr-es", approxDownloadMb: 125 },
+  {
+    source: "es",
+    target: "en",
+    model: "Xenova/opus-mt-es-en",
+    revision: "eadfd7c658a9d8929ac3b8e996b68a68e2c7d480",
+    approxDownloadMb: 115,
+  },
+  {
+    source: "en",
+    target: "es",
+    model: "Xenova/opus-mt-en-es",
+    revision: "4b002a4c7edd54a7ced58877258b87f7efd3f892",
+    approxDownloadMb: 115,
+  },
+  {
+    source: "fr",
+    target: "en",
+    model: "Xenova/opus-mt-fr-en",
+    revision: "6b166a182780e118c997879d0ad5be4b53671644",
+    approxDownloadMb: 110,
+  },
+  {
+    source: "en",
+    target: "fr",
+    model: "Xenova/opus-mt-en-fr",
+    revision: "28726206f80896b90035bd99cccd5cc1e151f916",
+    approxDownloadMb: 110,
+  },
+  {
+    source: "es",
+    target: "fr",
+    model: "Xenova/opus-mt-es-fr",
+    revision: "3bef5f612825d503f6fb85e0527a1fe30f2578c2",
+    approxDownloadMb: 125,
+  },
+  {
+    source: "fr",
+    target: "es",
+    model: "Xenova/opus-mt-fr-es",
+    revision: "962338be51033b548c13dbb6f4da3ddb8c8aba0e",
+    approxDownloadMb: 125,
+  },
 ] as const;
 
 /** Par de idiomas soportado, o `null` si esa direccion no existe. */
@@ -481,7 +524,7 @@ type TranslatorFn = (
  * durante el render en servidor de Next.
  */
 async function loadTranslator(
-  model: string,
+  pair: TranslationPair,
   onDownloadProgress: (fraction: number) => void,
 ): Promise<{ translate: TranslatorFn; dispose: () => Promise<void> }> {
   const transformers = await import("@huggingface/transformers");
@@ -504,7 +547,10 @@ async function loadTranslator(
     if (total > 0) onDownloadProgress(Math.min(1, loaded / total));
   };
 
-  const pipe = await transformers.pipeline("translation", model, {
+  const pipe = await transformers.pipeline("translation", pair.model, {
+    // Commit fijo, no la rama `main`: ver el comentario de `revision` en
+    // `TranslationPair`.
+    revision: pair.revision,
     // q8 explicito (y no "auto") para que los ficheros descargados sean
     // exactamente los `*_quantized.onnx` cuyo tamano anunciamos al pedir
     // el consentimiento.
@@ -678,7 +724,7 @@ export async function translatePdfToReport(
     }
 
     throwIfAborted(signal);
-    translator = await loadTranslator(pair.model, (fraction) =>
+    translator = await loadTranslator(pair, (fraction) =>
       onProgress?.(scaleProgress(fraction, 0.2, 0.55)),
     );
 
