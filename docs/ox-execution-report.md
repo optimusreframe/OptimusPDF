@@ -368,3 +368,259 @@ Se eliminaron antes de integrar: `__pdfa_make_fixtures.mjs` (script suelto en la
 - **Safe to close**: sí — cada herramienta nueva tiene evidencia Tier 3 con archivos reales salvo `pdf-summarizer` (Tier 2, inferencia de IA no ejercida por costo de la descarga), documentado explícitamente como brecha conocida, no oculta.
 - **Owner action required**: (1) decidir si en el futuro se autoriza el costo de infraestructura para Word/PowerPoint/Excel-a-PDF (ZetaOffice) o para el Grupo B (backend de conversión); (2) opcional: correr `pdf-summarizer` una vez con la descarga completa del modelo para confirmar la inferencia real; (3) autorizar publicación en Vercel cuando se desee; (4) decidir sobre repositorio público/privado.
 - **Recommended next step**: probar las 6 herramientas nuevas en la app; si todo es satisfactorio, decidir sobre publicación y sobre las herramientas diferidas.
+
+---
+
+# Fase 5 — Plan de 5 items post-fase-4 (Codex-driven, low-cost/no-server)
+
+> Orquestador: Sonnet 5. Instrucción del usuario: *"ejecuta codex para evaluar el
+> informe final [de la fase 4] y decidir cuáles son los próximos pasos, siempre
+> pensando en low-cost, no server"*, seguida de *"Empieza con el 1, y aplica
+> nuestra lógica de desarrollo. Desarrolla 1, valida que todo se haya
+> desarrollado, audita con Codex, planifica con Codex el siguiente paso, y
+> desarrolla el 2... y así sucesivamente. Al final, emite el informe final y
+> que Codex lo audite para evaluar si todo OK e indicar los próximos pasos."*
+> Cada ítem siguió el mismo ciclo: implementar → validar (tsc/eslint/vitest/
+> build + verificación real en navegador) → auditoría de Codex
+> (`codex exec --sandbox read-only`) → corrección de hallazgos → Codex planifica
+> el siguiente ítem → repetir. Codex actuó como revisor adversarial externo en
+> cada ronda, nunca como autocertificación del propio trabajo.
+
+## Origen del plan de 5 items
+Tras la fase 4, se le pidió a Codex auditar el informe de esa fase y decidir
+próximos pasos low-cost/no-server. Su recomendación priorizada, explícitamente
+excluyendo todo lo que requiriera backend o costo recurrente (conversión real
+Word/PowerPoint/Excel, certificación PDF/A vía Ghostscript+veraPDF, traducción/
+resumen en la nube, revivir ZetaOffice — todo ya descartado en fase 4):
+1. Cerrar la verificación Tier 3 de `pdf-summarizer` (inferencia real de IA
+   nunca observada de punta a punta).
+2. Playwright real para `compress`/`redact`/`compare`/`core.ts` (rutas
+   dependientes de pdfjs-dist/canvas que Vitest no puede ejercitar).
+3. Verificar `scan-to-pdf` con cámara falsa (automatizado) + pasada manual en
+   2 dispositivos físicos reales.
+4. CI gratuito en GitHub Actions.
+5. Endurecer privacidad (CSP más estricta, política de privacidad explícita,
+   fijar versiones de los modelos de IA descargados).
+
+## Item 1 — Cerrar Tier 3 de `pdf-summarizer`
+**Commits**: `0164238`, `6f3099e`.
+
+Se ejecutó el flujo completo de principio a fin en el Browser pane real (WebGPU
+disponible): selección de modelo, descarga real de 677 MB
+(`Llama-3.2-1B-Instruct-q4f16_1-MLC`), inferencia real sobre un PDF ficticio de
+prueba, resumen coherente y con citas de página correctas.
+
+**2 hallazgos reales de Codex, corregidos** (documentados en
+`docs/evidence/pdf-summarizer-tier3/`):
+- Detección de caché ciega a la identidad del modelo (condición de carrera:
+  `setCached(true)` no distinguía qué modelo había terminado de cargar
+  realmente) — corregido para rastrear el modelo que efectivamente corrió.
+- Alucinación de citas de página sin validar: el modelo podía citar `[p.99]`
+  en un documento de 5 páginas y la UI lo mostraba tal cual — corregido con
+  `sanitizePageCitations()`, que descarta citas fuera de rango `[1, totalPages]`.
+
+Codex dio veredicto **PASA** tras la segunda ronda.
+
+## Item 2 — Playwright real para compress/redact/compare/core
+**Commits**: `62b1e83` (suite inicial), `4c857bd` (correcciones tras auditoría).
+
+Infraestructura Playwright completa desde cero, sin coste ni dependencias
+nuevas de peso: `@napi-rs/canvas` (ya dependencia transitiva de pdfjs-dist) se
+usa directamente para renderizar páginas a píxeles reales en Node y muestrear
+color exacto — más fiable que una alternativa con capturas de pantalla de
+Chromium + decodificación PNG, que se descartó.
+
+**Hallazgo genuino y reutilizable**: Next.js 16 bloquea por defecto los
+recursos de dev (HMR, overlay de errores) que llegan desde un origen distinto
+al que el propio servidor considera local, y trata `127.0.0.1` como
+cross-origin frente a `localhost` — rompía silenciosamente toda la
+interactividad de la página bajo Playwright. Documentado en el mensaje del
+commit `62b1e83` como hallazgo reusable, no solo un workaround privado.
+
+**3 hallazgos de rigor de aserciones de Codex, corregidos** en `4c857bd`:
+redact.spec.ts solo muestreaba el centro del parche censurado (sin verificar
+el texto secreto ni una zona de control exterior); compare.spec.ts solo
+comprobaba el contador global de páginas cambiadas (sin badges `+N`/`-N` por
+página); compress.spec.ts comparaba el porcentaje de reducción contra un valor
+fijo en vez de calcularlo sobre los bytes reales.
+
+Codex dio veredicto **PASA** tras la segunda ronda. Suite estable en múltiples
+corridas consecutivas (incluida la ejecución real en CI, ver Item 4).
+
+## Item 3 — Verificar `scan-to-pdf` con cámara falsa
+**Commits**: `8b33f6f` (implementación), `073b28a` (precisiones menores).
+
+Proyecto Playwright dedicado `chromium-fake-camera`
+(`--use-fake-device-for-media-stream` + `--use-file-for-fake-video-capture`)
+aislado del proyecto `chromium` por defecto. El video Y4M sintético (320×240,
+10 fps, 10 frames estáticos, 4 cuadrantes de color sólido y distinto) se generó
+**sin `ffmpeg`** (no disponible en este entorno) escribiendo a mano la
+conversión RGB→YUV420 en JS y reutilizando `@napi-rs/canvas`, ya presente. De
+paso se reemplazó `pngjs` (dependencia removida del lockfile en una limpieza
+anterior, que dejaba roto el script de regeneración de fixtures) por la misma
+API de `@napi-rs/canvas`.
+
+El escenario cubre: activar cámara real (falsa) → esperar fotograma disponible
+→ capturar → confirmar exactamente 1 captura → generar y descargar el PDF →
+verificar 1 página, dimensiones exactas 320×240 (sin rotación), página basada
+en imagen, y color real de los 4 cuadrantes en las 4 esquinas del render.
+
+Codex dio veredicto **PASA** en primera ronda, con 2 sugerencias menores no
+bloqueantes aplicadas igualmente (precisar un comentario sobre rango de color
+YUV, y endurecer el conteo de capturas a exacto).
+
+**Limitación explícitamente NO resuelta y declarada** (ver tabla de riesgos
+residuales): la pasada manual en 2 dispositivos físicos reales
+(idealmente iOS/Safari + Android/Chrome) sigue **pendiente**. El orquestador no
+tiene acceso a hardware móvil real y así queda documentado en
+`docs/evidence/scan-to-pdf-item3/checklist.md`, con una plantilla de checklist
+lista para que una persona con esos dispositivos la complete. Esto **no** se
+presenta como validado.
+
+## Item 4 — CI gratuito en GitHub Actions
+**Commit**: `c1a1948`.
+
+Workflow `.github/workflows/ci.yml` con 2 jobs paralelos en `ubuntu-latest`:
+`quality` (tsc/lint/vitest/build) y `e2e` (instala solo Chromium vía
+`playwright install --with-deps chromium`, corre la suite completa incluida
+`chromium-fake-camera`). Triggers `push`/`pull_request` a `main` +
+`workflow_dispatch`; `concurrency` con `cancel-in-progress`; Node fijado a la
+versión de desarrollo (24, no `lts/*`); artifacts de diagnóstico solo en fallo,
+retención de 7 días.
+
+**Evidencia real, no solo predicha**: el workflow se ejecutó de verdad en
+GitHub Actions sobre el push real de este commit (run `30393086108`) — ambos
+jobs en **success**, ~1m45s cada uno en paralelo. Confirmado también en cada
+commit posterior de esta fase (ver tabla de runs abajo).
+
+Codex dio veredicto **PASA**, con una mejora oportunista sugerida
+(`permissions: contents: read`) marcada como no bloqueante y aún pendiente de
+aplicar (ver tabla de riesgos residuales).
+
+## Item 5 — Endurecer privacidad (CSP, política, versiones fijadas)
+**Commits**: `f1e009c` (implementación), `4cedc35` (corrección de hallazgo
+bloqueante), `aa8b730` (URLs canónicas).
+
+**CSP y cabeceras de seguridad** (`next.config.ts`): `Content-Security-Policy`,
+`Referrer-Policy`, `X-Content-Type-Options`, `X-Frame-Options`,
+`Permissions-Policy: camera=(self)` (necesario para `scan-to-pdf`). Los
+dominios externos permitidos se verificaron contra el **código realmente
+instalado y peticiones HTTP reales**, no contra suposiciones: la primera
+recomendación de Codex asumía que `tesseract.js` descarga desde
+`tessdata.projectnaptha.com`; leyendo `node_modules/tesseract.js` se confirmó
+que la versión instalada (7.0.0) usa `cdn.jsdelivr.net` para el script del
+worker, el núcleo WASM y los datos de idioma — corregido antes de aplicar la
+CSP. Además, probando el build de **producción real** (`next build && next
+start`) contra los 3 flujos de descarga externa, se encontró que `onnxruntime-web`
+(el motor detrás de `@huggingface/transformers`) resuelve su backend WASM con
+un `import()` dinámico desde una `blob:` URL — sin `blob:` en `script-src`,
+`translate-pdf` fallaba con `"no available backend found"`. Corregido.
+
+**Verificación dinámica real** (no solo estática): con el build de producción
+corriendo, se completaron de punta a punta, sin bloqueos de CSP: OCR (descarga
+real desde jsDelivr), traducción (descarga real de ~115 MB desde Hugging Face)
+e IA (descarga real de 677 MB desde las URLs **fijadas** + inferencia real con
+resultado coherente). La suite Playwright completa (incluida `scan-to-pdf` bajo
+la nueva `Permissions-Policy`) se re-ejecutó sin regresiones.
+
+**Política de privacidad** (`/privacy`, enlazada desde el footer — antes
+"Privacidad" apuntaba a `/about` junto con Términos/Cookies/Licencias, que
+siguen así). Primera versión de Codex: **NO PASA** — la política afirmaba que
+*todas* las descargas piden autorización explícita con checkbox y tamaño
+aproximado, pero `ocr-pdf` (y el respaldo de OCR en traducción/resumen) solo
+avisa, sin checkbox — inconsistencia real entre lo que el copy prometía y lo
+que el código hace. Corregido: la política ahora distingue explícitamente el
+aviso simple de OCR de la autorización con checkbox de resumen/traducción,
+declara el historial de "Recientes" y las preferencias guardadas en
+`localStorage` (nunca contenido de archivo), y enlaza a las políticas reales de
+Hugging Face/GitHub/jsDelivr (URLs verificadas con peticiones HTTP reales,
+corregidas a sus rutas canónicas en una segunda ronda).
+
+**Versiones de modelos fijadas a un commit** (antes resolvían implícitamente
+contra `main`, una rama móvil):
+- `src/lib/pdf/translate.ts`: cada uno de los 6 `TranslationPair` fija un
+  `revision` (SHA de 40 hex, verificado contra la API real de Hugging Face)
+  pasado a `transformers.pipeline`.
+- `src/lib/pdf/summarize.ts`: `WEBLLM_APP_CONFIG` fija `model` y `model_lib` de
+  los 2 modelos usados a un commit concreto de `huggingface.co/mlc-ai/...` y de
+  `github.com/mlc-ai/binary-mlc-llm-libs`, en vez de la config por defecto de
+  web-llm. `isModelCached()` y `loadEngine()` usan esta misma config de forma
+  consistente (la detección de caché mira la misma URL que realmente se usa).
+- Tests nuevos que exigen un SHA de 40 hex (no `"main"`) en cada entrada.
+
+Codex confirmó: esto cierra el hueco concreto de cadena de suministro buscado
+(cambios silenciosos de pesos/binarios bajo una rama móvil), aunque
+explícitamente **no** equivale a integridad criptográfica extremo a extremo
+frente a un compromiso del proveedor.
+
+Codex dio veredicto **PASA** tras la corrección del hallazgo bloqueante y el
+ajuste de URLs canónicas.
+
+## Validación final (commit `aa8b730`, HEAD de esta fase)
+- `npx tsc --noEmit`: limpio.
+- `npx eslint .`: limpio (0 errores, 2 warnings preexistentes menores,
+  ninguno introducido en esta fase).
+- `npx vitest run`: **525/526 tests pasan, 1 omitido documentado** (26 archivos
+  de test; +14 tests nuevos desde el cierre de fase 4).
+- `npx next build`: build de producción exitoso.
+- `npx playwright test`: **6/6 tests pasan** (2 proyectos: `chromium` y
+  `chromium-fake-camera`), estable en múltiples corridas.
+- **GitHub Actions (CI real, no simulado)**:
+
+| Run | Commit | Quality | E2E | Duración |
+|---|---|---|---|---|
+| `30393086108` | `c1a1948` | success | success | ~1m50s |
+| `30398918223` | `f1e009c` | success | success | ~3m0s |
+| `30399612728` | `4cedc35` | success | success | ~2m13s |
+| `30399964077` | `aa8b730` | success | success | confirmado en cierre |
+
+## Riesgos residuales y limitaciones conocidas
+| Item | Descripción | Severidad | Acción recomendada |
+|---|---|---|---|
+| Pasada manual de `scan-to-pdf` en 2 dispositivos físicos reales | No ejecutada — sin acceso a hardware móvil real | Media | Completar `docs/evidence/scan-to-pdf-item3/checklist.md` con un iOS/Safari y un Android/Chrome reales antes de considerar `scan-to-pdf` validado en móvil |
+| `permissions: contents: read` en `ci.yml` | Sugerencia de Codex, no bloqueante, no aplicada | Baja | Añadir en el próximo commit que toque el workflow |
+| CSP sin nonces/hashes (`'unsafe-inline'` en `script-src`/`style-src`) | Es la alternativa recomendada por Next.js para páginas estáticas sin servidor; reduce el valor anti-XSS de la CSP frente a una futura inyección de HTML, aunque hoy no se encontró ningún `dangerouslySetInnerHTML` ni sumidero evidente | Baja | Revisar si se introduce renderizado dinámico en el futuro; hoy no es accionable sin servidor |
+| Fijación de modelos no es integridad criptográfica end-to-end | Un compromiso real del proveedor (Hugging Face/GitHub) podría alterar el contenido de un commit ya fijado | Baja | Fuera de alcance low-cost/no-server; considerar hashes SRI (`ModelIntegrity` de web-llm) si se prioriza en el futuro |
+| WebGPU / rendimiento variable | `pdf-summarizer` requiere `shader-f16`; sin él, la herramienta falla cerrado explícitamente ("no hay plan B") | Inherente | Ya documentado en la propia UI del producto |
+| Precisión de OCR/IA | Resúmenes, traducciones y texto reconocido pueden contener errores | Inherente | Ya declarado en `/privacy` y en el copy de cada herramienta |
+| Ausencia deliberada de servidor | Sin backend, ninguna herramienta que lo requiera (conversión real Office↔PDF con maquetación, certificación PDF/A real, traducción/resumen en la nube) puede ofrecerse sin romper la posición de privacidad | Por diseño | Ya evaluado y descartado explícitamente en fase 4 |
+
+## Próximos pasos recomendados (siempre low-cost/no-server)
+1. Completar la pasada manual de `scan-to-pdf` en 2 dispositivos físicos
+   reales (el único punto de este plan que sigue sin evidencia real).
+2. Aplicar `permissions: contents: read` al workflow de CI (barato, sin riesgo).
+3. Matriz ligera de navegadores/dispositivos para las herramientas más
+   sensibles a APIs del navegador (`scan-to-pdf`, `pdf-summarizer` con WebGPU).
+4. Comprobación periódica (manual o vía un job de CI adicional, sin costo real)
+   de que las URLs fijadas de los modelos y las políticas de terceros enlazadas
+   desde `/privacy` siguen vigentes, y de actualizar los commits fijados cuando
+   se decida deliberadamente actualizar un modelo.
+5. Presupuesto de tamaño de bundle (`next build` ya reporta tamaños por ruta;
+   fijar un umbral y que CI avise si se excede).
+6. Documentar un plan de recuperación si Hugging Face, GitHub o jsDelivr
+   cambian sus URLs o dejan de servir un recurso fijado (qué hace la app,
+   qué ve el usuario, cómo se actualiza el commit fijado).
+
+## Final Status (fase 5)
+- **Implementation complete**: sí — 5 de 5 items del plan, cada uno auditado
+  por Codex con veredicto **PASA** antes de pasar al siguiente.
+- **Validated locally**: sí (tsc/eslint/vitest 525/526/build limpios en el
+  HEAD final `aa8b730`).
+- **Validated in CI real**: sí — GitHub Actions ejecutó y aprobó cada commit
+  significativo de esta fase (ver tabla de runs).
+- **Codex passed**: sí, en los 5 items — con 2 rondas en el Item 2 (rigor de
+  aserciones), 1 ronda en el Item 3, 1 ronda en el Item 4, y 2 rondas en el
+  Item 5 (un hallazgo bloqueante real de inconsistencia copy/código, corregido).
+- **Pushed**: sí, cada commit de la fase.
+- **Published**: no (fuera de alcance de esta fase; sigue pendiente de fase 4).
+- **Safe to close**: sí, con una única limitación explícita y honestamente
+  declarada — la pasada manual de `scan-to-pdf` en 2 dispositivos físicos
+  reales no se ha ejecutado. No se presenta como validada.
+- **Owner action required**: (1) ejecutar la pasada manual de `scan-to-pdf` en
+  2 dispositivos reales cuando se disponga de ellos; (2) decidir si y cuándo
+  publicar (Vercel), pendiente desde fase 4; (3) revisar periódicamente que las
+  URLs fijadas de modelos y políticas de terceros sigan vigentes.
+- **Recommended next step**: dado que los 5 items del plan low-cost/no-server
+  están cerrados, el siguiente hito natural es la decisión ya pendiente desde
+  fase 4 sobre publicación en producción, más la pasada manual de dispositivos
+  físicos para `scan-to-pdf` cuando el usuario disponga de ellos.
