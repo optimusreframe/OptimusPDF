@@ -273,6 +273,7 @@ function RedactCanvasInner({
       <div className="glass rounded-ios flex justify-center p-3">
         <div
           ref={hostRef}
+          data-testid="redact-canvas-host"
           onPointerDown={startDraw}
           onPointerMove={moveDraw}
           onPointerUp={endDraw}

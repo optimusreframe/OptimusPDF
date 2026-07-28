@@ -45,3 +45,11 @@ next-env.d.ts
 
 # fixtures de prueba locales (nunca commitear PDFs reales de usuarios)
 /.local-test-assets/
+
+# Playwright: resultados/trazas/reportes, no el codigo de los tests
+/.evidence/playwright/
+/.evidence/playwright-report/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
