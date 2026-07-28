@@ -5,31 +5,46 @@ const BEFORE = path.join(__dirname, "..", "fixtures", "compare-before.pdf");
 const AFTER = path.join(__dirname, "..", "fixtures", "compare-after.pdf");
 
 test.describe("compare-pdf", () => {
-  test("marca exactamente las paginas cambiadas y el texto añadido/eliminado", async ({ page }) => {
+  test("marca exactamente las paginas cambiadas y el texto añadido/eliminado por pagina", async ({ page }) => {
     await page.goto("/compare-pdf");
 
-    // Orden importante: subir al hueco B primero. En cuanto un hueco
-    // recibe archivo, su <input> se desmonta (pasa a mostrar la tarjeta
-    // "archivo seleccionado"), asi que el indice del OTRO hueco cambia.
-    // Subiendo B (indice 1) antes de A, el indice de A (0) nunca se mueve.
+    // Orden importante: subir al hueco B primero. En cuanto un hueco recibe
+    // archivo, su <input> se desmonta (pasa a la tarjeta "archivo
+    // seleccionado"), asi que el indice del OTRO hueco cambia. Subiendo B
+    // (indice 1) antes que A, el indice de A (0) nunca se mueve.
     const inputs = page.locator('input[type="file"]');
     await inputs.nth(1).setInputFiles(AFTER);
     await inputs.nth(0).setInputFiles(BEFORE);
 
     await page.getByRole("button", { name: /comparar|compare/i }).click();
 
-    // Las 2 paginas cambiaron: pagina 1 (100 -> 250) y pagina 2 (linea nueva).
-    await expect(page.getByText(/2/).first()).toBeVisible({ timeout: 15_000 });
+    // Texto EXACTO del contador de paginas cambiadas (strings.ts:
+    // changedPages(2) -> "2 páginas con diferencias" / "2 pages with
+    // differences") -- no una coincidencia parcial de "2" en cualquier
+    // parte de la pantalla, que podria dar un falso positivo con
+    // cualquier otro "2" visible (el saldo "250", la paginacion, etc).
+    await expect(
+      page.getByText(/^(2 páginas con diferencias|2 pages with differences)$/i),
+    ).toBeVisible({ timeout: 15_000 });
 
-    const body = await page.locator("main").innerText();
-    // El saldo viejo aparece marcado como eliminado y el nuevo como agregado.
-    expect(body).toContain("100");
-    expect(body).toContain("250");
-    expect(body).toContain("linea");
-    expect(body).toContain("nueva");
+    // Pagina 1: "saldo 100 EUR" -> "saldo 250 EUR" es una sustitucion de
+    // una sola palabra. La seccion de la pagina 1 debe mostrar
+    // exactamente 1 eliminada y 1 agregada.
+    const page1Section = page.locator("section", {
+      has: page.getByRole("heading", { name: /página\s*1|page\s*1/i }),
+    });
+    await expect(page1Section.getByText("+1", { exact: true })).toBeVisible();
+    await expect(page1Section.getByText("-1", { exact: true })).toBeVisible();
+    // El propio valor viejo/nuevo debe aparecer en el contraste de esa pagina.
+    await expect(page1Section.getByText("100")).toBeVisible();
+    await expect(page1Section.getByText("250")).toBeVisible();
 
-    // Ambas paginas deben quedar identificadas en el reporte visual.
-    expect(body).toMatch(/p[aá]gina\s*1|page\s*1/i);
-    expect(body).toMatch(/p[aá]gina\s*2|page\s*2/i);
+    // Pagina 2: se agregaron 4 palabras nuevas ("linea nueva agregada
+    // despues"), ninguna eliminada.
+    const page2Section = page.locator("section", {
+      has: page.getByRole("heading", { name: /página\s*2|page\s*2/i }),
+    });
+    await expect(page2Section.getByText("+4", { exact: true })).toBeVisible();
+    await expect(page2Section.getByText(/^-\d+$/)).toHaveCount(0);
   });
 });
