@@ -23,9 +23,11 @@ const EXPECTED_QUADRANTS = {
 };
 
 // Tolerancia generosa: absorbe la deriva de color de YUV420 (submuestreo
-// de croma) mas la recompresion JPEG (calidad 0.92) que aplica
-// captureFrame(). Los colores elegidos difieren en >150 por canal entre
-// si, asi que este margen no puede confundir un cuadrante con otro.
+// de croma, mas la posible reinterpretacion de rango completo vs limitado
+// al decodificar el I420 -- ver generate-fixtures.mjs) mas la
+// recompresion JPEG (calidad 0.92) que aplica captureFrame(). Cada par de
+// cuadrantes difiere en al menos un canal por mucho mas que el doble de
+// esta tolerancia, asi que el margen no puede confundir uno con otro.
 const COLOR_TOLERANCE = 40;
 
 function expectColorClose(
@@ -81,7 +83,7 @@ test.describe("scan-to-pdf", () => {
     // Confirma que quedo EXACTAMENTE una captura en la tira antes de
     // generar el PDF (mismo espiritu que el chequeo de "1 zona" en
     // redact.spec.ts: un contador exacto, no una coincidencia laxa).
-    await expect(page.getByAltText(/^(Captura 1|Capture 1)$/i)).toBeVisible();
+    await expect(page.getByAltText(/^(Captura \d+|Capture \d+)$/i)).toHaveCount(1);
 
     await page
       .getByRole("button", { name: /generar pdf|build pdf/i })

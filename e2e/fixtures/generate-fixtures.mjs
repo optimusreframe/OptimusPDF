@@ -185,7 +185,14 @@ function clamp8(value) {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
 
-/** YCbCr de rango completo (0-255), el mismo espacio que usa "C420jpeg". */
+/**
+ * YCbCr de rango completo (0-255), formulas JPEG/JFIF. "C420jpeg" en la
+ * cabecera Y4M describe el sub-muestreo y la ubicacion de las muestras de
+ * croma (4:2:0), no el rango de valores -- Chromium puede interpretar el
+ * I420 con la conversion BT.601 de rango limitado habitual en video. La
+ * tolerancia de color del spec (< 40 por canal) absorbe esa diferencia sin
+ * confundir un cuadrante con otro.
+ */
 function rgbToYuvFullRange(r, g, b) {
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   const u = -0.168736 * r - 0.331264 * g + 0.5 * b + 128;
