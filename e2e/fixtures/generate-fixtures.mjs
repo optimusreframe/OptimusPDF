@@ -3,7 +3,7 @@
 // commitean (son pequenos y 100% sinteticos, sin contenido real de nadie).
 // Re-ejecutar manualmente con: node e2e/fixtures/generate-fixtures.mjs
 import { PDFDocument, StandardFonts, rgb, degrees } from "@cantoo/pdf-lib";
-import { PNG } from "pngjs";
+import { createCanvas, ImageData } from "@napi-rs/canvas";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -63,7 +63,7 @@ async function buildRedactFixture() {
  * calidad reduzca el tamano de forma medible y estable.
  * ------------------------------------------------------------------ */
 function noisePng(width, height, seed) {
-  const png = new PNG({ width, height });
+  const data = new Uint8ClampedArray(width * height * 4);
   let state = seed;
   const rand = () => {
     // xorshift32, determinista: mismo fixture en cada regeneracion.
@@ -72,16 +72,16 @@ function noisePng(width, height, seed) {
     state ^= state << 5;
     return ((state >>> 0) % 256);
   };
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const idx = (width * y + x) << 2;
-      png.data[idx] = rand();
-      png.data[idx + 1] = rand();
-      png.data[idx + 2] = rand();
-      png.data[idx + 3] = 255;
-    }
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = rand();
+    data[i + 1] = rand();
+    data[i + 2] = rand();
+    data[i + 3] = 255;
   }
-  return PNG.sync.write(png);
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.putImageData(new ImageData(data, width, height), 0, 0);
+  return canvas.toBuffer("image/png");
 }
 
 async function buildCompressFixture() {
@@ -156,7 +156,111 @@ async function buildCoreFixture() {
   console.log("core-rotated-pages.pdf:", bytes.length, "bytes");
 }
 
+/* ------------------------------------------------------------------ *
+ * fake-camera.y4m
+ * Video sintetico sin audio para `--use-file-for-fake-video-capture`
+ * (camara falsa de Chromium): 4 cuadrantes de color solido y distinto,
+ * reconocibles pixel a pixel en la pagina que produce scan-to-pdf, para
+ * probar captura + orientacion real sin hardware ni ffmpeg. El contenido
+ * es identico en todos los frames -- no hay movimiento que provoque
+ * flakiness segun el instante exacto de la captura, y Chromium repite el
+ * archivo en bucle si la prueba tarda mas que su duracion.
+ * ------------------------------------------------------------------ */
+const CAMERA_WIDTH = 320;
+const CAMERA_HEIGHT = 240;
+const CAMERA_FPS = 10;
+const CAMERA_FRAMES = 10; // 1 segundo; de sobra si Chromium hace loop.
+
+// Colores muy separados entre si en los 3 canales: incluso con la deriva
+// de color de YUV420 (submuestreo de croma) + la recompresion JPEG que
+// aplica captureFrame(), siguen siendo inconfundibles entre si.
+const QUADRANT_COLORS = {
+  topLeft: [230, 25, 25], // rojo
+  topRight: [25, 200, 60], // verde
+  bottomLeft: [30, 90, 230], // azul
+  bottomRight: [235, 210, 20], // amarillo
+};
+
+function clamp8(value) {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+/** YCbCr de rango completo (0-255), el mismo espacio que usa "C420jpeg". */
+function rgbToYuvFullRange(r, g, b) {
+  const y = 0.299 * r + 0.587 * g + 0.114 * b;
+  const u = -0.168736 * r - 0.331264 * g + 0.5 * b + 128;
+  const v = 0.5 * r - 0.418688 * g - 0.081312 * b + 128;
+  return [clamp8(y), clamp8(u), clamp8(v)];
+}
+
+function buildFakeCameraFrameRgba() {
+  const canvas = createCanvas(CAMERA_WIDTH, CAMERA_HEIGHT);
+  const ctx = canvas.getContext("2d");
+  const halfW = CAMERA_WIDTH / 2;
+  const halfH = CAMERA_HEIGHT / 2;
+  const paint = (x, y, w, h, [r, g, b]) => {
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fillRect(x, y, w, h);
+  };
+  paint(0, 0, halfW, halfH, QUADRANT_COLORS.topLeft);
+  paint(halfW, 0, halfW, halfH, QUADRANT_COLORS.topRight);
+  paint(0, halfH, halfW, halfH, QUADRANT_COLORS.bottomLeft);
+  paint(halfW, halfH, halfW, halfH, QUADRANT_COLORS.bottomRight);
+  return ctx.getImageData(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT).data;
+}
+
+/** Empaqueta un fotograma RGBA como planos Y/U/V 4:2:0 planos (I420). */
+function rgbaToYuv420Planes(rgba, width, height) {
+  const yPlane = Buffer.alloc(width * height);
+  const cWidth = width / 2;
+  const cHeight = height / 2;
+  const uPlane = Buffer.alloc(cWidth * cHeight);
+  const vPlane = Buffer.alloc(cWidth * cHeight);
+
+  for (let py = 0; py < height; py += 1) {
+    for (let px = 0; px < width; px += 1) {
+      const idx = (py * width + px) * 4;
+      const [y] = rgbToYuvFullRange(rgba[idx], rgba[idx + 1], rgba[idx + 2]);
+      yPlane[py * width + px] = y;
+    }
+  }
+
+  // El contenido es plano solido dentro de cada cuadrante: tomar el pixel
+  // superior-izquierdo de cada bloque 2x2 basta, no hace falta promediar.
+  for (let cy = 0; cy < cHeight; cy += 1) {
+    for (let cx = 0; cx < cWidth; cx += 1) {
+      const idx = (cy * 2 * width + cx * 2) * 4;
+      const [, u, v] = rgbToYuvFullRange(rgba[idx], rgba[idx + 1], rgba[idx + 2]);
+      uPlane[cy * cWidth + cx] = u;
+      vPlane[cy * cWidth + cx] = v;
+    }
+  }
+
+  return Buffer.concat([yPlane, uPlane, vPlane]);
+}
+
+function buildFakeCameraY4m() {
+  const rgba = buildFakeCameraFrameRgba();
+  const framePlanes = rgbaToYuv420Planes(rgba, CAMERA_WIDTH, CAMERA_HEIGHT);
+
+  const header = Buffer.from(
+    `YUV4MPEG2 W${CAMERA_WIDTH} H${CAMERA_HEIGHT} F${CAMERA_FPS}:1 Ip A1:1 C420jpeg\n`,
+    "ascii",
+  );
+  const frameHeader = Buffer.from("FRAME\n", "ascii");
+
+  const chunks = [header];
+  for (let i = 0; i < CAMERA_FRAMES; i += 1) {
+    chunks.push(frameHeader, framePlanes);
+  }
+
+  const bytes = Buffer.concat(chunks);
+  writeFileSync(out("fake-camera.y4m"), bytes);
+  console.log("fake-camera.y4m:", bytes.length, "bytes");
+}
+
 await buildRedactFixture();
 await buildCompressFixture();
 await buildCompareFixtures();
 await buildCoreFixture();
+buildFakeCameraY4m();
