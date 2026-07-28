@@ -221,7 +221,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "repair-pdf": {
     icon: Wrench,
     category: "optimize",
-    status: "soon",
+    status: "live",
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,
@@ -278,7 +278,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "html-to-pdf": {
     icon: Code,
     category: "convert-to",
-    status: "soon",
+    status: "live",
     accept: ["text/html"],
     extensions: [".html", ".htm"],
     multiple: false,
@@ -326,7 +326,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "pdf-to-pdfa": {
     icon: FileType,
     category: "convert-from",
-    status: "soon",
+    status: "live",
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,
@@ -334,7 +334,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "pdf-to-markdown": {
     icon: FileCode,
     category: "convert-from",
-    status: "soon",
+    status: "live",
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,
@@ -390,7 +390,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "pdf-summarizer": {
     icon: Sparkles,
     category: "edit",
-    status: "soon",
+    status: "live",
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,
@@ -398,7 +398,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "translate-pdf": {
     icon: Languages,
     category: "edit",
-    status: "soon",
+    status: "live",
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,

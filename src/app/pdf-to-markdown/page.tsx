@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { ToolPageSoon } from "@/components/tool/ToolPageSoon";
+import { PdfToMarkdownToolClient } from "@/app/pdf-to-markdown/PdfToMarkdownToolClient";
 
 export const metadata: Metadata = {
   title: "PDF a Markdown",
   description:
-    "Convierte el contenido del PDF en Markdown estructurado. Todavía no está disponible en OptimusPDF.",
+    "Convierte el contenido de un PDF en Markdown estructurado dentro de tu navegador: títulos, listas, código y tablas regulares. El documento no se sube a ningún servidor.",
   alternates: { canonical: "/pdf-to-markdown" },
 };
 
 export default function PdfToMarkdownPage() {
-  return <ToolPageSoon slug="pdf-to-markdown" />;
+  return <PdfToMarkdownToolClient />;
 }

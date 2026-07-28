@@ -87,12 +87,14 @@ const tools: Record<ToolSlug, ToolCopy> = {
     description: "Pull the tables out of the PDF into an XLSX spreadsheet.",
   },
   "pdf-to-pdfa": {
-    name: "PDF to PDF/A",
-    description: "Convert the document to the PDF/A standard for long-term archiving.",
+    name: "Check PDF/A",
+    description:
+      "Check whether your PDF meets PDF/A requirements and what's missing. Doesn't convert the file.",
   },
   "pdf-to-markdown": {
     name: "PDF to Markdown",
-    description: "Convert the PDF content into structured Markdown.",
+    description:
+      "Extract the PDF text as Markdown: headings, lists, code and regular tables. With OCR for scanned pages.",
   },
   "add-page-numbers": {
     name: "Add page numbers",
@@ -127,8 +129,9 @@ const tools: Record<ToolSlug, ToolCopy> = {
     description: "Get a summary of the document with its key points.",
   },
   "translate-pdf": {
-    name: "Translate PDF",
-    description: "Translate the document content into another language.",
+    name: "Translation report",
+    description:
+      "Translate the PDF text with a local model into a page-by-page bilingual report. Doesn't return a translated PDF.",
   },
   "protect-pdf": {
     name: "Protect PDF",

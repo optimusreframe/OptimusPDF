@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { ToolPageSoon } from "@/components/tool/ToolPageSoon";
+import { HtmlToPdfToolClient } from "@/app/html-to-pdf/HtmlToPdfToolClient";
 
 export const metadata: Metadata = {
   title: "HTML a PDF",
   description:
-    "Captura una página web o un archivo HTML como documento PDF. Todavía no está disponible en OptimusPDF.",
+    "Convierte un archivo HTML en PDF capturando cómo se ve en el navegador. Todo ocurre en tu dispositivo y el HTML nunca llega a ejecutarse.",
   alternates: { canonical: "/html-to-pdf" },
 };
 
 export default function HtmlToPdfPage() {
-  return <ToolPageSoon slug="html-to-pdf" />;
+  return <HtmlToPdfToolClient />;
 }

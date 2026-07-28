@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { ToolPageSoon } from "@/components/tool/ToolPageSoon";
+import { PdfSummarizerToolClient } from "@/app/pdf-summarizer/PdfSummarizerToolClient";
 
 export const metadata: Metadata = {
   title: "Resumir PDF",
   description:
-    "Obtén un resumen del documento con sus puntos clave. Todavía no está disponible en OptimusPDF.",
+    "Resume un PDF con un modelo de lenguaje que se ejecuta en tu propio navegador: el documento no se sube a ningún servidor. Requiere WebGPU y descargar el modelo una vez. El resumen lo escribe una IA y puede contener errores.",
   alternates: { canonical: "/pdf-summarizer" },
 };
 
 export default function PdfSummarizerPage() {
-  return <ToolPageSoon slug="pdf-summarizer" />;
+  return <PdfSummarizerToolClient />;
 }

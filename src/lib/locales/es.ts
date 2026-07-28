@@ -97,13 +97,14 @@ const tools: Record<ToolSlug, ToolCopy> = {
     description: "Extrae las tablas del PDF a una hoja de cálculo XLSX.",
   },
   "pdf-to-pdfa": {
-    name: "PDF a PDF/A",
+    name: "Verificar PDF/A",
     description:
-      "Convierte el documento al estándar PDF/A para archivo a largo plazo.",
+      "Revisa si tu PDF cumple los requisitos de PDF/A y qué le falta para lograrlo. No convierte el archivo.",
   },
   "pdf-to-markdown": {
     name: "PDF a Markdown",
-    description: "Convierte el contenido del PDF en Markdown estructurado.",
+    description:
+      "Extrae el texto del PDF como Markdown: títulos, listas, código y tablas regulares. Con OCR para páginas escaneadas.",
   },
   "add-page-numbers": {
     name: "Numerar páginas",
@@ -140,8 +141,9 @@ const tools: Record<ToolSlug, ToolCopy> = {
     description: "Obtén un resumen del documento con los puntos clave.",
   },
   "translate-pdf": {
-    name: "Traducir PDF",
-    description: "Traduce el contenido del documento a otro idioma.",
+    name: "Informe de traducción",
+    description:
+      "Traduce el texto del PDF con un modelo local y genera un informe bilingüe, página a página. No devuelve un PDF traducido.",
   },
   "protect-pdf": {
     name: "Proteger PDF",
