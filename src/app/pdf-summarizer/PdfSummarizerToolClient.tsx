@@ -245,6 +245,12 @@ export function PdfSummarizerToolClient() {
       setResult(output);
       addRecentEntry("pdf-summarizer", file.name);
       setPhase("done");
+      // El efecto que llama a `isModelCached` solo corre al montar o al
+      // cambiar de modelo: sin esto, tras acabar de descargar y usar el
+      // modelo en esta misma pestana, "cached" se quedaria en `false` y
+      // un segundo resumen en la misma sesion volveria a pedir
+      // consentimiento como si el modelo no estuviera ya disponible.
+      setCached(true);
     } catch (caught) {
       if (runIdRef.current !== runId) return;
       const pdfError = toPdfError(caught);
