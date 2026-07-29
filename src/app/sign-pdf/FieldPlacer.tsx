@@ -73,6 +73,7 @@ export type FieldPlacerProps = {
   file: File | null;
   signers: Signer[];
   activeSignerId: string | null;
+  onActiveSignerIdChange: (id: string) => void;
   fields: SignatureField[];
   onFieldsChange: (fields: SignatureField[]) => void;
   activeType: SignatureFieldType;
@@ -115,6 +116,7 @@ function FieldPlacerInner({
   file,
   signers,
   activeSignerId,
+  onActiveSignerIdChange,
   fields,
   onFieldsChange,
   activeType,
@@ -454,6 +456,50 @@ function FieldPlacerInner({
           {strings.fieldsHint}
         </p>
       </div>
+
+      {/* Dueño del proximo hueco: se cambia aqui mismo, sin volver al paso 1. */}
+      {signers.length > 0 ? (
+        <div className="mb-3">
+          <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+            {strings.activeSignerLabel}
+          </span>
+          <div
+            role="radiogroup"
+            aria-label={strings.activeSignerLabel}
+            className="flex flex-wrap gap-1.5"
+          >
+            {signers.map((signer) => {
+              const active = signer.id === activeSignerId;
+              return (
+                <button
+                  key={signer.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => onActiveSignerIdChange(signer.id)}
+                  className={cn(
+                    "flex min-h-11 items-center gap-2 rounded-ios-sm border px-3 text-xs transition-all duration-200 ease-spring",
+                    active
+                      ? "border-signal/60 bg-signal/15 text-foreground"
+                      : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/25 hover:bg-white/10 hover:text-foreground",
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="size-3 shrink-0 rounded-full"
+                    /* Color del firmante: dato del documento, no un token del tema. */
+                    style={{ backgroundColor: signer.color }}
+                  />
+                  <span className="max-w-32 truncate">{signer.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            {strings.activeSignerHint}
+          </p>
+        </div>
+      ) : null}
 
       {/* Tipo del proximo hueco */}
       <div className="mb-3">

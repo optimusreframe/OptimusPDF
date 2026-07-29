@@ -449,6 +449,9 @@ export function MultiFlow({
           file={file}
           signers={options.signers}
           activeSignerId={options.activeSignerId}
+          onActiveSignerIdChange={(activeSignerId) =>
+            setOptions({ activeSignerId })
+          }
           fields={options.fields}
           onFieldsChange={(fields) => setOptions({ fields })}
           activeType={options.fieldType}

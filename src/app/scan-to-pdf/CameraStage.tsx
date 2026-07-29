@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Camera,
   CameraOff,
+  Check,
   ImagePlus,
   Smartphone,
 } from "lucide-react";
@@ -41,7 +42,6 @@ import { getTool } from "@/lib/tools-registry";
 import { STRINGS } from "@/app/scan-to-pdf/strings";
 import { previewFilter } from "@/app/scan-to-pdf/preview";
 import { DocumentOverlay } from "@/app/scan-to-pdf/DocumentOverlay";
-import { ScreenTorch } from "@/app/scan-to-pdf/ScreenTorch";
 
 const TOOL = getTool("scan-to-pdf");
 
@@ -104,9 +104,9 @@ export type CameraStageProps = {
  *
  * Sobre la vista en vivo corre un analisis del fotograma (nitidez, luz y
  * movimiento) que guia el encuadre y, si la auto-captura esta encendida,
- * dispara solo. Como ningun navegador movil deja controlar el flash ni el
- * enfoque del stream, para eso se ofrece un modo aparte que abre la app de
- * Camara del sistema.
+ * dispara solo: es el camino rapido para escanear varias paginas. Como
+ * ningun navegador movil deja controlar el flash ni el enfoque del stream,
+ * para eso se ofrece la rafaga con la app de Camara del sistema.
  */
 export function CameraStage({
   filter,
@@ -125,7 +125,8 @@ export function CameraStage({
     null,
   );
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [torch, setTorch] = useState(false);
+  const [burst, setBurst] = useState(false);
+  const [burstCount, setBurstCount] = useState(0);
 
   const coarsePointer = useSyncExternalStore(
     subscribeCoarsePointer,
@@ -206,7 +207,6 @@ export function CameraStage({
     stopCameraStream(streamRef.current);
     streamRef.current = null;
     setStream(null);
-    setTorch(false);
     setHint("unknown");
     previousSampleRef.current = null;
     resetAutoCapture();
@@ -328,16 +328,39 @@ export function CameraStage({
    * para entonces ya existe y consta como pendiente. Hacerlo aqui antes
    * de publicar dejaba un hueco en el que el gate de generacion no veia
    * la foto en curso.
+   *
+   * Devuelve cuantas fotos se han publicado: la rafaga lo necesita para
+   * no reabrir la camara cuando la seleccion no traia nada valido.
    */
   const addFromDevice = useCallback(
     (list: FileList | null) => {
-      if (!list) return;
+      if (!list) return 0;
+      let added = 0;
       for (const file of Array.from(list)) {
-        if (matchesAccept(file, TOOL.accept, TOOL.extensions)) onImport(file);
+        if (!matchesAccept(file, TOOL.accept, TOOL.extensions)) continue;
+        onImport(file);
+        added += 1;
       }
+      return added;
     },
     [onImport],
   );
+
+  /**
+   * Rafaga con la camara del sistema: una sola pulsacion abre la app de
+   * Camara y, en cuanto vuelve una foto, se reabre sola para la
+   * siguiente. Apaga la vista en vivo antes de empezar —dos camaras a la
+   * vez no aportan nada y en iOS el stream queda suspendido de todas
+   * formas— y solo se corta con "Terminar": el `change` del input no
+   * distingue "he cancelado" de "sigo pensando", asi que ese boton se
+   * queda fijo en pantalla mientras el modo esta activo.
+   */
+  const startBurst = useCallback(() => {
+    stop();
+    setBurst(true);
+    setBurstCount(0);
+    nativeInputRef.current?.click();
+  }, [stop]);
 
   return (
     <div>
@@ -361,10 +384,29 @@ export function CameraStage({
         </div>
       ) : null}
 
+      {burst ? (
+        // Fijo y por encima de la cabecera (z-40): es la unica salida del
+        // bucle, asi que tiene que estar a mano vuelva el usuario donde
+        // vuelva y sin importar cuanto haya scrolleado.
+        <div
+          className="glass-bar fixed inset-x-0 top-0 z-50 flex items-center gap-3 border-b border-white/10 px-4 pb-3"
+          style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
+        >
+          <div className="min-w-0">
+            <p className="hud-label text-[10px] text-signal">{s.burstTitle}</p>
+            <p aria-live="polite" className="mt-0.5 text-sm text-foreground">
+              {s.burstCount.replace("{count}", String(burstCount))}
+            </p>
+          </div>
+          <Button size="md" className="ml-auto" onClick={() => setBurst(false)}>
+            <Check aria-hidden="true" className="size-4" />
+            {s.burstDone}
+          </Button>
+        </div>
+      ) : null}
+
       {stream ? (
-        // z-20: la luz de pantalla de `ScreenTorch` se pinta en z-10, y el
-        // visor tiene que quedar por encima de ella.
-        <div className="glass rounded-ios-lg relative z-20 overflow-hidden p-3">
+        <div className="glass rounded-ios-lg relative overflow-hidden p-3">
           <div className="relative overflow-hidden rounded-[16px] bg-black">
             <video
               ref={videoRef}
@@ -419,13 +461,8 @@ export function CameraStage({
               }}
             />
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <ScreenTorch active={torch} onChange={setTorch} />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => nativeInputRef.current?.click()}
-              >
+            <div className="mt-3">
+              <Button variant="ghost" size="sm" onClick={startBurst}>
                 <Smartphone aria-hidden="true" className="size-3.5" />
                 {s.nativeCamera}
               </Button>
@@ -466,7 +503,7 @@ export function CameraStage({
             variant="secondary"
             size="sm"
             className="mt-3"
-            onClick={() => nativeInputRef.current?.click()}
+            onClick={startBurst}
           >
             <Smartphone aria-hidden="true" className="size-3.5" />
             {s.nativeCamera}
@@ -504,6 +541,10 @@ export function CameraStage({
         con flash y enfoque reales —lo unico que `getUserMedia` no deja
         controlar—. En escritorio el atributo se ignora y el dialogo se
         comporta como un selector de archivos normal.
+
+        El `click()` de la rafaga sale del propio manejador del `change`,
+        que Safari sigue tratando como gesto del usuario: sacarlo a un
+        `setTimeout` haria que iOS bloquease la reapertura.
       */}
       <input
         ref={nativeInputRef}
@@ -512,8 +553,12 @@ export function CameraStage({
         capture="environment"
         className="sr-only"
         onChange={(event) => {
-          addFromDevice(event.target.files);
-          event.target.value = "";
+          const input = event.target;
+          const added = addFromDevice(input.files);
+          input.value = "";
+          if (!burst || added === 0) return;
+          setBurstCount((current) => current + added);
+          input.click();
         }}
       />
     </div>

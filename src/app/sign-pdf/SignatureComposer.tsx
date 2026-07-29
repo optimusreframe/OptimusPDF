@@ -7,11 +7,12 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Eraser, ImageUp } from "lucide-react";
+import { Eraser, ImageUp, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Sheet } from "@/components/ui/Sheet";
 import { Slider } from "@/components/ui/Slider";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import type { SignStrings } from "@/app/sign-pdf/strings";
@@ -75,9 +76,32 @@ const SIGNATURE_FONTS = [
  */
 const CAVEAT_STYLE_NAME = "Caveat";
 
-const DRAW_WIDTH = 640;
-const INITIALS_DRAW_WIDTH = 320;
-const DRAW_HEIGHT = 220;
+/**
+ * Lienzo de dibujo. Girar el telefono es la unica forma de ganar ancho en
+ * Safari (no se puede forzar la rotacion desde una pestaña normal), asi
+ * que en apaisado el lienzo se ensancha y se acorta para aprovechar el
+ * hueco real que queda entre la cabecera y los controles.
+ */
+const DRAW_SIZES: Record<
+  SignatureComposerVariant,
+  Record<"portrait" | "landscape", { width: number; height: number }>
+> = {
+  signature: {
+    portrait: { width: 640, height: 220 },
+    landscape: { width: 760, height: 160 },
+  },
+  initials: {
+    portrait: { width: 320, height: 220 },
+    landscape: { width: 420, height: 160 },
+  },
+};
+
+/** Pixeles reales por pixel CSS del lienzo de dibujo. */
+const CANVAS_DENSITY = 2;
+
+const LANDSCAPE_QUERY = "(orientation: landscape)";
+const COARSE_POINTER_QUERY = "(pointer: coarse)";
+
 const MAX_TYPED_LENGTH = 48;
 const MAX_TYPED_INITIALS_LENGTH = 8;
 const EXPORT_SCALE = 3;
@@ -101,6 +125,177 @@ function resolveFontFamily(family: string): string {
     .replace(/^\s*,\s*/, "")
     .replace(/,\s*,/g, ",")
     .trim();
+}
+
+export type StrokePoint = { x: number; y: number };
+
+/**
+ * Recorta un valor al intervalo [0, max]. Con `max` no positivo (un
+ * lienzo que aun no tiene tamaño) se devuelve el valor tal cual: es
+ * preferible un punto sin recortar que colapsar todo el trazo en cero.
+ */
+function clampToRange(value: number, max: number): number {
+  if (!(max > 0)) return value;
+  if (value < 0) return 0;
+  if (value > max) return max;
+  return value;
+}
+
+export function midpoint(a: StrokePoint, b: StrokePoint): StrokePoint {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/**
+ * Suavizado por punto medio, la tecnica estandar del trazo a mano alzada:
+ * cada segmento va del punto medio anterior al nuevo punto medio, con el
+ * punto capturado como control. Encadenados asi los segmentos comparten
+ * extremo, de modo que la tinta sale continua y sin esquinas; dibujar
+ * directamente entre puntos capturados deja huecos a mitad de camino.
+ */
+export function drawStrokeSegment(
+  context: CanvasRenderingContext2D,
+  from: StrokePoint,
+  control: StrokePoint,
+  to: StrokePoint,
+  style: { ink: string; width: number },
+): void {
+  context.strokeStyle = style.ink;
+  context.lineWidth = style.width;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  // Tinta continua: nada de guiones heredados de otro dibujo en el mismo
+  // contexto.
+  context.setLineDash([]);
+  context.beginPath();
+  context.moveTo(from.x, from.y);
+  context.quadraticCurveTo(control.x, control.y, to.x, to.y);
+  context.stroke();
+}
+
+/**
+ * Trazo ya terminado, guardado como vector en un espacio de referencia
+ * estable (el lienzo tal como estaba cuando se empezo a dibujar). Girar
+ * el telefono no toca estos puntos: solo cambia la escala con la que se
+ * repintan, asi que la tinta nunca se degrada por reescalados en cadena.
+ */
+type CompletedStroke = { ink: string; width: number; points: StrokePoint[] };
+
+type InkBounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+/**
+ * Caja real de la tinta en el espacio de referencia. La linea se pinta
+ * centrada en sus puntos, asi que se suma el radio de cada trazo
+ * (`width / 2`, distinto en cada uno): mirando solo los puntos, un trazo
+ * grueso pegado al borde perderia la mitad de su grosor al recortar.
+ */
+function inkBounds(strokes: CompletedStroke[]): InkBounds | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const item of strokes) {
+    if (item.points.length < 2) continue;
+    const radius = item.width / 2;
+    for (const point of item.points) {
+      if (point.x - radius < minX) minX = point.x - radius;
+      if (point.y - radius < minY) minY = point.y - radius;
+      if (point.x + radius > maxX) maxX = point.x + radius;
+      if (point.y + radius > maxY) maxY = point.y + radius;
+    }
+  }
+  if (maxX < minX || maxY < minY) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Escala unica desde el espacio de referencia al lienzo actual. Se
+ * calcula siempre desde los puntos originales —nunca desde el resultado
+ * del giro anterior—, de modo que girar ida y vuelta devuelve la tinta a
+ * su tamaño exacto. Solo se encoge si la tinta no cabe; nunca se agranda.
+ */
+function fitScale(
+  strokes: CompletedStroke[],
+  width: number,
+  height: number,
+): number {
+  const bounds = inkBounds(strokes);
+  if (!bounds) return 1;
+  const scaleX = bounds.maxX > 0 ? width / bounds.maxX : 1;
+  const scaleY = bounds.maxY > 0 ? height / bounds.maxY : 1;
+  return Math.min(1, scaleX, scaleY);
+}
+
+/**
+ * Repinta los trazos guardados sobre el lienzo actual. `origin` desplaza
+ * la tinta en el espacio ya escalado, que es lo que permite exportar
+ * pegado a la caja del dibujo sin pasar por el bitmap visible.
+ */
+function renderStrokes(
+  context: CanvasRenderingContext2D,
+  strokes: CompletedStroke[],
+  scale: number,
+  origin: StrokePoint = { x: 0, y: 0 },
+): void {
+  for (const item of strokes) {
+    if (item.points.length < 2) continue;
+    const style = { ink: item.ink, width: item.width * scale };
+    const at = (point: StrokePoint): StrokePoint => ({
+      x: point.x * scale - origin.x,
+      y: point.y * scale - origin.y,
+    });
+    let previous = at(item.points[0]);
+    let from = previous;
+    for (let index = 1; index < item.points.length; index += 1) {
+      const point = at(item.points[index]);
+      const mid = midpoint(previous, point);
+      drawStrokeSegment(context, from, previous, mid, style);
+      previous = point;
+      from = mid;
+    }
+    if (from.x !== previous.x || from.y !== previous.y) {
+      drawStrokeSegment(context, from, previous, previous, style);
+    }
+  }
+}
+
+/** Reajusta un punto vivo del lienzo cuando cambia la escala. */
+function scalePoint(
+  point: StrokePoint | null,
+  ratio: number,
+): StrokePoint | null {
+  return point ? { x: point.x * ratio, y: point.y * ratio } : null;
+}
+
+/**
+ * Imagen final reconstruida desde los puntos guardados sobre un lienzo
+ * aparte, no recortada del lienzo visible. La fuente de verdad son los
+ * trazos, asi que el PNG sale identico este el telefono en vertical o
+ * apaisado al pulsar guardar: `target` es el lienzo de referencia con el
+ * que se empezo a dibujar, no el de la pantalla actual.
+ */
+function exportStrokes(
+  strokes: CompletedStroke[],
+  target: { width: number; height: number },
+): HTMLCanvasElement | null {
+  const bounds = inkBounds(strokes);
+  if (!bounds) return null;
+  const inkWidth = Math.max(1, bounds.maxX - bounds.minX);
+  const inkHeight = Math.max(1, bounds.maxY - bounds.minY);
+  const scale = Math.min(1, target.width / inkWidth, target.height / inkHeight);
+
+  const canvas = document.createElement("canvas");
+  // `ceil`, no `round`: con limites fraccionarios redondear hacia abajo
+  // dejaria el lienzo hasta medio pixel por debajo de la caja real y
+  // recortaria el borde de la tinta.
+  canvas.width = Math.max(1, Math.ceil(inkWidth * scale));
+  canvas.height = Math.max(1, Math.ceil(inkHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  renderStrokes(context, strokes, scale, {
+    x: bounds.minX * scale,
+    y: bounds.minY * scale,
+  });
+  return canvas;
 }
 
 function trimTransparent(source: HTMLCanvasElement): HTMLCanvasElement {
@@ -170,7 +365,12 @@ export function SignatureComposer({
 }: SignatureComposerProps) {
   const t = useT();
   const initials = variant === "initials";
-  const drawWidth = initials ? INITIALS_DRAW_WIDTH : DRAW_WIDTH;
+  // El aviso y el lienzo apaisado solo tienen sentido con el aparato en
+  // la mano: en un escritorio la ventana ya es ancha de serie.
+  const touch = useMediaQuery(COARSE_POINTER_QUERY);
+  const landscape = useMediaQuery(LANDSCAPE_QUERY);
+  const drawSize =
+    DRAW_SIZES[variant][touch && landscape ? "landscape" : "portrait"];
   const [mode, setMode] = useState<ComposerMode>("draw");
   const [ink, setInk] = useState<string>(SIGNATURE_INKS[0]);
   const [stroke, setStroke] = useState(4);
@@ -178,85 +378,230 @@ export function SignatureComposer({
   const [fontIndex, setFontIndex] = useState(0);
   const [uploaded, setUploaded] = useState<HTMLCanvasElement | null>(null);
   const [uploadName, setUploadName] = useState<string | null>(null);
-  const [hasInk, setHasInk] = useState(false);
   const [warning, setWarning] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  /** Ultimo punto capturado: es el control de la curva siguiente. */
+  const lastPointRef = useRef<StrokePoint | null>(null);
+  /** Punto medio donde acabo el segmento anterior; ahi arranca el proximo. */
+  const lastMidRef = useRef<StrokePoint | null>(null);
+  /** Trazos terminados, en el espacio de referencia (ver `CompletedStroke`). */
+  const strokesRef = useRef<CompletedStroke[]>([]);
+  /** Trazo en curso, aun sin cerrar. */
+  const activeStrokeRef = useRef<CompletedStroke | null>(null);
+  /** Escala vigente del espacio de referencia al lienzo actual. */
+  const scaleRef = useRef(1);
+  /**
+   * Tamaño del lienzo en el que se abrio el espacio de referencia. Es la
+   * resolucion a la que se exporta la firma, para que el PNG final no
+   * dependa de la orientacion que hubiera al pulsar guardar.
+   */
+  const referenceSizeRef = useRef({
+    width: DRAW_SIZES[variant].portrait.width * CANVAS_DENSITY,
+    height: DRAW_SIZES[variant].portrait.height * CANVAS_DENSITY,
+  });
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
+  const clearStrokes = useCallback(() => {
+    strokesRef.current = [];
+    activeStrokeRef.current = null;
+    lastPointRef.current = null;
+    lastMidRef.current = null;
+    scaleRef.current = 1;
+    // Sin tinta, el espacio de referencia vuelve a ser el lienzo actual.
+    const canvas = canvasRef.current;
+    if (canvas && canvas.width > 0 && canvas.height > 0) {
+      referenceSizeRef.current = { width: canvas.width, height: canvas.height };
+    }
+  }, []);
+
   const resetCanvas = useCallback(() => {
+    clearStrokes();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const context = canvas.getContext("2d");
     if (!context) return;
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, canvas.width, canvas.height);
-    setHasInk(false);
-  }, []);
+  }, [clearStrokes]);
 
+  /* Entrar en el modo de dibujo siempre empieza con el lienzo limpio. */
+  useEffect(() => {
+    if (!open || mode !== "draw") return;
+    clearStrokes();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+  }, [open, mode, clearStrokes]);
+
+  /**
+   * Girar el telefono cambia el tamaño del lienzo, y asignar `width` o
+   * `height` lo vacia. En vez de reescalar el bitmap —lo que encogeria la
+   * tinta un poco mas en cada giro— se repintan los trazos guardados
+   * desde sus puntos originales con una sola escala.
+   */
   useEffect(() => {
     if (!open || mode !== "draw") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.width = drawWidth * 2;
-    canvas.height = DRAW_HEIGHT * 2;
+    const width = drawSize.width * CANVAS_DENSITY;
+    const height = drawSize.height * CANVAS_DENSITY;
+    if (canvas.width === width && canvas.height === height) return;
+
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) return;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    setHasInk(false);
-  }, [open, mode, drawWidth]);
+    context.clearRect(0, 0, width, height);
+    // El trazo en curso entra en el repintado como uno mas: girar el
+    // telefono con el dedo apoyado no puede borrar lo que ya se lleva
+    // dibujado de el.
+    const active = activeStrokeRef.current;
+    const painted = active
+      ? [...strokesRef.current, active]
+      : strokesRef.current;
+    if (painted.length === 0) {
+      scaleRef.current = 1;
+      referenceSizeRef.current = { width, height };
+      return;
+    }
+    const previous = scaleRef.current || 1;
+    scaleRef.current = fitScale(painted, width, height);
+    renderStrokes(context, painted, scaleRef.current);
+    // Los punteros vivos estan en coordenadas del lienzo anterior: sin
+    // reajustarlos, el trazo continuaria desde un punto que ya no existe.
+    const ratio = scaleRef.current / previous;
+    if (active && ratio !== 1) {
+      lastPointRef.current = scalePoint(lastPointRef.current, ratio);
+      lastMidRef.current = scalePoint(lastMidRef.current, ratio);
+    }
+  }, [open, mode, drawSize.width, drawSize.height]);
 
-  const pointFromEvent = (
-    event: ReactPointerEvent<HTMLCanvasElement>,
-  ): { x: number; y: number } => {
-    const canvas = event.currentTarget;
+  /**
+   * Punto del evento en espacio de lienzo, recortado al area de dibujo.
+   * Con el puntero capturado los eventos siguen llegando aunque el dedo
+   * se salga del lienzo: en pantalla ese tramo no se ve (el elemento lo
+   * recorta), pero la exportacion reconstruye desde los puntos guardados
+   * y si tuvieran coordenadas de fuera inflaria la caja de la tinta y
+   * encogeria la firma visible. Recortando aqui, ni el trazo pintado ni
+   * el exportado pueden salirse nunca del area visible.
+   */
+  const pointFrom = (
+    canvas: HTMLCanvasElement,
+    clientX: number,
+    clientY: number,
+  ): StrokePoint => {
     const bounds = canvas.getBoundingClientRect();
     return {
-      x: ((event.clientX - bounds.left) / (bounds.width || 1)) * canvas.width,
-      y: ((event.clientY - bounds.top) / (bounds.height || 1)) * canvas.height,
+      x: clampToRange(
+        ((clientX - bounds.left) / (bounds.width || 1)) * canvas.width,
+        canvas.width,
+      ),
+      y: clampToRange(
+        ((clientY - bounds.top) / (bounds.height || 1)) * canvas.height,
+        canvas.height,
+      ),
     };
+  };
+
+  /**
+   * Puntos reales del evento en espacio de lienzo. Un trazo rapido en el
+   * movil llega con varios puntos por evento; sin recuperarlos, el
+   * navegador solo entrega el ultimo y el trazo se vuelve una sucesion de
+   * rectas largas.
+   */
+  const pointsFrom = (
+    event: ReactPointerEvent<HTMLCanvasElement>,
+    canvas: HTMLCanvasElement,
+  ): StrokePoint[] => {
+    const native = event.nativeEvent;
+    const batch =
+      typeof native.getCoalescedEvents === "function"
+        ? native.getCoalescedEvents()
+        : [];
+    return (batch.length > 0 ? batch : [native]).map((item) =>
+      pointFrom(canvas, item.clientX, item.clientY),
+    );
   };
 
   const startStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    lastPointRef.current = pointFromEvent(event);
+    const point = pointFrom(event.currentTarget, event.clientX, event.clientY);
+    lastPointRef.current = point;
+    lastMidRef.current = point;
+    const scale = scaleRef.current || 1;
+    activeStrokeRef.current = {
+      ink,
+      width: (stroke * 2) / scale,
+      points: [{ x: point.x / scale, y: point.y / scale }],
+    };
+  };
+
+  /** Guarda el punto en el espacio de referencia del trazo en curso. */
+  const trackPoint = (point: StrokePoint): void => {
+    const active = activeStrokeRef.current;
+    if (!active) return;
+    const scale = scaleRef.current || 1;
+    active.points.push({ x: point.x / scale, y: point.y / scale });
   };
 
   const continueStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const previous = lastPointRef.current;
-    if (!previous) return;
+    if (!lastPointRef.current) return;
     event.preventDefault();
     const canvas = event.currentTarget;
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    const point = pointFromEvent(event);
-    context.strokeStyle = ink;
-    context.lineWidth = stroke * 2;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.beginPath();
-    context.moveTo(previous.x, previous.y);
-    // Curva suave: el punto medio actúa como final del segmento y el
-    // punto anterior como control, así no se ven esquinas.
-    context.quadraticCurveTo(
-      previous.x,
-      previous.y,
-      (previous.x + point.x) / 2,
-      (previous.y + point.y) / 2,
-    );
-    context.stroke();
-
-    lastPointRef.current = point;
-    if (!hasInk) setHasInk(true);
+    for (const point of pointsFrom(event, canvas)) {
+      const previous = lastPointRef.current;
+      const from = lastMidRef.current;
+      if (!previous || !from) break;
+      const mid = midpoint(previous, point);
+      drawStrokeSegment(context, from, previous, mid, {
+        ink,
+        width: stroke * 2,
+      });
+      lastPointRef.current = point;
+      lastMidRef.current = mid;
+      trackPoint(point);
+    }
   };
 
   const endStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    let previous = lastPointRef.current;
+    let from = lastMidRef.current;
     lastPointRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+    lastMidRef.current = null;
+    const canvas = event.currentTarget;
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    const context = canvas.getContext("2d");
+    if (previous && from && context) {
+      // El dedo se sigue moviendo entre el ultimo `pointermove` y el
+      // `pointerup`: sin procesar las coordenadas del propio `pointerup`
+      // ese ultimo tramo nunca se pinta y la firma queda cortada.
+      const style = { ink, width: stroke * 2 };
+      for (const point of pointsFrom(event, canvas)) {
+        const mid = midpoint(previous, point);
+        drawStrokeSegment(context, from, previous, mid, style);
+        previous = point;
+        from = mid;
+        trackPoint(point);
+      }
+      // Cola del trazo: del ultimo punto medio al punto donde se levanto
+      // el dedo. Si coinciden es que el dedo no llego a moverse y no hay
+      // nada que rematar.
+      if (from.x !== previous.x || from.y !== previous.y) {
+        drawStrokeSegment(context, from, previous, previous, style);
+      }
+    }
+
+    const active = activeStrokeRef.current;
+    activeStrokeRef.current = null;
+    if (active && active.points.length > 1) {
+      strokesRef.current = [...strokesRef.current, active];
     }
   };
 
@@ -317,8 +662,12 @@ export function SignatureComposer({
   const save = () => {
     let canvas: HTMLCanvasElement | null = null;
     if (mode === "draw") {
-      const source = canvasRef.current;
-      canvas = source && hasInk ? trimTransparent(source) : null;
+      // Incluido el trazo que siguiera en curso al pulsar guardar.
+      const active = activeStrokeRef.current;
+      canvas = exportStrokes(
+        active ? [...strokesRef.current, active] : strokesRef.current,
+        referenceSizeRef.current,
+      );
     } else if (mode === "type") {
       canvas = buildTyped();
     } else {
@@ -358,6 +707,12 @@ export function SignatureComposer({
 
         {mode === "draw" ? (
           <div className="space-y-3">
+            {touch && !landscape ? (
+              <p className="rounded-ios-sm flex items-center gap-2 border border-white/10 bg-white/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                <RotateCw aria-hidden="true" className="size-4 shrink-0" />
+                {strings.rotateHint}
+              </p>
+            ) : null}
             <canvas
               ref={canvasRef}
               onPointerDown={startStroke}
@@ -367,8 +722,8 @@ export function SignatureComposer({
               aria-label={strings.drawHint}
               className="mx-auto block h-auto w-full touch-none rounded-ios-sm border border-white/14 bg-white"
               style={{
-                aspectRatio: `${drawWidth} / ${DRAW_HEIGHT}`,
-                maxWidth: initials ? `${INITIALS_DRAW_WIDTH}px` : undefined,
+                aspectRatio: `${drawSize.width} / ${drawSize.height}`,
+                maxWidth: initials ? `${drawSize.width}px` : undefined,
               }}
             />
             <div className="flex items-center justify-between gap-3">

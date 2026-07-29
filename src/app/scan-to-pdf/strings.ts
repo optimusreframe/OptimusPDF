@@ -21,8 +21,10 @@ export type ScanToPdfStrings = {
   captureHints: Record<CaptureHint, string>;
   nativeCamera: string;
   nativeCameraHint: string;
-  screenTorchOn: string;
-  screenTorchOff: string;
+  burstTitle: string;
+  /** Contiene `{count}`, que se sustituye por las fotos ya tomadas. */
+  burstCount: string;
+  burstDone: string;
   capturesTitle: string;
   capturesEmpty: string;
   captureAlt: string;
@@ -61,7 +63,7 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
   es: {
     startTitle: "Usa la cámara como escáner",
     startBody:
-      "Activa la cámara, encuadra el documento y captura una página tras otra. El vídeo se queda en tu dispositivo: no se transmite ni se graba.",
+      "La vía rápida: activa la cámara, encuadra el documento y la auto-captura dispara sola, página tras página. El vídeo se queda en tu dispositivo: no se transmite ni se graba.",
     startButton: "Activar cámara",
     starting: "Abriendo la cámara…",
     liveTitle: "Vista de la cámara",
@@ -81,11 +83,12 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
       too_dark: "Muy oscuro",
       unknown: "Buscando el encuadre…",
     },
-    nativeCamera: "Usar cámara del teléfono",
+    nativeCamera: "Cámara del teléfono (ráfaga)",
     nativeCameraHint:
-      "Abre la app de Cámara del sistema, con flash y enfoque reales. La foto vuelve aquí al terminar.",
-    screenTorchOn: "Iluminar con pantalla",
-    screenTorchOff: "Apagar la luz de pantalla",
+      "¿Necesitas flash o enfoque manual reales? Abre la app de Cámara y se vuelve a abrir sola tras cada foto, hasta que pulses «Terminar».",
+    burstTitle: "Ráfaga activa",
+    burstCount: "Fotos capturadas: {count}",
+    burstDone: "Terminar",
     capturesTitle: "Páginas capturadas",
     capturesEmpty: "Todavía no has capturado ninguna página.",
     captureAlt: "Captura",
@@ -133,7 +136,7 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
   en: {
     startTitle: "Turn your camera into a scanner",
     startBody:
-      "Turn the camera on, frame the document and capture one page after another. The video stays on your device: nothing is streamed or recorded.",
+      "The fast way: turn the camera on, frame the document and auto capture shoots on its own, page after page. The video stays on your device: nothing is streamed or recorded.",
     startButton: "Turn camera on",
     starting: "Opening the camera…",
     liveTitle: "Camera view",
@@ -152,11 +155,12 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
       too_dark: "Too dark",
       unknown: "Reading the frame…",
     },
-    nativeCamera: "Use the phone camera",
+    nativeCamera: "Phone camera (burst)",
     nativeCameraHint:
-      "Opens your system Camera app, with real flash and focus. The photo comes back here when you are done.",
-    screenTorchOn: "Light up with the screen",
-    screenTorchOff: "Turn the screen light off",
+      "Need real flash or manual focus? Opens your system Camera app and reopens it after every photo, until you tap “Done”.",
+    burstTitle: "Burst mode on",
+    burstCount: "Photos captured: {count}",
+    burstDone: "Done",
     capturesTitle: "Captured pages",
     capturesEmpty: "You have not captured any page yet.",
     captureAlt: "Capture",

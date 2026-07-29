@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { DetectedQuad } from "@/lib/scan/documentDetection";
 import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
@@ -106,6 +106,10 @@ beforeEach(() => {
   orientation.reset();
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 function photo(): File {
   return new File([new Uint8Array([137, 80, 78, 71])], "pagina.png", {
     type: "image/png",
@@ -116,6 +120,14 @@ function generateButtons(): HTMLButtonElement[] {
   return screen.getAllByRole("button", {
     name: s.generate,
   }) as HTMLButtonElement[];
+}
+
+function nativeInput(container: HTMLElement): HTMLInputElement {
+  const input = container.querySelector<HTMLInputElement>(
+    'input[type="file"][capture]',
+  );
+  expect(input).not.toBeNull();
+  return input!;
 }
 
 /** Añade una foto por el input de archivos del escenario de camara. */
@@ -215,5 +227,50 @@ describe("ScanToPdfClient — src/app/scan-to-pdf/ScanToPdfClient.tsx", () => {
     detection.resolveWith(null);
     await waitFor(() => expect(screen.queryByLabelText(s.cropping)).toBeNull());
     for (const button of generateButtons()) expect(button.disabled).toBe(false);
+  });
+});
+
+/**
+ * La rafaga existe porque abrir la app de Camara una vez por pagina es
+ * demasiado lento: cada foto que vuelve tiene que reabrirla sola, y el
+ * bucle solo lo corta "Terminar" —el `change` del input nunca avisa de un
+ * "cancelar"—.
+ */
+describe("rafaga con la camara del sistema — src/app/scan-to-pdf/CameraStage.tsx", () => {
+  it("reabre la camara tras cada foto y para al pulsar Terminar", async () => {
+    const openCamera = vi
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    const { container } = render(
+      <LanguageProvider>
+        <ScanToPdfClient />
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: s.nativeCamera }));
+    expect(openCamera).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(s.burstCount.replace("{count}", "0")),
+    ).toBeTruthy();
+
+    fireEvent.change(nativeInput(container), { target: { files: [photo()] } });
+    await waitFor(() =>
+      expect(screen.getByAltText(`${s.captureAlt} 1`)).toBeTruthy(),
+    );
+    expect(openCamera).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByText(s.burstCount.replace("{count}", "1")),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: s.burstDone }));
+    expect(screen.queryByText(s.burstTitle)).toBeNull();
+
+    // Fuera del modo, una foto tardia se guarda pero ya no reabre nada.
+    fireEvent.change(nativeInput(container), { target: { files: [photo()] } });
+    await waitFor(() =>
+      expect(screen.getByAltText(`${s.captureAlt} 2`)).toBeTruthy(),
+    );
+    expect(openCamera).toHaveBeenCalledTimes(2);
   });
 });

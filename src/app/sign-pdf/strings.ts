@@ -18,6 +18,7 @@ export type SignStrings = {
   uploadHint: string;
   inkLabel: string;
   strokeLabel: string;
+  rotateHint: string;
   save: string;
   emptyWarning: string;
   placeTitle: string;
@@ -133,6 +134,7 @@ const es: SignStrings = {
     "Un PNG con fondo transparente da el mejor resultado. También se admite JPG.",
   inkLabel: "Color de la tinta",
   strokeLabel: "Grosor del trazo",
+  rotateHint: "Gira el teléfono para firmar con más espacio.",
   save: "Usar esta firma",
   emptyWarning: "Todavía no hay nada que guardar.",
   placeTitle: "Coloca la firma",
@@ -261,6 +263,7 @@ const en: SignStrings = {
     "A PNG with a transparent background gives the best result. JPG also works.",
   inkLabel: "Ink colour",
   strokeLabel: "Stroke weight",
+  rotateHint: "Turn your phone sideways to sign with more room.",
   save: "Use this signature",
   emptyWarning: "There is nothing to save yet.",
   placeTitle: "Place the signature",

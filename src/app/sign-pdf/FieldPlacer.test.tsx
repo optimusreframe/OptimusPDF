@@ -65,18 +65,22 @@ type HarnessProps = {
 function Harness({
   onFieldsChange,
   initialFields = [],
-  activeSignerId = ANA.id,
+  activeSignerId: initialActiveSignerId = ANA.id,
 }: HarnessProps) {
   const [fields, setFields] = useState<SignatureField[]>(initialFields);
   const [type, setType] = useState<SignatureFieldType>("signature");
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeSignerId, setActiveSignerId] = useState<string | null>(
+    initialActiveSignerId,
+  );
 
   return (
     <FieldPlacer
       file={FILE}
       signers={[ANA, LUIS]}
       activeSignerId={activeSignerId}
+      onActiveSignerIdChange={setActiveSignerId}
       fields={fields}
       onFieldsChange={(next) => {
         setFields(next);
@@ -210,6 +214,47 @@ describe("FieldPlacer — src/app/sign-pdf/FieldPlacer.tsx", () => {
 
     expect(last).toHaveLength(0);
     expect(screen.queryByRole("group", { name: signatureLabel })).toBeNull();
+  });
+
+  it("cambiar de firmante activo manda los huecos nuevos al elegido", async () => {
+    let last: SignatureField[] = [];
+    render(<Harness onFieldsChange={(fields) => (last = fields)} />);
+    await waitForPreview();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+    expect(last[0].signerId).toBe(ANA.id);
+
+    const chip = screen.getByRole("radio", { name: LUIS.name });
+    expect(chip.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(chip);
+    expect(
+      screen.getByRole("radio", { name: LUIS.name }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("radio", { name: ANA.name }).getAttribute("aria-checked"),
+    ).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+
+    expect(last).toHaveLength(2);
+    // El hueco anterior sigue siendo de Ana; solo el nuevo cambia de dueño.
+    expect(last[0].signerId).toBe(ANA.id);
+    expect(last[1].signerId).toBe(LUIS.id);
+    expect(
+      screen.getByRole("group", {
+        name: strings.fieldOwnerLabel(LUIS.name, strings.fieldSignature),
+      }),
+    ).toBeTruthy();
+  });
+
+  it("el selector de firmante no duplica el estado: refleja el que llega por props", async () => {
+    render(<Harness onFieldsChange={() => {}} activeSignerId={LUIS.id} />);
+    await waitForPreview();
+
+    expect(
+      screen.getByRole("radio", { name: LUIS.name }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.getByText(strings.fieldOwnerLabel(LUIS.name, strings.fieldSignature))).toBeTruthy();
   });
 
   it("sin firmante activo no se puede reservar nada", async () => {
