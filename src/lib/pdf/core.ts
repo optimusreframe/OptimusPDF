@@ -603,15 +603,19 @@ export function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/** `informe.pdf` -> `informe`. Sin extension no cambia nada. */
+export function stripExtension(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot > 0 ? filename.slice(0, dot) : filename;
+}
+
 /** `informe.pdf` + `unido` -> `informe-unido.pdf` */
 export function withSuffix(
   filename: string,
   suffix: string,
   extension = "pdf",
 ): string {
-  const dot = filename.lastIndexOf(".");
-  const base = dot > 0 ? filename.slice(0, dot) : filename;
-  const safeBase = base.trim() || "documento";
+  const safeBase = stripExtension(filename).trim() || "documento";
   return `${safeBase}-${suffix}.${extension}`;
 }
 

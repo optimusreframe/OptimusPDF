@@ -5,7 +5,12 @@ import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { useI18n, useT, type Dictionary } from "@/lib/i18n";
-import { MAX_SAFE_FILE_SIZE, type ProgressCallback } from "@/lib/pdf/core";
+import {
+  MAX_SAFE_FILE_SIZE,
+  stripExtension,
+  withSuffix,
+  type ProgressCallback,
+} from "@/lib/pdf/core";
 import { formatPageList, parsePageList, splitPdf } from "@/lib/pdf/split";
 import { getTool } from "@/lib/tools-registry";
 import {
@@ -67,6 +72,7 @@ export function ExtractPagesToolClient() {
           ? options.selected
           : allPages(options.pageCount);
 
+      const baseName = stripExtension(file.name).trim() || strings.outputName;
       const output = await splitPdf(
         file,
         {
@@ -74,13 +80,17 @@ export function ExtractPagesToolClient() {
           pages,
           separate: options.output === "perPage",
         },
-        strings.outputName,
+        baseName,
         onProgress,
       );
 
       return {
         blob: output.blob,
-        filename: `${strings.outputName}.${output.kind === "zip" ? "zip" : "pdf"}`,
+        filename: withSuffix(
+          file.name,
+          strings.filenameSuffix,
+          output.kind === "zip" ? "zip" : "pdf",
+        ),
       };
     },
     [strings],

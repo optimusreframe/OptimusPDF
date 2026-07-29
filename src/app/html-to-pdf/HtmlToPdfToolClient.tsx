@@ -5,7 +5,7 @@ import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { useI18n } from "@/lib/i18n";
-import { slugify, type ProgressCallback } from "@/lib/pdf/core";
+import { withSuffix, type ProgressCallback } from "@/lib/pdf/core";
 import {
   DEFAULT_HTML_TO_PDF_OPTIONS,
   htmlToPdf,
@@ -20,7 +20,7 @@ import { STRINGS } from "@/app/html-to-pdf/strings";
 const TOOL = getTool("html-to-pdf");
 
 export function HtmlToPdfToolClient() {
-  const { t, language } = useI18n();
+  const { language } = useI18n();
   const s = STRINGS[language];
 
   const process = useCallback(
@@ -30,12 +30,11 @@ export function HtmlToPdfToolClient() {
       onProgress: ProgressCallback,
       signal: AbortSignal,
     ): Promise<ProcessResult> => {
-      const blob = await htmlToPdf(files[0], options, onProgress, signal);
-      const base =
-        t.filenames["html-to-pdf"] ?? slugify(t.tools["html-to-pdf"].name);
-      return { blob, filename: `${base}.pdf` };
+      const file = files[0];
+      const blob = await htmlToPdf(file, options, onProgress, signal);
+      return { blob, filename: withSuffix(file.name, s.filenameSuffix) };
     },
-    [t],
+    [s.filenameSuffix],
   );
 
   return (

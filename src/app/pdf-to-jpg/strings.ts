@@ -17,6 +17,8 @@ export type PdfToJpgStrings = {
   outputHint: string;
   /** Prefijo de los archivos dentro del ZIP. */
   filePrefix: string;
+  /** Sufijo para el archivo final descargado, sobre el nombre original. */
+  filenameSuffix: string;
 };
 
 export const STRINGS: Record<Language, PdfToJpgStrings> = {
@@ -36,6 +38,7 @@ export const STRINGS: Record<Language, PdfToJpgStrings> = {
     outputHint:
       "Una sola página se descarga como JPG; varias, agrupadas en un ZIP.",
     filePrefix: "pagina",
+    filenameSuffix: "imagenes",
   },
   en: {
     qualityLabel: "JPG quality",
@@ -52,5 +55,6 @@ export const STRINGS: Record<Language, PdfToJpgStrings> = {
     noPagesSelected: "No page is selected right now.",
     outputHint: "A single page downloads as a JPG; several arrive in a ZIP.",
     filePrefix: "page",
+    filenameSuffix: "images",
   },
 };

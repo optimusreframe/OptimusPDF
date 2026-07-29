@@ -41,6 +41,8 @@ export type SplitStrings = {
   outsideHint: string;
   largeFile: string;
   outputName: string;
+  /** Sufijo para el archivo final descargado, sobre el nombre original. */
+  filenameSuffix: string;
 };
 
 const STRINGS: Record<Language, SplitStrings> = {
@@ -90,6 +92,7 @@ const STRINGS: Record<Language, SplitStrings> = {
     largeFile:
       "El documento supera los 100 MB: generar las miniaturas puede tardar.",
     outputName: "documento-dividido",
+    filenameSuffix: "dividido",
   },
   en: {
     boardTitle: "How the split lands",
@@ -135,6 +138,7 @@ const STRINGS: Record<Language, SplitStrings> = {
     largeFile:
       "This document is over 100 MB: building the thumbnails may take a while.",
     outputName: "split-document",
+    filenameSuffix: "split",
   },
 };
 

@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { useI18n, useT, type Dictionary } from "@/lib/i18n";
-import { MAX_SAFE_FILE_SIZE, type ProgressCallback } from "@/lib/pdf/core";
+import {
+  MAX_SAFE_FILE_SIZE,
+  stripExtension,
+  withSuffix,
+  type ProgressCallback,
+} from "@/lib/pdf/core";
 import {
   buildSplitGroups,
   formatPageList,
@@ -105,15 +110,20 @@ export function SplitToolClient() {
       onProgress: ProgressCallback,
     ): Promise<ProcessResult> => {
       const file = files[0];
+      const baseName = stripExtension(file.name).trim() || strings.outputName;
       const output = await splitPdf(
         file,
         toPlan(options),
-        strings.outputName,
+        baseName,
         onProgress,
       );
       return {
         blob: output.blob,
-        filename: `${strings.outputName}.${output.kind === "zip" ? "zip" : "pdf"}`,
+        filename: withSuffix(
+          file.name,
+          strings.filenameSuffix,
+          output.kind === "zip" ? "zip" : "pdf",
+        ),
       };
     },
     [strings],

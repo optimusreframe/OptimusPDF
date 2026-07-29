@@ -22,6 +22,8 @@ export type ExtractPagesStrings = {
   zipNotice: (parts: number) => string;
   largeFile: string;
   outputName: string;
+  /** Sufijo para el archivo final descargado, sobre el nombre original. */
+  filenameSuffix: string;
 };
 
 const STRINGS: Record<Language, ExtractPagesStrings> = {
@@ -50,6 +52,7 @@ const STRINGS: Record<Language, ExtractPagesStrings> = {
     largeFile:
       "El documento supera los 100 MB: generar las miniaturas puede tardar.",
     outputName: "paginas-extraidas",
+    filenameSuffix: "extraido",
   },
   en: {
     boardTitle: "Choose what you take",
@@ -75,6 +78,7 @@ const STRINGS: Record<Language, ExtractPagesStrings> = {
     largeFile:
       "This document is over 100 MB: building the thumbnails may take a while.",
     outputName: "extracted-pages",
+    filenameSuffix: "extracted",
   },
 };
 

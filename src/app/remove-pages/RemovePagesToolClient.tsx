@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/Button";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { useI18n, useT, type Dictionary } from "@/lib/i18n";
-import { MAX_SAFE_FILE_SIZE, type ProgressCallback } from "@/lib/pdf/core";
+import {
+  MAX_SAFE_FILE_SIZE,
+  withSuffix,
+  type ProgressCallback,
+} from "@/lib/pdf/core";
 import { removePdfPages } from "@/lib/pdf/removePages";
 import { formatPageList, parsePageList } from "@/lib/pdf/split";
 import { getTool } from "@/lib/tools-registry";
@@ -62,7 +66,7 @@ export function RemovePagesToolClient() {
         { remove: fresh ? options.removed : [] },
         onProgress,
       );
-      return { blob, filename: `${strings.outputName}.pdf` };
+      return { blob, filename: withSuffix(file.name, strings.filenameSuffix) };
     },
     [strings],
   );

@@ -20,6 +20,8 @@ export type RotateStrings = {
   untouched: string;
   largeFile: string;
   outputName: string;
+  /** Sufijo para el archivo final descargado, sobre el nombre original. */
+  filenameSuffix: string;
 };
 
 const STRINGS: Record<Language, RotateStrings> = {
@@ -45,6 +47,7 @@ const STRINGS: Record<Language, RotateStrings> = {
     largeFile:
       "El documento supera los 100 MB: generar las miniaturas puede tardar.",
     outputName: "documento-girado",
+    filenameSuffix: "rotado",
   },
   en: {
     boardTitle: "Rotation preview",
@@ -67,6 +70,7 @@ const STRINGS: Record<Language, RotateStrings> = {
     largeFile:
       "This document is over 100 MB: building the thumbnails may take a while.",
     outputName: "rotated-document",
+    filenameSuffix: "rotated",
   },
 };
 

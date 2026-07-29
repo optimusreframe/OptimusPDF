@@ -17,6 +17,8 @@ export type RemovePagesStrings = {
   kept: (kept: number, total: number) => string;
   largeFile: string;
   outputName: string;
+  /** Sufijo para el archivo final descargado, sobre el nombre original. */
+  filenameSuffix: string;
 };
 
 const STRINGS: Record<Language, RemovePagesStrings> = {
@@ -39,6 +41,7 @@ const STRINGS: Record<Language, RemovePagesStrings> = {
     largeFile:
       "El documento supera los 100 MB: generar las miniaturas puede tardar.",
     outputName: "documento-sin-paginas",
+    filenameSuffix: "sin-paginas",
   },
   en: {
     boardTitle: "Mark what has to go",
@@ -59,6 +62,7 @@ const STRINGS: Record<Language, RemovePagesStrings> = {
     largeFile:
       "This document is over 100 MB: building the thumbnails may take a while.",
     outputName: "trimmed-document",
+    filenameSuffix: "pages-removed",
   },
 };
 

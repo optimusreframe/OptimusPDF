@@ -8,6 +8,7 @@ import { useI18n, useT, type Dictionary } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import {
   MAX_SAFE_FILE_SIZE,
+  withSuffix,
   type ProgressCallback,
 } from "@/lib/pdf/core";
 import { organizePdf } from "@/lib/pdf/organize";
@@ -70,7 +71,7 @@ export function OrganizeToolClient() {
             }))
           : [];
       const blob = await organizePdf(file, plan, onProgress);
-      return { blob, filename: `${strings.outputName}.pdf` };
+      return { blob, filename: withSuffix(file.name, strings.filenameSuffix) };
     },
     [strings],
   );

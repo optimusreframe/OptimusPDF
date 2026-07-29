@@ -6,7 +6,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Slider } from "@/components/ui/Slider";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { useI18n } from "@/lib/i18n";
-import { slugify, type PageRef, type ProgressCallback } from "@/lib/pdf/core";
+import { withSuffix, type PageRef, type ProgressCallback } from "@/lib/pdf/core";
 import {
   JPG_QUALITY_DEFAULT,
   JPG_QUALITY_MAX,
@@ -47,7 +47,7 @@ function fromScaleKey(key: ScaleKey): PdfToImageScale {
 }
 
 export function PdfToJpgClient() {
-  const { t, language } = useI18n();
+  const { language } = useI18n();
   const s = STRINGS[language];
 
   const process = useCallback(
@@ -56,6 +56,7 @@ export function PdfToJpgClient() {
       options: PdfToJpgToolOptions,
       onProgress: ProgressCallback,
     ): Promise<ProcessResult> => {
+      const file = files[0];
       const selected =
         options.mode === "custom"
           ? options.pages
@@ -64,7 +65,7 @@ export function PdfToJpgClient() {
           : undefined;
 
       const result = await pdfToImages(
-        files[0],
+        file,
         {
           quality: options.quality,
           scale: options.scale,
@@ -74,14 +75,16 @@ export function PdfToJpgClient() {
         onProgress,
       );
 
-      const base =
-        t.filenames["pdf-to-jpg"] ?? slugify(t.tools["pdf-to-jpg"].name);
       return {
         blob: result.blob,
-        filename: `${base}.${result.kind === "zip" ? "zip" : "jpg"}`,
+        filename: withSuffix(
+          file.name,
+          s.filenameSuffix,
+          result.kind === "zip" ? "zip" : "jpg",
+        ),
       };
     },
-    [s.filePrefix, t],
+    [s.filePrefix, s.filenameSuffix],
   );
 
   return (

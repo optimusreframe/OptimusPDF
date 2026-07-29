@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { useI18n, useT, type Dictionary } from "@/lib/i18n";
-import { MAX_SAFE_FILE_SIZE, type ProgressCallback } from "@/lib/pdf/core";
+import {
+  MAX_SAFE_FILE_SIZE,
+  withSuffix,
+  type ProgressCallback,
+} from "@/lib/pdf/core";
 import { normalizeRotation, rotatePdf } from "@/lib/pdf/rotate";
 import { getTool } from "@/lib/tools-registry";
 import {
@@ -58,7 +62,7 @@ export function RotateToolClient() {
           ? { base: normalizeRotation(options.angle) }
           : { base: 0, byPage: fresh ? options.byPage : {} };
       const blob = await rotatePdf(file, plan, onProgress);
-      return { blob, filename: `${strings.outputName}.pdf` };
+      return { blob, filename: withSuffix(file.name, strings.filenameSuffix) };
     },
     [strings],
   );
