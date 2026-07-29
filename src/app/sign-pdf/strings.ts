@@ -29,6 +29,90 @@ export type SignStrings = {
   loadingPreview: string;
   legalNote: string;
   filenameSuffix: string;
+
+  /* --- Eleccion de flujo --- */
+  modeLabel: string;
+  modeSingle: string;
+  modeSingleHint: string;
+  modeMulti: string;
+  modeMultiHint: string;
+
+  /* --- Pasos del flujo con varios firmantes --- */
+  stepSigners: string;
+  stepFields: string;
+  stepSign: string;
+  back: string;
+  next: string;
+
+  /* --- Firmantes --- */
+  signersTitle: string;
+  signersHint: string;
+  addSigner: string;
+  signerNameLabel: (position: number) => string;
+  defaultSignerName: (position: number) => string;
+  removeSigner: (name: string) => string;
+  signerLimit: string;
+  noSigners: string;
+  signerFieldCount: (count: number) => string;
+  activeSignerLabel: string;
+  activeSignerHint: string;
+
+  /* --- Campos --- */
+  fieldsTitle: string;
+  fieldsHint: string;
+  fieldTypeLabel: string;
+  fieldSignature: string;
+  fieldInitials: string;
+  addFieldHere: string;
+  fieldOwnerLabel: (name: string, type: string) => string;
+  removeField: string;
+  resizeField: string;
+  fieldsOnPage: (count: number) => string;
+  totalFields: (count: number) => string;
+  clearPageFields: string;
+  clearAllFields: string;
+  noFields: string;
+  thumbsTitle: string;
+  goToPage: (page: number) => string;
+  needSigner: string;
+
+  /* --- Ceremonia por turnos --- */
+  ceremonyTitle: string;
+  checkingDocument: string;
+  turnOf: (current: number, total: number) => string;
+  handoffTitle: (name: string) => string;
+  handoffBody: (name: string) => string;
+  handoffReady: string;
+  captureTitle: (name: string) => string;
+  captureBody: string;
+  captureSignature: string;
+  captureInitials: string;
+  captureRedo: string;
+  capturePending: string;
+  captureContinue: string;
+  reviewTitle: (name: string) => string;
+  reviewBody: (count: number) => string;
+  reviewRedo: string;
+  reviewNext: string;
+  reviewFinish: string;
+  statusPending: string;
+  statusSigned: string;
+  allSignedTitle: string;
+  allSignedBody: string;
+  pendingBody: (count: number) => string;
+  applyAndDownload: string;
+  restartCeremony: string;
+
+  /* --- Compositor con contexto --- */
+  composerFor: (name: string) => string;
+  composerInitialsFor: (name: string) => string;
+  initialsHint: string;
+  initialsPlaceholder: string;
+
+  /* --- Avisos --- */
+  noFieldsError: string;
+  notAllSignedError: string;
+  progressMessage: string;
 };
 
 const es: SignStrings = {
@@ -62,6 +146,101 @@ const es: SignStrings = {
   legalNote:
     "Es una firma visual: se dibuja sobre la página. No sustituye a una firma electrónica cualificada con certificado.",
   filenameSuffix: "firmado",
+
+  modeLabel: "¿Quién firma?",
+  modeSingle: "Solo yo",
+  modeSingleHint:
+    "Creas tu firma, la colocas donde quieras y descargas. Es el camino rápido.",
+  modeMulti: "Varios firmantes",
+  modeMultiHint:
+    "Reserva un hueco para cada persona y firmad por turnos en este mismo dispositivo, pasándooslo de mano en mano.",
+
+  stepSigners: "Firmantes",
+  stepFields: "Campos",
+  stepSign: "Firmar",
+  back: "Atrás",
+  next: "Continuar",
+
+  signersTitle: "¿Quién tiene que firmar?",
+  signersHint:
+    "Añade a cada persona. El color sirve para reconocer sus huecos sobre el documento.",
+  addSigner: "Añadir firmante",
+  signerNameLabel: (position) => `Nombre del firmante ${position}`,
+  defaultSignerName: (position) => `Firmante ${position}`,
+  removeSigner: (name) => `Quitar a ${name}`,
+  signerLimit: "Ya no caben más firmantes distinguibles por color.",
+  noSigners: "Añade al menos un firmante para continuar.",
+  signerFieldCount: (count) =>
+    count === 1 ? "1 hueco" : `${count} huecos`,
+  activeSignerLabel: "Firmante activo",
+  activeSignerHint:
+    "Los huecos nuevos se asignan al firmante activo. Cámbialo antes de marcar los suyos.",
+
+  fieldsTitle: "Reserva los huecos",
+  fieldsHint:
+    "Arrastra sobre la página para dibujar un hueco, o toca para colocar uno del tamaño habitual. Muévelos y ajústalos como quieras.",
+  fieldTypeLabel: "Tipo de hueco",
+  fieldSignature: "Firma",
+  fieldInitials: "Iniciales",
+  addFieldHere: "Añadir hueco en esta página",
+  fieldOwnerLabel: (name, type) => `${name} — ${type}`,
+  removeField: "Quitar el hueco",
+  resizeField: "Cambiar el tamaño del hueco",
+  fieldsOnPage: (count) =>
+    count === 1 ? "1 hueco en esta página" : `${count} huecos en esta página`,
+  totalFields: (count) =>
+    count === 1 ? "1 hueco en total" : `${count} huecos en total`,
+  clearPageFields: "Vaciar la página",
+  clearAllFields: "Vaciar todo",
+  noFields: "Reserva al menos un hueco para poder firmar.",
+  thumbsTitle: "Páginas",
+  goToPage: (page) => `Ir a la página ${page}`,
+  needSigner: "Elige antes a quién pertenece el hueco.",
+
+  ceremonyTitle: "Firmad por turnos",
+  checkingDocument: "Comprobando el documento antes de firmar",
+  turnOf: (current, total) => `Turno ${current} de ${total}`,
+  handoffTitle: (name) => `Pásale el dispositivo a ${name}`,
+  handoffBody: (name) =>
+    `${name} verá solo sus huecos y firmará aquí mismo. Nada sale de este dispositivo.`,
+  handoffReady: "Listo, es mi turno",
+  captureTitle: (name) => `Firma de ${name}`,
+  captureBody:
+    "Dibuja, escribe o sube tu firma. Se colocará automáticamente en los huecos reservados para ti.",
+  captureSignature: "Crear mi firma",
+  captureInitials: "Crear mis iniciales",
+  captureRedo: "Rehacer",
+  capturePending: "Pendiente",
+  captureContinue: "Ver cómo queda",
+  reviewTitle: (name) => `Así queda la firma de ${name}`,
+  reviewBody: (count) =>
+    count === 1
+      ? "Se rellenará 1 hueco con lo que acabas de crear."
+      : `Se rellenarán ${count} huecos con lo que acabas de crear.`,
+  reviewRedo: "Rehacer mi firma",
+  reviewNext: "Pasar al siguiente firmante",
+  reviewFinish: "He terminado",
+  statusPending: "Sin firmar",
+  statusSigned: "Firmado",
+  allSignedTitle: "Ya han firmado todos",
+  allSignedBody:
+    "Aplica las firmas para generar el PDF definitivo y descargarlo.",
+  pendingBody: (count) =>
+    count === 1
+      ? "Falta 1 firmante por firmar."
+      : `Faltan ${count} firmantes por firmar.`,
+  applyAndDownload: "Firmar y descargar",
+  restartCeremony: "Empezar la ronda de nuevo",
+
+  composerFor: (name) => `Firma de ${name}`,
+  composerInitialsFor: (name) => `Iniciales de ${name}`,
+  initialsHint:
+    "Con dos o tres trazos basta: las iniciales van en un hueco pequeño y casi cuadrado.",
+  initialsPlaceholder: "Tus iniciales",
+
+  noFieldsError: "No hay ningún hueco reservado sobre el documento.",
+  notAllSignedError: "Todavía falta gente por firmar.",
+  progressMessage: "Aplicando las firmas",
 };
 
 const en: SignStrings = {
@@ -95,6 +274,99 @@ const en: SignStrings = {
   legalNote:
     "This is a visual signature drawn onto the page. It does not replace a qualified electronic signature backed by a certificate.",
   filenameSuffix: "signed",
+
+  modeLabel: "Who is signing?",
+  modeSingle: "Just me",
+  modeSingleHint:
+    "Create your signature, place it wherever you want and download. The quick path.",
+  modeMulti: "Several signers",
+  modeMultiHint:
+    "Reserve a slot for each person and sign in turns on this same device, passing it around.",
+
+  stepSigners: "Signers",
+  stepFields: "Slots",
+  stepSign: "Sign",
+  back: "Back",
+  next: "Continue",
+
+  signersTitle: "Who has to sign?",
+  signersHint:
+    "Add every person. The colour is what tells their slots apart on the document.",
+  addSigner: "Add signer",
+  signerNameLabel: (position) => `Name of signer ${position}`,
+  defaultSignerName: (position) => `Signer ${position}`,
+  removeSigner: (name) => `Remove ${name}`,
+  signerLimit: "No more signers can be told apart by colour.",
+  noSigners: "Add at least one signer to continue.",
+  signerFieldCount: (count) => (count === 1 ? "1 slot" : `${count} slots`),
+  activeSignerLabel: "Active signer",
+  activeSignerHint:
+    "New slots go to the active signer. Switch first, then mark their slots.",
+
+  fieldsTitle: "Reserve the slots",
+  fieldsHint:
+    "Drag on the page to draw a slot, or tap to drop one at the usual size. Move and resize them freely.",
+  fieldTypeLabel: "Slot type",
+  fieldSignature: "Signature",
+  fieldInitials: "Initials",
+  addFieldHere: "Add a slot on this page",
+  fieldOwnerLabel: (name, type) => `${name} — ${type}`,
+  removeField: "Remove the slot",
+  resizeField: "Resize the slot",
+  fieldsOnPage: (count) =>
+    count === 1 ? "1 slot on this page" : `${count} slots on this page`,
+  totalFields: (count) =>
+    count === 1 ? "1 slot in total" : `${count} slots in total`,
+  clearPageFields: "Clear the page",
+  clearAllFields: "Clear everything",
+  noFields: "Reserve at least one slot so there is something to sign.",
+  thumbsTitle: "Pages",
+  goToPage: (page) => `Go to page ${page}`,
+  needSigner: "Pick who the slot belongs to first.",
+
+  ceremonyTitle: "Sign in turns",
+  checkingDocument: "Checking the document before signing",
+  turnOf: (current, total) => `Turn ${current} of ${total}`,
+  handoffTitle: (name) => `Hand the device to ${name}`,
+  handoffBody: (name) =>
+    `${name} will see only their own slots and sign right here. Nothing leaves this device.`,
+  handoffReady: "Ready, it's my turn",
+  captureTitle: (name) => `${name}'s signature`,
+  captureBody:
+    "Draw, type or upload your signature. It will drop into the slots reserved for you.",
+  captureSignature: "Create my signature",
+  captureInitials: "Create my initials",
+  captureRedo: "Redo",
+  capturePending: "Pending",
+  captureContinue: "See how it looks",
+  reviewTitle: (name) => `How ${name}'s signature looks`,
+  reviewBody: (count) =>
+    count === 1
+      ? "1 slot will be filled with what you just created."
+      : `${count} slots will be filled with what you just created.`,
+  reviewRedo: "Redo my signature",
+  reviewNext: "Pass to the next signer",
+  reviewFinish: "I'm done",
+  statusPending: "Not signed",
+  statusSigned: "Signed",
+  allSignedTitle: "Everyone has signed",
+  allSignedBody: "Apply the signatures to build the final PDF and download it.",
+  pendingBody: (count) =>
+    count === 1
+      ? "1 signer still has to sign."
+      : `${count} signers still have to sign.`,
+  applyAndDownload: "Sign and download",
+  restartCeremony: "Start the round again",
+
+  composerFor: (name) => `${name}'s signature`,
+  composerInitialsFor: (name) => `${name}'s initials`,
+  initialsHint:
+    "Two or three strokes are enough: initials go in a small, almost square slot.",
+  initialsPlaceholder: "Your initials",
+
+  noFieldsError: "There is no slot reserved on the document.",
+  notAllSignedError: "Some people still have to sign.",
+  progressMessage: "Applying the signatures",
 };
 
 export const SIGN_STRINGS: Record<Language, SignStrings> = { es, en };

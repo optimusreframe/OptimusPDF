@@ -1,17 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
 import {
+  PDFArray,
+  PDFDocument,
+  PDFRawStream,
+  StandardFonts,
+  decodePDFRawStream,
+} from "@cantoo/pdf-lib";
+import {
+  CHECK_STROKES,
   DEFAULT_EDIT_STYLE,
   MAX_FONT_SIZE,
   MIN_ELEMENT_SIDE,
   MIN_FONT_SIZE,
   MIN_LINE_LENGTH,
+  MIN_STROKE_WIDTH,
   MAX_STROKE_WIDTH,
   applyEdits,
   applyStyleToElement,
   groupElementsByPage,
   sanitizeElement,
   wrapText,
+  type CheckElement,
   type EditElement,
   type EditStyle,
   type EllipseElement,
@@ -104,6 +113,22 @@ function highlightElement(overrides: Partial<HighlightElement> = {}): HighlightE
   };
 }
 
+function checkElement(overrides: Partial<CheckElement> = {}): CheckElement {
+  return {
+    id: "c1",
+    pageIndex: 0,
+    type: "check",
+    x: 0.2,
+    y: 0.3,
+    width: 0.1,
+    height: 0.1,
+    mark: "check",
+    strokeColor: "#e11d48",
+    strokeWidth: 2,
+    ...overrides,
+  };
+}
+
 /** PNG 1x1 real (mismo fixture que `imagesToPdf.test.ts`, sin dependencias extra). */
 const MINIMAL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -124,12 +149,48 @@ function imageElement(overrides: Partial<ImageElement> = {}): ImageElement {
   };
 }
 
+/** Lado de las paginas de prueba, en puntos. */
+const PAGE_SIDE = 300;
+
 async function createDocument(pageCount = 1): Promise<PDFDocument> {
   const document = await PDFDocument.create();
   for (let index = 0; index < pageCount; index += 1) {
-    document.addPage([300, 300]);
+    document.addPage([PAGE_SIDE, PAGE_SIDE]);
   }
   return document;
+}
+
+/** Flujo de contenido de una pagina ya descomprimido, como texto. */
+function pageContent(document: PDFDocument, index = 0): string {
+  const node = document.getPage(index).node;
+  const contents = node.Contents();
+  const streams =
+    contents instanceof PDFArray
+      ? contents.asArray().map((ref) => node.context.lookup(ref) as PDFRawStream)
+      : [contents as PDFRawStream];
+  return streams
+    .map((stream) =>
+      new TextDecoder().decode(decodePDFRawStream(stream).decode()),
+    )
+    .join("\n");
+}
+
+/**
+ * Vertices de los trazos (`m`/`l`) del flujo de contenido. pdf-lib repite
+ * el `moveTo` a los lados del `lineCap`, asi que los duplicados
+ * consecutivos se colapsan y queda la geometria real.
+ */
+function pathPoints(content: string): Array<[number, number]> {
+  const points: Array<[number, number]> = [];
+  for (const match of content.matchAll(/^(-?[\d.]+) (-?[\d.]+) [ml]$/gm)) {
+    const point: [number, number] = [Number(match[1]), Number(match[2])];
+    const previous = points[points.length - 1];
+    if (previous && previous[0] === point[0] && previous[1] === point[1]) {
+      continue;
+    }
+    points.push(point);
+  }
+  return points;
 }
 
 async function toFile(document: PDFDocument, name = "test.pdf"): Promise<File> {
@@ -194,6 +255,17 @@ describe("sanitizeElement — src/lib/pdf/editPdf.ts", () => {
     expect(dragged.y).toBeCloseTo(0.3);
     expect(dragged.width).toBeCloseTo(0.2);
     expect(dragged.height).toBeCloseTo(0.2);
+  });
+
+  it("sube el trazo de una marca hasta MIN_STROKE_WIDTH (sin trazo no se veria)", () => {
+    const kept = sanitizeElement(
+      checkElement({ mark: "cross", strokeWidth: 0 }),
+    ) as CheckElement;
+    expect(kept.mark).toBe("cross");
+    expect(kept.strokeWidth).toBe(MIN_STROKE_WIDTH);
+    expect(
+      sanitizeElement(checkElement({ width: MIN_ELEMENT_SIDE / 2 })),
+    ).toBeNull();
   });
 
   it("descarta imagenes con menos de 4 bytes (no hay firma reconocible)", () => {
@@ -277,6 +349,18 @@ describe("applyStyleToElement — src/lib/pdf/editPdf.ts", () => {
     expect(restyledHighlight.color).toBe("#00ff00");
     expect(restyledHighlight.opacity).toBe(0.6);
   });
+
+  it("reaplica trazo y simbolo en 'check' sin tocar la caja", () => {
+    const restyled = applyStyleToElement(checkElement(), {
+      ...style,
+      checkMark: "cross",
+    }) as CheckElement;
+    expect(restyled.mark).toBe("cross");
+    expect(restyled.strokeColor).toBe("#abcdef");
+    expect(restyled.strokeWidth).toBe(5);
+    expect(restyled.x).toBe(0.2);
+    expect(restyled.width).toBe(0.1);
+  });
 });
 
 describe("wrapText — src/lib/pdf/editPdf.ts", () => {
@@ -343,6 +427,42 @@ describe("applyEdits — src/lib/pdf/editPdf.ts", () => {
     const outputBytes = new Uint8Array(await blob.arrayBuffer());
     const result = await PDFDocument.load(outputBytes, { updateMetadata: false });
     expect(result.getPageCount()).toBe(1);
+  });
+
+  it("dibuja la marca como trazos vectoriales en las coordenadas de su caja", async () => {
+    const document = await createDocument(1);
+    const file = await toFile(document);
+    const element = checkElement({ mark: "cross" });
+
+    const blob = await applyEdits(
+      file,
+      new Map<number, EditElement[]>([[0, [element]]]),
+    );
+    const result = await PDFDocument.load(
+      new Uint8Array(await blob.arrayBuffer()),
+      { updateMetadata: false },
+    );
+    const content = pageContent(result);
+
+    // Un `m` + un `l` por segmento del aspa, y ningun XObject: es trazo
+    // vectorial, no una imagen incrustada.
+    expect(content).not.toContain("/Image");
+    const expected = CHECK_STROKES.cross.flatMap(([x1, y1, x2, y2]) =>
+      [
+        [x1, y1],
+        [x2, y2],
+      ].map(([nx, ny]) => [
+        (element.x + nx * element.width) * PAGE_SIDE,
+        (1 - (element.y + ny * element.height)) * PAGE_SIDE,
+      ]),
+    );
+
+    const points = pathPoints(content);
+    expect(points).toHaveLength(expected.length);
+    points.forEach(([x, y], index) => {
+      expect(x).toBeCloseTo(expected[index][0], 3);
+      expect(y).toBeCloseTo(expected[index][1], 3);
+    });
   });
 
   it("con un mapa de elementos vacio, lanza PdfError('nothingSelected')", async () => {

@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import zlib from "node:zlib";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import {
   CameraError,
   DEFAULT_SCAN_OPTIONS,
   applyScanFilter,
+  normalizeImageOrientation,
   scanToPdf,
   startCameraStream,
   stopCameraStream,
@@ -197,3 +198,135 @@ describe("scanToPdf — src/lib/pdf/scanToPdf.ts", () => {
     });
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Orientacion EXIF
+ * ------------------------------------------------------------------ */
+
+/**
+ * Cabecera JPEG con un bloque EXIF que declara `Orientation = 6` (girada
+ * 90°), como la que produce la app de Camara de un iPhone con la foto en
+ * vertical. No es una imagen decodificable —no lleva scan— y no hace
+ * falta que lo sea: lo que se ejercita aqui es el camino que sigue el
+ * Blob, no el decodificador.
+ */
+function jpegWithOrientation6(): Blob {
+  const tiff = Buffer.alloc(26);
+  tiff.write("II", 0, "ascii"); // little endian
+  tiff.writeUInt16LE(42, 2);
+  tiff.writeUInt32LE(8, 4); // offset del IFD0
+  tiff.writeUInt16LE(1, 8); // una sola entrada
+  tiff.writeUInt16LE(0x0112, 10); // tag Orientation
+  tiff.writeUInt16LE(3, 12); // tipo SHORT
+  tiff.writeUInt32LE(1, 14); // count
+  tiff.writeUInt16LE(6, 18); // valor: 6 = rotar 90°
+  tiff.writeUInt32LE(0, 22); // no hay IFD siguiente
+
+  const payload = Buffer.concat([Buffer.from("Exif\0\0", "latin1"), tiff]);
+  const app1 = Buffer.alloc(4);
+  app1[0] = 0xff;
+  app1[1] = 0xe1;
+  app1.writeUInt16BE(payload.length + 2, 2);
+
+  const bytes = Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    app1,
+    payload,
+    Buffer.from([0xff, 0xd9]),
+  ]);
+  return new Blob([bytes as unknown as BlobPart], { type: "image/jpeg" });
+}
+
+/**
+ * Sustituye el decodificador del navegador por uno que devuelve el
+ * bitmap ya enderezado, que es justo lo que hace un navegador real al
+ * pedirle `imageOrientation: "from-image"` (ver limitaciones).
+ */
+function stubBrowserDecoder(oriented: { width: number; height: number }) {
+  const seen: {
+    options?: ImageBitmapOptions;
+    canvas?: { width: number; height: number };
+    decoded: number;
+  } = { decoded: 0 };
+
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ drawImage: () => {} }),
+    toBlob: (callback: (blob: Blob | null) => void) => {
+      seen.canvas = { width: canvas.width, height: canvas.height };
+      callback(
+        new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: "image/jpeg" }),
+      );
+    },
+  };
+
+  vi.stubGlobal(
+    "createImageBitmap",
+    (_source: Blob, options?: ImageBitmapOptions) => {
+      seen.decoded += 1;
+      seen.options = options;
+      return Promise.resolve({ ...oriented, close: () => {} });
+    },
+  );
+  vi.stubGlobal("document", { createElement: () => canvas });
+
+  return seen;
+}
+
+describe("normalizeImageOrientation — src/lib/pdf/scanToPdf.ts", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("un JPEG con EXIF se decodifica con imageOrientation 'from-image' y se re-exporta con las dimensiones ya enderezadas", async () => {
+    // Una foto de 60x40 con Orientation=6 se ve como 40x60 al aplicar el
+    // tag: es ese tamano el que tiene que acabar en el lienzo de salida.
+    const seen = stubBrowserDecoder({ width: 40, height: 60 });
+    const source = jpegWithOrientation6();
+
+    const output = await normalizeImageOrientation(source);
+
+    expect(seen.options?.imageOrientation).toBe("from-image");
+    expect(seen.canvas).toEqual({ width: 40, height: 60 });
+    expect(output).not.toBe(source);
+    expect(output.type).toBe("image/jpeg");
+  });
+
+  it("un PNG se devuelve intacto: no hay EXIF que aplicar ni motivo para recomprimir", async () => {
+    const seen = stubBrowserDecoder({ width: 10, height: 10 });
+    const source = pngBlob(4, 4);
+
+    expect(await normalizeImageOrientation(source)).toBe(source);
+    expect(seen.decoded).toBe(0);
+  });
+
+  it("si el decodificador falla, devuelve el original en vez de romper el flujo", async () => {
+    vi.stubGlobal("createImageBitmap", () => Promise.reject(new Error("nope")));
+    const source = jpegWithOrientation6();
+
+    expect(await normalizeImageOrientation(source)).toBe(source);
+  });
+
+  it("sin createImageBitmap (entorno Node) devuelve el Blob de entrada intacto", async () => {
+    expect(
+      typeof (globalThis as { createImageBitmap?: unknown }).createImageBitmap,
+    ).toBe("undefined");
+
+    const source = jpegWithOrientation6();
+    expect(await normalizeImageOrientation(source)).toBe(source);
+  });
+});
+
+/**
+ * Limitaciones conocidas
+ *
+ * - Que el tag EXIF `Orientation` se aplique de verdad al decodificar es
+ *   trabajo del navegador: en Node no hay decodificador que lo haga, asi
+ *   que aqui se comprueba el contrato del lado del codigo propio —pedir
+ *   `imageOrientation: "from-image"`, dimensionar el lienzo con el bitmap
+ *   ya enderezado y re-exportar un JPEG nuevo— con un decodificador de
+ *   prueba. La rotacion real esta cubierta a mano en un dispositivo.
+ * - Igual que en `applyScanFilter`, el paso por Canvas 2D (dibujado y
+ *   `toBlob`) no es ejercitable con un lienzo real en este entorno.
+ */

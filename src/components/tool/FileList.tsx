@@ -138,7 +138,6 @@ function FileThumbnail({ file }: { file: File }) {
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
-    setUrl(null);
 
     if (file.type.startsWith("image/")) {
       objectUrl = URL.createObjectURL(file);

@@ -55,6 +55,9 @@ export type EditStrings = {
   fillOpacityLabel: string;
   highlightColorLabel: string;
   highlightOpacityLabel: string;
+  checkMarkLabel: string;
+  checkMarkCheck: string;
+  checkMarkCross: string;
 
   howItWorksTitle: string;
   howItWorksBody: string;
@@ -76,6 +79,7 @@ const es: EditStrings = {
     ellipse: "Elipse",
     line: "Línea",
     highlight: "Resaltado",
+    check: "Marca",
   },
   typeHints: {
     text: "Haz clic donde quieras empezar a escribir. Arrastra la caja para moverla y tira de la esquina para darle más ancho: el alto lo marca el propio texto.",
@@ -84,6 +88,7 @@ const es: EditStrings = {
     ellipse: "Arrastra para definir la caja que contiene la elipse, igual que con un rectángulo.",
     line: "Arrastra de un punto al otro. Después puedes mover la línea entera o cada extremo por separado.",
     highlight: "Arrastra por encima del texto que quieras marcar. Se pinta translúcido, así que lo de debajo se sigue leyendo y se sigue pudiendo seleccionar.",
+    check: "Haz clic sobre la casilla para dejar el símbolo, o arrastra si quieres darle otro tamaño. Elige entre visto ✓ y aspa ✗ en el panel de estilo.",
   },
 
   loadingPreview: "Preparando la vista previa",
@@ -141,6 +146,9 @@ const es: EditStrings = {
   fillOpacityLabel: "Opacidad del relleno",
   highlightColorLabel: "Color del resaltado",
   highlightOpacityLabel: "Intensidad",
+  checkMarkLabel: "Símbolo",
+  checkMarkCheck: "Visto ✓",
+  checkMarkCross: "Aspa ✗",
 
   howItWorksTitle: "Añade encima, no reescribe lo que ya hay",
   howItWorksBody:
@@ -166,6 +174,7 @@ const en: EditStrings = {
     ellipse: "Ellipse",
     line: "Line",
     highlight: "Highlight",
+    check: "Mark",
   },
   typeHints: {
     text: "Click where you want to start writing. Drag the box to move it and pull the corner to widen it: the height follows the text itself.",
@@ -174,6 +183,7 @@ const en: EditStrings = {
     ellipse: "Drag to define the box that holds the ellipse, exactly like a rectangle.",
     line: "Drag from one point to the other. Afterwards you can move the whole line or each end on its own.",
     highlight: "Drag over the text you want to mark. It is painted translucent, so what sits underneath stays readable and stays selectable.",
+    check: "Click on the box to drop the symbol, or drag if you want another size. Pick between tick ✓ and cross ✗ in the style panel.",
   },
 
   loadingPreview: "Preparing the preview",
@@ -229,6 +239,9 @@ const en: EditStrings = {
   fillOpacityLabel: "Fill opacity",
   highlightColorLabel: "Highlight colour",
   highlightOpacityLabel: "Strength",
+  checkMarkLabel: "Symbol",
+  checkMarkCheck: "Tick ✓",
+  checkMarkCross: "Cross ✗",
 
   howItWorksTitle: "It adds on top, it does not rewrite what is there",
   howItWorksBody:

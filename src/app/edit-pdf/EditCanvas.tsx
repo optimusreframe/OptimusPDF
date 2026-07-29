@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Circle,
@@ -33,10 +34,13 @@ import {
   type PdfFontFamily,
 } from "@/lib/pdf/core";
 import {
+  CHECK_STROKES,
   EDIT_ELEMENT_TYPES,
   LINE_HEIGHT_FACTOR,
   MIN_ELEMENT_SIDE,
   MIN_LINE_LENGTH,
+  type CheckElement,
+  type CheckMark,
   type EditElement,
   type EditElementType,
   type EditStyle,
@@ -52,6 +56,9 @@ const THUMB_WIDTH = 96;
 /** Ancho inicial de un cuadro de texto y de una imagen, en fraccion de pagina. */
 const DEFAULT_TEXT_WIDTH = 0.4;
 const DEFAULT_IMAGE_WIDTH = 0.3;
+
+/** Lado de la marca colocada de un clic, en fraccion de ancho de pagina. */
+const DEFAULT_CHECK_WIDTH = 0.035;
 
 /** Ancho de pagina supuesto mientras pdf.js aun no ha respondido (A4). */
 const FALLBACK_PAGE_WIDTH = 595.28;
@@ -76,6 +83,7 @@ const TYPE_ICONS: Record<
   ellipse: Circle,
   line: Minus,
   highlight: Highlighter,
+  check: Check,
 };
 
 /**
@@ -449,6 +457,29 @@ function EditCanvasInner({
     addElement(element);
   };
 
+  /** Marca de tamano fijo centrada en el clic, como al marcar una casilla. */
+  const createCheck = (x: number, y: number): void => {
+    const width = DEFAULT_CHECK_WIDTH;
+    const aspect =
+      hostSize.width > 0 && hostSize.height > 0
+        ? hostSize.width / hostSize.height
+        : 0.75;
+    const height = Math.min(0.95, width * aspect);
+    const element: CheckElement = {
+      id: nextElementId(),
+      pageIndex,
+      type: "check",
+      x: clamp(x - width / 2, 0, 1 - width),
+      y: clamp(y - height / 2, 0, Math.max(0, 1 - height)),
+      width,
+      height,
+      mark: style.checkMark,
+      strokeColor: style.strokeColor,
+      strokeWidth: style.strokeWidth,
+    };
+    addElement(element);
+  };
+
   const createFromDraft = (current: Draft): void => {
     const x = Math.min(current.x, current.toX);
     const y = Math.min(current.y, current.toY);
@@ -488,6 +519,22 @@ function EditCanvasInner({
         height,
         color: style.highlightColor,
         opacity: style.highlightOpacity,
+      });
+      return;
+    }
+
+    if (current.type === "check") {
+      addElement({
+        id,
+        pageIndex,
+        type: "check",
+        x,
+        y,
+        width,
+        height,
+        mark: style.checkMark,
+        strokeColor: style.strokeColor,
+        strokeWidth: style.strokeWidth,
       });
       return;
     }
@@ -681,6 +728,10 @@ function EditCanvasInner({
       if (isClick) createImage(current.x, current.y);
       return;
     }
+    if (current.type === "check" && isClick) {
+      createCheck(current.x, current.y);
+      return;
+    }
     if (isClick) {
       select(null);
       return;
@@ -732,7 +783,11 @@ function EditCanvasInner({
           className="flex flex-wrap gap-1.5"
         >
           {EDIT_ELEMENT_TYPES.map((type) => {
-            const Icon = TYPE_ICONS[type];
+            // El boton de marca ensena el simbolo activo, no un icono fijo.
+            const Icon =
+              type === "check" && style.checkMark === "cross"
+                ? X
+                : TYPE_ICONS[type];
             const active = type === activeType;
             return (
               <button
@@ -1113,6 +1168,11 @@ function ElementBox({
           ? "1px solid var(--color-signal)"
           : "1px dashed rgba(255,255,255,0.35)",
       };
+    } else if (element.type === "check") {
+      inner = {
+        outline: selected ? "1px solid var(--color-signal)" : undefined,
+        outlineOffset: "2px",
+      };
     } else {
       inner = {
         boxSizing: "border-box",
@@ -1160,6 +1220,14 @@ function ElementBox({
         />
       ) : null}
 
+      {element.type === "check" ? (
+        <CheckGlyph
+          mark={element.mark}
+          color={element.strokeColor}
+          width={Math.max(1, element.strokeWidth * scale)}
+        />
+      ) : null}
+
       {selected ? (
         <>
           <button
@@ -1189,6 +1257,40 @@ function ElementBox({
         </>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Simbolo de la marca en la vista previa. Usa los mismos trazos que el
+ * motor, asi que lo que se ve aqui es lo que acaba dentro del PDF.
+ */
+function CheckGlyph({
+  mark,
+  color,
+  width,
+}: {
+  mark: CheckMark;
+  color: string;
+  width: number;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 size-full overflow-visible"
+    >
+      {CHECK_STROKES[mark].map(([x1, y1, x2, y2], index) => (
+        <line
+          key={index}
+          x1={percent(x1)}
+          y1={percent(y1)}
+          x2={percent(x2)}
+          y2={percent(y2)}
+          stroke={color}
+          strokeWidth={width}
+          strokeLinecap="round"
+        />
+      ))}
+    </svg>
   );
 }
 
@@ -1283,6 +1385,8 @@ function DraftLayer({
   const width = Math.abs(draft.toX - draft.x);
   const height = Math.abs(draft.toY - draft.y);
 
+  const outlined = draft.type !== "highlight" && draft.type !== "check";
+
   return (
     <div
       aria-hidden="true"
@@ -1294,17 +1398,24 @@ function DraftLayer({
         height: percent(height),
         boxSizing: "border-box",
         borderRadius: draft.type === "ellipse" ? "50%" : undefined,
-        border:
-          draft.type === "highlight"
-            ? undefined
-            : `${Math.max(1, style.strokeWidth * scale)}px solid ${style.strokeColor}`,
+        border: outlined
+          ? `${Math.max(1, style.strokeWidth * scale)}px solid ${style.strokeColor}`
+          : undefined,
         backgroundColor:
           draft.type === "highlight"
             ? hexToRgba(style.highlightColor, style.highlightOpacity)
-            : style.fill
+            : outlined && style.fill
               ? hexToRgba(style.fillColor, style.fillOpacity)
               : undefined,
       }}
-    />
+    >
+      {draft.type === "check" ? (
+        <CheckGlyph
+          mark={style.checkMark}
+          color={style.strokeColor}
+          width={Math.max(1, style.strokeWidth * scale)}
+        />
+      ) : null}
+    </div>
   );
 }

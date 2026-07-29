@@ -1,16 +1,30 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Crop, Trash2, Undo2 } from "lucide-react";
+import { Spinner } from "@/components/ui/Spinner";
 import { useI18n } from "@/lib/i18n";
 import type { ScanFilter } from "@/lib/pdf/scanToPdf";
+import type { QuadCorners } from "@/lib/scan/perspective";
 import { STRINGS } from "@/app/scan-to-pdf/strings";
 import { previewFilter } from "@/app/scan-to-pdf/preview";
 
 export type ScanCapture = {
   id: string;
+  /**
+   * Foto cruda tal cual salio de la camara. El recorte de perspectiva y
+   * los filtros trabajan siempre sobre copias derivadas, nunca sobre
+   * este blob: es lo que permite deshacer.
+   */
+  originalBlob: Blob;
+  /** Version que llega al PDF: la recortada si hay esquinas aplicadas. */
   blob: Blob;
-  /** Object URL para la miniatura; lo revoca el componente padre. */
+  /** Object URL de `blob`; lo revoca el componente padre. */
   url: string;
+  /** Esquinas aplicadas, normalizadas 0-1, o `null` si no hay recorte. */
+  corners: QuadCorners | null;
+  cornersSource: "auto" | "manual" | null;
+  /** Hay una deteccion o un recorte en curso para esta captura. */
+  pending: boolean;
 };
 
 export type CaptureStripProps = {
@@ -18,6 +32,8 @@ export type CaptureStripProps = {
   filter: ScanFilter;
   onMove: (index: number, offset: number) => void;
   onRemove: (id: string) => void;
+  onEditCorners: (id: string) => void;
+  onUndoCrop: (id: string) => void;
 };
 
 /** Tira de miniaturas de las paginas capturadas, en orden de aparicion. */
@@ -26,6 +42,8 @@ export function CaptureStrip({
   filter,
   onMove,
   onRemove,
+  onEditCorners,
+  onUndoCrop,
 }: CaptureStripProps) {
   const { t, language } = useI18n();
   const s = STRINGS[language];
@@ -45,7 +63,7 @@ export function CaptureStrip({
               key={capture.id}
               className="glass rounded-ios-sm relative overflow-hidden p-2"
             >
-              <span className="flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">
+              <span className="relative flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={capture.url}
@@ -53,13 +71,41 @@ export function CaptureStrip({
                   className="max-h-full max-w-full object-contain"
                   style={{ filter: previewFilter(filter) }}
                 />
+
+                {capture.pending ? (
+                  <span className="absolute inset-0 flex items-center justify-center bg-background/55">
+                    <Spinner className="size-4" label={s.cropping} />
+                  </span>
+                ) : null}
               </span>
+
+              {capture.corners && !capture.pending ? (
+                <span className="hud-label absolute top-3 left-3 rounded-full bg-signal/85 px-2 py-0.5 text-[9px] text-[var(--color-on-signal)]">
+                  {s.croppedBadge}
+                </span>
+              ) : null}
 
               <div className="mt-2 flex items-center justify-between gap-1">
                 <span className="hud-label text-[9px] text-muted-foreground">
                   {index + 1}
                 </span>
                 <div className="flex items-center gap-0.5">
+                  <MiniButton
+                    label={s.editCorners}
+                    disabled={capture.pending}
+                    onClick={() => onEditCorners(capture.id)}
+                  >
+                    <Crop aria-hidden="true" className="size-3" />
+                  </MiniButton>
+                  {capture.corners ? (
+                    <MiniButton
+                      label={s.undoCrop}
+                      disabled={capture.pending}
+                      onClick={() => onUndoCrop(capture.id)}
+                    >
+                      <Undo2 aria-hidden="true" className="size-3" />
+                    </MiniButton>
+                  ) : null}
                   <MiniButton
                     label={t.tool.moveUp}
                     disabled={index === 0}

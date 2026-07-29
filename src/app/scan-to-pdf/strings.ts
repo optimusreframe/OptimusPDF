@@ -1,5 +1,6 @@
 import type { Language } from "@/lib/i18n";
 import type { CameraErrorCode } from "@/lib/pdf/scanToPdf";
+import type { CaptureHint } from "@/lib/scan/frameAnalysis";
 
 /** Textos propios de "Escanear a PDF". Copy original ES/EN. */
 export type ScanToPdfStrings = {
@@ -13,13 +14,35 @@ export type ScanToPdfStrings = {
   retryCamera: string;
   uploadInstead: string;
   uploadHint: string;
+  autoCaptureLabel: string;
+  autoCaptureHint: string;
+  /** Contiene `{seconds}`, que se sustituye por los segundos restantes. */
+  autoCountdown: string;
+  captureHints: Record<CaptureHint, string>;
+  nativeCamera: string;
+  nativeCameraHint: string;
+  screenTorchOn: string;
+  screenTorchOff: string;
   capturesTitle: string;
   capturesEmpty: string;
   captureAlt: string;
   removeCapture: string;
+  croppedBadge: string;
+  cropping: string;
+  editCorners: string;
+  undoCrop: string;
+  cornersTitle: string;
+  cornersHint: string;
+  cornersLoading: string;
+  cornersApply: string;
+  cornersReset: string;
+  cornersCancel: string;
+  cornersInvalid: string;
   filterLabel: string;
   filterColor: string;
+  filterGrayscale: string;
   filterBw: string;
+  filterEnhance: string;
   filterHint: string;
   pageSizeLabel: string;
   pageSizeA4: string;
@@ -48,15 +71,44 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
     uploadInstead: "Elegir fotos del dispositivo",
     uploadHint:
       "¿Sin cámara disponible? Puedes añadir fotos que ya tengas guardadas.",
+    autoCaptureLabel: "Auto-captura",
+    autoCaptureHint:
+      "Captura sola cuando el documento se ve nítido y la cámara está quieta.",
+    autoCountdown: "Capturando en {seconds}…",
+    captureHints: {
+      ok: "Listo para capturar",
+      hold_steady: "Mantén firme",
+      too_dark: "Muy oscuro",
+      unknown: "Buscando el encuadre…",
+    },
+    nativeCamera: "Usar cámara del teléfono",
+    nativeCameraHint:
+      "Abre la app de Cámara del sistema, con flash y enfoque reales. La foto vuelve aquí al terminar.",
+    screenTorchOn: "Iluminar con pantalla",
+    screenTorchOff: "Apagar la luz de pantalla",
     capturesTitle: "Páginas capturadas",
     capturesEmpty: "Todavía no has capturado ninguna página.",
     captureAlt: "Captura",
     removeCapture: "Descartar captura",
+    croppedBadge: "Recortada",
+    cropping: "Buscando los bordes…",
+    editCorners: "Editar recorte",
+    undoCrop: "Deshacer recorte",
+    cornersTitle: "Ajusta las esquinas",
+    cornersHint:
+      "Arrastra cada esquina hasta los bordes del documento. Con el teclado: tabula hasta una esquina y muévela con las flechas.",
+    cornersLoading: "Preparando el editor…",
+    cornersApply: "Aplicar recorte",
+    cornersReset: "Toda la foto",
+    cornersCancel: "Cerrar sin cambios",
+    cornersInvalid: "Las esquinas se cruzan",
     filterLabel: "Aspecto",
     filterColor: "Color",
+    filterGrayscale: "Grises",
     filterBw: "Blanco y negro",
+    filterEnhance: "Realzar",
     filterHint:
-      "El modo blanco y negro sube el contraste para que el texto se lea mejor.",
+      "«Grises» quita el color sin tocar el contraste, «Blanco y negro» lo sube para que el texto se lea mejor y «Realzar» estira el contraste según la propia foto.",
     pageSizeLabel: "Tamaño de página",
     pageSizeA4: "A4",
     pageSizeLetter: "Carta",
@@ -90,15 +142,44 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
     retryCamera: "Try again",
     uploadInstead: "Pick photos from this device",
     uploadHint: "No camera around? You can add photos you already have.",
+    autoCaptureLabel: "Auto capture",
+    autoCaptureHint:
+      "Shoots on its own once the document looks sharp and the camera is still.",
+    autoCountdown: "Capturing in {seconds}…",
+    captureHints: {
+      ok: "Ready to capture",
+      hold_steady: "Hold steady",
+      too_dark: "Too dark",
+      unknown: "Reading the frame…",
+    },
+    nativeCamera: "Use the phone camera",
+    nativeCameraHint:
+      "Opens your system Camera app, with real flash and focus. The photo comes back here when you are done.",
+    screenTorchOn: "Light up with the screen",
+    screenTorchOff: "Turn the screen light off",
     capturesTitle: "Captured pages",
     capturesEmpty: "You have not captured any page yet.",
     captureAlt: "Capture",
     removeCapture: "Discard capture",
+    croppedBadge: "Cropped",
+    cropping: "Looking for the edges…",
+    editCorners: "Edit crop",
+    undoCrop: "Undo crop",
+    cornersTitle: "Adjust the corners",
+    cornersHint:
+      "Drag each corner onto the edges of the document. With a keyboard: tab to a corner and move it with the arrow keys.",
+    cornersLoading: "Getting the editor ready…",
+    cornersApply: "Apply crop",
+    cornersReset: "Whole photo",
+    cornersCancel: "Close without changes",
+    cornersInvalid: "The corners cross over",
     filterLabel: "Look",
     filterColor: "Colour",
+    filterGrayscale: "Greyscale",
     filterBw: "Black and white",
+    filterEnhance: "Enhance",
     filterHint:
-      "Black and white raises the contrast so the text reads more clearly.",
+      "“Greyscale” drops the colour without touching contrast, “Black and white” raises it so the text reads more clearly, and “Enhance” stretches the contrast to fit the photo itself.",
     pageSizeLabel: "Page size",
     pageSizeA4: "A4",
     pageSizeLetter: "Letter",

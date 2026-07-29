@@ -85,6 +85,23 @@ test.describe("scan-to-pdf", () => {
     // redact.spec.ts: un contador exacto, no una coincidencia laxa).
     await expect(page.getByAltText(/^(Captura \d+|Capture \d+)$/i)).toHaveCount(1);
 
+    // Escenario fijado a "SIN recorte de perspectiva". Este spec protege
+    // el camino crudo: el fotograma llega al PDF con las dimensiones y los
+    // colores exactos de la camara. Como la correccion de perspectiva se
+    // aplica sola cuando el detector encuentra un documento con confianza,
+    // aqui se espera a que la deteccion termine y se deshace cualquier
+    // recorte antes de generar. El recorte en si se cubre aparte.
+    const editCrop = page.getByRole("button", {
+      name: /editar recorte|edit crop/i,
+    });
+    await expect(editCrop).toBeEnabled();
+
+    const undoCrop = page.getByRole("button", {
+      name: /deshacer recorte|undo crop/i,
+    });
+    if ((await undoCrop.count()) > 0) await undoCrop.click();
+    await expect(undoCrop).toHaveCount(0);
+
     await page
       .getByRole("button", { name: /generar pdf|build pdf/i })
       .first()

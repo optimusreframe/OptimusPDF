@@ -51,7 +51,8 @@ export type EditElementType =
   | "rect"
   | "ellipse"
   | "line"
-  | "highlight";
+  | "highlight"
+  | "check";
 
 export const EDIT_ELEMENT_TYPES: readonly EditElementType[] = [
   "text",
@@ -60,6 +61,7 @@ export const EDIT_ELEMENT_TYPES: readonly EditElementType[] = [
   "ellipse",
   "line",
   "highlight",
+  "check",
 ] as const;
 
 export type EditElementBase = {
@@ -134,13 +136,25 @@ export type HighlightElement = EditElementBase &
     opacity: number;
   };
 
+/** Simbolo del elemento de marca: visto bueno o aspa. */
+export type CheckMark = "check" | "cross";
+
+export type CheckElement = EditElementBase &
+  BoxFields & {
+    type: "check";
+    mark: CheckMark;
+    strokeColor: string;
+    strokeWidth: number;
+  };
+
 export type EditElement =
   | TextElement
   | ImageElement
   | RectElement
   | EllipseElement
   | LineElement
-  | HighlightElement;
+  | HighlightElement
+  | CheckElement;
 
 /* ------------------------------------------------------------------ *
  * Constantes compartidas con la interfaz
@@ -176,6 +190,25 @@ export const HIGHLIGHT_COLORS = [
 
 export const DEFAULT_HIGHLIGHT_OPACITY = 0.4;
 
+/** Segmento del simbolo: `[x1, y1, x2, y2]` en 0..1 dentro de su caja. */
+export type CheckStroke = readonly [number, number, number, number];
+
+/**
+ * Trazos de cada simbolo, con origen arriba-izquierda igual que las
+ * cajas. Los comparte la vista previa para que el SVG del lienzo y lo que
+ * acaba en el PDF sean la misma figura.
+ */
+export const CHECK_STROKES: Record<CheckMark, readonly CheckStroke[]> = {
+  check: [
+    [0.14, 0.52, 0.4, 0.84],
+    [0.4, 0.84, 0.86, 0.16],
+  ],
+  cross: [
+    [0.16, 0.16, 0.84, 0.84],
+    [0.84, 0.16, 0.16, 0.84],
+  ],
+};
+
 /* ------------------------------------------------------------------ *
  * Estilo activo
  * ------------------------------------------------------------------ */
@@ -198,6 +231,7 @@ export type EditStyle = {
   fillOpacity: number;
   highlightColor: string;
   highlightOpacity: number;
+  checkMark: CheckMark;
 };
 
 export const DEFAULT_EDIT_STYLE: EditStyle = {
@@ -213,6 +247,7 @@ export const DEFAULT_EDIT_STYLE: EditStyle = {
   fillOpacity: 0.3,
   highlightColor: HIGHLIGHT_COLORS[0],
   highlightOpacity: DEFAULT_HIGHLIGHT_OPACITY,
+  checkMark: "check",
 };
 
 /**
@@ -247,6 +282,13 @@ export function applyStyleToElement(
     case "line":
       return {
         ...element,
+        strokeColor: style.strokeColor,
+        strokeWidth: style.strokeWidth,
+      };
+    case "check":
+      return {
+        ...element,
+        mark: style.checkMark,
         strokeColor: style.strokeColor,
         strokeWidth: style.strokeWidth,
       };
@@ -341,6 +383,19 @@ export function sanitizeElement(element: EditElement): EditElement | null {
 
   if (element.type === "highlight") {
     return { ...element, ...box, opacity: clamp(element.opacity, 0.05, 1) };
+  }
+
+  if (element.type === "check") {
+    // Un simbolo sin trazo no se veria, asi que aqui el minimo no es 0.
+    return {
+      ...element,
+      ...box,
+      strokeWidth: clamp(
+        element.strokeWidth,
+        MIN_STROKE_WIDTH,
+        MAX_STROKE_WIDTH,
+      ),
+    };
   }
 
   return {
@@ -587,6 +642,31 @@ function drawLineElement(
   });
 }
 
+function drawCheckElement(
+  page: PDFPage,
+  geometry: PageGeometry,
+  element: CheckElement,
+): void {
+  const color = hexToPdfColor(element.strokeColor);
+  for (const [x1, y1, x2, y2] of CHECK_STROKES[element.mark]) {
+    page.drawLine({
+      start: normalizedPointToUser(
+        geometry,
+        element.x + x1 * element.width,
+        element.y + y1 * element.height,
+      ),
+      end: normalizedPointToUser(
+        geometry,
+        element.x + x2 * element.width,
+        element.y + y2 * element.height,
+      ),
+      thickness: element.strokeWidth,
+      color,
+      lineCap: LineCapStyle.Round,
+    });
+  }
+}
+
 function drawHighlightElement(
   page: PDFPage,
   geometry: PageGeometry,
@@ -716,6 +796,9 @@ export async function applyEdits(
             break;
           case "highlight":
             drawHighlightElement(page, geometry, clean);
+            break;
+          case "check":
+            drawCheckElement(page, geometry, clean);
             break;
         }
       }

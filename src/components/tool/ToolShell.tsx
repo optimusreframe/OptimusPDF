@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -67,6 +74,13 @@ export type ToolShellProps<TOptions> = {
    * herramienta; una herramienta con pasos largos puede narrarlos.
    */
   progressMessage?: string;
+  /**
+   * Se rellena con el disparador del mismo procesado que lanza el boton
+   * del shell. Lo necesita quien conduce al usuario por un flujo propio
+   * y quiere rematarlo con un boton suyo, sin duplicar ni la ejecucion ni
+   * la pantalla de descarga.
+   */
+  runRef?: RefObject<(() => void) | null>;
 };
 
 type Phase = "idle" | "files" | "options" | "processing" | "done";
@@ -80,6 +94,7 @@ export function ToolShell<TOptions>({
   minFiles = 1,
   canRun: canRunProp,
   progressMessage,
+  runRef,
 }: ToolShellProps<TOptions>) {
   const t = useT();
   const Icon = tool.icon;
@@ -98,13 +113,6 @@ export function ToolShell<TOptions>({
   const setOptions = useCallback((patch: Partial<TOptions>) => {
     setOptionsState((previous) => ({ ...previous, ...patch }));
   }, []);
-
-  const context: ToolRenderContext<TOptions> = {
-    files,
-    options,
-    setOptions,
-    setError,
-  };
 
   const onFilesChange = useCallback((next: File[]) => {
     setFiles(next);
@@ -167,6 +175,14 @@ export function ToolShell<TOptions>({
     }
   }, [canRunProp, files, minFiles, options, process, tool.slug]);
 
+  useEffect(() => {
+    if (!runRef) return;
+    runRef.current = () => void run();
+    return () => {
+      runRef.current = null;
+    };
+  }, [run, runRef]);
+
   const cancel = useCallback(() => {
     runIdRef.current += 1;
     // Ademas de ignorar el resultado, se pide al motor que pare: los
@@ -182,6 +198,13 @@ export function ToolShell<TOptions>({
     files.length >= minFiles &&
     (canRunProp ? canRunProp(files, options) : true);
   const showWorkspace = phase === "files" || phase === "options";
+
+  const context: ToolRenderContext<TOptions> = {
+    files,
+    options,
+    setOptions,
+    setError,
+  };
 
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 pt-8 pb-40 md:px-6 md:pt-12 md:pb-16">

@@ -31,6 +31,7 @@ import {
   applyEdits,
   applyStyleToElement,
   groupElementsByPage,
+  type CheckMark,
   type EditElement,
   type EditElementType,
   type EditStyle,
@@ -216,9 +217,25 @@ export function EditToolClient() {
               </OptionSection>
             ) : null}
 
+            {options.activeType === "check" ? (
+              <OptionSection>
+                <ChoiceGroup<CheckMark>
+                  label={s.checkMarkLabel}
+                  value={options.style.checkMark}
+                  columns={2}
+                  choices={[
+                    { value: "check", label: s.checkMarkCheck },
+                    { value: "cross", label: s.checkMarkCross },
+                  ]}
+                  onChange={(checkMark) => patchStyle({ checkMark })}
+                />
+              </OptionSection>
+            ) : null}
+
             {options.activeType === "rect" ||
             options.activeType === "ellipse" ||
-            options.activeType === "line" ? (
+            options.activeType === "line" ||
+            options.activeType === "check" ? (
               <OptionSection>
                 <ColorSwatches
                   label={s.strokeColorLabel}

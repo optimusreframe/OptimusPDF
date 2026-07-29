@@ -28,11 +28,21 @@ export type SignatureDraft = {
   ratio: number;
 };
 
+/**
+ * "initials" no cambia el mecanismo (dibujar, escribir o subir): solo
+ * ajusta el lienzo y el limite de caracteres a un trazo corto y casi
+ * cuadrado, que es lo que acaba dentro de un hueco de iniciales.
+ */
+export type SignatureComposerVariant = "signature" | "initials";
+
 export type SignatureComposerProps = {
   open: boolean;
   onClose: () => void;
   onSave: (draft: SignatureDraft) => void;
   strings: SignStrings;
+  /** Titulo del panel. Por defecto, el generico "Tu firma". */
+  title?: string;
+  variant?: SignatureComposerVariant;
 };
 
 type ComposerMode = "draw" | "type" | "upload";
@@ -66,7 +76,10 @@ const SIGNATURE_FONTS = [
 const CAVEAT_STYLE_NAME = "Caveat";
 
 const DRAW_WIDTH = 640;
+const INITIALS_DRAW_WIDTH = 320;
 const DRAW_HEIGHT = 220;
+const MAX_TYPED_LENGTH = 48;
+const MAX_TYPED_INITIALS_LENGTH = 8;
 const EXPORT_SCALE = 3;
 const TYPE_FONT_SIZE = 96;
 
@@ -152,8 +165,12 @@ export function SignatureComposer({
   onClose,
   onSave,
   strings,
+  title,
+  variant = "signature",
 }: SignatureComposerProps) {
   const t = useT();
+  const initials = variant === "initials";
+  const drawWidth = initials ? INITIALS_DRAW_WIDTH : DRAW_WIDTH;
   const [mode, setMode] = useState<ComposerMode>("draw");
   const [ink, setInk] = useState<string>(SIGNATURE_INKS[0]);
   const [stroke, setStroke] = useState(4);
@@ -182,13 +199,13 @@ export function SignatureComposer({
     if (!open || mode !== "draw") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.width = DRAW_WIDTH * 2;
+    canvas.width = drawWidth * 2;
     canvas.height = DRAW_HEIGHT * 2;
     const context = canvas.getContext("2d");
     if (!context) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
     setHasInk(false);
-  }, [open, mode]);
+  }, [open, mode, drawWidth]);
 
   const pointFromEvent = (
     event: ReactPointerEvent<HTMLCanvasElement>,
@@ -322,7 +339,7 @@ export function SignatureComposer({
     <Sheet
       open={open}
       onClose={onClose}
-      title={strings.createTitle}
+      title={title ?? strings.createTitle}
       closeLabel={t.common.close}
     >
       <div className="space-y-5 pb-2">
@@ -348,12 +365,15 @@ export function SignatureComposer({
               onPointerUp={endStroke}
               onPointerCancel={endStroke}
               aria-label={strings.drawHint}
-              className="block h-auto w-full touch-none rounded-ios-sm border border-white/14 bg-white"
-              style={{ aspectRatio: `${DRAW_WIDTH} / ${DRAW_HEIGHT}` }}
+              className="mx-auto block h-auto w-full touch-none rounded-ios-sm border border-white/14 bg-white"
+              style={{
+                aspectRatio: `${drawWidth} / ${DRAW_HEIGHT}`,
+                maxWidth: initials ? `${INITIALS_DRAW_WIDTH}px` : undefined,
+              }}
             />
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
-                {strings.drawHint}
+                {initials ? strings.initialsHint : strings.drawHint}
               </p>
               <Button variant="ghost" size="sm" onClick={resetCanvas}>
                 <Eraser aria-hidden="true" className="size-3.5" />
@@ -383,8 +403,10 @@ export function SignatureComposer({
                 id="signature-typed"
                 type="text"
                 value={typed}
-                maxLength={48}
-                placeholder={strings.typePlaceholder}
+                maxLength={initials ? MAX_TYPED_INITIALS_LENGTH : MAX_TYPED_LENGTH}
+                placeholder={
+                  initials ? strings.initialsPlaceholder : strings.typePlaceholder
+                }
                 onChange={(event) => setTyped(event.target.value)}
                 className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60"
               />
