@@ -231,7 +231,9 @@ export async function splitPdf(
 
     const pageCount = source.getPageCount();
     const groups = buildSplitGroups(plan, pageCount);
-    if (groups.length === 0) throw new PdfError("empty");
+    // "nothingSelected", no "empty": el archivo ya se cargo bien -- lo que
+    // falta es que el plan (rangos/paginas) resulte en algo que dividir.
+    if (groups.length === 0) throw new PdfError("nothingSelected");
 
     if (groups.length === 1) {
       const output = await PDFDocument.create();

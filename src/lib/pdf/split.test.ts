@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
+import { PdfError } from "@/lib/pdf/core";
 import { splitPdf } from "@/lib/pdf/split";
 
 /**
@@ -56,5 +57,19 @@ describe("splitPdf — src/lib/pdf/split.ts (humo)", () => {
 
     expect(output.kind).toBe("zip");
     expect(output.parts).toBe(2);
+  });
+
+  it("un plan sin rangos falla con 'nothingSelected', no con 'empty' (el archivo si se cargo)", async () => {
+    const file = await toFile(await documentWithPages(6));
+
+    const attempt = splitPdf(
+      file,
+      { mode: "ranges", ranges: [], merge: true },
+      "source",
+    );
+
+    await expect(attempt).rejects.toSatisfy(
+      (error: unknown) => error instanceof PdfError && error.code === "nothingSelected",
+    );
   });
 });
