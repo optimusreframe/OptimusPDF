@@ -141,7 +141,10 @@ function FileThumbnail({ file }: { file: File }) {
 
     if (file.type.startsWith("image/")) {
       objectUrl = URL.createObjectURL(file);
-      setUrl(objectUrl);
+      const url = objectUrl;
+      queueMicrotask(() => {
+        if (!cancelled) setUrl(url);
+      });
     } else if (isPdfFile(file)) {
       void (async () => {
         let document: Awaited<ReturnType<typeof openPdfDocument>> | null =

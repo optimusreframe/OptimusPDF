@@ -60,7 +60,7 @@ type FakeDocument = {
 function makeFakeDocument(numPages: number): FakeDocument {
   return {
     numPages,
-    getPage: vi.fn(async (_pageNumber: number): Promise<FakePage> => ({
+    getPage: vi.fn(async (): Promise<FakePage> => ({
       cleanup: vi.fn(),
     })),
     loadingTask: { destroy: vi.fn(async () => {}) },
