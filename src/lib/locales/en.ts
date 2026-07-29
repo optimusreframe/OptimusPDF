@@ -302,6 +302,7 @@ export const en: Dictionary = {
     resultSize: "Result size",
     relatedTitle: "Carry on with these",
     pagesPreview: "Page preview",
+    dragToReorder: "Drag to reorder",
     selectAll: "Select all",
     clearSelection: "Clear selection",
     rotate: "Rotate",

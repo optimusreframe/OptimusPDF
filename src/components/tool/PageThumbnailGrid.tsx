@@ -58,6 +58,8 @@ function PageThumbnailGridInner({
   const [items, setItems] = useState<PageRef[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(files.length > 0);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
 
   const changeRef = useRef(onItemsChange);
   const errorRef = useRef(onError);
@@ -139,16 +141,21 @@ function PageThumbnailGridInner({
     [],
   );
 
-  const move = useCallback((index: number, offset: number) => {
+  const moveTo = useCallback((from: number, to: number) => {
     setItems((previous) => {
-      const target = index + offset;
-      if (target < 0 || target >= previous.length) return previous;
+      if (from === to || from < 0 || to < 0) return previous;
+      if (from >= previous.length || to >= previous.length) return previous;
       const next = [...previous];
-      const [item] = next.splice(index, 1);
-      next.splice(target, 0, item);
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
       return next;
     });
   }, []);
+
+  const move = useCallback(
+    (index: number, offset: number) => moveTo(index, index + offset),
+    [moveTo],
+  );
 
   const removeAt = useCallback((id: string) => {
     setItems((previous) => previous.filter((item) => item.id !== id));
@@ -158,10 +165,15 @@ function PageThumbnailGridInner({
 
   return (
     <div className={className}>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="hud-label text-[11px] text-muted-foreground">
           {t.tool.pagesPreview}
         </h3>
+        {reorderable ? (
+          <span className="hud-label text-[10px] text-muted-foreground">
+            {t.tool.dragToReorder}
+          </span>
+        ) : null}
         {loading ? <Spinner className="size-4" /> : null}
       </div>
 
@@ -171,9 +183,52 @@ function PageThumbnailGridInner({
           return (
             <li
               key={item.id}
+              draggable={reorderable}
+              onDragStart={
+                reorderable
+                  ? (event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", item.id);
+                      setDragIndex(index);
+                    }
+                  : undefined
+              }
+              onDragOver={
+                reorderable
+                  ? (event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setOverIndex(index);
+                    }
+                  : undefined
+              }
+              onDrop={
+                reorderable
+                  ? (event) => {
+                      event.preventDefault();
+                      if (dragIndex !== null) moveTo(dragIndex, index);
+                      setDragIndex(null);
+                      setOverIndex(null);
+                    }
+                  : undefined
+              }
+              onDragEnd={
+                reorderable
+                  ? () => {
+                      setDragIndex(null);
+                      setOverIndex(null);
+                    }
+                  : undefined
+              }
               className={cn(
                 "glass rounded-ios-sm group relative overflow-hidden p-2 transition-all duration-200 ease-spring",
                 selectable && !item.selected && "opacity-40",
+                reorderable && "cursor-grab active:cursor-grabbing",
+                reorderable && dragIndex === index && "opacity-40",
+                reorderable &&
+                  overIndex === index &&
+                  dragIndex !== index &&
+                  "ring-signal/60 ring-2",
               )}
             >
               <button

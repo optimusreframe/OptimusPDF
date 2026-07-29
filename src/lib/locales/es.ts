@@ -320,6 +320,7 @@ export const es = {
     resultSize: "Peso del resultado",
     relatedTitle: "Sigue con estas",
     pagesPreview: "Vista previa de páginas",
+    dragToReorder: "Arrastra para reordenar",
     selectAll: "Seleccionar todo",
     clearSelection: "Quitar selección",
     rotate: "Girar",

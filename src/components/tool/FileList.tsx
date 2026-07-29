@@ -1,10 +1,18 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, FileText, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { localeTag } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { MAX_SAFE_FILE_SIZE, formatFileSize } from "@/lib/pdf/core";
+import {
+  MAX_SAFE_FILE_SIZE,
+  closePdfDocument,
+  formatFileSize,
+  isPdfFile,
+  openPdfDocument,
+  renderPageToDataUrl,
+} from "@/lib/pdf/core";
 
 export type FileListProps = {
   files: File[];
@@ -41,11 +49,11 @@ export function FileList({
         const oversized = file.size > MAX_SAFE_FILE_SIZE;
         return (
           <li
-            key={`${file.name}-${file.lastModified}-${index}`}
+            key={`${file.name}-${file.lastModified}-${file.size}`}
             className="glass rounded-ios flex items-center gap-3 p-3"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-ios-sm bg-white/6">
-              <FileText aria-hidden="true" className="size-4 text-signal" />
+            <span className="h-11 w-9 shrink-0 overflow-hidden rounded-ios-sm bg-white/6">
+              <FileThumbnail file={file} />
             </span>
 
             <div className="min-w-0 flex-1">
@@ -114,5 +122,64 @@ function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+const THUMB_MAX_WIDTH = 72;
+
+/**
+ * Miniatura del archivo: primera pagina si es PDF, la propia imagen si es
+ * una foto, o el icono generico como respaldo (formatos no soportados o
+ * archivo dañado/cifrado que no se puede rasterizar aqui).
+ */
+function FileThumbnail({ file }: { file: File }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setUrl(null);
+
+    if (file.type.startsWith("image/")) {
+      objectUrl = URL.createObjectURL(file);
+      setUrl(objectUrl);
+    } else if (isPdfFile(file)) {
+      void (async () => {
+        let document: Awaited<ReturnType<typeof openPdfDocument>> | null =
+          null;
+        try {
+          document = await openPdfDocument(file);
+          if (cancelled) return;
+          const page = await document.getPage(1);
+          const dataUrl = await renderPageToDataUrl(page, {
+            maxWidth: THUMB_MAX_WIDTH,
+          });
+          page.cleanup();
+          if (!cancelled) setUrl(dataUrl);
+        } catch {
+          // Se queda en null: el icono generico sirve de respaldo.
+        } finally {
+          if (document) void closePdfDocument(document);
+        }
+      })();
+    }
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [file]);
+
+  if (url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={url} alt="" className="h-full w-full object-cover" />
+    );
+  }
+
+  return (
+    <span className="flex h-full w-full items-center justify-center">
+      <FileText aria-hidden="true" className="size-4 text-signal" />
+    </span>
   );
 }

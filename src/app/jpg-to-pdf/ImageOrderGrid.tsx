@@ -40,6 +40,8 @@ function ImageOrderGridInner({
   const [order, setOrder] = useState<number[]>(() =>
     files.map((_, index) => index),
   );
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
 
   // Un object URL por archivo; se revocan al desmontar para no filtrar
   // memoria con lotes grandes de fotos.
@@ -61,16 +63,21 @@ function ImageOrderGridInner({
     changeRef.current(order);
   }, [order]);
 
-  const move = useCallback((position: number, offset: number) => {
+  const moveTo = useCallback((from: number, to: number) => {
     setOrder((previous) => {
-      const target = position + offset;
-      if (target < 0 || target >= previous.length) return previous;
+      if (from === to || from < 0 || to < 0) return previous;
+      if (from >= previous.length || to >= previous.length) return previous;
       const next = [...previous];
-      const [item] = next.splice(position, 1);
-      next.splice(target, 0, item);
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
       return next;
     });
   }, []);
+
+  const move = useCallback(
+    (position: number, offset: number) => moveTo(position, position + offset),
+    [moveTo],
+  );
 
   if (files.length === 0) return null;
 
@@ -90,9 +97,34 @@ function ImageOrderGridInner({
           return (
             <li
               key={`${fileIndex}-${file.name}`}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", String(fileIndex));
+                setDragIndex(position);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setOverIndex(position);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (dragIndex !== null) moveTo(dragIndex, position);
+                setDragIndex(null);
+                setOverIndex(null);
+              }}
+              onDragEnd={() => {
+                setDragIndex(null);
+                setOverIndex(null);
+              }}
               className={cn(
-                "glass rounded-ios-sm relative overflow-hidden p-2",
+                "glass rounded-ios-sm relative cursor-grab overflow-hidden p-2 active:cursor-grabbing",
                 "transition-all duration-200 ease-spring",
+                dragIndex === position && "opacity-40",
+                overIndex === position &&
+                  dragIndex !== position &&
+                  "ring-signal/60 ring-2",
               )}
             >
               <span className="flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">

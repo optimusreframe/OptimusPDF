@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ToolCard } from "@/components/tool/ToolCard";
+import { ToolIconTile } from "@/components/tool/ToolIconTile";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import {
@@ -90,7 +91,12 @@ export function HomeView() {
                   {t.categories[category].description}
                 </p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-4 gap-x-2 gap-y-5 sm:hidden">
+                {getToolsByCategory(category).map((tool) => (
+                  <ToolIconTile key={tool.slug} tool={tool} />
+                ))}
+              </div>
+              <div className="hidden gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-3">
                 {getToolsByCategory(category).map((tool) => (
                   <ToolCard key={tool.slug} tool={tool} />
                 ))}

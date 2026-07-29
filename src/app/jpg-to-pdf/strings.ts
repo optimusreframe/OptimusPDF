@@ -45,7 +45,8 @@ export const STRINGS: Record<Language, JpgToPdfStrings> = {
     mergeHintOff: "Se generará un PDF por imagen dentro de un ZIP.",
     fitNote: "Con «Ajustar», la página toma el tamaño exacto de cada imagen.",
     previewTitle: "Orden de las imágenes",
-    previewHint: "Coloca las imágenes en el orden en que deben aparecer.",
+    previewHint:
+      "Arrastra las miniaturas o usa las flechas para fijar el orden en que deben aparecer.",
     imageAlt: "Imagen",
   },
   en: {
@@ -66,7 +67,8 @@ export const STRINGS: Record<Language, JpgToPdfStrings> = {
     mergeHintOff: "One PDF per image, delivered inside a ZIP.",
     fitNote: "With “Fit”, each page takes the exact size of its image.",
     previewTitle: "Image order",
-    previewHint: "Arrange the images in the order they should appear.",
+    previewHint:
+      "Drag the thumbnails or use the arrows to set the order they should appear in.",
     imageAlt: "Image",
   },
 };
