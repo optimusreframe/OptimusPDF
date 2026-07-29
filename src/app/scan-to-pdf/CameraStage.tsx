@@ -460,13 +460,6 @@ export function CameraStage({
                 resetAutoCapture();
               }}
             />
-
-            <div className="mt-3">
-              <Button variant="ghost" size="sm" onClick={startBurst}>
-                <Smartphone aria-hidden="true" className="size-3.5" />
-                {s.nativeCamera}
-              </Button>
-            </div>
           </div>
         </div>
       ) : (

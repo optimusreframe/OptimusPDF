@@ -47,6 +47,21 @@ export const metadata: Metadata = {
     title: "OptimusPDF — Todas las herramientas PDF. Cero subidas.",
     description:
       "Procesa tus PDF sin que salgan del dispositivo. Sin cuentas, sin servidores, sin límites diarios.",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "OptimusPDF",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "OptimusPDF — Todas las herramientas PDF. Cero subidas.",
+    description:
+      "Procesa tus PDF sin que salgan del dispositivo. Sin cuentas, sin servidores, sin límites diarios.",
+    images: ["/og-image.png"],
   },
 };
 

@@ -83,9 +83,9 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
       too_dark: "Muy oscuro",
       unknown: "Buscando el encuadre…",
     },
-    nativeCamera: "Cámara del teléfono (ráfaga)",
+    nativeCamera: "Usar la app de Cámara del sistema",
     nativeCameraHint:
-      "¿Necesitas flash o enfoque manual reales? Abre la app de Cámara y se vuelve a abrir sola tras cada foto, hasta que pulses «Terminar».",
+      "Más lenta: la app de Cámara te pide confirmar cada foto antes de volver aquí. Solo merece la pena si necesitas flash o enfoque manual reales.",
     burstTitle: "Ráfaga activa",
     burstCount: "Fotos capturadas: {count}",
     burstDone: "Terminar",
@@ -155,9 +155,9 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
       too_dark: "Too dark",
       unknown: "Reading the frame…",
     },
-    nativeCamera: "Phone camera (burst)",
+    nativeCamera: "Use the system Camera app",
     nativeCameraHint:
-      "Need real flash or manual focus? Opens your system Camera app and reopens it after every photo, until you tap “Done”.",
+      "Slower: the Camera app asks you to confirm every photo before returning here. Only worth it for real flash or manual focus.",
     burstTitle: "Burst mode on",
     burstCount: "Photos captured: {count}",
     burstDone: "Done",

@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useIsClient } from "@/hooks/useIsClient";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/cn";
 
 export type SheetProps = {
@@ -13,7 +14,24 @@ export type SheetProps = {
   closeLabel: string;
   children: ReactNode;
   className?: string;
+  /**
+   * En un telefono en apaisado el ancho ya supera el punto de corte `md` y
+   * el panel se confundiria con un escritorio (tarjeta centrada y
+   * estrecha). Con esto activado, el panel pasa a pantalla completa en
+   * touch —cualquier orientacion, hasta tablet— en vez de esa tarjeta: lo
+   * usa el contenido que necesita el hueco real entero, como el lienzo de
+   * firma.
+   */
+  mobileFullscreen?: boolean;
 };
+
+/**
+ * Puntero grueso (dedo, no raton/trackpad) y ancho de escritorio-pequeño
+ * hacia abajo: cubre telefono en cualquier giro y tablet, sin arrastrar a
+ * un monitor tactil de escritorio a la pantalla completa.
+ */
+export const MOBILE_FULLSCREEN_QUERY =
+  "(pointer: coarse) and (max-width: 1024px)";
 
 /**
  * Bottom sheet estilo iOS: grabber, muelle de entrada, respeta el
@@ -26,8 +44,11 @@ export function Sheet({
   closeLabel,
   children,
   className,
+  mobileFullscreen = false,
 }: SheetProps) {
   const isClient = useIsClient();
+  const coarseAndNarrow = useMediaQuery(MOBILE_FULLSCREEN_QUERY);
+  const fullscreen = mobileFullscreen && coarseAndNarrow;
 
   useEffect(() => {
     if (!open) return;
@@ -58,19 +79,32 @@ export function Sheet({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "relative flex max-h-[88vh] w-full flex-col animate-sheet-in",
-          "rounded-t-ios-lg border-t border-white/10 bg-elevated/95 backdrop-blur-2xl",
-          "md:max-w-lg md:rounded-ios-lg md:border",
+          "relative flex w-full flex-col animate-sheet-in",
+          fullscreen
+            ? "h-full rounded-none border-0 bg-elevated"
+            : cn(
+                "max-h-[88vh] rounded-t-ios-lg border-t border-white/10 bg-elevated/95 backdrop-blur-2xl",
+                "md:max-w-lg md:rounded-ios-lg md:border",
+              ),
           className,
         )}
       >
-        <div className="flex shrink-0 flex-col items-center pt-2.5">
-          <span
-            aria-hidden="true"
-            className="h-1 w-10 rounded-full bg-white/25 md:hidden"
-          />
-        </div>
-        <div className="flex shrink-0 items-center justify-between px-5 pt-3 pb-2">
+        {fullscreen ? null : (
+          <div className="flex shrink-0 flex-col items-center pt-2.5">
+            <span
+              aria-hidden="true"
+              className="h-1 w-10 rounded-full bg-white/25 md:hidden"
+            />
+          </div>
+        )}
+        <div
+          className="flex shrink-0 items-center justify-between px-5 pb-2"
+          style={{
+            paddingTop: fullscreen
+              ? "calc(0.75rem + env(safe-area-inset-top, 0px))"
+              : "0.75rem",
+          }}
+        >
           {title ? (
             <h2 className="hud-label text-[11px] text-muted-foreground">
               {title}

@@ -10,7 +10,7 @@ import {
 import { Eraser, ImageUp, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { Sheet } from "@/components/ui/Sheet";
+import { MOBILE_FULLSCREEN_QUERY, Sheet } from "@/components/ui/Sheet";
 import { Slider } from "@/components/ui/Slider";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/cn";
@@ -369,9 +369,24 @@ export function SignatureComposer({
   // la mano: en un escritorio la ventana ya es ancha de serie.
   const touch = useMediaQuery(COARSE_POINTER_QUERY);
   const landscape = useMediaQuery(LANDSCAPE_QUERY);
-  const drawSize =
-    DRAW_SIZES[variant][touch && landscape ? "landscape" : "portrait"];
+  // Mismo criterio que el Sheet: si no coincide, el lienzo terminaria
+  // midiendo un hueco que la tarjeta compacta nunca le da.
+  const fullscreen = useMediaQuery(MOBILE_FULLSCREEN_QUERY);
   const [mode, setMode] = useState<ComposerMode>("draw");
+  /**
+   * Solo la firma (no las iniciales, que Adobe tambien deja en un hueco
+   * pequeño y casi cuadrado) aprovecha el lienzo entero en pantalla
+   * completa: es el unico caso que de verdad se queda corto de espacio.
+   */
+  const fillCanvas = fullscreen && !initials && mode === "draw";
+  const [measuredSize, setMeasuredSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const drawSize =
+    fillCanvas && measuredSize
+      ? measuredSize
+      : DRAW_SIZES[variant][touch && landscape ? "landscape" : "portrait"];
   const [ink, setInk] = useState<string>(SIGNATURE_INKS[0]);
   const [stroke, setStroke] = useState(4);
   const [typed, setTyped] = useState("");
@@ -401,6 +416,13 @@ export function SignatureComposer({
     height: DRAW_SIZES[variant].portrait.height * CANVAS_DENSITY,
   });
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  /** Contenedor que se mide en pantalla completa para llenar el lienzo. */
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  /** Ultima medida del contenedor, a la espera de que no haya trazo en curso. */
+  const pendingSizeRef = useRef<{ width: number; height: number } | null>(
+    null,
+  );
+  const applyPendingSizeRef = useRef<() => void>(() => {});
 
   const clearStrokes = useCallback(() => {
     strokesRef.current = [];
@@ -476,6 +498,56 @@ export function SignatureComposer({
       lastMidRef.current = scalePoint(lastMidRef.current, ratio);
     }
   }, [open, mode, drawSize.width, drawSize.height]);
+
+  /**
+   * En pantalla completa el lienzo no tiene un tamaño fijo: llena lo que
+   * quede libre entre la cabecera y los controles, y eso varia con cada
+   * dispositivo. Se mide el contenedor real con `ResizeObserver` en vez de
+   * asumir un valor.
+   */
+  useEffect(() => {
+    applyPendingSizeRef.current = () => {
+      const pending = pendingSizeRef.current;
+      // Nunca a mitad de un trazo: cambiar el tamaño del lienzo bajo el
+      // dedo lo dejaria en blanco justo cuando el usuario esta dibujando.
+      if (!pending || activeStrokeRef.current) return;
+      setMeasuredSize((current) => {
+        if (
+          current &&
+          Math.abs(current.width - pending.width) < 4 &&
+          Math.abs(current.height - pending.height) < 4
+        ) {
+          return current;
+        }
+        return pending;
+      });
+    };
+  });
+
+  useEffect(() => {
+    if (!open || mode !== "draw" || !fillCanvas) {
+      // Sin gesto de medida en marcha, la `measuredSize` que hubiera queda
+      // sin usar: `drawSize` ya la ignora en cuanto `fillCanvas` es falso.
+      pendingSizeRef.current = null;
+      return;
+    }
+    const wrap = canvasWrapRef.current;
+    if (!wrap) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width < 40 || height < 40) return;
+      pendingSizeRef.current = {
+        width: Math.round(width),
+        height: Math.round(height),
+      };
+      applyPendingSizeRef.current();
+    });
+    observer.observe(wrap);
+    return () => observer.disconnect();
+  }, [open, mode, fillCanvas]);
 
   /**
    * Punto del evento en espacio de lienzo, recortado al area de dibujo.
@@ -603,6 +675,9 @@ export function SignatureComposer({
     if (active && active.points.length > 1) {
       strokesRef.current = [...strokesRef.current, active];
     }
+    // Si un giro o un cambio de tamaño llego mientras el dedo seguia en el
+    // lienzo, se aplico en diferido: ahora que el trazo ya cerro, toca.
+    applyPendingSizeRef.current();
   };
 
   const readUpload = async (file: File): Promise<void> => {
@@ -690,8 +765,14 @@ export function SignatureComposer({
       onClose={onClose}
       title={title ?? strings.createTitle}
       closeLabel={t.common.close}
+      mobileFullscreen
     >
-      <div className="space-y-5 pb-2">
+      <div
+        className={cn(
+          "pb-2",
+          fillCanvas ? "flex h-full min-h-0 flex-col gap-3" : "space-y-5",
+        )}
+      >
         <SegmentedControl<ComposerMode>
           value={mode}
           onChange={(next) => {
@@ -706,34 +787,73 @@ export function SignatureComposer({
         />
 
         {mode === "draw" ? (
-          <div className="space-y-3">
-            {touch && !landscape ? (
+          <div
+            className={cn(
+              fillCanvas ? "flex min-h-0 flex-1 flex-col gap-2" : "space-y-3",
+            )}
+          >
+            {touch && !landscape && !fillCanvas ? (
               <p className="rounded-ios-sm flex items-center gap-2 border border-white/10 bg-white/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
                 <RotateCw aria-hidden="true" className="size-4 shrink-0" />
                 {strings.rotateHint}
               </p>
             ) : null}
-            <canvas
-              ref={canvasRef}
-              onPointerDown={startStroke}
-              onPointerMove={continueStroke}
-              onPointerUp={endStroke}
-              onPointerCancel={endStroke}
-              aria-label={strings.drawHint}
-              className="mx-auto block h-auto w-full touch-none rounded-ios-sm border border-white/14 bg-white"
-              style={{
-                aspectRatio: `${drawSize.width} / ${drawSize.height}`,
-                maxWidth: initials ? `${drawSize.width}px` : undefined,
-              }}
-            />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {initials ? strings.initialsHint : strings.drawHint}
-              </p>
+            <div
+              ref={fillCanvas ? canvasWrapRef : undefined}
+              className={fillCanvas ? "min-h-[96px] flex-1" : undefined}
+            >
+              <canvas
+                ref={canvasRef}
+                onPointerDown={startStroke}
+                onPointerMove={continueStroke}
+                onPointerUp={endStroke}
+                onPointerCancel={endStroke}
+                aria-label={strings.drawHint}
+                className={cn(
+                  "block touch-none rounded-ios-sm border border-white/14 bg-white",
+                  fillCanvas ? "h-full w-full" : "mx-auto h-auto w-full",
+                )}
+                style={
+                  fillCanvas
+                    ? undefined
+                    : {
+                        aspectRatio: `${drawSize.width} / ${drawSize.height}`,
+                        maxWidth: initials ? `${drawSize.width}px` : undefined,
+                      }
+                }
+              />
+            </div>
+            <div className="flex shrink-0 items-center justify-between gap-3">
+              {fillCanvas ? null : (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {initials ? strings.initialsHint : strings.drawHint}
+                </p>
+              )}
               <Button variant="ghost" size="sm" onClick={resetCanvas}>
                 <Eraser aria-hidden="true" className="size-3.5" />
                 {strings.clear}
               </Button>
+              {fillCanvas ? (
+                <div role="radiogroup" aria-label={strings.inkLabel} className="flex gap-1.5">
+                  {SIGNATURE_INKS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      role="radio"
+                      aria-checked={color === ink}
+                      aria-label={color}
+                      onClick={() => setInk(color)}
+                      className={cn(
+                        "size-6 rounded-full border-2 transition-all duration-200 ease-spring",
+                        color === ink
+                          ? "border-signal scale-110"
+                          : "border-white/20 hover:border-white/40",
+                      )}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
             <Slider
               label={strings.strokeLabel}
@@ -838,7 +958,7 @@ export function SignatureComposer({
           </div>
         ) : null}
 
-        {mode !== "upload" ? (
+        {mode !== "upload" && !fillCanvas ? (
           <div>
             <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
               {strings.inkLabel}
