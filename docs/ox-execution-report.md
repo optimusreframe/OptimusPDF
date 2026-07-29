@@ -580,30 +580,37 @@ ajuste de URLs canónicas.
 | Pasada manual de `scan-to-pdf` en 2 dispositivos físicos reales | No ejecutada — sin acceso a hardware móvil real | Media | Completar `docs/evidence/scan-to-pdf-item3/checklist.md` con un iOS/Safari y un Android/Chrome reales antes de considerar `scan-to-pdf` validado en móvil |
 | `permissions: contents: read` en `ci.yml` | Sugerencia de Codex, no bloqueante, no aplicada | Baja | Añadir en el próximo commit que toque el workflow |
 | CSP sin nonces/hashes (`'unsafe-inline'` en `script-src`/`style-src`) | Es la alternativa recomendada por Next.js para páginas estáticas sin servidor; reduce el valor anti-XSS de la CSP frente a una futura inyección de HTML, aunque hoy no se encontró ningún `dangerouslySetInnerHTML` ni sumidero evidente | Baja | Revisar si se introduce renderizado dinámico en el futuro; hoy no es accionable sin servidor |
-| Fijación de modelos no es integridad criptográfica end-to-end | Un compromiso real del proveedor (Hugging Face/GitHub) podría alterar el contenido de un commit ya fijado | Baja | Fuera de alcance low-cost/no-server; considerar hashes SRI (`ModelIntegrity` de web-llm) si se prioriza en el futuro |
+| Fijación de modelos no es integridad criptográfica end-to-end | Un compromiso real del proveedor (Hugging Face/GitHub) podría alterar el contenido de un commit ya fijado | Baja | Diferido por complejidad y mantenimiento, no necesariamente incompatible con low-cost/no-server: `ModelIntegrity`/hashes SRI verificables en cliente (ya soportados por web-llm) son viables sin servidor, pero exigen mantener un hash por archivo de cada asset — no requerido para cerrar este plan |
+| `pdf-summarizer`: `isModelCached()` no detecta el modelo tras recargar la página (F5) | Limitación documentada de la librería `@mlc-ai/web-llm` (ver `docs/evidence/pdf-summarizer-tier3/resultado.md`): dentro de la misma sesión de pestaña ya no repite el aviso de descarga (corregido en el Item 1), pero tras un F5 vuelve a mostrar "hay que descargar el modelo" aunque el cache real exista. No obliga a repetir la descarga de 677 MB — sólo repite la pantalla de consentimiento. | Baja | Reportar el caso aguas arriba en `@mlc-ai/web-llm`, o implementar una verificación propia consultando `caches.open('webllm/model')` directamente |
 | WebGPU / rendimiento variable | `pdf-summarizer` requiere `shader-f16`; sin él, la herramienta falla cerrado explícitamente ("no hay plan B") | Inherente | Ya documentado en la propia UI del producto |
 | Precisión de OCR/IA | Resúmenes, traducciones y texto reconocido pueden contener errores | Inherente | Ya declarado en `/privacy` y en el copy de cada herramienta |
 | Ausencia deliberada de servidor | Sin backend, ninguna herramienta que lo requiera (conversión real Office↔PDF con maquetación, certificación PDF/A real, traducción/resumen en la nube) puede ofrecerse sin romper la posición de privacidad | Por diseño | Ya evaluado y descartado explícitamente en fase 4 |
 
 ## Próximos pasos recomendados (siempre low-cost/no-server)
 1. Completar la pasada manual de `scan-to-pdf` en 2 dispositivos físicos
-   reales (el único punto de este plan que sigue sin evidencia real).
+   reales (el punto de mayor prioridad, sin evidencia real todavía).
 2. Aplicar `permissions: contents: read` al workflow de CI (barato, sin riesgo).
-3. Matriz ligera de navegadores/dispositivos para las herramientas más
+3. Documentar (o resolver) el comportamiento de `isModelCached()` tras F5 en
+   `pdf-summarizer`: reportarlo aguas arriba en `@mlc-ai/web-llm`, o
+   implementar una verificación propia sobre `caches.open('webllm/model')`.
+4. Matriz ligera de navegadores/dispositivos para las herramientas más
    sensibles a APIs del navegador (`scan-to-pdf`, `pdf-summarizer` con WebGPU).
-4. Comprobación periódica (manual o vía un job de CI adicional, sin costo real)
+5. Comprobación periódica (manual o vía un job de CI adicional, sin costo real)
    de que las URLs fijadas de los modelos y las políticas de terceros enlazadas
    desde `/privacy` siguen vigentes, y de actualizar los commits fijados cuando
    se decida deliberadamente actualizar un modelo.
-5. Presupuesto de tamaño de bundle (`next build` ya reporta tamaños por ruta;
+6. Presupuesto de tamaño de bundle (`next build` ya reporta tamaños por ruta;
    fijar un umbral y que CI avise si se excede).
-6. Documentar un plan de recuperación si Hugging Face, GitHub o jsDelivr
+7. Documentar un plan de recuperación si Hugging Face, GitHub o jsDelivr
    cambian sus URLs o dejan de servir un recurso fijado (qué hace la app,
    qué ve el usuario, cómo se actualiza el commit fijado).
 
 ## Final Status (fase 5)
-- **Implementation complete**: sí — 5 de 5 items del plan, cada uno auditado
-  por Codex con veredicto **PASA** antes de pasar al siguiente.
+- **Implementation complete**: 5/5 items implementados en su alcance
+  automatizable, cada uno auditado por Codex con veredicto **PASA** antes de
+  pasar al siguiente. De ellos, **4/5 quedan cerrados íntegramente**; el Item 3
+  queda pendiente de su pasada de validación física (ver abajo) — no se
+  presenta como cerrado al 100%.
 - **Validated locally**: sí (tsc/eslint/vitest 525/526/build limpios en el
   HEAD final `aa8b730`).
 - **Validated in CI real**: sí — GitHub Actions ejecutó y aprobó cada commit
@@ -613,14 +620,19 @@ ajuste de URLs canónicas.
   Item 5 (un hallazgo bloqueante real de inconsistencia copy/código, corregido).
 - **Pushed**: sí, cada commit de la fase.
 - **Published**: no (fuera de alcance de esta fase; sigue pendiente de fase 4).
-- **Safe to close**: sí, con una única limitación explícita y honestamente
-  declarada — la pasada manual de `scan-to-pdf` en 2 dispositivos físicos
-  reales no se ha ejecutado. No se presenta como validada.
+- **Safe to close**: sí, en el alcance automatizable de los 5 items, con dos
+  limitaciones explícitas y honestamente declaradas — no ocultas: (1) la
+  pasada manual de `scan-to-pdf` en 2 dispositivos físicos reales no se ha
+  ejecutado, y (2) `pdf-summarizer` puede repetir el aviso de descarga del
+  modelo tras un F5 aunque el cache real exista (ver tabla de riesgos).
+  Ninguna de las dos invalida la evidencia ya recogida ni exige rehacer
+  ningún ítem.
 - **Owner action required**: (1) ejecutar la pasada manual de `scan-to-pdf` en
   2 dispositivos reales cuando se disponga de ellos; (2) decidir si y cuándo
   publicar (Vercel), pendiente desde fase 4; (3) revisar periódicamente que las
   URLs fijadas de modelos y políticas de terceros sigan vigentes.
-- **Recommended next step**: dado que los 5 items del plan low-cost/no-server
-  están cerrados, el siguiente hito natural es la decisión ya pendiente desde
-  fase 4 sobre publicación en producción, más la pasada manual de dispositivos
-  físicos para `scan-to-pdf` cuando el usuario disponga de ellos.
+- **Recommended next step**: con 4/5 items cerrados íntegramente y el quinto
+  (`scan-to-pdf`) cerrado en su alcance automatizable, el siguiente hito
+  natural es completar su pasada de validación física, aplicar
+  `permissions: contents: read` al workflow de CI, y luego retomar la decisión
+  ya pendiente desde fase 4 sobre publicación en producción.
