@@ -2,6 +2,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { AppConfig } from "@mlc-ai/web-llm";
 import {
   PdfError,
+  classifyWebLlmError,
   closePdfDocument,
   openPdfDocument,
   renderPageToCanvas,
@@ -974,6 +975,13 @@ type EngineLike = {
       }>;
     };
   };
+  /**
+   * web-llm no acepta un `AbortSignal` dentro de la peticion de
+   * `chat.completions.create` (no es parte de su API OpenAI-compatible):
+   * la unica forma real de cortar una generacion en curso es esta.
+   * `complete()` la llama cuando el `signal` compartido se cancela.
+   */
+  interruptGenerate: () => Promise<void>;
   unload: () => Promise<void>;
 };
 
@@ -1004,26 +1012,55 @@ async function loadEngine(
   return engine as unknown as EngineLike;
 }
 
+/**
+ * Una llamada de inferencia. `signal`, si se da, deja de esperar a que el
+ * trozo actual termine solo: mientras este activo, un `abort` en el
+ * signal llama a `engine.interruptGenerate()`, que corta la generacion
+ * en curso (web-llm no acepta el signal directamente en la peticion). Sin
+ * esto, cancelar a mitad de un trozo largo no hacia nada visible hasta
+ * que ese trozo terminaba por su cuenta — decenas de segundos despues,
+ * indistinguible de un cuelgue real.
+ */
 async function complete(
   engine: EngineLike,
   prompt: Prompt,
   maxTokens: number,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const response = await engine.chat.completions.create({
-    messages: [
-      { role: "system", content: prompt.system },
-      { role: "user", content: prompt.user },
-    ],
-    // Baja a proposito: en un resumen queremos fidelidad, no creatividad.
-    temperature: 0.2,
-    max_tokens: maxTokens,
-    stream: false,
-  });
-  const choice = response.choices[0];
-  const text = cleanModelOutput(choice?.message?.content ?? "");
-  // "length" = el modelo se quedo sin presupuesto, no es que hubiera
-  // terminado. En ese caso la ultima frase esta cortada a medias.
-  return choice?.finish_reason === "length" ? trimToLastSentence(text) : text;
+  throwIfAborted(signal);
+
+  let onAbort: (() => void) | undefined;
+  if (signal) {
+    onAbort = () => {
+      void engine.interruptGenerate();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  try {
+    const response = await engine.chat.completions.create({
+      messages: [
+        { role: "system", content: prompt.system },
+        { role: "user", content: prompt.user },
+      ],
+      // Baja a proposito: en un resumen queremos fidelidad, no creatividad.
+      temperature: 0.2,
+      max_tokens: maxTokens,
+      stream: false,
+    });
+    // Si la generacion se interrumpio a mitad, no tiene sentido devolver
+    // el fragmento parcial como si fuera un resumen valido: se lanza la
+    // cancelacion aqui mismo, antes de procesar la respuesta.
+    throwIfAborted(signal);
+
+    const choice = response.choices[0];
+    const text = cleanModelOutput(choice?.message?.content ?? "");
+    // "length" = el modelo se quedo sin presupuesto, no es que hubiera
+    // terminado. En ese caso la ultima frase esta cortada a medias.
+    return choice?.finish_reason === "length" ? trimToLastSentence(text) : text;
+  } finally {
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /**
@@ -1082,6 +1119,7 @@ export async function summarizePdf(
           length: options.length,
         }),
         budget.reservedOutputTokens,
+        signal,
       );
       // El modelo cita paginas por convencion aprendida, no por indice real:
       // puede extrapolar mas alla del ultimo numero que de verdad vio.
@@ -1126,6 +1164,7 @@ export async function summarizePdf(
             intermediate: !last,
           }),
           budget.reservedOutputTokens,
+          signal,
         );
         const text = sanitizePageCitations(rawText, pages.length);
         next.push({
@@ -1162,7 +1201,13 @@ export async function summarizePdf(
       coveredUpToPage: chunks[chunks.length - 1].lastPage,
     };
   } catch (error) {
-    throw toPdfError(error);
+    // A diferencia de `toPdfError` (generico), esto distingue perdida de
+    // dispositivo/VRAM real de un simple fallo de red descargando el
+    // modelo, y deja pasar la cancelacion (propia o disparada por
+    // `interruptGenerate()`) como "cancelled" en vez de "unknown".
+    if (error instanceof PdfError) throw error;
+    const code = classifyWebLlmError(error);
+    throw new PdfError(code, error instanceof Error ? error.message : undefined);
   } finally {
     if (engine) {
       try {

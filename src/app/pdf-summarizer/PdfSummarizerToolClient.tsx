@@ -78,8 +78,20 @@ const TOOL = getTool("pdf-summarizer");
 
 type Phase = "idle" | "files" | "processing" | "done";
 
-/** Error local de esta herramienta, sin equivalente en `PdfErrorCode`. */
-type LocalError = "noText" | "model";
+/**
+ * Error local de esta herramienta, sin equivalente en `PdfErrorCode` (o
+ * que necesita copy propio en vez del generico de `t.tool.errors`).
+ *
+ *  - "noText": "corrupt" con el mensaje concreto "no extractable text".
+ *  - "deviceLost": perdida real de dispositivo WebGPU / falta de VRAM —
+ *    el UNICO caso que justifica el consejo de "prueba el modelo ligero".
+ *  - "modelDownload": fallo de red descargando pesos o motor del modelo.
+ *  - "generic": cualquier otro fallo no reconocido. Antes esto se
+ *    mostraba como si fuera "deviceLost" (el bug que se reporto). Ahora
+ *    se muestra un aviso honesto ("no sabemos exactamente que paso") y el
+ *    texto tecnico real queda visible en un desplegable, en vez de oculto.
+ */
+type LocalError = "noText" | "deviceLost" | "modelDownload" | "generic";
 
 export function PdfSummarizerToolClient() {
   const { t, language } = useI18n();
@@ -109,6 +121,8 @@ export function PdfSummarizerToolClient() {
   const [stageMessage, setStageMessage] = useState("");
   const [error, setError] = useState<PdfErrorCode | null>(null);
   const [localError, setLocalError] = useState<LocalError | null>(null);
+  /** Texto real de la excepcion cuando `localError === "generic"`. */
+  const [technicalDetail, setTechnicalDetail] = useState<string | null>(null);
   const [result, setResult] = useState<SummaryResult | null>(null);
   const [copiedFlag, setCopiedFlag] = useState(false);
 
@@ -154,6 +168,7 @@ export function PdfSummarizerToolClient() {
     setFiles(next);
     setError(null);
     setLocalError(null);
+    setTechnicalDetail(null);
     setPhase(next.length === 0 ? "idle" : "files");
   }, []);
 
@@ -167,6 +182,7 @@ export function PdfSummarizerToolClient() {
     setStageMessage("");
     setError(null);
     setLocalError(null);
+    setTechnicalDetail(null);
     setConsented(false);
     setCopiedFlag(false);
     setPhase("idle");
@@ -228,6 +244,7 @@ export function PdfSummarizerToolClient() {
 
     setError(null);
     setLocalError(null);
+    setTechnicalDetail(null);
     setProgress(0);
     setStageMessage(s.stageExtracting);
     setPhase("processing");
@@ -275,9 +292,18 @@ export function PdfSummarizerToolClient() {
       // que merece un consejo distinto a "el archivo esta danado".
       if (pdfError.message.includes("no extractable text")) {
         setLocalError("noText");
+      } else if (pdfError.code === "deviceLost") {
+        // Unico caso real que justifica "prueba el modelo ligero".
+        setLocalError("deviceLost");
+      } else if (pdfError.code === "modelDownloadFailure") {
+        setLocalError("modelDownload");
       } else if (pdfError.code === "unknown") {
-        setLocalError("model");
+        // Generico de verdad: no se oculta el texto tecnico real.
+        setLocalError("generic");
+        setTechnicalDetail(pdfError.message || null);
       } else {
+        // "cancelled" y el resto de codigos compartidos ya tienen su
+        // propio texto en `t.tool.errors`.
         setError(pdfError.code);
       }
       setPhase("files");
@@ -481,13 +507,29 @@ export function PdfSummarizerToolClient() {
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-destructive"
           />
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="hud-label text-[10px] text-destructive">
               {t.tool.errors.title}
             </p>
             <p className="mt-1 text-sm text-foreground">
-              {localError === "noText" ? s.noTextError : s.modelError}
+              {localError === "noText"
+                ? s.noTextError
+                : localError === "deviceLost"
+                  ? s.modelError
+                  : localError === "modelDownload"
+                    ? s.modelDownloadError
+                    : s.genericModelError}
             </p>
+            {localError === "generic" && technicalDetail ? (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                  {s.technicalDetailsLabel}
+                </summary>
+                <pre className="rounded-ios-sm mt-2 max-h-40 overflow-auto border border-white/10 bg-white/[0.03] p-3 text-xs whitespace-pre-wrap text-foreground/85">
+                  {technicalDetail}
+                </pre>
+              </details>
+            ) : null}
           </div>
         </div>
       ) : null}

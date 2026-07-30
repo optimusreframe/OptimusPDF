@@ -349,6 +349,14 @@ export const es = {
       inspectionIncomplete:
         "No pudimos comprobar con seguridad las restricciones de este PDF, así que no vamos a crear una copia que podría conservar protecciones sin avisarte.",
       nothingSelected: "Selecciona o marca algo antes de procesar.",
+      ocrNetworkFailure:
+        "No se pudieron descargar los archivos del motor de OCR. Comprueba tu conexión y vuelve a intentarlo.",
+      ocrEngineFailure:
+        "El motor de OCR falló al leer este documento. Vuelve a intentarlo; si persiste, puede que esas páginas escaneadas no se puedan reconocer.",
+      modelDownloadFailure:
+        "No se pudo descargar el modelo de resumen. Comprueba tu conexión y vuelve a intentarlo.",
+      deviceLost:
+        "El modelo no ha podido completar el resumen. Suele ser falta de memoria de vídeo: prueba con el modelo ligero, cierra otras pestañas y vuelve a intentarlo.",
     },
   },
   soon: {

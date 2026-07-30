@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PenLine } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Spinner";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import {
@@ -11,7 +12,8 @@ import {
 } from "@/app/sign-pdf/SignatureComposer";
 import { SignaturePlacer } from "@/app/sign-pdf/SignaturePlacer";
 import { SignerManager } from "@/app/sign-pdf/SignerManager";
-import { FieldPlacer } from "@/app/sign-pdf/FieldPlacer";
+import { FieldPlacer, TextFieldPlacer } from "@/app/sign-pdf/FieldPlacer";
+import { FieldFormPanel } from "@/app/sign-pdf/FieldFormPanel";
 import {
   SigningCeremony,
   pendingSigners,
@@ -25,6 +27,7 @@ import {
 import { SIGN_STRINGS, type SignStrings } from "@/app/sign-pdf/strings";
 import { useI18n } from "@/lib/i18n";
 import { PdfError, withSuffix, type ProgressCallback } from "@/lib/pdf/core";
+import { detectFields, type DetectedField } from "@/lib/pdf/detectFields";
 import {
   dataUrlToBytes,
   signPdf,
@@ -42,9 +45,14 @@ const TOOL = getTool("sign-pdf");
 /** "Solo yo" es el camino rapido de siempre; "varios" abre la ronda por turnos. */
 export type SignMode = "single" | "multi";
 
-type MultiStep = "signers" | "fields" | "sign";
+type MultiStep = "signers" | "fields" | "text" | "sign";
 
-const MULTI_STEPS: readonly MultiStep[] = ["signers", "fields", "sign"] as const;
+const MULTI_STEPS: readonly MultiStep[] = [
+  "signers",
+  "fields",
+  "text",
+  "sign",
+] as const;
 
 export type SignToolOptions = {
   mode: SignMode;
@@ -68,6 +76,13 @@ export type SignToolOptions = {
   fieldType: SignatureFieldType;
   fieldPageIndex: number;
   selectedFieldId: string | null;
+
+  /* --- Campos de texto: detectados o anadidos a mano --- */
+  textFields: DetectedField[];
+  /** Valor de cada campo de texto, indexado por `id`. Vacio = no se empotra. */
+  textValues: Record<string, string>;
+  textFieldPageIndex: number;
+  selectedTextFieldId: string | null;
 };
 
 const DEFAULT_OPTIONS: SignToolOptions = {
@@ -85,7 +100,94 @@ const DEFAULT_OPTIONS: SignToolOptions = {
   fieldType: "signature",
   fieldPageIndex: 0,
   selectedFieldId: null,
+  textFields: [],
+  textValues: {},
+  textFieldPageIndex: 0,
+  selectedTextFieldId: null,
 };
+
+/* ------------------------------------------------------------------ *
+ * Reutilizacion de valores entre documentos (sessionStorage)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Solo `sessionStorage` (nunca `localStorage`): los datos se olvidan al
+ * cerrar la pestaña, igual que el resto de este proyecto no guarda nada
+ * mas alla de lo imprescindible para la sesion en curso.
+ */
+const SESSION_VALUES_KEY = "optimuspdf:sign-fill:lastValues";
+
+/** Marcas diacriticas combinantes U+0300..U+036F (igual que `core.ts:slugify`). */
+const FIELD_LABEL_DIACRITICS = new RegExp("[\\u0300-\\u036f]", "g");
+
+/** "Cliente/Asegurado:" -> "cliente asegurado" */
+function normalizeFieldLabel(label: string): string {
+  return label
+    .normalize("NFD")
+    .replace(FIELD_LABEL_DIACRITICS, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function loadStoredValues(): Record<string, string> {
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_VALUES_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "string" && value.trim().length > 0) out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Se llama tras un fill+sign+download con exito; nunca bloquea el flujo si falla. */
+function saveStoredValues(
+  fields: readonly DetectedField[],
+  values: Record<string, string>,
+): void {
+  try {
+    const out: Record<string, string> = {};
+    for (const field of fields) {
+      const label = field.label;
+      const value = values[field.id]?.trim();
+      if (!label || !value) continue;
+      out[normalizeFieldLabel(label)] = value;
+    }
+    if (Object.keys(out).length === 0) return;
+    window.sessionStorage.setItem(SESSION_VALUES_KEY, JSON.stringify(out));
+  } catch {
+    // Sin sessionStorage disponible (privado/cuota agotada) no hay nada
+    // que guardar: no es motivo para interrumpir la firma.
+  }
+}
+
+/** Campos cuya etiqueta coincide con un valor guardado de una sesion anterior. */
+function matchingStoredValues(
+  fields: readonly DetectedField[],
+  stored: Record<string, string>,
+): Record<string, string> {
+  const matches: Record<string, string> = {};
+  for (const field of fields) {
+    if (!field.label) continue;
+    const value = stored[normalizeFieldLabel(field.label)];
+    if (value) matches[field.id] = value;
+  }
+  return matches;
+}
+
+/** Al menos un campo de texto tiene algo que empotrar. */
+function hasFilledTextValue(
+  fields: readonly DetectedField[],
+  values: Record<string, string>,
+): boolean {
+  return fields.some((field) => (values[field.id] ?? "").trim().length > 0);
+}
 
 /**
  * Cada hueco se rellena con el trazo que creo su dueño. Un mismo PNG
@@ -114,27 +216,55 @@ function buildPlacements(
       decoded.set(draft.dataUrl, png);
     }
     placements.push({
+      kind: "image",
       png,
       pageIndex: field.pageIndex,
       rect: field.rect,
     });
   }
+
+  // Los campos de texto son opcionales y van aparte de la ronda de
+  // firmantes: uno vacio simplemente no se empotra (nunca "firma en
+  // blanco" ni estropea el documento), asi que aqui se descartan sin
+  // avisar en vez de exigir que esten todos rellenos.
+  for (const field of options.textFields) {
+    const value = options.textValues[field.id]?.trim();
+    if (!value) continue;
+    placements.push({
+      kind: "text",
+      value,
+      pageIndex: field.pageIndex,
+      rect: field.rect,
+    });
+  }
+
   return placements;
 }
 
+/**
+ * Si el documento tiene huecos de firma/inicial, TODOS deben tener trazo
+ * -- los campos de texto son opcionales en ese caso y no bastan por si
+ * solos (evita habilitar "Firmar" cuando en realidad falta un firmante,
+ * que hoy solo fallaria despues con "sign:notAllSigned"). Solo cuando NO
+ * hay huecos de imagen se acepta rellenar-y-descargar con al menos un
+ * campo de texto lleno.
+ */
 function multiReady(
   options: SignToolOptions,
   documentKey: string | null,
 ): boolean {
-  return (
-    options.fields.length > 0 &&
-    pendingSigners(
-      options.signers,
-      options.fields,
-      options.captures,
-      documentKey,
-    ).length === 0
-  );
+  if (options.fields.length > 0) {
+    return (
+      pendingSigners(
+        options.signers,
+        options.fields,
+        options.captures,
+        documentKey,
+      ).length === 0
+    );
+  }
+
+  return hasFilledTextValue(options.textFields, options.textValues);
 }
 
 export function SignToolClient() {
@@ -166,7 +296,8 @@ export function SignToolClient() {
         return { blob, filename };
       }
 
-      if (options.fields.length === 0) {
+      const hasText = hasFilledTextValue(options.textFields, options.textValues);
+      if (options.fields.length === 0 && !hasText) {
         throw new PdfError("nothingSelected", "sign:noFields");
       }
       // Comprobacion definitiva justo antes de escribir: el archivo que
@@ -181,6 +312,9 @@ export function SignToolClient() {
         { placements: buildPlacements(options, documentKey) },
         onProgress,
       );
+      // Solo se guarda tras un empotrado con exito: si `signPdfMulti`
+      // lanza, la linea de arriba corta antes de llegar aqui.
+      saveStoredValues(options.textFields, options.textValues);
       return { blob, filename };
     },
     [strings.filenameSuffix],
@@ -301,7 +435,8 @@ export function SignToolClient() {
             <p className="text-sm text-foreground tabular-nums">
               {strings.totalFields(options.fields.length)}
             </p>
-            {options.fields.length === 0 ? (
+            {options.fields.length === 0 &&
+            !hasFilledTextValue(options.textFields, options.textValues) ? (
               <p className="text-xs leading-relaxed text-destructive">
                 {strings.noFieldsError}
               </p>
@@ -349,6 +484,21 @@ export function MultiFlow({
 }: MultiFlowProps) {
   /** Huella del contenido del archivo; `null` mientras se calcula. */
   const documentKey = useDocumentKey(file);
+  const [detecting, setDetecting] = useState(false);
+  const [detectionFailed, setDetectionFailed] = useState(false);
+  const [reuseMatches, setReuseMatches] = useState<Record<string, string> | null>(
+    null,
+  );
+  /**
+   * Huella para la que ya se lanzo (o esta en marcha) la deteccion. Vive
+   * en un ref, no en `options`, a proposito: si estuviera en las
+   * dependencias del efecto de deteccion, el propio `setOptions({
+   * textFields: ... })` con el que termina la deteccion volveria a
+   * disparar ese mismo efecto y cancelaria su propia peticion en marcha
+   * antes de que resolviera (esto se detecto de verdad reordenando los
+   * tests, no es hipotetico).
+   */
+  const detectedForRef = useRef<string | null>(null);
 
   /**
    * Los huecos y los trazos describen un documento concreto. Al cambiar
@@ -359,27 +509,105 @@ export function MultiFlow({
    */
   useEffect(() => {
     if (documentKey === null || options.signature === documentKey) return;
-    setOptions({
-      signature: documentKey,
-      step: "signers",
-      fields: [],
-      captures: {},
-      fieldPageIndex: 0,
-      selectedFieldId: null,
+    // `queueMicrotask` para no llamar a `setState` sincrono en el cuerpo
+    // del efecto (mismo patron que `FileList.tsx:FileThumbnail`).
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setOptions({
+        signature: documentKey,
+        step: "signers",
+        fields: [],
+        captures: {},
+        fieldPageIndex: 0,
+        selectedFieldId: null,
+        textFields: [],
+        textValues: {},
+        textFieldPageIndex: 0,
+        selectedTextFieldId: null,
+      });
+      setReuseMatches(null);
+      setDetectionFailed(false);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [documentKey, options.signature, setOptions]);
+
+  /**
+   * Deteccion de campos de texto (AcroForm + heuristica vectorial/raster)
+   * del documento nuevo. Depende solo de `documentKey`/`file` -nunca de
+   * `options.signature` ni de nada que la propia deteccion module- para
+   * no cancelarse a si misma a mitad. Un fallo nunca bloquea nada: el
+   * usuario siempre puede seguir anadiendo campos a mano
+   * (`detectionFailedHint`).
+   */
+  useEffect(() => {
+    if (!file || documentKey === null) return;
+    if (detectedForRef.current === documentKey) return;
+    detectedForRef.current = documentKey;
+
+    let cancelled = false;
+    setDetecting(true);
+    void detectFields(file)
+      .then((detected) => {
+        if (cancelled) return;
+        setOptions({ textFields: detected });
+        const matches = matchingStoredValues(detected, loadStoredValues());
+        if (Object.keys(matches).length > 0) setReuseMatches(matches);
+      })
+      .catch(() => {
+        if (!cancelled) setDetectionFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setDetecting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentKey, file, setOptions]);
 
   const stepLabels: Record<MultiStep, string> = {
     signers: strings.stepSigners,
     fields: strings.stepFields,
+    text: strings.stepText,
     sign: strings.stepSign,
   };
 
-  /** Un paso solo se abre cuando el anterior ya tiene lo que necesita. */
+  /**
+   * Un paso solo se abre cuando el anterior ya tiene lo que necesita. El
+   * paso de texto no depende de los firmantes (un campo de texto no
+   * tiene dueño), asi que siempre esta abierto; el de firmar se abre con
+   * huecos de imagen listos O con algun campo de texto relleno.
+   */
   const reachable = (step: MultiStep): boolean => {
     if (step === "signers") return true;
     if (step === "fields") return options.signers.length > 0;
-    return options.fields.length > 0;
+    if (step === "text") return true;
+    return (
+      options.fields.length > 0 ||
+      hasFilledTextValue(options.textFields, options.textValues)
+    );
+  };
+
+  /** Quita del mapa de valores lo que ya no describe ningun campo vivo. */
+  const onTextFieldsChange = (fields: DetectedField[]) => {
+    const alive = new Set(fields.map((field) => field.id));
+    const values: Record<string, string> = {};
+    for (const [id, value] of Object.entries(options.textValues)) {
+      if (alive.has(id)) values[id] = value;
+    }
+    setOptions({ textFields: fields, textValues: values });
+  };
+
+  const onTextValueChange = (id: string, value: string) => {
+    setOptions({ textValues: { ...options.textValues, [id]: value } });
+  };
+
+  const acceptReuse = () => {
+    if (!reuseMatches) return;
+    setOptions({ textValues: { ...options.textValues, ...reuseMatches } });
+    setReuseMatches(null);
   };
 
   const position = MULTI_STEPS.indexOf(options.step);
@@ -466,7 +694,81 @@ export function MultiFlow({
         />
       ) : null}
 
-      {options.step === "sign" ? (
+      {options.step === "text" ? (
+        <section className="space-y-5">
+          {detecting ? (
+            <div className="glass rounded-ios flex items-center gap-3 p-5">
+              <Spinner />
+              <p className="text-sm text-muted-foreground">
+                {strings.detectingFields}
+              </p>
+            </div>
+          ) : null}
+
+          {!detecting && detectionFailed ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {strings.detectionFailedHint}
+            </p>
+          ) : null}
+
+          {!detecting && !detectionFailed && options.textFields.length > 0 ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {strings.detectedFieldsSummary(options.textFields.length)}
+            </p>
+          ) : null}
+
+          {reuseMatches ? (
+            <div className="glass rounded-ios flex flex-wrap items-center justify-between gap-3 p-4">
+              <p className="text-sm text-foreground">{strings.reuseValuesPrompt}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={acceptReuse}>
+                  {strings.reuseValuesAccept}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setReuseMatches(null)}
+                >
+                  {strings.reuseValuesDecline}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <TextFieldPlacer
+            file={file}
+            fields={options.textFields}
+            onFieldsChange={onTextFieldsChange}
+            values={options.textValues}
+            onValueChange={onTextValueChange}
+            pageIndex={options.textFieldPageIndex}
+            onPageIndexChange={(textFieldPageIndex) =>
+              setOptions({ textFieldPageIndex })
+            }
+            selectedId={options.selectedTextFieldId}
+            onSelectedIdChange={(selectedTextFieldId) =>
+              setOptions({ selectedTextFieldId })
+            }
+            strings={strings}
+          />
+
+          <FieldFormPanel
+            fields={options.textFields}
+            values={options.textValues}
+            onValueChange={onTextValueChange}
+            selectedId={options.selectedTextFieldId}
+            onSelectedIdChange={(selectedTextFieldId) =>
+              setOptions({ selectedTextFieldId })
+            }
+            onGoToField={(targetField) =>
+              setOptions({ textFieldPageIndex: targetField.pageIndex })
+            }
+            strings={strings}
+          />
+        </section>
+      ) : null}
+
+      {options.step === "sign" && options.fields.length > 0 ? (
         <SigningCeremony
           signers={options.signers}
           fields={options.fields}
@@ -476,6 +778,33 @@ export function MultiFlow({
           onFinish={onFinish}
           strings={strings}
         />
+      ) : null}
+
+      {/*
+       * Sin huecos de imagen no hay ronda que mostrar: `SigningCeremony`
+       * (su cola de firmantes viene de `fields`, vacio aqui) se queda
+       * con el boton deshabilitado para siempre, aunque el documento ya
+       * este listo (rellenar-y-descargar). Se muestra en su lugar un
+       * panel minimo con el mismo `onFinish`.
+       */}
+      {options.step === "sign" && options.fields.length === 0 ? (
+        <div className="glass rounded-ios p-5">
+          <h4 className="text-base font-black tracking-[-0.02em] text-foreground">
+            {strings.textOnlyReadyTitle}
+          </h4>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            {strings.textOnlyReadyBody}
+          </p>
+          <div className="mt-4">
+            <Button
+              size="lg"
+              disabled={!hasFilledTextValue(options.textFields, options.textValues)}
+              onClick={onFinish}
+            >
+              {strings.finishAndDownload}
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2">

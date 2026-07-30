@@ -114,4 +114,71 @@ test.describe("redact-pdf", () => {
     const opsPage2 = await getPageOperatorCounts(bytes, 2);
     expect(opsPage2.textPaintOps).toBeGreaterThan(0);
   });
+
+  for (const effect of [/^(difuminado|blur)$/i, /^(pixelado|pixelate)$/i] as const) {
+    test(`el pincel en modo ${effect.source} tambien vuelve el texto irrecuperable, siguiendo un trazo curvo (no un rectangulo)`, async ({ page }) => {
+      await page.goto("/redact-pdf");
+
+      const input = page.locator('input[type="file"]');
+      await input.setInputFiles(FIXTURE);
+
+      const host = page.getByTestId("redact-canvas-host");
+      await expect(host).toBeVisible();
+      await expect(host.locator("img")).toBeVisible();
+
+      await page.getByRole("tab", { name: /^(pincel|brush)$/i }).click();
+      await page.getByRole("tab", { name: effect }).click();
+
+      const box = await host.boundingBox();
+      if (!box) throw new Error("No se pudo medir el area de censura.");
+
+      // Trazo curvo (no una linea recta ni un rectangulo) que pasa por
+      // encima del texto "SECRET-7F3A9", cerca del borde superior de la
+      // pagina (ver REDACT_ZONE arriba para las coordenadas de referencia).
+      const curvePoints = [
+        { fx: 0.05, fy: 0.1 },
+        { fx: 0.15, fy: 0.16 },
+        { fx: 0.25, fy: 0.11 },
+        { fx: 0.35, fy: 0.18 },
+        { fx: 0.45, fy: 0.12 },
+        { fx: 0.55, fy: 0.17 },
+      ].map(({ fx, fy }) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy }));
+
+      await page.mouse.move(curvePoints[0].x, curvePoints[0].y);
+      await page.mouse.down();
+      for (const point of curvePoints.slice(1)) {
+        await page.mouse.move(point.x, point.y, { steps: 6 });
+      }
+      await page.mouse.up();
+
+      await expect(
+        page.getByText(/^(1 zona en el documento|1 area in the document)$/i),
+      ).toBeVisible({ timeout: 10_000 });
+
+      await page.getByRole("button", { name: /procesar|process/i }).first().click();
+
+      const bytes = await downloadBytes(page, async () => {
+        await page.getByRole("button", { name: /descargar|download/i }).first().click();
+      });
+
+      expect(await getPageCount(bytes)).toBe(2);
+
+      // --- Pagina 1 (con el trazo de pincel): el secreto no debe ser
+      // recuperable, sin importar que la region cubierta sea un trazo
+      // curvo y no un rectangulo prolijo.
+      const textPage1 = await getPageText(bytes, 1);
+      expect(textPage1).not.toContain("SECRET-7F3A9");
+      expect(textPage1.trim()).toBe("");
+
+      const opsPage1 = await getPageOperatorCounts(bytes, 1);
+      expect(opsPage1.textPaintOps).toBe(0);
+      expect(opsPage1.imagePaintOps).toBeGreaterThan(0);
+
+      // --- Pagina 2 (sin tocar): debe seguir intacta ---
+      const textPage2 = await getPageText(bytes, 2);
+      expect(textPage2).toContain("PUBLIC-MARKER-OK");
+      const opsPage2 = await getPageOperatorCounts(bytes, 2);
+      expect(opsPage2.textPaintOps).toBeGreaterThan(0);
+    });
+  }
 });

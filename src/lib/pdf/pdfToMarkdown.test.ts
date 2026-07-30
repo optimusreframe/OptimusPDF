@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as core from "@/lib/pdf/core";
 import {
+  DEFAULT_OCR_FAILURE_MARKER,
   DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
   applyTransform,
   bodyFontSize,
   buildLines,
   buildMarkdown,
   escapeInline,
+  extractMarkdownPages,
   findRepeatedLines,
   matchListMarker,
   type MarkdownPage,
@@ -29,13 +32,36 @@ import {
  * Node hace falta el build `legacy` y despues intenta resolver
  * `PDF_WORKER_SRC` ("/pdf.worker.min.mjs", una ruta pensada para
  * servirse desde `public/`) como si fuera un modulo de Node. tesseract.js
- * ademas necesita un `canvas` real. Por eso `extractMarkdownPages` y
- * `pdfToMarkdown` NO tienen test aqui: se verificaron a mano en el
- * navegador con PDFs reales (documento con titulos/listas/codigo/tabla y
- * un PDF escaneado sin capa de texto para el camino de OCR). Arreglarlo
- * exigiria tocar `core.ts` o anadir dependencias (`jsdom` + `canvas`),
- * las dos cosas fuera del alcance de esta tarea.
+ * ademas necesita un `canvas` real. Por eso la extraccion de texto REAL
+ * con pdf.js y el flujo completo de `pdfToMarkdown` (con pdf.js real) NO
+ * tienen test aqui: se verificaron a mano en el navegador con PDFs reales
+ * (documento con titulos/listas/codigo/tabla y un PDF escaneado sin capa
+ * de texto para el camino de OCR).
+ *
+ * Lo que SI se prueba aqui (mismo patron que `pdfToImages.test.ts`): la
+ * logica de reserva de OCR de `extractMarkdownPages` — reintento de
+ * creacion del worker, degradacion elegante por pagina, resultados
+ * parciales y el error especifico cuando NINGUNA pagina se pudo resolver
+ * — sustituyendo `openPdfDocument`/`renderPageToCanvas`/`closePdfDocument`
+ * de `@/lib/pdf/core` y `createWorker` de `tesseract.js` por dobles
+ * controlados. El codigo REAL de `extractMarkdownPages` corre sin tocar;
+ * solo sus dependencias de pdf.js/tesseract.js estan sustituidas.
  */
+
+vi.mock("@/lib/pdf/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/pdf/core")>();
+  return {
+    ...actual,
+    openPdfDocument: vi.fn(),
+    renderPageToCanvas: vi.fn(),
+    closePdfDocument: vi.fn(async () => {}),
+  };
+});
+
+vi.mock("tesseract.js", () => ({
+  createWorker: vi.fn(),
+  OEM: { LSTM_ONLY: 1 },
+}));
 
 /* ------------------------------------------------------------------ *
  * Ayudantes de fixture
@@ -667,5 +693,243 @@ describe("buildMarkdown — paginas, OCR y estadisticas", () => {
 
     expect(markdown.endsWith("\n")).toBe(true);
     expect(markdown.endsWith("\n\n")).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * extractMarkdownPages — reserva de OCR (pdf.js y tesseract.js
+ * sustituidos, ver cabecera del archivo)
+ * ------------------------------------------------------------------ */
+
+type FakePdfPage = {
+  getViewport: (opts: {
+    scale: number;
+  }) => { width: number; height: number; transform: number[] };
+  getTextContent: () => Promise<{
+    items: unknown[];
+    styles?: Record<string, unknown>;
+  }>;
+  cleanup: ReturnType<typeof vi.fn>;
+  commonObjs: { has: (name: string) => boolean };
+};
+
+type FakePdfDocument = {
+  numPages: number;
+  getPage: ReturnType<typeof vi.fn>;
+  loadingTask: { destroy: ReturnType<typeof vi.fn> };
+};
+
+/** Pagina con `chars` caracteres de texto real (0 fuerza el camino OCR). */
+function makeFakePdfPage(chars: number): FakePdfPage {
+  const items =
+    chars > 0
+      ? [
+          {
+            str: "x".repeat(chars),
+            width: chars * 6,
+            height: 12,
+            transform: [12, 0, 0, -12, 72, 700],
+            fontName: "F1",
+          },
+        ]
+      : [];
+  return {
+    getViewport: () => ({ width: 612, height: 792, transform: [1, 0, 0, -1, 0, 792] }),
+    getTextContent: async () => ({ items, styles: {} }),
+    cleanup: vi.fn(),
+    commonObjs: { has: () => false },
+  };
+}
+
+function makeFakePdfDocument(pages: FakePdfPage[]): FakePdfDocument {
+  return {
+    numPages: pages.length,
+    getPage: vi.fn(async (number: number) => pages[number - 1]),
+    loadingTask: { destroy: vi.fn(async () => {}) },
+  };
+}
+
+type FakeTesseractWorker = {
+  recognize: ReturnType<typeof vi.fn>;
+  terminate: ReturnType<typeof vi.fn>;
+};
+
+function makeFakeWorker(text: string): FakeTesseractWorker {
+  return {
+    recognize: vi.fn(async () => ({ data: { text } })),
+    terminate: vi.fn(async () => {}),
+  };
+}
+
+const openPdfDocumentMock = vi.mocked(core.openPdfDocument);
+const renderPageToCanvasMock = vi.mocked(core.renderPageToCanvas);
+const closePdfDocumentMock = vi.mocked(core.closePdfDocument);
+
+async function getCreateWorkerMock() {
+  const tesseract = await import("tesseract.js");
+  return vi.mocked(tesseract.createWorker);
+}
+
+describe("extractMarkdownPages — reserva de OCR (pdf.js/tesseract.js sustituidos)", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    renderPageToCanvasMock.mockImplementation(
+      async () => ({ width: 0, height: 0 }) as unknown as HTMLCanvasElement,
+    );
+  });
+
+  it("pagina con poco texto y OCR activado: la pagina sale como 'ocr' con el texto reconocido", async () => {
+    const document = makeFakePdfDocument([makeFakePdfPage(0)]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    const worker = makeFakeWorker("Texto reconocido por OCR.");
+    createWorkerMock.mockResolvedValueOnce(worker as never);
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+    expect(pages).toHaveLength(1);
+    expect(pages[0].source).toBe("ocr");
+    expect(pages[0].ocrText).toBe("Texto reconocido por OCR.");
+    expect(createWorkerMock).toHaveBeenCalledTimes(1);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(closePdfDocumentMock).toHaveBeenCalledWith(document);
+  });
+
+  it("con ocrFallback desactivado, una pagina sin texto sale como 'empty' y no se crea worker", async () => {
+    const document = makeFakePdfDocument([makeFakePdfPage(0)]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]), {
+      ...DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
+      ocrFallback: false,
+    });
+
+    expect(pages[0].source).toBe("empty");
+    expect(createWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it("un fallo transitorio al crear el worker se reintenta una vez y la pagina se resuelve normalmente", async () => {
+    const document = makeFakePdfDocument([makeFakePdfPage(0)]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    const worker = makeFakeWorker("Reconocido tras reintentar.");
+    createWorkerMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(worker as never);
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+    expect(createWorkerMock).toHaveBeenCalledTimes(2);
+    expect(pages[0].source).toBe("ocr");
+    expect(pages[0].ocrText).toBe("Reconocido tras reintentar.");
+  });
+
+  it("si el worker falla tambien al reintentar, la pagina se marca 'ocrFailed' con el aviso y el documento sigue con las demas paginas", async () => {
+    const failingPage = makeFakePdfPage(0);
+    const okPage = makeFakePdfPage(0);
+    const document = makeFakePdfDocument([failingPage, okPage]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    const workerForSecondPage = makeFakeWorker("Segunda pagina reconocida.");
+    createWorkerMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(workerForSecondPage as never);
+
+    const pages = await extractMarkdownPages(
+      new Blob(["pdf"]),
+      DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
+      undefined,
+      undefined,
+      "[marcador de fallo de OCR]",
+    );
+
+    expect(pages).toHaveLength(2);
+    expect(pages[0].source).toBe("ocrFailed");
+    expect(pages[0].ocrText).toBe("[marcador de fallo de OCR]");
+    // La segunda pagina consigue su propio worker desde cero: el fallo de
+    // la primera no tira abajo el resto del documento.
+    expect(pages[1].source).toBe("ocr");
+    expect(pages[1].ocrText).toBe("Segunda pagina reconocida.");
+  });
+
+  it("un fallo de reconocimiento (worker ya creado) tambien se aisla por pagina", async () => {
+    // Segunda pagina con texto real: sin ella, un documento de UNA sola
+    // pagina que falla por completo dispararia el escalado a error total
+    // (ver el test de "si NINGUNA pagina logra resolverse..." mas abajo),
+    // que es el comportamiento correcto pero no lo que este test quiere
+    // observar (el aislamiento por pagina en si).
+    const document = makeFakePdfDocument([makeFakePdfPage(0), makeFakePdfPage(50)]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    const worker = {
+      recognize: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("RuntimeError: unreachable")),
+      terminate: vi.fn(async () => {}),
+    };
+    createWorkerMock.mockResolvedValueOnce(worker as never);
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+    expect(pages[0].source).toBe("ocrFailed");
+    // El worker roto se descarta (se intenta terminar) en vez de
+    // reutilizarse para la siguiente pagina.
+    expect(worker.terminate).toHaveBeenCalled();
+  });
+
+  it("si NINGUNA pagina logra resolverse por OCR, se lanza un PdfError con el codigo clasificado (no 'unknown')", async () => {
+    const document = makeFakePdfDocument([makeFakePdfPage(0)]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    await expect(extractMarkdownPages(new Blob(["pdf"]))).rejects.toMatchObject(
+      { code: "ocrNetworkFailure" },
+    );
+    // Aun asi se cierra el documento: el fallo no deja recursos colgando.
+    expect(closePdfDocumentMock).toHaveBeenCalledWith(document);
+  });
+
+  it("un error de motor (no de red) al fallar toda la reserva de OCR se clasifica como 'ocrEngineFailure'", async () => {
+    const document = makeFakePdfDocument([makeFakePdfPage(0)]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockRejectedValue(
+      new Error("RuntimeError: memory access out of bounds"),
+    );
+
+    await expect(extractMarkdownPages(new Blob(["pdf"]))).rejects.toMatchObject(
+      { code: "ocrEngineFailure" },
+    );
+  });
+
+  it("si al menos una pagina de texto normal tiene contenido, un fallo de OCR en otra pagina NO aborta el documento", async () => {
+    const textPage = makeFakePdfPage(50); // >= MIN_CHARS_FOR_TEXT_PAGE
+    const scannedPage = makeFakePdfPage(0);
+    const document = makeFakePdfDocument([textPage, scannedPage]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+    expect(pages[0].source).toBe("text");
+    expect(pages[1].source).toBe("ocrFailed");
+  });
+
+  it("DEFAULT_OCR_FAILURE_MARKER se usa cuando no se pasa un texto propio", async () => {
+    // Segunda pagina con texto real: el documento no lanza (hay contenido
+    // real en alguna parte), asi que se puede inspeccionar el marcador
+    // por defecto que recibio la primera pagina (la que fallo).
+    const document = makeFakePdfDocument([makeFakePdfPage(0), makeFakePdfPage(50)]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+    expect(pages[0].source).toBe("ocrFailed");
+    expect(pages[0].ocrText).toBe(DEFAULT_OCR_FAILURE_MARKER);
   });
 });

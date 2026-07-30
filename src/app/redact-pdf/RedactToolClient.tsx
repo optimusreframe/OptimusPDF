@@ -12,23 +12,23 @@ import {
   withSuffix,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { redactPdf, type RedactBox } from "@/lib/pdf/redact";
+import { redactPdf, type RedactElement } from "@/lib/pdf/redact";
 import { getTool } from "@/lib/tools-registry";
 
 const TOOL = getTool("redact-pdf");
 
 export type RedactToolOptions = {
-  boxes: RedactBox[];
+  elements: RedactElement[];
   /** Pagina visible en la vista previa (indice 0). */
   pageIndex: number;
 };
 
-const DEFAULT_OPTIONS: RedactToolOptions = { boxes: [], pageIndex: 0 };
+const DEFAULT_OPTIONS: RedactToolOptions = { elements: [], pageIndex: 0 };
 
 export function RedactToolClient() {
   const { language } = useI18n();
   const s = REDACT_STRINGS[language];
-  const [missingBoxes, setMissingBoxes] = useState(false);
+  const [missingElements, setMissingElements] = useState(false);
 
   const process = useCallback(
     async (
@@ -36,14 +36,14 @@ export function RedactToolClient() {
       options: RedactToolOptions,
       onProgress: ProgressCallback,
     ): Promise<ProcessResult> => {
-      if (options.boxes.length === 0) {
-        setMissingBoxes(true);
+      if (options.elements.length === 0) {
+        setMissingElements(true);
         throw new PdfError("nothingSelected", "redact:noBoxes");
       }
-      setMissingBoxes(false);
+      setMissingElements(false);
 
       const file = files[0];
-      const blob = await redactPdf(file, { boxes: options.boxes }, onProgress);
+      const blob = await redactPdf(file, { elements: options.elements }, onProgress);
       return { blob, filename: withSuffix(file.name, s.filenameSuffix) };
     },
     [s.filenameSuffix],
@@ -58,17 +58,17 @@ export function RedactToolClient() {
         <div className="space-y-6">
           <RedactCanvas
             file={files[0] ?? null}
-            boxes={options.boxes}
-            onBoxesChange={(boxes) => {
-              if (boxes.length > 0) setMissingBoxes(false);
-              setOptions({ boxes });
+            elements={options.elements}
+            onElementsChange={(elements) => {
+              if (elements.length > 0) setMissingElements(false);
+              setOptions({ elements });
             }}
             pageIndex={options.pageIndex}
             onPageIndexChange={(pageIndex) => setOptions({ pageIndex })}
             strings={s}
           />
 
-          {missingBoxes ? (
+          {missingElements ? (
             <p role="alert" className="text-sm text-destructive">
               {s.noBoxes}
             </p>
@@ -102,19 +102,19 @@ export function RedactToolClient() {
               {s.canvasTitle}
             </span>
             <p className="text-sm text-foreground tabular-nums">
-              {s.totalBoxes(options.boxes.length)}
+              {s.totalBoxes(options.elements.length)}
             </p>
           </div>
 
           <p className="text-xs leading-relaxed text-muted-foreground">
-            {s.drawHint}
+            {s.drawHintRect}
           </p>
 
           <p className="text-xs leading-relaxed text-muted-foreground">
             {s.rasterWarning}
           </p>
 
-          {options.boxes.length === 0 ? (
+          {options.elements.length === 0 ? (
             <p className="text-xs leading-relaxed text-destructive">
               {s.noBoxes}
             </p>

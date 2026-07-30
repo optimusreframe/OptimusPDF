@@ -11,6 +11,8 @@ import {
   MAX_SAFE_FILE_SIZE,
   PDF_FONT_FAMILIES,
   PdfError,
+  classifyOcrError,
+  classifyWebLlmError,
   formatFileSize,
   getPageGeometry,
   hexToPdfColor,
@@ -92,6 +94,76 @@ describe("PdfError / toPdfError — src/lib/pdf/core.ts", () => {
   it("toPdfError cae a 'unknown' para valores que no son Error", () => {
     expect(toPdfError("un string cualquiera").code).toBe("unknown");
     expect(toPdfError(undefined).code).toBe("unknown");
+  });
+});
+
+describe("classifyOcrError — src/lib/pdf/core.ts", () => {
+  it("devuelve el code de un PdfError ya tipado, sin reclasificar", () => {
+    expect(classifyOcrError(new PdfError("cancelled"))).toBe("cancelled");
+  });
+
+  it("clasifica fallos de red (fetch de los activos de tesseract.js) como 'ocrNetworkFailure'", () => {
+    expect(classifyOcrError(new TypeError("Failed to fetch"))).toBe(
+      "ocrNetworkFailure",
+    );
+    expect(classifyOcrError(new Error("NetworkError when attempting to fetch resource"))).toBe(
+      "ocrNetworkFailure",
+    );
+    expect(
+      classifyOcrError(
+        new Error("could not load worker from cdn.jsdelivr.net"),
+      ),
+    ).toBe("ocrNetworkFailure");
+  });
+
+  it("clasifica cualquier otro fallo como 'ocrEngineFailure' (nunca 'unknown')", () => {
+    expect(classifyOcrError(new Error("RuntimeError: memory access out of bounds"))).toBe(
+      "ocrEngineFailure",
+    );
+    expect(classifyOcrError("un string cualquiera")).toBe("ocrEngineFailure");
+    expect(classifyOcrError(undefined)).toBe("ocrEngineFailure");
+  });
+});
+
+describe("classifyWebLlmError — src/lib/pdf/core.ts", () => {
+  it("devuelve el code de un PdfError ya tipado, sin reclasificar", () => {
+    expect(classifyWebLlmError(new PdfError("empty"))).toBe("empty");
+  });
+
+  it("clasifica un AbortError (propio o de interruptGenerate) como 'cancelled'", () => {
+    const abortError = new Error("The operation was aborted");
+    abortError.name = "AbortError";
+    expect(classifyWebLlmError(abortError)).toBe("cancelled");
+    expect(classifyWebLlmError(new Error("generation was aborted by user"))).toBe(
+      "cancelled",
+    );
+  });
+
+  it("clasifica perdida de dispositivo / falta de VRAM como 'deviceLost'", () => {
+    expect(classifyWebLlmError(new Error("GPUDevice was lost: reason=unknown"))).toBe(
+      "deviceLost",
+    );
+    expect(classifyWebLlmError(new Error("Out of memory allocating buffer"))).toBe(
+      "deviceLost",
+    );
+  });
+
+  it("clasifica un fallo de red descargando el modelo como 'modelDownloadFailure'", () => {
+    expect(classifyWebLlmError(new TypeError("Failed to fetch"))).toBe(
+      "modelDownloadFailure",
+    );
+    expect(
+      classifyWebLlmError(
+        new Error("fetch from huggingface.co timed out"),
+      ),
+    ).toBe("modelDownloadFailure");
+  });
+
+  it("deja cualquier otro fallo como 'unknown' (la interfaz muestra el texto tecnico real)", () => {
+    expect(classifyWebLlmError(new Error("model returned empty summaries"))).toBe(
+      "unknown",
+    );
+    expect(classifyWebLlmError("un string cualquiera")).toBe("unknown");
   });
 });
 

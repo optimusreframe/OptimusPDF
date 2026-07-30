@@ -98,8 +98,11 @@ function toUserSpace(list: Matrix[], point: Point): Point {
   return current;
 }
 
-function placement(overrides: Partial<SignPlacement> = {}): SignPlacement {
+function placement(
+  overrides: Partial<Extract<SignPlacement, { kind: "image" }>> = {},
+): SignPlacement {
   return {
+    kind: "image",
     png: png(),
     pageIndex: 0,
     rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
@@ -280,5 +283,107 @@ describe("signPdfMulti — src/lib/pdf/sign.ts", () => {
     await expect(
       signPdfMulti(file, { placements: [placement()] }),
     ).rejects.toMatchObject({ code: "encrypted" });
+  });
+});
+
+/** Recuento de operadores `Tj`/`TJ` (dibujo de texto) en el flujo de la pagina. */
+function textDrawCount(text: string): number {
+  return (text.match(/\bTj\b|\bTJ\b/g) ?? []).length;
+}
+
+function textPlacement(
+  overrides: Partial<Extract<SignPlacement, { kind: "text" }>> = {},
+): SignPlacement {
+  return {
+    kind: "text",
+    value: "Ana Garcia",
+    pageIndex: 0,
+    rect: { x: 0.1, y: 0.1, width: 0.4, height: 0.08 },
+    ...overrides,
+  };
+}
+
+describe("signPdfMulti — campos de texto (src/lib/pdf/sign.ts)", () => {
+  it("empotra un valor de texto como contenido vectorial (no imagen)", async () => {
+    const document = await PDFDocument.create();
+    document.addPage([400, 400]);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [textPlacement({ value: "Ana Garcia" })],
+    });
+
+    const page = (await reload(blob)).getPages()[0];
+    expect(imageCount(page)).toBe(0);
+    expect(textDrawCount(contentStreamText(page))).toBeGreaterThan(0);
+  });
+
+  it("un valor vacio o solo espacios no dibuja nada, sin lanzar", async () => {
+    const document = await PDFDocument.create();
+    document.addPage([400, 400]);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [textPlacement({ value: "   " })],
+    });
+
+    const page = (await reload(blob)).getPages()[0];
+    expect(textDrawCount(contentStreamText(page))).toBe(0);
+  });
+
+  it("mezcla huecos de imagen y de texto en la misma ronda", async () => {
+    const document = await PDFDocument.create();
+    document.addPage([400, 400]);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [
+        placement({ rect: { x: 0.05, y: 0.05, width: 0.3, height: 0.1 } }),
+        textPlacement({ rect: { x: 0.05, y: 0.4, width: 0.4, height: 0.08 } }),
+      ],
+    });
+
+    const page = (await reload(blob)).getPages()[0];
+    expect(imageCount(page)).toBe(1);
+    expect(textDrawCount(contentStreamText(page))).toBeGreaterThan(0);
+  });
+
+  it("un valor mucho mas largo que el hueco se recorta en vez de desbordar la pagina", async () => {
+    const document = await PDFDocument.create();
+    document.addPage([300, 300]);
+    const file = await toFile(document);
+
+    const long = "palabra ".repeat(200);
+    // No debe lanzar ni producir un documento que pdf-lib no pueda releer.
+    const blob = await signPdfMulti(file, {
+      placements: [
+        textPlacement({
+          value: long,
+          rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.06 },
+        }),
+      ],
+    });
+
+    const reloaded = await reload(blob);
+    expect(reloaded.getPageCount()).toBe(1);
+    expect(textDrawCount(contentStreamText(reloaded.getPages()[0]))).toBeGreaterThan(0);
+  });
+
+  it("reporta progreso monotono hasta 1 con huecos de texto", async () => {
+    const document = await PDFDocument.create();
+    document.addPage([300, 400]);
+    const file = await toFile(document);
+    const progress: number[] = [];
+
+    await signPdfMulti(
+      file,
+      { placements: [textPlacement(), textPlacement({ value: "Otro valor" })] },
+      (value) => progress.push(value),
+    );
+
+    expect(progress[progress.length - 1]).toBe(1);
+    for (let index = 1; index < progress.length; index += 1) {
+      expect(progress[index]).toBeGreaterThanOrEqual(progress[index - 1]);
+    }
   });
 });

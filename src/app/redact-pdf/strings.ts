@@ -3,13 +3,31 @@ import type { Language } from "@/lib/i18n";
 /** Copy propio de Censurar PDF (ES/EN). */
 export type RedactStrings = {
   canvasTitle: string;
-  drawHint: string;
+  drawHintRect: string;
+  drawHintBrush: string;
+  drawHintEraser: string;
   loadingPreview: string;
   previousPage: string;
   nextPage: string;
   pageOf: (current: number, total: number) => string;
   thumbsTitle: string;
   goToPage: (page: number) => string;
+
+  toolLabel: string;
+  toolRect: string;
+  toolBrush: string;
+  toolEraser: string;
+
+  effectLabel: string;
+  effectBlack: string;
+  effectBlur: string;
+  effectPixelate: string;
+  effectPaint: string;
+  paintColorLabel: string;
+  brushSizeLabel: string;
+
+  undo: string;
+  redo: string;
 
   boxesOnPage: (count: number) => string;
   totalBoxes: (count: number) => string;
@@ -28,14 +46,34 @@ export type RedactStrings = {
 
 const es: RedactStrings = {
   canvasTitle: "Zonas que se destruyen",
-  drawHint:
+  drawHintRect:
     "Arrastra sobre la página para dibujar un rectángulo. Puedes añadir todos los que quieras y en cualquier página.",
+  drawHintBrush:
+    "Dibuja a mano alzada sobre la página, como con un rotulador. El trazo sigue el dedo o el cursor.",
+  drawHintEraser:
+    "Toca o arrastra sobre una zona ya dibujada para borrarla por completo.",
   loadingPreview: "Preparando la vista previa",
   previousPage: "Página anterior",
   nextPage: "Página siguiente",
   pageOf: (current, total) => `Página ${current} de ${total}`,
   thumbsTitle: "Páginas",
   goToPage: (page) => `Ir a la página ${page}`,
+
+  toolLabel: "Herramienta",
+  toolRect: "Rectángulo",
+  toolBrush: "Pincel",
+  toolEraser: "Borrador",
+
+  effectLabel: "Efecto",
+  effectBlack: "Negro",
+  effectBlur: "Difuminado",
+  effectPixelate: "Pixelado",
+  effectPaint: "Color",
+  paintColorLabel: "Color de pintura",
+  brushSizeLabel: "Grosor del pincel",
+
+  undo: "Deshacer",
+  redo: "Rehacer",
 
   boxesOnPage: (count) =>
     count === 1 ? "1 zona en esta página" : `${count} zonas en esta página`,
@@ -48,7 +86,7 @@ const es: RedactStrings = {
 
   howItWorksTitle: "Censura de verdad, no un parche encima",
   howItWorksBody:
-    "Un rectángulo negro dibujado sobre el texto no borra nada: el contenido sigue dentro del archivo y se recupera copiando y pegando. Aquí la página se rehace: se convierte en imagen con los rectángulos ya pintados, así que lo que había debajo desaparece del documento.",
+    "Un rectángulo negro dibujado sobre el texto no borra nada: el contenido sigue dentro del archivo y se recupera copiando y pegando. Aquí la página se rehace: se convierte en imagen con cada zona ya tratada con su efecto (negro, difuminado, pixelado o color), así que lo que había debajo desaparece del documento.",
   rasterWarning:
     "Por eso las páginas con zonas censuradas pasan a ser imagen y su texto deja de poder seleccionarse. Las páginas que no toques se copian intactas.",
 
@@ -59,14 +97,33 @@ const es: RedactStrings = {
 
 const en: RedactStrings = {
   canvasTitle: "Areas to destroy",
-  drawHint:
+  drawHintRect:
     "Drag across the page to draw a rectangle. Add as many as you need, on any page.",
+  drawHintBrush:
+    "Draw freehand over the page, like with a marker. The stroke follows your finger or cursor.",
+  drawHintEraser: "Tap or drag over an existing area to remove it entirely.",
   loadingPreview: "Preparing the preview",
   previousPage: "Previous page",
   nextPage: "Next page",
   pageOf: (current, total) => `Page ${current} of ${total}`,
   thumbsTitle: "Pages",
   goToPage: (page) => `Go to page ${page}`,
+
+  toolLabel: "Tool",
+  toolRect: "Rectangle",
+  toolBrush: "Brush",
+  toolEraser: "Eraser",
+
+  effectLabel: "Effect",
+  effectBlack: "Black",
+  effectBlur: "Blur",
+  effectPixelate: "Pixelate",
+  effectPaint: "Paint",
+  paintColorLabel: "Paint color",
+  brushSizeLabel: "Brush size",
+
+  undo: "Undo",
+  redo: "Redo",
 
   boxesOnPage: (count) =>
     count === 1 ? "1 area on this page" : `${count} areas on this page`,
@@ -79,7 +136,7 @@ const en: RedactStrings = {
 
   howItWorksTitle: "Real redaction, not a patch on top",
   howItWorksBody:
-    "A black rectangle drawn over the text erases nothing: the content stays inside the file and comes back with copy and paste. Here the page is rebuilt: it becomes an image with the rectangles already painted in, so whatever was underneath disappears from the document.",
+    "A black rectangle drawn over the text erases nothing: the content stays inside the file and comes back with copy and paste. Here the page is rebuilt: it becomes an image with every area already treated by its effect (black, blur, pixelate, or paint), so whatever was underneath disappears from the document.",
   rasterWarning:
     "That is why redacted pages turn into images and their text stops being selectable. Pages you do not touch are copied untouched.",
 

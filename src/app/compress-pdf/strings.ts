@@ -12,6 +12,9 @@ export type CompressStrings = {
 
   howItWorksTitle: string;
   howItWorksBody: string;
+
+  flattenModeLabel: string;
+  flattenModeHint: string;
   rasterWarning: string;
 
   originalLabel: string;
@@ -22,7 +25,14 @@ export type CompressStrings = {
   afterLabel: string;
   reductionLabel: string;
   gainHint: string;
+  /**
+   * Modo "recompress" (por defecto) sin ganancia real: ninguna imagen
+   * califico, o ninguna mejoraba al recomprimirla. Se devuelve el
+   * original sin tocar.
+   */
   noGainHint: string;
+  /** Sin ganancia en modo "flatten" (aplanado explicito), el antiguo noGainHint. */
+  flattenNoGainHint: string;
 
   filenameSuffix: string;
 };
@@ -38,13 +48,17 @@ const es: CompressStrings = {
 
   howItWorksTitle: "Cómo comprime OptimusPDF",
   howItWorksBody:
-    "Sin servidor no hay forma mágica de encoger un PDF: cada página se vuelve a dibujar en tu navegador a la resolución que elijas y se guarda como imagen JPEG dentro de un documento nuevo.",
+    "Tu PDF se abre en tu navegador y se recomprimen en el sitio solo las fotos JPEG que tenga dentro: el texto, los vectores, los enlaces, los formularios y los marcadores se quedan exactamente igual. Si una imagen concreta no mejora al recomprimirla, se deja tal cual. Y si el documento entero no llega a pesar menos, se descarga el original sin cambios: nunca vas a recibir un archivo más pesado que el que subiste.",
+
+  flattenModeLabel: "Aplanar documento escaneado",
+  flattenModeHint:
+    "Actívalo solo si el PDF es en realidad fotos de páginas escaneadas (no texto real): cada página se vuelve a dibujar como una única imagen JPEG a la resolución que elijas. Esto SÍ hace que el texto deje de poder seleccionarse, buscarse o leerse con lectores de pantalla, y que se pierdan enlaces, formularios y marcadores. Para un PDF con texto de verdad, deja esto desactivado.",
   rasterWarning:
-    "Esto convierte el PDF en imágenes: el texto deja de poder seleccionarse, buscarse o leerse con lectores de pantalla, y se pierden enlaces, formularios y marcadores. Si necesitas conservar el texto, no uses esta herramienta.",
+    "Con \"Aplanar documento escaneado\" activado, el PDF se convierte en imágenes: el texto deja de poder seleccionarse, buscarse o leerse con lectores de pantalla, y se pierden enlaces, formularios y marcadores.",
 
   originalLabel: "Peso actual",
   largeFile:
-    "El archivo pasa de 100 MB. Rasterizar tantas páginas puede agotar la memoria de la pestaña.",
+    "El archivo pasa de 100 MB. Con el aplanado activado, rasterizar tantas páginas puede agotar la memoria de la pestaña.",
 
   summaryTitle: "Última compresión",
   beforeLabel: "Antes",
@@ -53,6 +67,8 @@ const es: CompressStrings = {
   gainHint:
     "Los tamaños son reales, medidos sobre el archivo generado en tu dispositivo.",
   noGainHint:
+    "Este documento ya estaba optimizado: no había ninguna imagen que recomprimir, o ninguna habría pesado menos al hacerlo. Te devolvemos exactamente tu archivo original, sin ningún cambio.",
+  flattenNoGainHint:
     "En este documento el resultado no pesa menos: suele pasar con PDF de texto puro, donde la versión en imágenes ocupa más. Descárgalo solo si te interesa el aplanado; si no, quédate con el original.",
 
   filenameSuffix: "comprimido",
@@ -69,13 +85,17 @@ const en: CompressStrings = {
 
   howItWorksTitle: "How OptimusPDF compresses",
   howItWorksBody:
-    "With no server there is no magic way to shrink a PDF: every page is redrawn in your browser at the resolution you pick and stored as a JPEG image inside a brand new document.",
+    "Your PDF opens in your browser and only the JPEG photos it already contains get recompressed in place: text, vector graphics, links, forms and bookmarks stay exactly as they were. If recompressing a specific image would not actually help, that image is left untouched. And if the whole document does not end up smaller, you get the original back unchanged: you will never receive a heavier file than the one you uploaded.",
+
+  flattenModeLabel: "Flatten scanned document",
+  flattenModeHint:
+    "Only turn this on if the PDF is really photos of scanned pages (not real text): every page is redrawn as a single JPEG image at the resolution you pick. This DOES make text unselectable, unsearchable and unreadable by screen readers, and drops links, forms and bookmarks. For a PDF with real text, leave this off.",
   rasterWarning:
-    "This turns the PDF into images: text can no longer be selected, searched or read by screen readers, and links, forms and bookmarks are lost. If you need to keep the text, do not use this tool.",
+    "With \"Flatten scanned document\" on, the PDF turns into images: text can no longer be selected, searched or read by screen readers, and links, forms and bookmarks are lost.",
 
   originalLabel: "Current weight",
   largeFile:
-    "The file is over 100 MB. Rasterising that many pages may exhaust the tab's memory.",
+    "The file is over 100 MB. With flattening on, rasterising that many pages may exhaust the tab's memory.",
 
   summaryTitle: "Last compression",
   beforeLabel: "Before",
@@ -84,6 +104,8 @@ const en: CompressStrings = {
   gainHint:
     "These are real sizes, measured on the file generated on your device.",
   noGainHint:
+    "This document was already optimised: there was no image worth recompressing, or none of them would have gotten smaller. You get back exactly your original file, unchanged.",
+  flattenNoGainHint:
     "This document did not get smaller: that is common with text-only PDFs, where the image version takes more space. Only download it if you want the flattening; otherwise keep the original.",
 
   filenameSuffix: "compressed",

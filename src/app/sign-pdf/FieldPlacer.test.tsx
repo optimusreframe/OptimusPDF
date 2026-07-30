@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { FieldPlacer } from "@/app/sign-pdf/FieldPlacer";
+import { FieldPlacer, TextFieldPlacer } from "@/app/sign-pdf/FieldPlacer";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import type { SignatureField, SignatureFieldType, Signer } from "@/lib/pdf/sign";
+import type { DetectedField } from "@/lib/pdf/detectFields";
 
 /**
  * El lienzo solo acepta interacciones cuando ya tiene la pagina pintada,
@@ -266,5 +267,154 @@ describe("FieldPlacer — src/app/sign-pdf/FieldPlacer.tsx", () => {
     }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByText(strings.needSigner)).toBeTruthy();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * TextFieldPlacer: mismo gesto de colocacion, sin firmante ni tipo.
+ * ------------------------------------------------------------------ */
+
+type TextHarnessProps = {
+  onFieldsChange: (fields: DetectedField[]) => void;
+  initialFields?: DetectedField[];
+  initialValues?: Record<string, string>;
+};
+
+function TextHarness({
+  onFieldsChange,
+  initialFields = [],
+  initialValues = {},
+}: TextHarnessProps) {
+  const [fields, setFields] = useState<DetectedField[]>(initialFields);
+  const [values, setValues] = useState<Record<string, string>>(initialValues);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  return (
+    <TextFieldPlacer
+      file={FILE}
+      fields={fields}
+      onFieldsChange={(next) => {
+        setFields(next);
+        onFieldsChange(next);
+      }}
+      values={values}
+      onValueChange={(id, value) =>
+        setValues((current) => ({ ...current, [id]: value }))
+      }
+      pageIndex={pageIndex}
+      onPageIndexChange={setPageIndex}
+      selectedId={selectedId}
+      onSelectedIdChange={setSelectedId}
+      strings={strings}
+    />
+  );
+}
+
+async function waitForTextPreview() {
+  await waitFor(() =>
+    expect(screen.getByAltText(strings.textFieldsTitle)).toBeTruthy(),
+  );
+}
+
+describe("TextFieldPlacer — src/app/sign-pdf/FieldPlacer.tsx", () => {
+  it("crear un campo lo anade sin firmante ni tipo, con fuente 'manual'", async () => {
+    let last: DetectedField[] = [];
+    render(<TextHarness onFieldsChange={(fields) => (last = fields)} />);
+    await waitForTextPreview();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+
+    expect(last).toHaveLength(1);
+    expect(last[0].source).toBe("manual");
+    expect(last[0].confidence).toBe("high");
+    expect(last[0].pageIndex).toBe(0);
+    expect(last[0].rect.width).toBeGreaterThan(0);
+  });
+
+  it("arrastrar sobre la pagina dibuja un campo con el rectangulo recorrido", async () => {
+    let last: DetectedField[] = [];
+    render(<TextHarness onFieldsChange={(fields) => (last = fields)} />);
+    await waitForTextPreview();
+
+    const host = screen.getByAltText(strings.textFieldsTitle).parentElement!;
+    fireEvent.pointerDown(host, { pointerId: 3, clientX: 60, clientY: 80 });
+    fireEvent.pointerMove(host, { pointerId: 3, clientX: 360, clientY: 240 });
+    fireEvent.pointerUp(host, { pointerId: 3, clientX: 360, clientY: 240 });
+
+    expect(last).toHaveLength(1);
+    expect(last[0].rect.x).toBeCloseTo(60 / HOST_WIDTH, 5);
+    expect(last[0].rect.y).toBeCloseTo(80 / HOST_HEIGHT, 5);
+  });
+
+  it("seleccionar un campo muestra un input en linea que escribe en su valor", async () => {
+    const field: DetectedField = {
+      id: "txt-1",
+      pageIndex: 0,
+      rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+      label: "Nombre",
+      source: "acroform",
+      confidence: "high",
+    };
+    render(<TextHarness initialFields={[field]} onFieldsChange={() => {}} />);
+    await waitForTextPreview();
+
+    fireEvent.pointerDown(screen.getByRole("group", { name: "Nombre" }), {
+      pointerId: 1,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerUp(screen.getByRole("group", { name: "Nombre" }), {
+      pointerId: 1,
+    });
+
+    const input = screen.getByRole("textbox", { name: "Nombre" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Ana" } });
+    expect(input.value).toBe("Ana");
+  });
+
+  it("un campo de confianza baja se avisa como experimental al seleccionarlo", async () => {
+    const field: DetectedField = {
+      id: "raster-1",
+      pageIndex: 0,
+      rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+      source: "heuristic-raster",
+      confidence: "low",
+    };
+    render(<TextHarness initialFields={[field]} onFieldsChange={() => {}} />);
+    await waitForTextPreview();
+
+    const label = strings.textFieldFallbackLabel(1);
+    fireEvent.pointerDown(screen.getByRole("group", { name: label }), {
+      pointerId: 1,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerUp(screen.getByRole("group", { name: label }), {
+      pointerId: 1,
+    });
+
+    expect(screen.getByText(strings.lowConfidenceHint)).toBeTruthy();
+  });
+
+  it("borrar el campo seleccionado lo saca del array", async () => {
+    let last: DetectedField[] = [];
+    render(<TextHarness onFieldsChange={(fields) => (last = fields)} />);
+    await waitForTextPreview();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.addTextFieldHere }));
+    expect(last).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: strings.removeTextField }));
+    expect(last).toHaveLength(0);
+  });
+
+  it("sin ningun campo se muestra el aviso opcional, no un error", async () => {
+    render(<TextHarness onFieldsChange={() => {}} />);
+    await waitForTextPreview();
+
+    expect(screen.getByText(strings.noTextFields)).toBeTruthy();
   });
 });

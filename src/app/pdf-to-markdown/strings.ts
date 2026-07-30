@@ -22,6 +22,13 @@ export type PdfToMarkdownStrings = {
   ocrLanguageLabel: string;
   ocrLanguageNames: Record<OcrLanguage, string>;
   ocrNotice: string;
+  /**
+   * Aviso incrustado en el propio Markdown cuando el OCR de una pagina
+   * falla (fallo de red trayendo los activos de tesseract.js, o el
+   * propio motor tras el reintento). El documento sigue generandose con
+   * el resto de paginas: esto es lo que ocupa el lugar de la que fallo.
+   */
+  ocrFailureMarker: string;
 
   previewTitle: string;
   previewIntro: string;
@@ -35,6 +42,7 @@ export type PdfToMarkdownStrings = {
 
   statPages: (value: number) => string;
   statOcrPages: (value: number) => string;
+  statOcrFailedPages: (value: number) => string;
   statHeadings: (value: number) => string;
   statListItems: (value: number) => string;
   statTables: (value: number) => string;
@@ -76,6 +84,8 @@ const es: PdfToMarkdownStrings = {
   },
   ocrNotice:
     "La primera vez que hace falta OCR se descarga el motor y el modelo del idioma desde una CDN pública (unos megabytes, luego quedan en caché). Es la única petición de red: tu documento no viaja a ninguna parte.",
+  ocrFailureMarker:
+    "[OCR no disponible para esta página — comprueba tu conexión]",
 
   previewTitle: "Vista previa",
   previewIntro:
@@ -92,6 +102,8 @@ const es: PdfToMarkdownStrings = {
 
   statPages: (value) => `${value} ${value === 1 ? "página" : "páginas"}`,
   statOcrPages: (value) => `${value} con OCR`,
+  statOcrFailedPages: (value) =>
+    `${value} sin OCR (fallo de conexión o del motor)`,
   statHeadings: (value) => `${value} ${value === 1 ? "título" : "títulos"}`,
   statListItems: (value) => `${value} de lista`,
   statTables: (value) => `${value} ${value === 1 ? "tabla" : "tablas"}`,
@@ -134,6 +146,8 @@ const en: PdfToMarkdownStrings = {
   },
   ocrNotice:
     "The first time OCR is needed the engine and the language model are downloaded from a public CDN (a few megabytes, cached afterwards). That is the only network request: your document goes nowhere.",
+  ocrFailureMarker:
+    "[OCR unavailable for this page — check your connection]",
 
   previewTitle: "Preview",
   previewIntro:
@@ -149,6 +163,8 @@ const en: PdfToMarkdownStrings = {
 
   statPages: (value) => `${value} ${value === 1 ? "page" : "pages"}`,
   statOcrPages: (value) => `${value} via OCR`,
+  statOcrFailedPages: (value) =>
+    `${value} OCR failed (connection or engine issue)`,
   statHeadings: (value) => `${value} ${value === 1 ? "heading" : "headings"}`,
   statListItems: (value) => `${value} list items`,
   statTables: (value) => `${value} ${value === 1 ? "table" : "tables"}`,

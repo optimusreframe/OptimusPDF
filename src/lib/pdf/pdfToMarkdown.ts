@@ -1,11 +1,13 @@
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import {
   PdfError,
+  classifyOcrError,
   closePdfDocument,
   openPdfDocument,
   renderPageToCanvas,
   throwIfAborted,
   toPdfError,
+  type PdfErrorCode,
   type ProgressCallback,
 } from "@/lib/pdf/core";
 import { OCR_LANGUAGES, type OcrLanguage } from "@/lib/pdf/ocr";
@@ -52,7 +54,7 @@ export type MarkdownTextItem = {
   monospace: boolean;
 };
 
-export type MarkdownPageSource = "text" | "ocr" | "empty";
+export type MarkdownPageSource = "text" | "ocr" | "ocrFailed" | "empty";
 
 export type MarkdownPage = {
   /** 1..n */
@@ -62,7 +64,10 @@ export type MarkdownPage = {
   source: MarkdownPageSource;
   /** Fragmentos con geometria. Vacio cuando `source !== "text"`. */
   items: MarkdownTextItem[];
-  /** Texto plano reconocido cuando `source === "ocr"`. */
+  /**
+   * Texto plano reconocido cuando `source === "ocr"`, o el aviso de que
+   * el OCR de esta pagina fallo cuando `source === "ocrFailed"`.
+   */
   ocrText?: string;
 };
 
@@ -118,6 +123,13 @@ export type MarkdownStats = {
   textPages: number;
   /** Paginas resueltas con OCR. */
   ocrPages: number;
+  /**
+   * Paginas que necesitaban OCR y para las que el reconocimiento fallo
+   * (fallo de red al traer los activos de tesseract.js, o el propio
+   * motor). El documento se sigue generando: cada una de estas paginas
+   * lleva un aviso en su lugar en vez de tirar toda la conversion.
+   */
+  ocrFailedPages: number;
   /** Paginas sin texto que nadie pudo resolver. */
   emptyPages: number;
   headings: number;
@@ -177,6 +189,18 @@ const MIN_CHARS_FOR_TEXT_PAGE = 24;
 /** Resolucion de rasterizado para OCR: 2x ~ 144 DPI. */
 const OCR_SCALE = 2;
 const MAX_RASTER_SIDE = 4000;
+
+/**
+ * Aviso que se incrusta en el lugar de una pagina cuyo OCR fallo (fallo
+ * de red trayendo los activos de tesseract.js, o el propio motor tras el
+ * reintento). Es texto en ingles a proposito de forma temporal: este
+ * modulo no recibe el idioma de la interfaz, y `PdfToMarkdownToolClient`
+ * pasa la version traducida real (`strings.ts`) como quinto argumento de
+ * `pdfToMarkdown`/`extractMarkdownPages`. Este valor solo se usa si algun
+ * llamador no pasa uno propio.
+ */
+export const DEFAULT_OCR_FAILURE_MARKER =
+  "[OCR unavailable for this page — check your connection]";
 
 /* ------------------------------------------------------------------ *
  * Capa pura: de fragmentos a lineas
@@ -831,6 +855,7 @@ export function buildMarkdown(
 
   let textPages = 0;
   let ocrPages = 0;
+  let ocrFailedPages = 0;
   let emptyPages = 0;
   const rendered: string[] = [];
 
@@ -840,6 +865,9 @@ export function buildMarkdown(
 
     if (page.source === "ocr") {
       ocrPages += 1;
+      blocks = ocrBlocks(page.ocrText ?? "");
+    } else if (page.source === "ocrFailed") {
+      ocrFailedPages += 1;
       blocks = ocrBlocks(page.ocrText ?? "");
     } else if (page.source === "text") {
       textPages += 1;
@@ -867,6 +895,7 @@ export function buildMarkdown(
       pages: pages.length,
       textPages,
       ocrPages,
+      ocrFailedPages,
       emptyPages,
       headings: counters.headings,
       listItems: counters.listItems,
@@ -974,6 +1003,35 @@ async function recognizePage(
   return result.data.text ?? "";
 }
 
+type TesseractWorker = Awaited<
+  ReturnType<typeof import("tesseract.js").createWorker>
+>;
+
+/**
+ * Crea el worker de tesseract.js con UN reintento si el primer intento
+ * falla. La creacion es lo unico de la reserva de OCR que hace una
+ * peticion de red por documento entero (los activos del idioma desde
+ * cdn.jsdelivr.net), asi que es tambien lo mas expuesto a un corte de red
+ * transitorio: un segundo intento suele bastar sin penalizar demasiado al
+ * resto del documento.
+ */
+async function createOcrWorker(
+  language: OcrLanguage,
+  logger: (message: { status: string; progress: number }) => void,
+): Promise<TesseractWorker> {
+  const attempt = async (): Promise<TesseractWorker> => {
+    const tesseract = await import("tesseract.js");
+    return tesseract.createWorker(language, tesseract.OEM.LSTM_ONLY, {
+      logger,
+    });
+  };
+  try {
+    return await attempt();
+  } catch {
+    return await attempt();
+  }
+}
+
 /**
  * Extrae, pagina a pagina, los fragmentos de texto con su geometria.
  * Cuando una pagina no trae capa de texto util y el OCR esta activado,
@@ -985,15 +1043,23 @@ export async function extractMarkdownPages(
   options: PdfToMarkdownOptions = DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
+  /**
+   * Aviso incrustado en el lugar de una pagina cuyo OCR fallo. Ver
+   * `DEFAULT_OCR_FAILURE_MARKER` — normalmente lo pasa ya traducido
+   * `PdfToMarkdownToolClient` (`strings.ts`).
+   */
+  ocrFailureMarker: string = DEFAULT_OCR_FAILURE_MARKER,
 ): Promise<MarkdownPage[]> {
   const language: OcrLanguage = OCR_LANGUAGES.includes(options.ocrLanguage)
     ? options.ocrLanguage
     : "spa";
 
   let viewer: PDFDocumentProxy | null = null;
-  let worker: Awaited<
-    ReturnType<typeof import("tesseract.js").createWorker>
-  > | null = null;
+  let worker: TesseractWorker | null = null;
+  // Ultimo codigo de error de OCR visto (red vs motor). Si NINGUNA pagina
+  // logra extraer nada de verdad, se usa para lanzar un error especifico
+  // en vez de devolver un documento entero hecho solo de avisos.
+  let lastOcrErrorCode: PdfErrorCode | null = null;
 
   try {
     viewer = await openPdfDocument(file);
@@ -1055,30 +1121,59 @@ export async function extractMarkdownPages(
         });
         page.cleanup();
       } else if (options.ocrFallback) {
-        if (!worker) {
-          const tesseract = await import("tesseract.js");
-          worker = await tesseract.createWorker(
-            language,
-            tesseract.OEM.LSTM_ONLY,
-            {
-              logger: (message) => {
-                if (message.status === "recognizing text") {
-                  report(0.2 + message.progress * 0.75);
-                }
-              },
-            },
-          );
+        // El OCR de esta pagina se aisla: si falla (creacion del worker
+        // o reconocimiento), la pagina se marca y el documento sigue.
+        // Nunca se tira toda la conversion por una pagina.
+        let ocrText: string | undefined;
+        let ocrFailed = false;
+        try {
+          if (!worker) {
+            worker = await createOcrWorker(language, (message) => {
+              if (message.status === "recognizing text") {
+                report(0.2 + message.progress * 0.75);
+              }
+            });
+          }
+          ocrText = await recognizePage(worker, page);
+        } catch (error) {
+          ocrFailed = true;
+          lastOcrErrorCode = classifyOcrError(error);
+          // Se descarta el worker (haya fallado al crearlo o al
+          // reconocer): la SIGUIENTE pagina que necesite OCR lo crea de
+          // cero. Es deliberadamente conservador — un worker que acaba
+          // de fallar podria estar en un estado invalido — y el corte de
+          // red que causo el fallo pudo ser transitorio.
+          const broken = worker;
+          worker = null;
+          if (broken) {
+            try {
+              await broken.terminate();
+            } catch {
+              // Ya estaba roto: nada mas que hacer con el.
+            }
+          }
         }
-        const text = await recognizePage(worker, page);
         page.cleanup();
-        pages.push({
-          pageNumber: number,
-          width: viewport.width,
-          height: viewport.height,
-          source: "ocr",
-          items: [],
-          ocrText: text,
-        });
+
+        pages.push(
+          ocrFailed
+            ? {
+                pageNumber: number,
+                width: viewport.width,
+                height: viewport.height,
+                source: "ocrFailed",
+                items: [],
+                ocrText: ocrFailureMarker,
+              }
+            : {
+                pageNumber: number,
+                width: viewport.width,
+                height: viewport.height,
+                source: "ocr",
+                items: [],
+                ocrText,
+              },
+        );
       } else {
         pages.push({
           pageNumber: number,
@@ -1091,6 +1186,21 @@ export async function extractMarkdownPages(
       }
 
       report(1);
+    }
+
+    // Si NINGUNA pagina produjo contenido real (todo fue "empty" u
+    // "ocrFailed"), devolver el documento igualmente seria mentir: seria
+    // un Markdown compuesto solo por avisos de fallo. Se lanza el ultimo
+    // codigo de error de OCR visto, que es mas util que el generico
+    // "empty" porque explica la causa (red vs motor).
+    const anyRealContent = pages.some(
+      (candidate) => candidate.source === "text" || candidate.source === "ocr",
+    );
+    if (!anyRealContent && lastOcrErrorCode) {
+      throw new PdfError(
+        lastOcrErrorCode,
+        "OCR failed for every page that needed it",
+      );
     }
 
     return pages;
@@ -1109,6 +1219,7 @@ export async function pdfToMarkdown(
   options: PdfToMarkdownOptions = DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
+  ocrFailureMarker: string = DEFAULT_OCR_FAILURE_MARKER,
 ): Promise<PdfToMarkdownConversion> {
   try {
     const pages = await extractMarkdownPages(
@@ -1116,6 +1227,7 @@ export async function pdfToMarkdown(
       options,
       (value) => onProgress?.(value * 0.92),
       signal,
+      ocrFailureMarker,
     );
     const result = buildMarkdown(pages, options);
     if (result.markdown.trim().length === 0) throw new PdfError("empty");

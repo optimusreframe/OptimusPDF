@@ -42,7 +42,34 @@ export type PdfErrorCode =
    * como "sin restriccion".
    */
   | "inspectionIncomplete"
-  | "nothingSelected";
+  | "nothingSelected"
+  /**
+   * Fallo de red al descargar los activos de tesseract.js (worker/core/
+   * traineddata) para el reconocimiento OCR. Distinto de "unknown": aqui
+   * SI sabemos la causa probable (CDN inalcanzable, bloqueador de
+   * anuncios, proxy corporativo) y se puede decir algo util.
+   */
+  | "ocrNetworkFailure"
+  /**
+   * El motor de OCR (tesseract.js) fallo por una razon que no parece de
+   * red (crash del worker, error de tiempo de ejecucion de WASM...). Se
+   * distingue de "ocrNetworkFailure" porque el consejo es distinto:
+   * reintentar no suele ayudar si el problema es del propio motor.
+   */
+  | "ocrEngineFailure"
+  /**
+   * Fallo de red al descargar los pesos o el motor de un modelo WebLLM
+   * (huggingface.co / raw.githubusercontent.com). Antes se bucketizaba
+   * como "unknown" y la interfaz mostraba un mensaje de "falta de VRAM"
+   * que no tenia nada que ver con la causa real.
+   */
+  | "modelDownloadFailure"
+  /**
+   * Perdida real del dispositivo WebGPU o falta de memoria de video
+   * durante la carga o la inferencia. Es el UNICO caso en el que el
+   * mensaje "prueba el modelo ligero" tiene sentido.
+   */
+  | "deviceLost";
 
 /** Error tipado del motor: la UI traduce `code` mediante i18n. */
 export class PdfError extends Error {
@@ -73,6 +100,104 @@ export function toPdfError(error: unknown): PdfError {
     return new PdfError("unknown", error.message);
   }
   return new PdfError("unknown");
+}
+
+/**
+ * Clasifica un fallo de tesseract.js (creacion de worker o reconocimiento)
+ * en "ocrNetworkFailure" vs "ocrEngineFailure". Se usa en los motores que
+ * ofrecen reserva de OCR (`pdfToMarkdown.ts` hoy; cualquier otro que se
+ * sume despues deberia reutilizar esto en vez de inventar su propia
+ * heuristica) para no bucketizar un simple corte de red como un fallo
+ * generico del motor.
+ *
+ * Nunca devuelve "unknown": un fallo de OCR que no reconocemos como red
+ * sigue siendo, con la informacion que tenemos, mas util etiquetado como
+ * fallo del motor que como "algo paso".
+ */
+export function classifyOcrError(error: unknown): PdfErrorCode {
+  if (error instanceof PdfError) return error.code;
+  if (error instanceof Error) {
+    const text = `${error.name} ${error.message}`.toLowerCase();
+    const networkHints = [
+      "failed to fetch",
+      "networkerror",
+      "load failed",
+      "net::",
+      "cors",
+      "fetch",
+      "cdn.jsdelivr",
+      "404",
+      "ENOTFOUND".toLowerCase(),
+    ];
+    if (networkHints.some((hint) => text.includes(hint))) {
+      return "ocrNetworkFailure";
+    }
+    return "ocrEngineFailure";
+  }
+  return "ocrEngineFailure";
+}
+
+/**
+ * Clasifica un fallo del motor WebLLM (descarga del modelo o inferencia)
+ * usado por `summarize.ts`. Antes de esto, `toPdfError` bucketizaba TODO
+ * — incluido un corte de red simple durante la descarga — como "unknown",
+ * y la interfaz lo traducia a "falta de memoria de video" sin ninguna
+ * base real. Aqui se distingue:
+ *
+ *  - cancelacion (el propio `AbortSignal`, incluido el que dispara
+ *    `engine.interruptGenerate()`, puede resolver como un `AbortError`
+ *    nativo en vez de como nuestro `PdfError("cancelled")`),
+ *  - perdida real de dispositivo / falta de VRAM (la unica que justifica
+ *    el consejo de "prueba el modelo ligero"),
+ *  - fallo de red al descargar pesos o motor,
+ *  - cualquier otra cosa, que se deja como "unknown" a proposito: la
+ *    interfaz le anade el texto tecnico real en vez de ocultarlo.
+ */
+export function classifyWebLlmError(error: unknown): PdfErrorCode {
+  if (error instanceof PdfError) return error.code;
+  if (error instanceof Error) {
+    const name = error.name.toLowerCase();
+    const text = `${error.name} ${error.message}`.toLowerCase();
+
+    if (name === "aborterror" || text.includes("abort")) {
+      return "cancelled";
+    }
+
+    const deviceLostHints = [
+      "device was lost",
+      "device lost",
+      "out of memory",
+      "oom",
+      "gpu process",
+      "shader-f16",
+      "no available adapter",
+      "webgpu",
+    ];
+    if (deviceLostHints.some((hint) => text.includes(hint))) {
+      return "deviceLost";
+    }
+
+    const networkHints = [
+      "failed to fetch",
+      "networkerror",
+      "load failed",
+      "net::",
+      "cors",
+      "fetch",
+      "huggingface",
+      "githubusercontent",
+      "timeout",
+      "timed out",
+      "404",
+      "http error",
+    ];
+    if (networkHints.some((hint) => text.includes(hint))) {
+      return "modelDownloadFailure";
+    }
+
+    return "unknown";
+  }
+  return "unknown";
 }
 
 /**
@@ -416,6 +541,70 @@ export function normalizedRectToUserBox(
     y: minY,
     width: Math.max(...xs) - minX,
     height: Math.max(...ys) - minY,
+  };
+}
+
+/**
+ * Punto del espacio de usuario del PDF al espacio de vista (lo que el
+ * usuario ve), con origen abajo-izquierda en ambos. Es el inverso exacto
+ * de `viewPointToUser`: deshace la traduccion del CropBox y vuelve a
+ * aplicar `/Rotate` en vez de deshacerlo.
+ */
+function userPointToView(
+  geometry: PageGeometry,
+  ux: number,
+  uy: number,
+): { vx: number; vy: number } {
+  const { box, rotation } = geometry;
+  switch (rotation) {
+    case 90:
+      return { vx: uy - box.y, vy: box.x + box.width - ux };
+    case 180:
+      return { vx: box.x + box.width - ux, vy: box.y + box.height - uy };
+    case 270:
+      return { vx: box.y + box.height - uy, vy: ux - box.x };
+    default:
+      return { vx: ux - box.x, vy: uy - box.y };
+  }
+}
+
+/**
+ * Convierte una caja del espacio de usuario del PDF (la que devuelven,
+ * por ejemplo, los widgets de `/AcroForm` o un camino vectorial de
+ * pdf.js) en el rectangulo normalizado (0..1) equivalente sobre la
+ * vista renderizada, con origen ARRIBA-izquierda como en el DOM.
+ *
+ * Es el inverso exacto de `normalizedRectToUserBox`: mismo reparto de
+ * esquinas para que una rotacion de 90/270 siga dando una caja recta.
+ * Se usa para pasar del espacio de deteccion (AcroForm, geometria
+ * vectorial) al espacio en el que ya trabaja `SignatureField.rect`.
+ */
+export function userBoxToNormalizedRect(
+  geometry: PageGeometry,
+  box: Box,
+): NormalizedRect {
+  const corners = [
+    userPointToView(geometry, box.x, box.y),
+    userPointToView(geometry, box.x + box.width, box.y),
+    userPointToView(geometry, box.x, box.y + box.height),
+    userPointToView(geometry, box.x + box.width, box.y + box.height),
+  ];
+  const vxs = corners.map((corner) => corner.vx);
+  const vys = corners.map((corner) => corner.vy);
+  const minVx = Math.min(...vxs);
+  const maxVx = Math.max(...vxs);
+  const minVy = Math.min(...vys);
+  const maxVy = Math.max(...vys);
+
+  const viewWidth = geometry.viewWidth || 1;
+  const viewHeight = geometry.viewHeight || 1;
+
+  return {
+    x: minVx / viewWidth,
+    // El DOM mide desde arriba; el espacio de vista, desde abajo.
+    y: 1 - maxVy / viewHeight,
+    width: (maxVx - minVx) / viewWidth,
+    height: (maxVy - minVy) / viewHeight,
   };
 }
 

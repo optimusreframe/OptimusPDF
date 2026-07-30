@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as core from "@/lib/pdf/core";
 import {
   CHARS_PER_TOKEN,
   DEFAULT_CHUNK_BUDGET,
+  DEFAULT_SUMMARIZER_MODEL,
   MAX_CHUNKS,
   SUMMARIZER_MODELS,
   SUMMARIZER_MODEL_KEYS,
@@ -21,6 +23,7 @@ import {
   sanitizePageCitations,
   renderSummaryDocument,
   splitIntoSegments,
+  summarizePdf,
   trimToLastSentence,
   type ChunkBudget,
   type ChunkSummary,
@@ -46,17 +49,25 @@ import {
  *
  *     - La inferencia real necesita WebGPU (`navigator.gpu`), que no
  *       existe en Node, y una descarga de ~0,7 GB de pesos del modelo.
- *       Montar un mock del motor solo probaria el mock.
  *     - `extractDocumentText` usa pdf.js, que bajo `environment: "node"`
  *       falla por `DOMMatrix` y por `PDF_WORKER_SRC` ("/pdf.worker.min.mjs",
  *       una ruta de `public/`): la misma limitacion ya documentada en
  *       `compare.test.ts` y `core.test.ts`. Ademas la reserva de OCR
  *       necesita `canvas` y tesseract.js.
  *
- *     Verificacion de (B): manual, en navegador. Lo unico que NO se ha
- *     podido verificar de extremo a extremo es la inferencia con el
- *     modelo cargado, por falta de GPU con `shader-f16` en el entorno de
- *     desarrollo; queda declarado como pendiente en el informe.
+ *     Verificacion de (B) end-to-end con GPU real: manual, en navegador.
+ *     Lo unico que NO se ha podido verificar de extremo a extremo es la
+ *     inferencia con el modelo cargado, por falta de GPU con `shader-f16`
+ *     en el entorno de desarrollo; queda declarado como pendiente en el
+ *     informe.
+ *
+ *     Lo que SI se prueba aqui de (B) (mismo patron que
+ *     `pdfToImages.test.ts`/`pdfToMarkdown.test.ts`): la clasificacion de
+ *     errores y el cableado del `AbortSignal` de `summarizePdf`, con
+ *     `openPdfDocument`/`renderPageToCanvas`/`closePdfDocument` de
+ *     `@/lib/pdf/core` y `CreateMLCEngine` de `@mlc-ai/web-llm`
+ *     sustituidos por dobles controlados (nunca WebGPU real). El codigo
+ *     REAL de `summarizePdf` corre sin tocar.
  *
  * El invariante de negocio que estos tests protegen es el que rompe la
  * herramienta si falla: NINGUN prompt puede desbordar la ventana de
@@ -64,6 +75,21 @@ import {
  * descarta silenciosamente el principio del texto y el resumen sale
  * incompleto sin avisar.
  */
+
+vi.mock("@/lib/pdf/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/pdf/core")>();
+  return {
+    ...actual,
+    openPdfDocument: vi.fn(),
+    renderPageToCanvas: vi.fn(),
+    closePdfDocument: vi.fn(async () => {}),
+  };
+});
+
+vi.mock("@mlc-ai/web-llm", () => ({
+  CreateMLCEngine: vi.fn(),
+  hasModelInCache: vi.fn(async () => false),
+}));
 
 function page(pageNumber: number, text: string): PageText {
   return { pageNumber, text, source: text.length > 0 ? "text" : "empty" };
@@ -749,5 +775,252 @@ describe("renderSummaryDocument", () => {
 
   it("termina en salto de linea", () => {
     expect(renderSummaryDocument(result, labels).endsWith("\n")).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * summarizePdf — clasificacion de errores y cableado del AbortSignal
+ * (pdf.js y el motor WebLLM sustituidos, ver cabecera del archivo)
+ * ------------------------------------------------------------------ */
+
+type FakeSummarizerPage = {
+  getTextContent: () => Promise<{ items: Array<{ str: string; hasEOL?: boolean }> }>;
+  cleanup: ReturnType<typeof vi.fn>;
+};
+
+type FakeSummarizerDocument = {
+  numPages: number;
+  getPage: ReturnType<typeof vi.fn>;
+  loadingTask: { destroy: ReturnType<typeof vi.fn> };
+};
+
+/** Pagina con texto real de sobra para no entrar en la reserva de OCR. */
+function makeFakeSummarizerPage(text: string): FakeSummarizerPage {
+  return {
+    getTextContent: async () => ({ items: [{ str: text, hasEOL: false }] }),
+    cleanup: vi.fn(),
+  };
+}
+
+function makeFakeSummarizerDocument(
+  pages: FakeSummarizerPage[],
+): FakeSummarizerDocument {
+  return {
+    numPages: pages.length,
+    getPage: vi.fn(async (number: number) => pages[number - 1]),
+    loadingTask: { destroy: vi.fn(async () => {}) },
+  };
+}
+
+type FakeEngine = {
+  chat: { completions: { create: ReturnType<typeof vi.fn> } };
+  interruptGenerate: ReturnType<typeof vi.fn>;
+  unload: ReturnType<typeof vi.fn>;
+};
+
+function makeFakeEngine(create: ReturnType<typeof vi.fn>): FakeEngine {
+  return {
+    chat: { completions: { create } },
+    interruptGenerate: vi.fn(async () => {}),
+    unload: vi.fn(async () => {}),
+  };
+}
+
+function okCompletion(text = "Resumen generado.") {
+  return vi.fn(async () => ({
+    choices: [{ message: { content: text }, finish_reason: "stop" }],
+  }));
+}
+
+const openPdfDocumentMock = vi.mocked(core.openPdfDocument);
+const closePdfDocumentMock = vi.mocked(core.closePdfDocument);
+
+async function getCreateMLCEngineMock() {
+  const webllm = await import("@mlc-ai/web-llm");
+  return vi.mocked(webllm.CreateMLCEngine);
+}
+
+/** Sondea `predicate` hasta que sea verdad, sin usar temporizadores falsos. */
+async function waitUntil(
+  predicate: () => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("waitUntil: tiempo agotado esperando la condicion");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+const REAL_TEXT_PAGE = "Contenido real de la pagina con caracteres de sobra.";
+
+describe("summarizePdf — clasificacion de errores (pdf.js/WebLLM sustituidos)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const document = makeFakeSummarizerDocument([
+      makeFakeSummarizerPage(REAL_TEXT_PAGE),
+    ]);
+    openPdfDocumentMock.mockResolvedValue(document as never);
+  });
+
+  it("un fallo de red al descargar el modelo se clasifica como 'modelDownloadFailure', no 'unknown'", async () => {
+    const createMLCEngineMock = await getCreateMLCEngineMock();
+    createMLCEngineMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    await expect(
+      summarizePdf(
+        new File(["contenido"], "informe.pdf", { type: "application/pdf" }),
+        {
+          model: DEFAULT_SUMMARIZER_MODEL,
+          language: "es",
+          length: "medium",
+          ocrFallback: false,
+          ocrLanguage: "spa",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "modelDownloadFailure" });
+  });
+
+  it("una perdida real de dispositivo WebGPU se clasifica como 'deviceLost' (el unico caso que sugiere el modelo ligero)", async () => {
+    const createMLCEngineMock = await getCreateMLCEngineMock();
+    createMLCEngineMock.mockRejectedValueOnce(
+      new Error("GPUDevice was lost: reason=unknown"),
+    );
+
+    await expect(
+      summarizePdf(
+        new File(["contenido"], "informe.pdf", { type: "application/pdf" }),
+        {
+          model: DEFAULT_SUMMARIZER_MODEL,
+          language: "es",
+          length: "medium",
+          ocrFallback: false,
+          ocrLanguage: "spa",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "deviceLost" });
+  });
+
+  it("un fallo generico durante la inferencia se deja como 'unknown' y conserva el texto tecnico real", async () => {
+    const createMLCEngineMock = await getCreateMLCEngineMock();
+    const failingCompletion = vi.fn(async () => {
+      throw new Error("unexpected pipeline state: token id out of range");
+    });
+    createMLCEngineMock.mockResolvedValueOnce(
+      makeFakeEngine(failingCompletion) as never,
+    );
+
+    const rejection = await summarizePdf(
+      new File(["contenido"], "informe.pdf", { type: "application/pdf" }),
+      {
+        model: DEFAULT_SUMMARIZER_MODEL,
+        language: "es",
+        length: "medium",
+        ocrFallback: false,
+        ocrLanguage: "spa",
+      },
+    ).catch((error: unknown) => error);
+
+    expect(rejection).toMatchObject({ code: "unknown" });
+    expect((rejection as Error).message).toContain(
+      "unexpected pipeline state: token id out of range",
+    );
+  });
+
+  it("el AbortSignal compartido llama a engine.interruptGenerate() durante un trozo en curso y la operacion termina como 'cancelled'", async () => {
+    const createMLCEngineMock = await getCreateMLCEngineMock();
+    let releaseGeneration: (() => void) | undefined;
+    const create = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          releaseGeneration = () =>
+            resolve({
+              choices: [{ message: { content: "" }, finish_reason: "abort" }],
+            });
+        }),
+    );
+    // El motor real, al recibir `interruptGenerate()`, deja que la
+    // generacion en curso RESUELVA con lo que llevaba (no la rechaza) —
+    // por eso el mock de aqui dispara la resolucion de la misma promesa
+    // pendiente en vez de simularla como un rechazo.
+    const interruptGenerate = vi.fn(async () => {
+      releaseGeneration?.();
+    });
+    const engine: FakeEngine = {
+      chat: { completions: { create } },
+      interruptGenerate,
+      unload: vi.fn(async () => {}),
+    };
+    createMLCEngineMock.mockResolvedValueOnce(engine as never);
+
+    const controller = new AbortController();
+    const promise = summarizePdf(
+      new File(["contenido"], "informe.pdf", { type: "application/pdf" }),
+      {
+        model: DEFAULT_SUMMARIZER_MODEL,
+        language: "es",
+        length: "medium",
+        ocrFallback: false,
+        ocrLanguage: "spa",
+      },
+      undefined,
+      controller.signal,
+    );
+    // Evita que un rechazo de esta promesa cuente como "unhandled" mientras
+    // el test todavia esta orquestando la cancelacion mas abajo.
+    promise.catch(() => {});
+
+    await waitUntil(() => create.mock.calls.length > 0);
+    controller.abort();
+    // El motor real resuelve `_generate` con lo que llevaba generado en
+    // vez de rechazar: `interruptGenerate` dispara esa resolucion aqui.
+    await waitUntil(() => engine.interruptGenerate.mock.calls.length > 0);
+    releaseGeneration?.();
+
+    await expect(promise).rejects.toMatchObject({ code: "cancelled" });
+    expect(engine.interruptGenerate).toHaveBeenCalledTimes(1);
+  });
+
+  it("sin contenido de texto extraible, sigue lanzando PdfError('corrupt', 'no extractable text') sin pasar por el motor", async () => {
+    const emptyDocument = makeFakeSummarizerDocument([makeFakeSummarizerPage("")]);
+    openPdfDocumentMock.mockResolvedValue(emptyDocument as never);
+    const createMLCEngineMock = await getCreateMLCEngineMock();
+
+    await expect(
+      summarizePdf(
+        new File(["contenido"], "vacio.pdf", { type: "application/pdf" }),
+        {
+          model: DEFAULT_SUMMARIZER_MODEL,
+          language: "es",
+          length: "medium",
+          ocrFallback: false,
+          ocrLanguage: "spa",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "corrupt" });
+    expect(createMLCEngineMock).not.toHaveBeenCalled();
+  });
+
+  it("un resumen que termina con exito descarga el motor de la GPU (unload) exactamente una vez", async () => {
+    const createMLCEngineMock = await getCreateMLCEngineMock();
+    const engine = makeFakeEngine(okCompletion());
+    createMLCEngineMock.mockResolvedValueOnce(engine as never);
+
+    const result = await summarizePdf(
+      new File(["contenido"], "informe.pdf", { type: "application/pdf" }),
+      {
+        model: DEFAULT_SUMMARIZER_MODEL,
+        language: "es",
+        length: "medium",
+        ocrFallback: false,
+        ocrLanguage: "spa",
+      },
+    );
+
+    expect(result.overview.length).toBeGreaterThan(0);
+    expect(engine.unload).toHaveBeenCalledTimes(1);
+    expect(closePdfDocumentMock).toHaveBeenCalled();
   });
 });

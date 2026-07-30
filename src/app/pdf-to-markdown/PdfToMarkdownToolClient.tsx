@@ -87,6 +87,7 @@ export function PdfToMarkdownToolClient() {
             });
           },
           controller.signal,
+          s.ocrFailureMarker,
         );
         if (controller.signal.aborted) return;
         cacheRef.current = { key, conversion };
@@ -107,7 +108,7 @@ export function PdfToMarkdownToolClient() {
         if (abortRef.current === controller) abortRef.current = null;
       }
     },
-    [],
+    [s.ocrFailureMarker],
   );
 
   const cancelPreview = useCallback(() => {
@@ -133,11 +134,17 @@ export function PdfToMarkdownToolClient() {
         return { blob: cached.conversion.blob, filename };
       }
 
-      const conversion = await pdfToMarkdown(file, options, onProgress, signal);
+      const conversion = await pdfToMarkdown(
+        file,
+        options,
+        onProgress,
+        signal,
+        s.ocrFailureMarker,
+      );
       cacheRef.current = { key, conversion };
       return { blob: conversion.blob, filename };
     },
-    [s.filenameSuffix],
+    [s.filenameSuffix, s.ocrFailureMarker],
   );
 
   return (
@@ -334,6 +341,11 @@ function PreviewStats({
       <Badge variant="neutral">{strings.statPages(stats.pages)}</Badge>
       {stats.ocrPages > 0 ? (
         <Badge variant="signal">{strings.statOcrPages(stats.ocrPages)}</Badge>
+      ) : null}
+      {stats.ocrFailedPages > 0 ? (
+        <Badge variant="destructive">
+          {strings.statOcrFailedPages(stats.ocrFailedPages)}
+        </Badge>
       ) : null}
       {stats.headings > 0 ? (
         <Badge variant="neutral">{strings.statHeadings(stats.headings)}</Badge>

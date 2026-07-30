@@ -41,6 +41,7 @@ export type SignStrings = {
   /* --- Pasos del flujo con varios firmantes --- */
   stepSigners: string;
   stepFields: string;
+  stepText: string;
   stepSign: string;
   back: string;
   next: string;
@@ -77,6 +78,30 @@ export type SignStrings = {
   goToPage: (page: number) => string;
   needSigner: string;
 
+  /* --- Campos de texto (deteccion + relleno) --- */
+  textFieldsTitle: string;
+  textFieldsHint: string;
+  detectingFields: string;
+  detectionFailedHint: string;
+  detectedFieldsSummary: (count: number) => string;
+  addTextFieldHere: string;
+  textFieldFallbackLabel: (position: number) => string;
+  textFieldPlaceholder: string;
+  removeTextField: string;
+  resizeTextField: string;
+  textFieldsOnPage: (count: number) => string;
+  totalTextFields: (count: number) => string;
+  clearPageTextFields: string;
+  clearAllTextFields: string;
+  noTextFields: string;
+  lowConfidenceHint: string;
+  formPanelTitle: string;
+  formPanelHint: string;
+  pageGroupLabel: (page: number) => string;
+  reuseValuesPrompt: string;
+  reuseValuesAccept: string;
+  reuseValuesDecline: string;
+
   /* --- Ceremonia por turnos --- */
   ceremonyTitle: string;
   checkingDocument: string;
@@ -103,6 +128,9 @@ export type SignStrings = {
   pendingBody: (count: number) => string;
   applyAndDownload: string;
   restartCeremony: string;
+  textOnlyReadyTitle: string;
+  textOnlyReadyBody: string;
+  finishAndDownload: string;
 
   /* --- Compositor con contexto --- */
   composerFor: (name: string) => string;
@@ -159,6 +187,7 @@ const es: SignStrings = {
 
   stepSigners: "Firmantes",
   stepFields: "Campos",
+  stepText: "Texto",
   stepSign: "Firmar",
   back: "Atrás",
   next: "Continuar",
@@ -199,6 +228,39 @@ const es: SignStrings = {
   goToPage: (page) => `Ir a la página ${page}`,
   needSigner: "Elige antes a quién pertenece el hueco.",
 
+  textFieldsTitle: "Rellena el documento",
+  textFieldsHint:
+    "Escribe en la lista de abajo o toca un campo sobre la página para editarlo ahí mismo. Arrastra sobre la página para añadir uno nuevo donde falte.",
+  detectingFields: "Buscando campos rellenables en el documento",
+  detectionFailedHint:
+    "No se pudieron detectar campos automáticamente, pero puedes añadirlos a mano arrastrando sobre la página.",
+  detectedFieldsSummary: (count) =>
+    count === 1
+      ? "Se detectó 1 campo. Revísalo antes de firmar."
+      : `Se detectaron ${count} campos. Revísalos antes de firmar.`,
+  addTextFieldHere: "Añadir campo en esta página",
+  textFieldFallbackLabel: (position) => `Campo ${position}`,
+  textFieldPlaceholder: "Escribe el valor",
+  removeTextField: "Quitar el campo",
+  resizeTextField: "Cambiar el tamaño del campo",
+  textFieldsOnPage: (count) =>
+    count === 1 ? "1 campo en esta página" : `${count} campos en esta página`,
+  totalTextFields: (count) =>
+    count === 1 ? "1 campo en total" : `${count} campos en total`,
+  clearPageTextFields: "Vaciar la página",
+  clearAllTextFields: "Vaciar todo",
+  noTextFields:
+    "Todavía no hay ningún campo de texto. Es opcional: puedes seguir sin rellenar nada.",
+  lowConfidenceHint:
+    "Contorno discontinuo = detección experimental sobre una imagen escaneada. Revísala antes de firmar; si no es un campo real, bórrala.",
+  formPanelTitle: "Lista de campos",
+  formPanelHint:
+    "Un campo vacío se deja en blanco: no estropea el documento final.",
+  pageGroupLabel: (page) => `Página ${page}`,
+  reuseValuesPrompt: "¿Usar los mismos datos que en tu último documento?",
+  reuseValuesAccept: "Sí, rellenar",
+  reuseValuesDecline: "No, empezar en blanco",
+
   ceremonyTitle: "Firmad por turnos",
   checkingDocument: "Comprobando el documento antes de firmar",
   turnOf: (current, total) => `Turno ${current} de ${total}`,
@@ -233,6 +295,10 @@ const es: SignStrings = {
       : `Faltan ${count} firmantes por firmar.`,
   applyAndDownload: "Firmar y descargar",
   restartCeremony: "Empezar la ronda de nuevo",
+  textOnlyReadyTitle: "Listo para descargar",
+  textOnlyReadyBody:
+    "Este documento no tiene firmas por recoger: aplica los campos de texto rellenos y genera el PDF final.",
+  finishAndDownload: "Aplicar y descargar",
 
   composerFor: (name) => `Firma de ${name}`,
   composerInitialsFor: (name) => `Iniciales de ${name}`,
@@ -288,6 +354,7 @@ const en: SignStrings = {
 
   stepSigners: "Signers",
   stepFields: "Slots",
+  stepText: "Text",
   stepSign: "Sign",
   back: "Back",
   next: "Continue",
@@ -327,6 +394,38 @@ const en: SignStrings = {
   goToPage: (page) => `Go to page ${page}`,
   needSigner: "Pick who the slot belongs to first.",
 
+  textFieldsTitle: "Fill in the document",
+  textFieldsHint:
+    "Type in the list below, or tap a field on the page to edit it right there. Drag on the page to add a new one wherever one is missing.",
+  detectingFields: "Looking for fillable fields in the document",
+  detectionFailedHint:
+    "Fields couldn't be detected automatically, but you can still add them by hand by dragging on the page.",
+  detectedFieldsSummary: (count) =>
+    count === 1
+      ? "1 field was detected. Review it before signing."
+      : `${count} fields were detected. Review them before signing.`,
+  addTextFieldHere: "Add a field on this page",
+  textFieldFallbackLabel: (position) => `Field ${position}`,
+  textFieldPlaceholder: "Type the value",
+  removeTextField: "Remove the field",
+  resizeTextField: "Resize the field",
+  textFieldsOnPage: (count) =>
+    count === 1 ? "1 field on this page" : `${count} fields on this page`,
+  totalTextFields: (count) =>
+    count === 1 ? "1 field in total" : `${count} fields in total`,
+  clearPageTextFields: "Clear the page",
+  clearAllTextFields: "Clear everything",
+  noTextFields:
+    "There are no text fields yet. This is optional: you can continue without filling anything in.",
+  lowConfidenceHint:
+    "Dashed outline = experimental detection on a scanned image. Review it before signing; delete it if it isn't a real field.",
+  formPanelTitle: "Field list",
+  formPanelHint: "An empty field is left blank: it won't damage the final document.",
+  pageGroupLabel: (page) => `Page ${page}`,
+  reuseValuesPrompt: "Use the same data as your last document?",
+  reuseValuesAccept: "Yes, fill it in",
+  reuseValuesDecline: "No, start blank",
+
   ceremonyTitle: "Sign in turns",
   checkingDocument: "Checking the document before signing",
   turnOf: (current, total) => `Turn ${current} of ${total}`,
@@ -360,6 +459,10 @@ const en: SignStrings = {
       : `${count} signers still have to sign.`,
   applyAndDownload: "Sign and download",
   restartCeremony: "Start the round again",
+  textOnlyReadyTitle: "Ready to download",
+  textOnlyReadyBody:
+    "This document has no signatures to collect: apply the filled text fields and generate the final PDF.",
+  finishAndDownload: "Apply and download",
 
   composerFor: (name) => `${name}'s signature`,
   composerInitialsFor: (name) => `${name}'s initials`,

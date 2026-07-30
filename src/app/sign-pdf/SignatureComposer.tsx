@@ -374,11 +374,12 @@ export function SignatureComposer({
   const fullscreen = useMediaQuery(MOBILE_FULLSCREEN_QUERY);
   const [mode, setMode] = useState<ComposerMode>("draw");
   /**
-   * Solo la firma (no las iniciales, que Adobe tambien deja en un hueco
-   * pequeño y casi cuadrado) aprovecha el lienzo entero en pantalla
-   * completa: es el unico caso que de verdad se queda corto de espacio.
+   * En pantalla completa (movil real) tanto la firma como las iniciales
+   * aprovechan el lienzo entero: las dos se quedan cortas de espacio en
+   * el hueco fijo pequeño, y ese hueco fijo solo tiene sentido cuando el
+   * `Sheet` no es pantalla completa (tarjeta compacta de escritorio).
    */
-  const fillCanvas = fullscreen && !initials && mode === "draw";
+  const fillCanvas = fullscreen && mode === "draw";
   const [measuredSize, setMeasuredSize] = useState<{
     width: number;
     height: number;

@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { LevelCards } from "@/app/compress-pdf/LevelCards";
 import { COMPRESS_STRINGS } from "@/app/compress-pdf/strings";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { useI18n, localeTag } from "@/lib/i18n";
 import {
   MAX_SAFE_FILE_SIZE,
@@ -26,6 +27,10 @@ type CompressStats = {
   filename: string;
   originalSize: number;
   compressedSize: number;
+  /** Modo usado en ESTA ejecucion concreta, para elegir el mensaje correcto. */
+  mode: CompressOptions["mode"];
+  /** `true` cuando no hubo ganancia real y se devolvio el original sin tocar. */
+  alreadyOptimized: boolean;
 };
 
 /**
@@ -76,6 +81,8 @@ export function CompressToolClient() {
           filename,
           originalSize: result.originalSize,
           compressedSize: result.compressedSize,
+          mode: options.mode,
+          alreadyOptimized: result.alreadyOptimized,
         });
       }
       return { blob: result.blob, filename };
@@ -93,7 +100,7 @@ export function CompressToolClient() {
         tool={TOOL}
         defaultOptions={DEFAULT_COMPRESS_OPTIONS}
         process={process}
-        renderMain={({ files }) => (
+        renderMain={({ files, options }) => (
           <>
             <StatsResetProbe onReset={clearStats} />
             <section className="glass rounded-ios p-5">
@@ -103,15 +110,17 @@ export function CompressToolClient() {
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                 {s.howItWorksBody}
               </p>
-              <div className="rounded-ios mt-4 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4">
-                <AlertTriangle
-                  aria-hidden="true"
-                  className="mt-0.5 size-4 shrink-0 text-destructive"
-                />
-                <p className="text-xs leading-relaxed text-foreground">
-                  {s.rasterWarning}
-                </p>
-              </div>
+              {options.mode === "flatten" ? (
+                <div className="rounded-ios mt-4 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4">
+                  <AlertTriangle
+                    aria-hidden="true"
+                    className="mt-0.5 size-4 shrink-0 text-destructive"
+                  />
+                  <p className="text-xs leading-relaxed text-foreground">
+                    {s.rasterWarning}
+                  </p>
+                </div>
+              ) : null}
               {files[0] ? (
                 <p className="hud-label mt-4 text-[10px] text-muted-foreground tabular-nums">
                   {s.originalLabel} · {formatFileSize(files[0].size, locale)}
@@ -141,11 +150,18 @@ export function CompressToolClient() {
               ]}
             />
 
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {s.rasterWarning}
-            </p>
+            <Checkbox
+              label={s.flattenModeLabel}
+              hint={s.flattenModeHint}
+              checked={options.mode === "flatten"}
+              onChange={(checked) =>
+                setOptions({ mode: checked ? "flatten" : "recompress" })
+              }
+            />
 
-            {files[0] && files[0].size > MAX_SAFE_FILE_SIZE ? (
+            {options.mode === "flatten" &&
+            files[0] &&
+            files[0].size > MAX_SAFE_FILE_SIZE ? (
               <p className="text-xs leading-relaxed text-destructive">
                 {s.largeFile}
               </p>
@@ -188,15 +204,25 @@ export function CompressToolClient() {
                   className={
                     reduction > 0
                       ? "mt-1 text-lg font-bold text-success tabular-nums"
-                      : "mt-1 text-lg font-bold text-destructive tabular-nums"
+                      : reduction < 0
+                        ? "mt-1 text-lg font-bold text-destructive tabular-nums"
+                        : "mt-1 text-lg font-bold text-foreground tabular-nums"
                   }
                 >
-                  {reduction > 0 ? `−${reduction}%` : `+${Math.abs(reduction)}%`}
+                  {reduction > 0
+                    ? `−${reduction}%`
+                    : reduction < 0
+                      ? `+${Math.abs(reduction)}%`
+                      : "0%"}
                 </dd>
               </div>
             </dl>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-              {reduction > 0 ? s.gainHint : s.noGainHint}
+              {!stats.alreadyOptimized
+                ? s.gainHint
+                : stats.mode === "flatten"
+                  ? s.flattenNoGainHint
+                  : s.noGainHint}
             </p>
           </section>
         </div>

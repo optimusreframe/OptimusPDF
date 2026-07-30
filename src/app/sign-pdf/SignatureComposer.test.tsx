@@ -4,11 +4,13 @@ import {
   SignatureComposer,
   drawStrokeSegment,
   midpoint,
+  type SignatureComposerVariant,
   type SignatureDraft,
   type StrokePoint,
 } from "@/app/sign-pdf/SignatureComposer";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { LanguageProvider } from "@/lib/i18n";
+import { MOBILE_FULLSCREEN_QUERY } from "@/components/ui/Sheet";
 
 const strings = SIGN_STRINGS.es;
 
@@ -17,6 +19,7 @@ const BOX_HEIGHT = 220;
 
 const COARSE = "(pointer: coarse)";
 const LANDSCAPE = "(orientation: landscape)";
+const FULLSCREEN = MOBILE_FULLSCREEN_QUERY;
 
 /**
  * jsdom no trae canvas, asi que el contexto 2D se sustituye por uno que
@@ -139,7 +142,7 @@ beforeEach(() => {
   saved = null;
 });
 
-function open() {
+function open(variant?: SignatureComposerVariant) {
   return render(
     <LanguageProvider>
       <SignatureComposer
@@ -149,6 +152,7 @@ function open() {
           saved = draft;
         }}
         strings={strings}
+        variant={variant}
       />
     </LanguageProvider>,
   );
@@ -460,5 +464,38 @@ describe("SignatureComposer — src/app/sign-pdf/SignatureComposer.tsx", () => {
     expect(canvas().width).toBeGreaterThan(portraitWidth);
     expect(canvas().height).toBeLessThan(portraitHeight);
     expect(screen.queryByText(strings.rotateHint)).toBeNull();
+  });
+
+  it("en pantalla completa el lienzo de iniciales llena el hueco, igual que el de firma", () => {
+    // Antes de la correccion, `!initials` excluia siempre a las iniciales
+    // de `fillCanvas` y el lienzo se quedaba en la caja fija pequeña
+    // aunque `fullscreen` fuera cierto en un movil real.
+    matching = [COARSE, FULLSCREEN];
+    open("initials");
+
+    expect(canvas().className).toContain("h-full");
+    expect(canvas().className).toContain("w-full");
+    expect(canvas().className).not.toContain("mx-auto");
+    expect(canvas().style.aspectRatio).toBe("");
+  });
+
+  it("en pantalla completa el lienzo de firma sigue llenando el hueco (sin regresion)", () => {
+    matching = [COARSE, FULLSCREEN];
+    open("signature");
+
+    expect(canvas().className).toContain("h-full");
+    expect(canvas().className).toContain("w-full");
+    expect(canvas().className).not.toContain("mx-auto");
+    expect(canvas().style.aspectRatio).toBe("");
+  });
+
+  it("fuera de pantalla completa las iniciales siguen en su caja fija pequeña", () => {
+    // Sin `fullscreen` (p. ej. la tarjeta compacta de escritorio),
+    // `fillCanvas` debe seguir siendo falso: no se toca ese caso.
+    matching = [COARSE, LANDSCAPE];
+    open("initials");
+
+    expect(canvas().className).toContain("mx-auto");
+    expect(canvas().style.aspectRatio).not.toBe("");
   });
 });

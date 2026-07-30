@@ -331,6 +331,14 @@ export const en: Dictionary = {
       inspectionIncomplete:
         "We could not safely check this PDF's restrictions, so we will not build a copy that might keep protections without telling you.",
       nothingSelected: "Select or mark something before processing.",
+      ocrNetworkFailure:
+        "Could not download the OCR engine's files. Check your connection and try again.",
+      ocrEngineFailure:
+        "The OCR engine failed while reading this document. Try again; if it keeps happening, the scanned pages may be unusable.",
+      modelDownloadFailure:
+        "Could not download the summarisation model. Check your connection and try again.",
+      deviceLost:
+        "The model could not finish. It is usually a lack of video memory: try the light model, close other tabs and try again.",
     },
   },
   soon: {

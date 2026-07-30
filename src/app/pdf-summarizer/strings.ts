@@ -76,9 +76,16 @@ export type SummarizerStrings = {
   startOver: string;
   run: string;
 
-  /* Errores propios (no existen como PdfErrorCode compartido) */
+  /* Errores propios (no existen como PdfErrorCode compartido, o necesitan
+     copy propio en vez del generico de `t.tool.errors`) */
   noTextError: string;
+  /** Perdida real de dispositivo WebGPU / falta de VRAM. */
   modelError: string;
+  /** Fallo de red al descargar los pesos o el motor del modelo. */
+  modelDownloadError: string;
+  /** Fallo generico no reconocido: no se oculta, se ofrece el detalle. */
+  genericModelError: string;
+  technicalDetailsLabel: string;
 
   /* Documento descargable */
   fileTitle: string;
@@ -184,6 +191,11 @@ const es: SummarizerStrings = {
     "No se ha podido extraer texto de este PDF. Si es un escaneo, activa el OCR y vuelve a intentarlo.",
   modelError:
     "El modelo no ha podido completar el resumen. Suele ser falta de memoria de vídeo: prueba con el modelo ligero, cierra otras pestañas y vuelve a intentarlo.",
+  modelDownloadError:
+    "No se pudo descargar el modelo de resumen. Comprueba tu conexión y vuelve a intentarlo: se queda en caché en cuanto se completa, así que solo hace falta lograrlo una vez.",
+  genericModelError:
+    "Algo ha fallado al resumir y no es necesariamente falta de memoria de vídeo. Consulta el detalle técnico si vas a reportarlo.",
+  technicalDetailsLabel: "Ver detalle técnico",
 
   fileTitle: "Resumen del documento",
   fileAiWarning:
@@ -291,6 +303,11 @@ const en: SummarizerStrings = {
     "No text could be extracted from this PDF. If it is a scan, turn OCR on and try again.",
   modelError:
     "The model could not finish the summary. It is usually a lack of video memory: try the light model, close other tabs and try again.",
+  modelDownloadError:
+    "Couldn't download the summarisation model — check your connection and try again. It stays cached once it succeeds, so you only need to get through this once.",
+  genericModelError:
+    "Something went wrong while summarising, and it isn't necessarily a lack of video memory. Check the technical detail if you are going to report it.",
+  technicalDetailsLabel: "View technical detail",
 
   fileTitle: "Document summary",
   fileAiWarning:

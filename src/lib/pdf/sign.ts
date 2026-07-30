@@ -1,16 +1,24 @@
-import { degrees } from "@cantoo/pdf-lib";
+import { degrees, type PDFFont, type PDFPage } from "@cantoo/pdf-lib";
 import {
   PdfError,
   getPageGeometry,
+  hexToPdfColor,
   loadPdf,
   originForCenter,
   savePdfToBlob,
   scaleProgress,
+  standardFontFor,
   toPdfError,
   viewPointToUser,
+  type PageGeometry,
   type NormalizedRect,
   type ProgressCallback,
 } from "@/lib/pdf/core";
+import {
+  LINE_HEIGHT_FACTOR,
+  MIN_FONT_SIZE,
+  wrapText,
+} from "@/lib/pdf/editPdf";
 
 /**
  * Motor de firma: empotra la firma (siempre un PNG generado en el
@@ -82,7 +90,9 @@ export function signerColorAt(index: number): string {
   return SIGNER_COLORS[((index % size) + size) % size];
 }
 
-export type SignPlacement = {
+/** Hueco reservado para una firma/inicial (imagen) empotrada por `signPdfMulti`. */
+export type ImageSignPlacement = {
+  kind: "image";
   /** PNG ya decodificado; el motor no toca `window`. */
   png: Uint8Array;
   pageIndex: number;
@@ -90,9 +100,106 @@ export type SignPlacement = {
   rect: NormalizedRect;
 };
 
+/**
+ * Hueco reservado para un campo de texto (nombre, fecha, numero de
+ * poliza...). A diferencia de la imagen, el valor es un string propio de
+ * cada hueco: no encaja en `CaptureMap` (un trazo por firmante reusado en
+ * todos sus huecos del mismo tipo), por eso vive en su propio mapa
+ * `Record<fieldId, string>` en la interfaz (ver `FieldFormPanel.tsx`).
+ */
+export type TextSignPlacement = {
+  kind: "text";
+  value: string;
+  pageIndex: number;
+  /** Rectangulo 0..1 sobre la vista, origen arriba-izquierda del DOM. */
+  rect: NormalizedRect;
+};
+
+export type SignPlacement = ImageSignPlacement | TextSignPlacement;
+
 export type SignMultiOptions = {
   placements: readonly SignPlacement[];
 };
+
+/** Cuerpo maximo de letra para un campo de texto, antes de encajar. */
+const MAX_TEXT_FIELD_FONT_SIZE = 24;
+
+/**
+ * Encaja `value` dentro de `maxWidth`x`maxHeight` (puntos PDF), encogiendo
+ * el cuerpo de letra hasta que quepa. Reusa `wrapText` de `editPdf.ts`
+ * (el mismo reparto en lineas que ya usa el editor) en vez de inventar
+ * otra medida de texto: aqui solo se anade la busqueda del cuerpo que
+ * hace caber el bloque completo en el alto disponible.
+ */
+function fitTextToRect(
+  font: PDFFont,
+  value: string,
+  maxWidth: number,
+  maxHeight: number,
+): { size: number; lines: string[] } {
+  let size = Math.min(
+    MAX_TEXT_FIELD_FONT_SIZE,
+    Math.max(MIN_FONT_SIZE, maxHeight / LINE_HEIGHT_FACTOR),
+  );
+  let lines = wrapText(font, value, size, maxWidth);
+
+  while (
+    lines.length * size * LINE_HEIGHT_FACTOR > maxHeight &&
+    size > MIN_FONT_SIZE
+  ) {
+    size = Math.max(MIN_FONT_SIZE, size - 1);
+    lines = wrapText(font, value, size, maxWidth);
+  }
+
+  // Ni con el cuerpo minimo cabe todo: se recorta el bloque en vez de
+  // desbordar la pagina, para que un valor demasiado largo nunca
+  // corrompa el resto del contenido.
+  const maxLines = Math.max(1, Math.floor(maxHeight / (size * LINE_HEIGHT_FACTOR)));
+  return { size, lines: lines.slice(0, maxLines) };
+}
+
+/** Empotra un campo de texto encajado en su hueco, centrado en vertical. */
+function drawTextPlacement(
+  page: PDFPage,
+  geometry: PageGeometry,
+  placement: TextSignPlacement,
+  font: PDFFont,
+): void {
+  const rect = placement.rect;
+  const maxWidth = Math.max(1, rect.width * geometry.viewWidth);
+  const maxHeight = Math.max(1, rect.height * geometry.viewHeight);
+  const value = placement.value.trim();
+  if (value.length === 0) return;
+
+  const { size, lines } = fitTextToRect(font, value, maxWidth, maxHeight);
+  if (lines.length === 0 || lines.every((line) => line.length === 0)) return;
+
+  const lineHeight = size * LINE_HEIGHT_FACTOR;
+  const blockHeight = lines.length * lineHeight;
+  const ascent = font.heightAtSize(size, { descender: false });
+  const descent = Math.max(0, font.heightAtSize(size) - ascent);
+  const baselineFromLineTop = (lineHeight - (ascent + descent)) / 2 + ascent;
+
+  const color = hexToPdfColor("#000000");
+  const angle = geometry.rotation;
+  const left = rect.x * geometry.viewWidth;
+  // Bloque centrado en vertical dentro del hueco, igual que la firma en imagen.
+  const top = rect.y * geometry.viewHeight + (maxHeight - blockHeight) / 2;
+
+  lines.forEach((line, index) => {
+    if (line.length === 0) return;
+    const fromTop = top + index * lineHeight + baselineFromLineTop;
+    const origin = viewPointToUser(geometry, left, geometry.viewHeight - fromTop);
+    page.drawText(line, {
+      x: origin.x,
+      y: origin.y,
+      size,
+      font,
+      color,
+      rotate: degrees(angle),
+    });
+  });
+}
 
 /** Convierte un data URL base64 en bytes, sin pasar por la red. */
 export function dataUrlToBytes(dataUrl: string): Uint8Array {
@@ -128,6 +235,10 @@ export async function signPdfMulti(
     const pages = document.getPages();
     if (pages.length === 0) throw new PdfError("corrupt");
 
+    // Solo se empotra si de verdad hace falta: la ronda de solo-imagenes
+    // (la de siempre) no paga el coste de una fuente que no usa.
+    let textFont: PDFFont | null = null;
+
     for (let position = 0; position < placements.length; position += 1) {
       const placement = placements[position];
       const index = Math.min(
@@ -136,6 +247,20 @@ export async function signPdfMulti(
       );
       const page = pages[index];
       const geometry = getPageGeometry(page);
+
+      if (placement.kind === "text") {
+        if (!textFont) {
+          textFont = await document.embedFont(
+            standardFontFor("helvetica", false, false),
+          );
+        }
+        drawTextPlacement(page, geometry, placement, textFont);
+        onProgress?.(
+          scaleProgress((position + 1) / placements.length, 0.15, 0.85),
+        );
+        continue;
+      }
+
       const image = await document.embedPng(placement.png);
 
       const rect = placement.rect;
@@ -195,6 +320,7 @@ export async function signPdf(
     {
       placements: [
         {
+          kind: "image",
           png: dataUrlToBytes(options.signaturePng),
           pageIndex: options.placement.pageIndex,
           rect: options.placement.rect,
