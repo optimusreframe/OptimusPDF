@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { Check, X } from "lucide-react";
+import { Check, SquareDashed, X } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
@@ -137,6 +137,14 @@ export type PageTileProps = {
   /** Rotacion visual en grados (solo previsualizacion). */
   rotation?: number;
   tone?: PageTileTone;
+  /**
+   * Marca esta tarjeta como pagina en blanco (sin origen en el
+   * documento): muestra un marcador fijo en vez de buscar `url` o caer
+   * en el `<Spinner>` de "miniatura aun no lista".
+   */
+  blank?: boolean;
+  /** Texto del marcador cuando `blank` es true. */
+  blankLabel?: string;
   /** Estado del boton principal para lectores de pantalla. */
   pressed?: boolean;
   onSelect?: () => void;
@@ -144,6 +152,12 @@ export type PageTileProps = {
   badge?: "check" | "cross" | ReactNode;
   /** Controles que aparecen sobre la miniatura. */
   actions?: ReactNode;
+  /**
+   * Gap/padding mas ajustados en la pildora de `actions`, para tarjetas
+   * con 5 controles en vez de 4 (ver `TileButton.compact`). Por defecto
+   * `false`: cero cambio visual para los demas llamadores de `PageTile`.
+   */
+  compactActions?: boolean;
   /** Texto adicional junto al numero de pagina. */
   note?: string;
   className?: string;
@@ -155,16 +169,26 @@ export function PageTile({
   url,
   rotation = 0,
   tone = "plain",
+  blank = false,
+  blankLabel,
   pressed,
   onSelect,
   badge,
   actions,
+  compactActions = false,
   note,
   className,
 }: PageTileProps) {
   const thumbnail = (
     <span className="flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">
-      {url ? (
+      {blank ? (
+        <span className="flex flex-col items-center gap-1.5 text-muted-foreground">
+          <SquareDashed aria-hidden="true" className="size-6" />
+          {blankLabel ? (
+            <span className="hud-label text-[9px]">{blankLabel}</span>
+          ) : null}
+        </span>
+      ) : url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
@@ -218,7 +242,12 @@ export function PageTile({
 
       {actions ? (
         <div className="pointer-events-none absolute inset-x-2 top-2 flex justify-center opacity-100 transition-opacity duration-200 md:opacity-0 md:group-hover/tile:opacity-100 md:group-focus-within/tile:opacity-100">
-          <div className="glass-bar pointer-events-auto flex items-center gap-1 rounded-full border border-white/14 px-1 py-1">
+          <div
+            className={cn(
+              "glass-bar pointer-events-auto flex items-center rounded-full border border-white/14 py-1",
+              compactActions ? "gap-0.5 px-0.5" : "gap-1 px-1",
+            )}
+          >
             {actions}
           </div>
         </div>
@@ -241,12 +270,23 @@ export function TileButton({
   label,
   disabled,
   tone = "plain",
+  compact = false,
   onClick,
   children,
 }: {
   label: string;
   disabled?: boolean;
   tone?: "plain" | "destructive";
+  /**
+   * `size-6` en vez de `size-7`. Necesario para tarjetas con 5 acciones
+   * (organize-pdf, tras agregar "insertar blanco"): a `size-7` la pildora
+   * mide 166px y se recorta contra el `overflow-hidden` de una tarjeta de
+   * 165.5px en el viewport movil de referencia (375px) -- verificado en
+   * navegador real, no solo calculado. Otros llamadores de `TileButton`
+   * (extract-pages, remove-pages, rotate-pdf, split-pdf, sign-pdf) siguen
+   * en `size-7` por defecto: sin este prop, cero cambio visual para ellos.
+   */
+  compact?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -258,7 +298,8 @@ export function TileButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex size-7 items-center justify-center rounded-full transition-colors",
+        "flex items-center justify-center rounded-full transition-colors",
+        compact ? "size-6" : "size-7",
         tone === "destructive"
           ? "text-destructive hover:bg-destructive/20"
           : "text-muted-foreground hover:bg-white/14 hover:text-foreground",

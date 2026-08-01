@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { PasswordField } from "@/app/protect-pdf/PasswordField";
 import { StrengthMeter } from "@/app/protect-pdf/StrengthMeter";
 import { PROTECT_STRINGS } from "@/app/protect-pdf/strings";
@@ -153,6 +154,88 @@ export function ProtectToolClient() {
                 {s.errors[failure]}
               </p>
             ) : null}
+
+            <div className="mt-2 border-t border-white/10 pt-4">
+              <Checkbox
+                label={s.requirePasswordLabel}
+                hint={s.requirePasswordHint}
+                checked={options.requirePasswordToOpen ?? true}
+                onChange={(checked) => {
+                  setFailure(null);
+                  setOptions({ requirePasswordToOpen: checked });
+                }}
+              />
+
+              {(options.requirePasswordToOpen ?? true) === false ? (
+                <p className="mt-2 pl-8 text-xs leading-relaxed text-accent-edit">
+                  {s.openWithoutPasswordWarning}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="mt-2 border-t border-white/10 pt-4">
+              <h3 className="hud-label text-[11px] text-foreground">
+                {s.permissionsTitle}
+              </h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {s.permissionsHint}
+              </p>
+
+              <div className="mt-3 flex flex-col gap-3">
+                <Checkbox
+                  label={s.permissionPrinting}
+                  checked={options.allowPrinting ?? true}
+                  onChange={(checked) => {
+                    setFailure(null);
+                    setOptions({ allowPrinting: checked });
+                  }}
+                />
+                <Checkbox
+                  label={s.permissionCopying}
+                  checked={options.allowCopying ?? true}
+                  onChange={(checked) => {
+                    setFailure(null);
+                    setOptions({ allowCopying: checked });
+                  }}
+                />
+                <Checkbox
+                  label={s.permissionModifying}
+                  checked={options.allowModifying ?? true}
+                  onChange={(checked) => {
+                    setFailure(null);
+                    setOptions({ allowModifying: checked });
+                  }}
+                />
+                <Checkbox
+                  label={s.permissionAnnotating}
+                  checked={options.allowAnnotating ?? true}
+                  onChange={(checked) => {
+                    setFailure(null);
+                    setOptions({ allowAnnotating: checked });
+                  }}
+                />
+                <Checkbox
+                  label={s.permissionFillingForms}
+                  checked={options.allowFillingForms ?? true}
+                  onChange={(checked) => {
+                    setFailure(null);
+                    setOptions({ allowFillingForms: checked });
+                  }}
+                />
+                <Checkbox
+                  label={s.permissionDocumentAssembly}
+                  checked={options.allowDocumentAssembly ?? true}
+                  onChange={(checked) => {
+                    setFailure(null);
+                    setOptions({ allowDocumentAssembly: checked });
+                  }}
+                />
+              </div>
+
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                {s.legacyPdfDisclaimer}
+              </p>
+            </div>
 
             {files[0] && files[0].size > MAX_SAFE_FILE_SIZE ? (
               <p className="text-xs leading-relaxed text-destructive">

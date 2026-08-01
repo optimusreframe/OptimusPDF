@@ -1,4 +1,6 @@
 import {
+  Archive,
+  Braces,
   Camera,
   Code,
   Combine,
@@ -73,6 +75,7 @@ export const TOOL_SLUGS = [
   "extract-pages",
   "organize-pdf",
   "rotate-pdf",
+  "pdfs-to-zip",
   // Optimizar
   "compress-pdf",
   "repair-pdf",
@@ -89,8 +92,11 @@ export const TOOL_SLUGS = [
   "pdf-to-word",
   "pdf-to-powerpoint",
   "pdf-to-excel",
+  "pdf-to-csv",
   "pdf-to-pdfa",
   "pdf-to-markdown",
+  "pdf-to-text",
+  "pdf-to-json",
   // Editar y analizar
   "add-page-numbers",
   "add-watermark",
@@ -210,6 +216,14 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
     extensions: PDF_EXT,
     multiple: false,
   },
+  "pdfs-to-zip": {
+    icon: Archive,
+    category: "organize",
+    status: "live",
+    accept: PDF_MIME,
+    extensions: PDF_EXT,
+    multiple: true,
+  },
   "compress-pdf": {
     icon: Minimize2,
     category: "optimize",
@@ -323,6 +337,14 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
     extensions: PDF_EXT,
     multiple: false,
   },
+  "pdf-to-csv": {
+    icon: FileSpreadsheet,
+    category: "convert-from",
+    status: "live",
+    accept: PDF_MIME,
+    extensions: PDF_EXT,
+    multiple: false,
+  },
   "pdf-to-pdfa": {
     icon: FileType,
     category: "convert-from",
@@ -333,6 +355,22 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   },
   "pdf-to-markdown": {
     icon: FileCode,
+    category: "convert-from",
+    status: "live",
+    accept: PDF_MIME,
+    extensions: PDF_EXT,
+    multiple: false,
+  },
+  "pdf-to-text": {
+    icon: FileText,
+    category: "convert-from",
+    status: "live",
+    accept: PDF_MIME,
+    extensions: PDF_EXT,
+    multiple: false,
+  },
+  "pdf-to-json": {
+    icon: Braces,
     category: "convert-from",
     status: "live",
     accept: PDF_MIME,
