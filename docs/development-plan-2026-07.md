@@ -2,6 +2,36 @@
 
 **Este archivo es el punto de partida para la próxima sesión.** Contiene una decisión ya tomada (con evidencia verificada) sobre cómo resolver las 6 herramientas de conversión Office↔PDF sin costo y sin licencias copyleft, más la categorización completa de la lista extendida de funcionalidades de BentoPDF que el usuario pidió revisar, organizada en fases de implementación listas para ejecutar con el mismo método usado en el resto de este repo (exploración → plan cerrado → agentes Sonnet 5 → revisión de Codex donde aplique → verificación en vivo).
 
+## Estado — Fase 1 (2026-07-31)
+
+**`word-to-pdf` y `excel-to-pdf` ya están implementados, corregidos tras una revisión adversarial dura, y verificados en navegador real con archivos reales.** `status: "live"` en `tools-registry.ts`. `powerpoint-to-pdf` se queda en `"soon"`: el spike acotado (con `@jvmr/pptx-to-html` y `pptxviewjs`, ambas MIT) mostró fidelidad insuficiente — pérdida de negrita/cursiva por-run y, en el caso de `pptxviewjs`, una diapositiva completa quedó en blanco por una imagen de fondo descartada en silencio.
+
+Decisiones del dueño del producto que reabren el análisis de licencias de la Parte 1 de este documento: **AGPL no se descarta del todo** — se acepta una pila híbrida (permisiva ahora, investigar AGPL en paralelo solo donde la fidelidad permisiva resulte insuficiente, ej. `pdf-to-word`/`pdf-to-powerpoint` en Fase 2). Esto no cambió el alcance de Fase 1 (ya era permisiva), pero aplica a partir de Fase 2.
+
+**Hallazgo importante para cualquier fase futura que use `pdfmake`** (primera vez que esta librería entra al repo): una revisión adversarial encontró y se corrigieron varios defectos de pérdida silenciosa de datos, no cosméticos — probados vacíos por los tests iniciales porque solo comprobaban "blob no vacío, pdf-lib puede releerlo":
+- Roboto (única fuente que trae pdfmake) no dibuja CJK/árabe/hebreo/tailandés/la mayoría de emoji — sin comprobación, el texto desaparece sin error. Ahora se rechaza con `PdfError("unsupportedScript")` (`findUnsupportedGlyph` en `core.ts`).
+- `headerRows: 1` en una tabla de pdfmake puede descartar la fila completa en silencio si es alta. Se dejó de usar ese flag.
+- Una celda con un token largo sin espacios (ej. una URL, un hash) hace que pdfmake descarte todas las columnas salvo la primera en toda la hoja — se corrigió con `wordBreak: "break-all"` por celda.
+- Un XLSX disperso (una celda perdida en la fila 1,048,576) agotaba la memoria del navegador porque el motor iteraba `1..rowCount` con `getRow` en vez de `eachRow`. Corregido, más un presupuesto `MAX_TABLE_CELLS`.
+- Una bomba de descompresión ZIP podía inflar cientos de MB antes de llegar a `mammoth`/`exceljs`. Ahora se estima el tamaño descomprimido por el directorio central del ZIP (`estimateZipUncompressedBytes` en `core.ts`) antes de parsear.
+- Un `.docx`/`.xlsx` cifrado con contraseña también cumple la firma OLE2 de los formatos legado — se distingue con `looksLikeEncryptedOoxml` para no decirle al usuario "usa el formato moderno" cuando el problema real es la contraseña.
+
+Todo esto vive ahora como utilidades compartidas en `src/lib/pdf/core.ts` (`loadPdfMake`, `looksLikeEncryptedOoxml`, `estimateZipUncompressedBytes`, `findUnsupportedGlyph`) — cualquier fase futura que use pdfmake (`powerpoint-to-pdf` cuando se retome) debe reutilizarlas, no reinventarlas.
+
+**Actualización (2026-08-01) — Codex real ya corrió.** La cuota se liberó antes de lo previsto y Codex hizo una segunda pasada adversarial real sobre `wordToPdf.ts`/`excelToPdf.ts`/`core.ts` (dos intentos previos fallaron: uno por cuota, otro porque el filtro de moderación de OpenAI cortó el turno a mitad de camino por lenguaje "cybersecurity risk" — se resolvió reformulando el prompt en tono de QA de rutina en vez de "bomba"/"bypass", mismo contenido). Veredicto de Codex: **"Needs more work before shipping"**, con 10 hallazgos reales:
+
+- **Nuevos**: expansión sin límite de `colspan`/`gridSpan` en tablas DOCX (una tabla maliciosamente pequeña podía forzar decenas de miles de celdas); una hoja de Excel con formato pero sin datos reales abortaba la conversión entera (perdiendo también las demás hojas); celdas combinadas duplicaban su valor en vez de aparecer una sola vez; una tabla de Word con ~125,000+ filas revienta `Math.max(...array)` por límite de argumentos de función.
+- **Gaps en los 9 fixes de la ronda anterior**: el presupuesto `MAX_TABLE_CELLS` era por-hoja, no por-libro completo (varias hojas cada una bajo el límite podían sumar muy por encima); fórmulas con resultado `0`/`false` ahora renderizaban en blanco en vez de "[object Object]" (mejor, pero seguía siendo incorrecto — exceljs expone el valor real vía `cell.result`, no `cell.value.result`); la lista de alfabetos no soportados por Roboto le faltaban armenio, bengalí, tamil, tibetano, georgiano y varios más; el estimador de tamaño ZIP se podía burlar forjando `totalEntries: 0` en el EOCD; `loadPdfMake()` cacheaba una promesa rechazada para siempre tras un fallo transitorio.
+
+Todo esto se corrigió en una tercera ronda (misma disciplina: agentes en paralelo por archivo, re-verificación en contexto fresco, verificación en navegador real). Suite final: 682 tests pasando (32 archivos), `tsc`/`eslint` limpios. El estimador de ZIP ahora ignora `totalEntries` como límite del bucle y camina el directorio central por firma real; el presupuesto de celdas se comparte entre todas las hojas de una misma conversión; las fórmulas falsy usan `cell.result` de exceljs; las celdas combinadas se blanquean en las posiciones esclavas; las tablas tienen un tope de tamaño (`MAX_TABLE_CELLS`/`MAX_TABLE_ROW_CELLS`) antes de llegar a pdfmake.
+
+**Limitaciones conocidas, documentadas y aceptadas conscientemente (no bloquean el envío, pero quedan anotadas para quien retome `powerpoint-to-pdf` u otra fase con pdfmake):**
+- La lista de alfabetos no soportados en `findUnsupportedGlyph` sigue siendo una lista de rangos Unicode mantenida a mano, no una verificación contra el mapa de glifos real de las fuentes Roboto embebidas — es inherentemente frágil ante cambios futuros de fuente. Lo correcto a largo plazo es derivar la cobertura del propio archivo de fuente.
+- Una imagen corrupta declarada con MIME `image/png`/`image/jpeg` (sniffing solo por MIME, no validación real del payload) sigue pudiendo abortar la conversión completa si pdfmake la rechaza.
+- El estimador de ZIP no puede verificar nada cuando el archivo usa ZIP64 o el EOCD no es parseable (devuelve `null` y el código sigue adelante sin ese presupuesto).
+- La detección de OOXML cifrado (`looksLikeEncryptedOoxml`) es una búsqueda de substring UTF-16LE dentro de los primeros 8 MB, no un parser CFB real — puede tener falsos positivos/negativos en archivos OLE2 fuera de lo común.
+- La cancelación (`AbortSignal`) no puede interrumpir una llamada síncrona ya en curso a `mammoth`/`exceljs`/`pdfmake` (solo se comprueba entre pasos) — requeriría mover el trabajo a un Web Worker, cambio de arquitectura fuera de alcance de esta fase.
+
 Referencias previas: `docs/competitive-analysis.md` (investigación original), `docs/future-roadmap.md` (roadmap Tier 1-3 original, con su Tier 1 ya corregido para apuntar aquí), `docs/server-required-features.md` (lista viva de qué sí necesita servidor).
 
 ---

@@ -245,7 +245,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "word-to-pdf": {
     icon: FileText,
     category: "convert-to",
-    status: "soon",
+    status: "live",
     accept: [
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -267,7 +267,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "excel-to-pdf": {
     icon: FileSpreadsheet,
     category: "convert-to",
-    status: "soon",
+    status: "live",
     accept: [
       "application/vnd.ms-excel",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
