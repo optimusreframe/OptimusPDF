@@ -357,6 +357,10 @@ export const es = {
         "No se pudo descargar el modelo de resumen. Comprueba tu conexión y vuelve a intentarlo.",
       deviceLost:
         "El modelo no ha podido completar el resumen. Suele ser falta de memoria de vídeo: prueba con el modelo ligero, cierra otras pestañas y vuelve a intentarlo.",
+      legacyOfficeFormat:
+        "Solo soportamos el formato moderno (.docx/.xlsx/.pptx), no el antiguo (.doc/.xls/.ppt). Guarda el archivo en el formato nuevo desde Word, Excel o PowerPoint y vuelve a intentarlo.",
+      unsupportedScript:
+        "Este documento tiene texto (chino, japonés, coreano, árabe, hebreo, tailandés o emoji, por ejemplo) que esta herramienta todavía no puede dibujar en el PDF. Por ahora solo soportamos alfabetos latinos, cirílico y griego.",
     },
   },
   soon: {

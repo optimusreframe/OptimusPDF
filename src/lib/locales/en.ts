@@ -339,6 +339,10 @@ export const en: Dictionary = {
         "Could not download the summarisation model. Check your connection and try again.",
       deviceLost:
         "The model could not finish. It is usually a lack of video memory: try the light model, close other tabs and try again.",
+      legacyOfficeFormat:
+        "We only support the modern format (.docx/.xlsx/.pptx), not the old one (.doc/.xls/.ppt). Save the file in the new format from Word, Excel, or PowerPoint and try again.",
+      unsupportedScript:
+        "This document has text (Chinese, Japanese, Korean, Arabic, Hebrew, Thai, or emoji, for example) that this tool cannot draw in the PDF yet. For now we only support Latin, Cyrillic, and Greek alphabets.",
     },
   },
   soon: {

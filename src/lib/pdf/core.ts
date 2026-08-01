@@ -69,7 +69,24 @@ export type PdfErrorCode =
    * durante la carga o la inferencia. Es el UNICO caso en el que el
    * mensaje "prueba el modelo ligero" tiene sentido.
    */
-  | "deviceLost";
+  | "deviceLost"
+  /**
+   * El archivo es un formato binario OLE2 legado (.doc/.xls/.ppt de
+   * Office 97-2003), no el contenedor OOXML moderno (.docx/.xlsx/.pptx).
+   * Ninguna libreria permisiva (MIT/BSD) de esta fase sabe leer el
+   * formato viejo, asi que se rechaza con honestidad en vez de fallar en
+   * silencio o con un error generico.
+   */
+  | "legacyOfficeFormat"
+  /**
+   * El documento tiene texto en un alfabeto que la unica fuente que trae
+   * pdfmake (Roboto) no puede dibujar (chino/japones/coreano/arabe/
+   * hebreo/tailandes/emoji...). Sin esta deteccion, el PDF se generaria
+   * "bien" pero con ese texto invisible: se prefiere rechazar con
+   * honestidad antes que fingir una conversion que perderia contenido en
+   * silencio.
+   */
+  | "unsupportedScript";
 
 /** Error tipado del motor: la UI traduce `code` mediante i18n. */
 export class PdfError extends Error {
@@ -255,6 +272,304 @@ export function matchesAccept(
   if (file.type && accept.includes(file.type)) return true;
   const lower = file.name.toLowerCase();
   return extensions.some((extension) => lower.endsWith(extension));
+}
+
+const OLE_COMPOUND_SIGNATURE = [
+  0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1,
+];
+/**
+ * Firma de un archivo ZIP local con AL MENOS una entrada. `PK\x05\x06`
+ * (fin de directorio central, archivo vacio) y `PK\x07\x08` (marcador de
+ * "spanned archive") tambien empiezan por `PK`, pero ningun paquete OOXML
+ * real generado por Office/LibreOffice/exceljs/docx puede empezar asi:
+ * un .docx/.xlsx siempre trae `[Content_Types].xml` como primera entrada
+ * local. Aceptar esas otras firmas solo hacia que un archivo corrupto se
+ * etiquetase como "unknown" en vez de "corrupt".
+ */
+const OOXML_ZIP_SIGNATURE = [0x50, 0x4b, 0x03, 0x04];
+
+function matchesSignature(bytes: Uint8Array, signature: number[]): boolean {
+  if (bytes.length < signature.length) return false;
+  return signature.every((byte, index) => bytes[index] === byte);
+}
+
+/**
+ * El formato binario OLE2 legado que usan .doc/.xls/.ppt (Office
+ * 97-2003). Se detecta por firma de bytes, no por extension: un archivo
+ * renombrado no deberia colar un formato que ninguna libreria permisiva
+ * de esta fase sabe leer.
+ *
+ * OJO: un .docx/.xlsx moderno protegido con contrasena (MS-OFFCRYPTO)
+ * TAMBIEN se guarda como contenedor OLE2 (envuelve el paquete OOXML
+ * cifrado dentro de streams `EncryptedPackage`/`EncryptionInfo`). Un
+ * archivo que cumpla esta firma debe comprobarse con
+ * `looksLikeEncryptedOoxml` ANTES de asumir que es el formato legado.
+ */
+export function isLegacyOleOfficeFile(bytes: Uint8Array): boolean {
+  return matchesSignature(bytes, OLE_COMPOUND_SIGNATURE);
+}
+
+/** El contenedor ZIP que usan los formatos OOXML modernos (.docx/.xlsx/.pptx). */
+export function isOoxmlZipFile(bytes: Uint8Array): boolean {
+  return matchesSignature(bytes, OOXML_ZIP_SIGNATURE);
+}
+
+/**
+ * Busca la codificacion UTF-16LE de `token` en `bytes`. Los nombres de
+ * stream de un archivo OLE2 (`MS-CFB`) se guardan asi en el sector de
+ * directorio, asi que buscar el texto plano codificado es una forma
+ * barata de reconocer streams conocidos sin implementar un parser CFB
+ * completo.
+ */
+function containsUtf16LeToken(bytes: Uint8Array, token: string): boolean {
+  const needle = new Uint8Array(token.length * 2);
+  for (let i = 0; i < token.length; i += 1) {
+    const code = token.charCodeAt(i);
+    needle[i * 2] = code & 0xff;
+    needle[i * 2 + 1] = (code >> 8) & 0xff;
+  }
+  const limit = Math.min(bytes.length, MAX_ENCRYPTION_SCAN_BYTES);
+  outer: for (let i = 0; i <= limit - needle.length; i += 1) {
+    for (let j = 0; j < needle.length; j += 1) {
+      if (bytes[i + j] !== needle[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Limite del escaneo de `looksLikeEncryptedOoxml`: los streams
+ * `EncryptedPackage`/`EncryptionInfo` de un documento cifrado con
+ * contrasena viven en el sector de directorio del contenedor OLE2, que en
+ * la practica cae dentro de los primeros megabytes incluso en documentos
+ * grandes. Acotar el escaneo evita que un archivo OLE2 gigante (legado o
+ * no) cueste un recorrido completo solo para esta comprobacion.
+ */
+const MAX_ENCRYPTION_SCAN_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Distingue "esto es realmente el formato legado .doc/.xls/.ppt" de "esto
+ * es un .docx/.xlsx/.pptx moderno cifrado con contrasena", que tambien
+ * cumple la firma OLE2. Sin esta comprobacion, un archivo cifrado real se
+ * rechazaria con el mensaje equivocado ("solo soportamos el formato
+ * moderno"), cuando el problema real es que hace falta la contrasena.
+ */
+export function looksLikeEncryptedOoxml(bytes: Uint8Array): boolean {
+  return (
+    containsUtf16LeToken(bytes, "EncryptedPackage") ||
+    containsUtf16LeToken(bytes, "EncryptionInfo")
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Presupuesto de descompresion (bombas ZIP)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Limite de bytes descomprimidos que esta app esta dispuesta a materializar
+ * en memoria a partir de un contenedor OOXML. 300 MB es generoso para
+ * cualquier documento/hoja de calculo real, pero corta una amplificacion
+ * patologica (ej. 630 KB -> 216 MB, x343, visto en pruebas) antes de que
+ * `mammoth`/`exceljs` empiecen a inflar el XML interno.
+ */
+export const MAX_DECOMPRESSED_OFFICE_BYTES = 300 * 1024 * 1024;
+
+/**
+ * Suma el tamano sin comprimir declarado por cada entrada del directorio
+ * central de un ZIP, leyendo solo esos registros (no el contenido de las
+ * entradas). Devuelve `null` cuando no se puede calcular con confianza
+ * (formato ZIP64, EOCD no encontrado, archivo truncado) en vez de
+ * arriesgar un falso "esta bien": quien llama debe tratar `null` como
+ * "no se pudo verificar" y decidir con ese limite de informacion.
+ */
+export function estimateZipUncompressedBytes(bytes: Uint8Array): number | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const EOCD_SIGNATURE = 0x06054b50;
+  const EOCD_MIN_SIZE = 22;
+  if (bytes.length < EOCD_MIN_SIZE) return null;
+
+  // El EOCD esta al final, pero puede llevar un comentario de longitud
+  // variable delante: se busca desde el final hacia atras.
+  const searchFloor = Math.max(0, bytes.length - EOCD_MIN_SIZE - 0xffff);
+  let eocdOffset = -1;
+  for (let i = bytes.length - EOCD_MIN_SIZE; i >= searchFloor; i -= 1) {
+    if (view.getUint32(i, true) === EOCD_SIGNATURE) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset < 0) return null;
+
+  const totalEntries = view.getUint16(eocdOffset + 10, true);
+  const centralDirSize = view.getUint32(eocdOffset + 12, true);
+  const centralDirOffset = view.getUint32(eocdOffset + 16, true);
+  // Sentinelas de ZIP64: el tamano/offset real vive en un registro
+  // "ZIP64 end of central directory" que no se parsea aqui.
+  if (
+    totalEntries === 0xffff ||
+    centralDirSize === 0xffffffff ||
+    centralDirOffset === 0xffffffff
+  ) {
+    return null;
+  }
+  if (centralDirOffset + centralDirSize > bytes.length) return null;
+
+  const CENTRAL_HEADER_SIGNATURE = 0x02014b50;
+  const CENTRAL_HEADER_SIZE = 46;
+  let offset = centralDirOffset;
+  let total = 0;
+  let seen = 0;
+
+  // OJO: `totalEntries` (leido del EOCD) NO se usa como limite del bucle.
+  // Un EOCD manipulado puede declarar 0 entradas mientras el directorio
+  // central real, unos bytes despues, sigue teniendo objetos validos con
+  // su tamano real -- y JSZip (que tampoco confia ciegamente en ese
+  // campo) los lee igual, así que un archivo asi burlaba por completo
+  // este presupuesto. En su lugar se recorre el directorio central
+  // firma por firma hasta que deja de haber un encabezado valido,
+  // independientemente de lo que declare `totalEntries`.
+  while (
+    offset + CENTRAL_HEADER_SIZE <= bytes.length &&
+    view.getUint32(offset, true) === CENTRAL_HEADER_SIGNATURE
+  ) {
+    const uncompressedSize = view.getUint32(offset + 24, true);
+    if (uncompressedSize === 0xffffffff) return null; // ZIP64: no fiable aqui.
+    total += uncompressedSize;
+
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    offset += CENTRAL_HEADER_SIZE + nameLength + extraLength + commentLength;
+    seen += 1;
+  }
+
+  // El EOCD promete entradas pero no se encontro ninguna donde decia que
+  // empezaba el directorio central: algo no cuadra (corrupto o forjado
+  // en la otra direccion). Mejor no arriesgar un total de 0 falso.
+  if (seen === 0 && totalEntries !== 0) return null;
+
+  return total;
+}
+
+/* ------------------------------------------------------------------ *
+ * Cobertura de glifos de Roboto (unica fuente que trae pdfmake)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Bloques Unicode que Roboto (la unica fuente que registra
+ * `loadPdfMake`) no cubre. pdfmake dibuja un glifo ausente como espacio
+ * en blanco, sin lanzar ningun error: sin esta comprobacion, un documento
+ * con texto en estos alfabetos se "convierte" a un PDF valido pero con el
+ * contenido invisible. Cubre CJK, hangul, arabe, hebreo, tailandes,
+ * devanagari y los bloques de emoji/simbolos mas comunes del BMP; el
+ * resto de emoji vive en planos suplementarios (code point >= 0x10000) y
+ * se detecta aparte, sin necesitar su propio rango.
+ */
+const UNSUPPORTED_ROBOTO_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x0530, 0x058f], // armenio
+  [0x0590, 0x05ff], // hebreo
+  [0x0600, 0x06ff], // arabe
+  [0x0700, 0x074f], // siriaco / thaana
+  [0x0750, 0x077f], // arabe suplementario
+  [0x0900, 0x097f], // devanagari
+  [0x0980, 0x09ff], // bengali
+  [0x0a00, 0x0a7f], // gurmukhi
+  [0x0a80, 0x0aff], // gujarati
+  [0x0b00, 0x0b7f], // oriya
+  [0x0b80, 0x0bff], // tamil
+  [0x0c00, 0x0c7f], // telugu
+  [0x0c80, 0x0cff], // kannada
+  [0x0d00, 0x0d7f], // malayalam
+  [0x0d80, 0x0dff], // cingales
+  [0x0e00, 0x0e7f], // tailandes
+  [0x0e80, 0x0eff], // lao
+  [0x0f00, 0x0fff], // tibetano
+  [0x1000, 0x109f], // birmano
+  [0x10a0, 0x10ff], // georgiano
+  [0x1100, 0x11ff], // hangul jamo
+  [0x1200, 0x137f], // etiope
+  [0x1780, 0x17ff], // jemer
+  [0x13a0, 0x13ff], // cherokee
+  [0x3040, 0x30ff], // hiragana / katakana
+  [0x3400, 0x4dbf], // cjk extension a
+  [0x4e00, 0x9fff], // ideogramas cjk unificados
+  [0xac00, 0xd7a3], // silabas hangul
+  [0xf900, 0xfaff], // ideogramas de compatibilidad cjk
+  [0x2600, 0x27bf], // simbolos varios y dingbats (emoji comunes del BMP)
+  [0x2b00, 0x2bff], // simbolos y flechas varios (incluye emoji)
+];
+
+/**
+ * Devuelve el primer caracter de `text` que Roboto no puede dibujar, o
+ * `null` si todo el texto esta cubierto. Cualquier caracter de un plano
+ * suplementario (code point >= 0x10000: la inmensa mayoria de emoji y
+ * las extensiones B+ de CJK) se trata como no cubierto directamente.
+ */
+export function findUnsupportedGlyph(text: string): string | null {
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code >= 0x10000) return char;
+    if (
+      UNSUPPORTED_ROBOTO_RANGES.some(
+        ([start, end]) => code >= start && code <= end,
+      )
+    ) {
+      return char;
+    }
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ *
+ * pdfmake (bootstrap perezoso compartido)
+ * ------------------------------------------------------------------ */
+
+type PdfMakeModule = typeof import("pdfmake/build/pdfmake");
+
+let pdfMakeReady: Promise<PdfMakeModule> | null = null;
+
+/**
+ * Carga perezosa de `pdfmake` + su sistema de archivos virtual (las
+ * fuentes Roboto). Antes cada motor (`wordToPdf.ts`, `excelToPdf.ts`)
+ * repetia este arranque por su cuenta: registraban el VFS por separado
+ * (~640 KB de base64 decodificados en cada conversion) y uno de los dos
+ * ni siquiera fijaba `defaultStyle.font`. Centralizarlo aqui lo hace una
+ * sola vez por pagina y evita que un tercer motor (`powerpoint-to-pdf`)
+ * repita la divergencia.
+ *
+ * Tambien cierra la politica de acceso a URLs: pdfmake puede intentar
+ * descargar imagenes por red si un documento las referencia via
+ * `imagesByReference`, y esta app promete que ningun byte del archivo del
+ * usuario sale del dispositivo. Ningun motor actual usa esa opcion, pero
+ * cerrarla ahora cuesta una linea y evita que un cambio futuro la abra
+ * por accidente.
+ */
+export async function loadPdfMake(): Promise<PdfMakeModule> {
+  if (!pdfMakeReady) {
+    pdfMakeReady = Promise.all([
+      import("pdfmake/build/pdfmake"),
+      import("pdfmake/build/vfs_fonts"),
+    ])
+      .then(([{ default: pdfMake }, vfsModule]) => {
+        const vfs =
+          (vfsModule as { default?: Record<string, string> }).default ??
+          (vfsModule as unknown as Record<string, string>);
+        pdfMake.addVirtualFileSystem(vfs);
+        pdfMake.setUrlAccessPolicy(() => false);
+        return pdfMake;
+      })
+      .catch((error: unknown) => {
+        // Un fallo transitorio (ej. un hipo de red en el import dinamico)
+        // no debe quedar cacheado para siempre: sin esto, toda conversion
+        // posterior en la misma pagina reutilizaria esta misma promesa
+        // rechazada hasta que el usuario recargue, aunque un segundo
+        // intento hubiera funcionado bien.
+        pdfMakeReady = null;
+        throw error;
+      });
+  }
+  return pdfMakeReady;
 }
 
 /* ------------------------------------------------------------------ *
