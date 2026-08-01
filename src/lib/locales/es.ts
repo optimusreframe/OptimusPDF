@@ -36,6 +36,11 @@ const tools: Record<ToolSlug, ToolCopy> = {
     description:
       "Gira páginas sueltas o el documento entero en múltiplos de 90 grados.",
   },
+  "pdfs-to-zip": {
+    name: "PDFs a ZIP",
+    description:
+      "Empaqueta varios PDF en un solo archivo ZIP sin fusionar ni reprocesar su contenido.",
+  },
   "compress-pdf": {
     name: "Comprimir PDF",
     description:
@@ -96,6 +101,10 @@ const tools: Record<ToolSlug, ToolCopy> = {
     name: "PDF a Excel",
     description: "Extrae las tablas del PDF a una hoja de cálculo XLSX.",
   },
+  "pdf-to-csv": {
+    name: "Extraer tablas",
+    description: "Extrae solo las tablas de un PDF a un archivo CSV o JSON.",
+  },
   "pdf-to-pdfa": {
     name: "Verificar PDF/A",
     description:
@@ -105,6 +114,16 @@ const tools: Record<ToolSlug, ToolCopy> = {
     name: "PDF a Markdown",
     description:
       "Extrae el texto del PDF como Markdown: títulos, listas, código y tablas regulares. Con OCR para páginas escaneadas.",
+  },
+  "pdf-to-text": {
+    name: "PDF a Texto",
+    description:
+      "Extrae todo el texto del PDF a un archivo .txt plano, página por página, sin formato. Con OCR para páginas escaneadas.",
+  },
+  "pdf-to-json": {
+    name: "PDF a JSON",
+    description:
+      "Serializa el PDF completo como JSON estructurado: títulos, párrafos, listas, tablas y bloques de código. Con OCR para páginas escaneadas.",
   },
   "add-page-numbers": {
     name: "Numerar páginas",

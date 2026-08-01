@@ -148,3 +148,166 @@ describe("protectPdf / validateProtectOptions — src/lib/pdf/protect.ts", () =>
     expect(protectedBits).not.toBe(restrictedBits);
   });
 });
+
+/**
+ * Crea un PDF cuya cabecera declara la version 1.3 en vez de la 1.7 por
+ * defecto de `@cantoo/pdf-lib` (`PDFContext` la fija en el constructor,
+ * ver `node_modules/@cantoo/pdf-lib/src/core/PDFContext.ts` linea 87).
+ * "%PDF-1.7" y "%PDF-1.3" tienen la misma longitud (un solo digito de
+ * major y minor), asi que basta con parchear esos bytes en el resultado
+ * ya serializado: `PDFParser.parseHeader` lee el numero con
+ * `parseRawInt`, sin exigir una longitud fija, asi que el resto del
+ * archivo se sigue interpretando igual.
+ */
+async function toOldVersionFile(document: PDFDocument, name = "viejo.pdf"): Promise<File> {
+  const bytes = await document.save({ useObjectStreams: true });
+  const patched = bytes.slice();
+  const oldHeader = "%PDF-1.3";
+  for (let index = 0; index < oldHeader.length; index += 1) {
+    patched[index] = oldHeader.charCodeAt(index);
+  }
+  return new File([patched as unknown as BlobPart], name, { type: "application/pdf" });
+}
+
+/** Lee el `/R` (revision de cifrado) del `/Encrypt` de un PDF ya protegido, sin descifrar. */
+async function readEncryptionRevision(blob: Blob): Promise<number | undefined> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const probe = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  const encryptRef = probe.context.trailerInfo.Encrypt;
+  const encryptDict = probe.context.lookup(encryptRef, PDFDict);
+  return encryptDict.lookupMaybe(PDFName.of("R"), PDFNumber)?.asNumber();
+}
+
+describe("protectPdf — permisos extendidos (imprimir/copiar/modificar/anotar/rellenar/ensamblar, contrasena opcional)", () => {
+  it("sin tocar los campos nuevos, el /P sigue siendo exactamente el mismo que el comportamiento original", async () => {
+    const document = await createDocument();
+    const file = await toFile(document);
+
+    const blob = await protectPdf(file, { password: "unaClaveSegura1", confirm: "unaClaveSegura1" });
+    const bits = await readPermissionBits(blob);
+
+    const reference = await createDocument();
+    reference.encrypt({
+      userPassword: "cualquier-cosa1",
+      ownerPassword: "cualquier-cosa1",
+      permissions: {
+        printing: "highResolution",
+        modifying: true,
+        copying: true,
+        annotating: true,
+        fillingForms: true,
+        contentAccessibility: true,
+        documentAssembly: true,
+      },
+    });
+    const referenceBlob = await toFile(reference);
+    const referenceBits = await readPermissionBits(referenceBlob);
+
+    expect(bits).toBe(referenceBits);
+    // Y el PDF (version 1.7 por defecto) aplica una revision moderna: no
+    // hay categorias ignoradas.
+    expect(blob.appliedEncryptionRevision).toBeGreaterThanOrEqual(3);
+    expect(blob.legacyRevisionIgnoredRestrictions).toBe(false);
+  });
+
+  it("allowPrinting: false -> el /P resultante ya no trae el bit de impresion de alta resolucion", async () => {
+    const document = await createDocument();
+    const file = await toFile(document);
+
+    const fullBlob = await protectPdf(file, {
+      password: "unaClaveSegura1",
+      confirm: "unaClaveSegura1",
+    });
+    const restrictedBlob = await protectPdf(file, {
+      password: "unaClaveSegura1",
+      confirm: "unaClaveSegura1",
+      allowPrinting: false,
+    });
+
+    const fullBits = await readPermissionBits(fullBlob);
+    const restrictedBits = await readPermissionBits(restrictedBlob);
+
+    // Bit 3 (impresion, valor 0b100) presente en el permiso completo...
+    expect((fullBits as number) & 0b100).not.toBe(0);
+    // ...y ausente cuando se pide restringir impresion.
+    expect((restrictedBits as number) & 0b100).toBe(0);
+    expect(fullBits).not.toBe(restrictedBits);
+  });
+
+  it("requirePasswordToOpen: false + un permiso restringido -> el PDF abre SIN contrasena y el permiso restringido no esta en /P", async () => {
+    const document = await createDocument();
+    const file = await toFile(document);
+
+    const blob = await protectPdf(file, {
+      password: "unaClaveSegura1",
+      confirm: "unaClaveSegura1",
+      requirePasswordToOpen: false,
+      allowPrinting: false,
+    });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+
+    // Abre sin pedir una contrasena de verdad: la cadena vacia basta
+    // (mismo criterio que documenta `unlock.ts` para "no exige nada al
+    // abrir"). Omitir `password` del todo, en cambio, lanza
+    // `EncryptedPDFError` en pdf-lib sin importar que el userPassword
+    // interno sea vacio -- por eso se pasa explicitamente `""`.
+    const reopened = await PDFDocument.load(bytes, { password: "", updateMetadata: false });
+    expect(reopened.getPageCount()).toBe(1);
+
+    const bits = await readPermissionBits(blob);
+    expect((bits as number) & 0b100).toBe(0);
+  });
+
+  it("requirePasswordToOpen: false + todos los permisos concedidos -> ProtectValidationError('nothingToDo'), no cifra nada", async () => {
+    const document = await createDocument();
+    const file = await toFile(document);
+
+    const options: ProtectOptions = {
+      password: "unaClaveSegura1",
+      confirm: "unaClaveSegura1",
+      requirePasswordToOpen: false,
+    };
+
+    expect(validateProtectOptions(options)).toBe("nothingToDo");
+    await expect(protectPdf(file, options)).rejects.toBeInstanceOf(ProtectValidationError);
+    await expect(protectPdf(file, options)).rejects.toMatchObject({ reason: "nothingToDo" });
+  });
+
+  it("PDF con cabecera 1.3 + fillingForms/documentAssembly restringidos -> revision R=2 detectada y la restriccion no tiene efecto real", async () => {
+    const document = await createDocument();
+
+    const oldFileGranted = await toOldVersionFile(document, "viejo-concedido.pdf");
+    const oldFileRestricted = await toOldVersionFile(document, "viejo-restringido.pdf");
+
+    const grantedBlob = await protectPdf(oldFileGranted, {
+      password: "unaClaveSegura1",
+      confirm: "unaClaveSegura1",
+      allowFillingForms: true,
+      allowDocumentAssembly: true,
+    });
+    const restrictedBlob = await protectPdf(oldFileRestricted, {
+      password: "unaClaveSegura1",
+      confirm: "unaClaveSegura1",
+      allowFillingForms: false,
+      allowDocumentAssembly: false,
+    });
+
+    // La revision aplicada depende de la version de ENTRADA (1.3), no de
+    // lo que pida el usuario: en ambos casos cae a R=2.
+    expect(await readEncryptionRevision(grantedBlob)).toBe(2);
+    expect(await readEncryptionRevision(restrictedBlob)).toBe(2);
+    expect(grantedBlob.appliedEncryptionRevision).toBe(2);
+    expect(restrictedBlob.appliedEncryptionRevision).toBe(2);
+
+    // El motor lo comunica honestamente...
+    expect(grantedBlob.legacyRevisionIgnoredRestrictions).toBe(false);
+    expect(restrictedBlob.legacyRevisionIgnoredRestrictions).toBe(true);
+
+    // ...y el /P resultante lo confirma: en R=2 los bits de fillingForms y
+    // documentAssembly no existen en absoluto, asi que restringirlos no
+    // cambia nada del /P frente a concederlos.
+    const grantedBits = await readPermissionBits(grantedBlob);
+    const restrictedBits = await readPermissionBits(restrictedBlob);
+    expect(grantedBits).toBe(restrictedBits);
+  });
+});

@@ -30,6 +30,11 @@ const tools: Record<ToolSlug, ToolCopy> = {
     description:
       "Turn single pages or the whole document in multiples of 90 degrees.",
   },
+  "pdfs-to-zip": {
+    name: "PDFs to ZIP",
+    description:
+      "Package several PDFs into a single ZIP file without merging or reprocessing their content.",
+  },
   "compress-pdf": {
     name: "Compress PDF",
     description:
@@ -86,6 +91,10 @@ const tools: Record<ToolSlug, ToolCopy> = {
     name: "PDF to Excel",
     description: "Pull the tables out of the PDF into an XLSX spreadsheet.",
   },
+  "pdf-to-csv": {
+    name: "Extract tables",
+    description: "Pull only the tables out of a PDF into a CSV or JSON file.",
+  },
   "pdf-to-pdfa": {
     name: "Check PDF/A",
     description:
@@ -95,6 +104,16 @@ const tools: Record<ToolSlug, ToolCopy> = {
     name: "PDF to Markdown",
     description:
       "Extract the PDF text as Markdown: headings, lists, code and regular tables. With OCR for scanned pages.",
+  },
+  "pdf-to-text": {
+    name: "PDF to Text",
+    description:
+      "Extract all the PDF text into a plain .txt file, page by page, no formatting. With OCR for scanned pages.",
+  },
+  "pdf-to-json": {
+    name: "PDF to JSON",
+    description:
+      "Serialize the whole PDF as structured JSON: headings, paragraphs, lists, tables and code blocks. With OCR for scanned pages.",
   },
   "add-page-numbers": {
     name: "Add page numbers",
