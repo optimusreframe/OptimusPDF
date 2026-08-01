@@ -302,7 +302,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "pdf-to-word": {
     icon: FileText,
     category: "convert-from",
-    status: "soon",
+    status: "live",
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,
@@ -310,7 +310,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "pdf-to-powerpoint": {
     icon: Presentation,
     category: "convert-from",
-    status: "soon",
+    status: "live",
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,
@@ -318,7 +318,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "pdf-to-excel": {
     icon: Table,
     category: "convert-from",
-    status: "soon",
+    status: "live",
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,

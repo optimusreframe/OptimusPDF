@@ -7,6 +7,7 @@ import {
   loadPdfMake,
   looksLikeEncryptedOoxml,
   MAX_DECOMPRESSED_OFFICE_BYTES,
+  MAX_TABLE_CELLS,
   PdfError,
   readFileBytes,
   throwIfAborted,
@@ -121,7 +122,8 @@ function cellValueToText(value: unknown): string {
  * cada hoja por separado). `worksheet.rowCount` es `_lastRowNumber` de
  * exceljs (el mayor indice de fila usado, NO un recuento real): una sola
  * celda perdida a millones de filas de distancia lo infla sin limite. Este
- * presupuesto se aplica sobre filas/celdas realmente visitadas por
+ * presupuesto (`MAX_TABLE_CELLS`, en `core.ts` — compartido con
+ * `wordToPdf.ts`) se aplica sobre filas/celdas realmente visitadas por
  * `eachRow`/`eachCell`, asi que corta el trabajo real en vez de fiarse de
  * ese numero.
  *
@@ -132,7 +134,6 @@ function cellValueToText(value: unknown): string {
  * tabla combinada muchas veces mayor que el limite, ya que cada hoja se
  * comprobaba contra el limite de forma independiente.
  */
-const MAX_TABLE_CELLS = 200_000;
 
 /** Contador de celdas compartido entre todas las hojas de una misma conversion. */
 type CellBudget = { used: number };

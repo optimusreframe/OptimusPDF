@@ -5,6 +5,7 @@ import {
   DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
   applyTransform,
   bodyFontSize,
+  buildDocument,
   buildLines,
   buildMarkdown,
   escapeInline,
@@ -693,6 +694,308 @@ describe("buildMarkdown — paginas, OCR y estadisticas", () => {
 
     expect(markdown.endsWith("\n")).toBe(true);
     expect(markdown.endsWith("\n\n")).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Golden byte a byte: fixture combinado, regresion del refactor de
+ * `pageBlocks`/`buildMarkdown` a bloques estructurados (`DocBlock[]`)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Fixture combinado: titulo, lista mixta anidada (ordenada + no ordenada),
+ * tabla de 3 columnas x 3 filas, bloque de codigo con indentacion,
+ * parrafo con caracteres especiales de Markdown (`#`, `*`, `|`, numero
+ * seguido de punto al inicio de linea), una pagina `source: "ocr"` y
+ * varias paginas.
+ *
+ * El Markdown que produce se capturo con `buildMarkdown` ANTES del
+ * refactor que separo la construccion de bloques (`pageBlocks`,
+ * `ocrBlocks`) de su renderizado (`renderBlockToMarkdown`). El test de
+ * mas abajo compara ese string capturado, byte a byte, contra lo que
+ * produce el `buildMarkdown` YA refactorizado: es el gate de regresion
+ * mas importante del refactor, asi que si algo lo rompe es un bug real
+ * del refactor, no un fixture que haya que "ajustar".
+ */
+function buildGoldenFixture(): MarkdownPage[] {
+  const page1 = makePage(
+    [
+      makeItem("Titulo del documento", 72, 60, 22),
+      bodyLine(
+        "Parrafo de cuerpo con caracteres suficientes para fijar la mediana del documento",
+        100,
+      ),
+      bodyLine(
+        "segunda linea del mismo parrafo que tambien llega al margen derecho",
+        118,
+      ),
+      makeItem(
+        "# no es titulo * ni enfasis | ni celda 1. tampoco es lista",
+        72,
+        160,
+        11,
+        { width: 440 },
+      ),
+      // Lista mixta: ordenada y no ordenada, con un nivel anidado.
+      makeItem("1. primero", 72, 200),
+      makeItem("2. segundo", 72, 218),
+      makeItem("• anidado bajo el segundo", 90, 236),
+      makeItem("• vuelta a nivel base", 72, 254),
+      // Tabla de 3 columnas x 3 filas (cabecera + 2).
+      makeItem("Producto", 72, 300),
+      makeItem("Cantidad", 260, 300),
+      makeItem("Precio", 440, 300),
+      makeItem("Camisa", 72, 320),
+      makeItem("2", 260, 320),
+      makeItem("20", 440, 320),
+      makeItem("Pantalon", 72, 340),
+      makeItem("1", 260, 340),
+      makeItem("35", 440, 340),
+      // Bloque de codigo con indentacion.
+      makeItem("function saluda() {", 72, 420, 10, { monospace: true }),
+      makeItem("return 1;", 90, 438, 10, { monospace: true }),
+      makeItem("}", 72, 456, 10, { monospace: true }),
+    ],
+    { pageNumber: 1 },
+  );
+
+  const page2 = makePage([], {
+    pageNumber: 2,
+    source: "ocr",
+    ocrText:
+      "Primera linea de OCR\nsegunda linea de OCR\n\nOtro parrafo de OCR distinto",
+  });
+
+  const page3 = makePage(
+    [
+      bodyLine(
+        "Tercera pagina con contenido normal y caracteres suficientes para el parrafo",
+        100,
+      ),
+    ],
+    { pageNumber: 3 },
+  );
+
+  return [page1, page2, page3];
+}
+
+/** Capturado con el `buildMarkdown` ANTERIOR al refactor a `DocBlock[]`. */
+const GOLDEN_MARKDOWN =
+  "# Titulo del documento\n\nParrafo de cuerpo con caracteres suficientes para fijar la mediana del documento segunda linea del mismo parrafo que tambien llega al margen derecho\n\n\\# no es titulo * ni enfasis | ni celda 1. tampoco es lista\n\n1. primero\n2. segundo\n  - anidado bajo el segundo\n- vuelta a nivel base\n\n| Producto | Cantidad | Precio |\n| --- | --- | --- |\n| Camisa | 2 | 20 |\n| Pantalon | 1 | 35 |\n\n```\nfunction saluda() {\n   return 1;\n}\n```\n\nPrimera linea de OCR segunda linea de OCR\n\nOtro parrafo de OCR distinto\n\nTercera pagina con contenido normal y caracteres suficientes para el parrafo\n";
+
+describe("buildMarkdown — golden byte a byte (fixture combinado)", () => {
+  it("reproduce EXACTAMENTE el Markdown capturado antes del refactor a bloques estructurados", () => {
+    const { markdown } = buildMarkdown(buildGoldenFixture(), options());
+    expect(markdown).toBe(GOLDEN_MARKDOWN);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * buildDocument — bloques estructurados (DocBlock[])
+ * ------------------------------------------------------------------ */
+
+describe("buildDocument — src/lib/pdf/pdfToMarkdown.ts", () => {
+  it("sobre el fixture combinado produce la misma secuencia de tipos que renderiza buildMarkdown, con un pageBreak entre cada par de paginas con contenido", () => {
+    const { blocks, stats } = buildDocument(buildGoldenFixture(), options());
+
+    expect(blocks.map((block) => block.type)).toEqual([
+      "heading",
+      "paragraph",
+      "paragraph",
+      "list",
+      "table",
+      "codeBlock",
+      "pageBreak",
+      "paragraph",
+      "paragraph",
+      "pageBreak",
+      "paragraph",
+    ]);
+    expect(stats.headings).toBe(1);
+    expect(stats.tables).toBe(1);
+    expect(stats.codeBlocks).toBe(1);
+    expect(stats.listItems).toBe(4);
+    expect(stats.textPages).toBe(2);
+    expect(stats.ocrPages).toBe(1);
+  });
+
+  it("heading conserva el texto crudo (sin escapar) y el nivel calculado", () => {
+    const page = makePage([
+      makeItem("# Titulo con caracter de Markdown", 72, 60, 22),
+      bodyLine(
+        "Texto de cuerpo con caracteres suficientes para fijar la mediana",
+        100,
+      ),
+    ]);
+    const { blocks } = buildDocument([page], options());
+
+    expect(blocks.find((block) => block.type === "heading")).toEqual({
+      type: "heading",
+      level: 1,
+      text: "# Titulo con caracter de Markdown",
+    });
+  });
+
+  it("paragraph.bold es true solo si TODAS las lineas unidas son negrita", () => {
+    const page = makePage([
+      makeItem("Primera linea en negrita que continua,", 72, 100, 11, {
+        bold: true,
+        width: 440,
+      }),
+      makeItem(
+        "segunda linea tambien en negrita que cierra el parrafo entero",
+        72,
+        118,
+        11,
+        { bold: true, width: 440 },
+      ),
+    ]);
+    const { blocks } = buildDocument([page], options());
+
+    expect(blocks.find((block) => block.type === "paragraph")).toMatchObject({
+      bold: true,
+    });
+  });
+
+  it("un parrafo formado por una linea en negrita y una que no lo es da bold=false (AND conservador)", () => {
+    const page = makePage([
+      makeItem("Primera linea en negrita que continua,", 72, 100, 11, {
+        bold: true,
+        width: 440,
+      }),
+      bodyLine(
+        "segunda linea sin negrita que cierra el mismo parrafo entero",
+        118,
+      ),
+    ]);
+    const { blocks } = buildDocument([page], options());
+    const paragraphs = blocks.filter((block) => block.type === "paragraph");
+
+    expect(paragraphs).toHaveLength(1);
+    expect(paragraphs[0]).toMatchObject({ bold: false });
+  });
+
+  it("table.rows son celdas crudas, sin escapar el caracter de barra vertical", () => {
+    const page = makePage([
+      makeItem("A|B", 72, 100),
+      makeItem("C", 300, 100),
+      makeItem("uno", 72, 120),
+      makeItem("dos", 300, 120),
+      makeItem("tres", 72, 140),
+      makeItem("cuatro", 300, 140),
+    ]);
+    const { blocks } = buildDocument([page], options());
+
+    expect(blocks.find((block) => block.type === "table")).toEqual({
+      type: "table",
+      rows: [
+        ["A|B", "C"],
+        ["uno", "dos"],
+        ["tres", "cuatro"],
+      ],
+    });
+  });
+
+  it("codeBlock.lines conserva la sangria de espacios calculada para el bloque", () => {
+    const items: MarkdownTextItem[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      items.push(
+        bodyLine(`Linea de texto normal numero ${index} bien larga`, 100 + index * 18),
+      );
+    }
+    items.push(makeItem("function saluda() {", 72, 300, 10, { monospace: true }));
+    items.push(makeItem("return 1;", 90, 318, 10, { monospace: true }));
+    items.push(makeItem("}", 72, 336, 10, { monospace: true }));
+
+    const { blocks } = buildDocument([makePage(items)], options());
+
+    expect(blocks.find((block) => block.type === "codeBlock")).toEqual({
+      type: "codeBlock",
+      lines: ["function saluda() {", "   return 1;", "}"],
+    });
+  });
+
+  it("un pageBreak seguido inmediatamente de una tabla es un bloque independiente, no una propiedad de otro bloque", () => {
+    const pages = [
+      makePage(
+        [bodyLine("Contenido de la primera pagina con caracteres suficientes", 100)],
+        { pageNumber: 1 },
+      ),
+      makePage(
+        [
+          makeItem("Producto", 72, 100),
+          makeItem("Precio", 300, 100),
+          makeItem("Camisa", 72, 120),
+          makeItem("20", 300, 120),
+          makeItem("Pantalon", 72, 140),
+          makeItem("35", 300, 140),
+        ],
+        { pageNumber: 2 },
+      ),
+    ];
+    const { blocks } = buildDocument(pages, options());
+
+    expect(blocks.map((block) => block.type)).toEqual([
+      "paragraph",
+      "pageBreak",
+      "table",
+    ]);
+    expect(blocks[1]).toEqual({ type: "pageBreak" });
+  });
+
+  it("dos paginas vacias consecutivas no insertan pageBreak espurios entre ellas", () => {
+    const pages = [
+      makePage(
+        [bodyLine("Contenido de la primera pagina con caracteres suficientes", 100)],
+        { pageNumber: 1 },
+      ),
+      makePage([], { pageNumber: 2, source: "empty" }),
+      makePage([], { pageNumber: 3, source: "empty" }),
+      makePage(
+        [bodyLine("Contenido de la ultima pagina con caracteres suficientes", 100)],
+        { pageNumber: 4 },
+      ),
+    ];
+    const { blocks, stats } = buildDocument(pages, options());
+
+    expect(blocks.map((block) => block.type)).toEqual([
+      "paragraph",
+      "pageBreak",
+      "paragraph",
+    ]);
+    expect(stats.emptyPages).toBe(2);
+  });
+
+  it("una corrida de lista con niveles y ordenes mixtos forma un solo bloque; una corrida adyacente distinta forma el suyo propio", () => {
+    const page = makePage([
+      makeItem("1. primero", 72, 100),
+      makeItem("• anidado", 90, 118),
+      makeItem("2. segundo", 72, 136),
+      bodyLine(
+        "Parrafo que separa las dos corridas de lista con caracteres suficientes",
+        250,
+      ),
+      makeItem("• otro primero", 72, 300),
+      makeItem("• otro anidado", 90, 318),
+    ]);
+    const { blocks } = buildDocument([page], options());
+
+    expect(blocks.map((block) => block.type)).toEqual(["list", "paragraph", "list"]);
+
+    const [firstList, , secondList] = blocks;
+    if (firstList.type !== "list" || secondList.type !== "list") {
+      throw new Error("se esperaban bloques de lista");
+    }
+
+    expect(firstList.items).toEqual([
+      { level: 0, ordered: true, number: 1, text: "primero" },
+      { level: 1, ordered: false, number: 0, text: "anidado" },
+      { level: 0, ordered: true, number: 2, text: "segundo" },
+    ]);
+    expect(secondList.items).toEqual([
+      { level: 0, ordered: false, number: 0, text: "otro primero" },
+      { level: 1, ordered: false, number: 0, text: "otro anidado" },
+    ]);
   });
 });
 
