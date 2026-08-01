@@ -90,7 +90,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "pdf-to-powerpoint": {
     name: "PDF a PowerPoint",
-    description: "Convierte el PDF en una presentación PPTX editable.",
+    description: "Convierte el PDF en una presentación PPTX con una imagen de página por diapositiva (no es texto editable).",
   },
   "pdf-to-excel": {
     name: "PDF a Excel",
@@ -361,6 +361,8 @@ export const es = {
         "Solo soportamos el formato moderno (.docx/.xlsx/.pptx), no el antiguo (.doc/.xls/.ppt). Guarda el archivo en el formato nuevo desde Word, Excel o PowerPoint y vuelve a intentarlo.",
       unsupportedScript:
         "Este documento tiene texto (chino, japonés, coreano, árabe, hebreo, tailandés o emoji, por ejemplo) que esta herramienta todavía no puede dibujar en el PDF. Por ahora solo soportamos alfabetos latinos, cirílico y griego.",
+      noTablesFound:
+        "No encontramos ninguna tabla en este PDF. Esta herramienta solo extrae tablas con rejillas regulares detectadas en la capa de texto: si el documento son páginas escaneadas (imágenes), no las reconoce.",
     },
   },
   soon: {

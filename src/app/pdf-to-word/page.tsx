@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { ToolPageSoon } from "@/components/tool/ToolPageSoon";
+import { PdfToWordClient } from "@/app/pdf-to-word/PdfToWordClient";
 
 export const metadata: Metadata = {
   title: "PDF a Word",
   description:
-    "Convierte un PDF en un documento DOCX editable. Todavía no está disponible en OptimusPDF.",
+    "Convierte un PDF en un documento DOCX editable, con títulos, listas, tablas y bloques de código reconstruidos.",
   alternates: { canonical: "/pdf-to-word" },
 };
 
 export default function PdfToWordPage() {
-  return <ToolPageSoon slug="pdf-to-word" />;
+  return <PdfToWordClient />;
 }

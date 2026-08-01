@@ -86,7 +86,14 @@ export type PdfErrorCode =
    * honestidad antes que fingir una conversion que perderia contenido en
    * silencio.
    */
-  | "unsupportedScript";
+  | "unsupportedScript"
+  /**
+   * `pdf-to-excel` no encontro ninguna tabla que extraer: o el PDF no
+   * tiene tablas de verdad, o sus paginas eran escaneadas y el motor
+   * (a proposito) no intenta OCR para buscarlas — ver comentario junto a
+   * `extractDocumentBlocks` en `pdfToExcel.ts`.
+   */
+  | "noTablesFound";
 
 /** Error tipado del motor: la UI traduce `code` mediante i18n. */
 export class PdfError extends Error {
@@ -374,6 +381,17 @@ export function looksLikeEncryptedOoxml(bytes: Uint8Array): boolean {
  * `mammoth`/`exceljs` empiecen a inflar el XML interno.
  */
 export const MAX_DECOMPRESSED_OFFICE_BYTES = 300 * 1024 * 1024;
+
+/**
+ * Tope compartido de celdas totales que las conversiones Office -> PDF con
+ * tablas nativas estan dispuestas a materializar antes de rechazar la
+ * conversion con `PdfError("tooLarge")`. Lo usan `excelToPdf.ts` (celdas
+ * de hoja de calculo, contadas via `eachRow`/`eachCell`) y `wordToPdf.ts`
+ * (celdas de tabla de Word, incluido un `gridSpan`/`colspan` manipulado a
+ * mano en el XML). Un valor unico evita que las rutas de conversion se
+ * desincronicen si algun dia se ajusta.
+ */
+export const MAX_TABLE_CELLS = 200_000;
 
 /**
  * Suma el tamano sin comprimir declarado por cada entrada del directorio

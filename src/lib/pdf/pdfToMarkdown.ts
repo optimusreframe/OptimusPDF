@@ -148,6 +148,57 @@ export type PdfToMarkdownConversion = PdfToMarkdownResult & {
   blob: Blob;
 };
 
+/**
+ * Un item de lista reconstruido, ya sin la vineta/numero original de la
+ * pagina (ver `matchListMarker`). `text` es texto CRUDO, sin escapar
+ * Markdown: el escape lo hace `renderBlockToMarkdown`.
+ */
+export type DocListItem = {
+  level: number;
+  ordered: boolean;
+  number: number;
+  text: string;
+};
+
+/**
+ * Bloque estructurado de un documento reconstruido a partir de un PDF.
+ * Es el mismo resultado de las heuristicas de `pageBlocks` que hasta
+ * ahora se devolvia como Markdown ya renderizado, pero sin renderizar:
+ * `renderBlockToMarkdown` hace ese paso por separado para que otros
+ * consumidores (pdf-to-word, pdf-to-excel, pdf-to-powerpoint) puedan
+ * recorrer la misma estructura sin pasar por Markdown.
+ *
+ * Todo el texto de estos bloques es CRUDO (sin `escapeInline`/
+ * `escapeCell` aplicado): ese escape es responsabilidad exclusiva del
+ * renderer que lo consuma.
+ *
+ * Dos limitaciones heredadas TAL CUAL de `pageBlocks`/`buildMarkdown`
+ * (confirmadas por revision adversarial, no son regresiones de este
+ * refactor sino comportamiento preexistente que se preserva a proposito
+ * por el requisito de output byte-identico):
+ *  - Una pagina sin bloques (pagina en blanco en el PDF) desaparece del
+ *    todo: no genera un `pageBreak` ni un marcador vacio. Un PDF con
+ *    contenido en las paginas 1 y 4 produce un documento de 2 "paginas"
+ *    logicas, no 4. Si un consumidor futuro necesita preservar el
+ *    numero exacto de paginas fisicas (p. ej. pdf-to-word con saltos de
+ *    pagina fieles), esta funcion no es la fuente correcta para eso.
+ *  - El texto de items de `list` NO pasa por `escapeInline` en
+ *    `renderBlockToMarkdown` (a diferencia de `heading`/`paragraph`/
+ *    `table`), asi que un item literal `"# titulo"` se renderiza como
+ *    `"- # titulo"`, que Markdown interpreta como encabezado dentro de
+ *    la lista. Es el mismo comportamiento que ya tenia `pageBlocks`
+ *    antes de este refactor.
+ */
+export type DocBlock =
+  | { type: "heading"; level: 1 | 2 | 3; text: string }
+  | { type: "paragraph"; text: string; bold: boolean }
+  | { type: "list"; items: DocListItem[] }
+  | { type: "table"; rows: string[][] }
+  | { type: "codeBlock"; lines: string[] }
+  | { type: "pageBreak" };
+
+export type DocumentBuildResult = { blocks: DocBlock[]; stats: MarkdownStats };
+
 /* ------------------------------------------------------------------ *
  * Constantes de las heuristicas
  * ------------------------------------------------------------------ */
@@ -620,26 +671,38 @@ function tryTable(
   return { rows, end: index };
 }
 
-function renderTable(rows: MarkdownLine[]): string {
-  const columns = rows[0].cells.length;
+/** Celdas crudas (sin escapar) de una tabla Markdown GFM. */
+function renderTable(rows: string[][]): string {
+  const columns = rows[0].length;
   const out: string[] = [];
-  out.push(`| ${rows[0].cells.map(escapeCell).join(" | ")} |`);
+  out.push(`| ${rows[0].map(escapeCell).join(" | ")} |`);
   out.push(`| ${Array.from({ length: columns }, () => "---").join(" | ")} |`);
   for (let index = 1; index < rows.length; index += 1) {
-    out.push(`| ${rows[index].cells.map(escapeCell).join(" | ")} |`);
+    out.push(`| ${rows[index].map(escapeCell).join(" | ")} |`);
   }
   return out.join("\n");
 }
 
-function renderCode(run: MarkdownLine[]): string {
+/**
+ * Calcula la sangria en espacios literales de una corrida de lineas
+ * monoespaciadas, relativa al `x` minimo del bloque. Es la unica parte de
+ * `renderCode` que depende de la geometria original: se separa para que
+ * `pageBlocks` pueda materializarla una vez y guardarla en el `DocBlock`,
+ * en vez de recalcularla en cada render.
+ */
+function codeBlockLines(run: MarkdownLine[]): string[] {
   const minX = Math.min(...run.map((line) => line.x));
-  const body = run.map((line) => {
+  return run.map((line) => {
     // Ancho medio de caracter monoespaciado ~ 0.6 del cuerpo.
     const unit = Math.max(1, line.fontSize * 0.6);
     const indent = Math.max(0, Math.round((line.x - minX) / unit));
     return `${" ".repeat(indent)}${line.text}`;
   });
-  return ["```", ...body, "```"].join("\n");
+}
+
+/** Lineas ya indentadas (ver `codeBlockLines`) -> valla de codigo Markdown. */
+function renderCode(lines: string[]): string {
+  return ["```", ...lines, "```"].join("\n");
 }
 
 /** Une la linea siguiente al parrafo, deshaciendo la particion silabica. */
@@ -660,15 +723,15 @@ function isPlainLine(
   return level === 0;
 }
 
-/** Convierte las lineas de UNA pagina en bloques Markdown. */
+/** Convierte las lineas de UNA pagina en bloques estructurados. */
 function pageBlocks(
   lines: MarkdownLine[],
   scale: HeadingScale,
   options: PdfToMarkdownOptions,
   codeAllowed: boolean,
   counters: Counters,
-): string[] {
-  const blocks: string[] = [];
+): DocBlock[] {
+  const blocks: DocBlock[] = [];
   const levels = options.detectHeadings
     ? pageHeadingLevels(lines, scale)
     : lines.map(() => 0);
@@ -691,7 +754,7 @@ function pageBlocks(
         run.push(lines[index]);
         index += 1;
       }
-      blocks.push(renderCode(run));
+      blocks.push({ type: "codeBlock", lines: codeBlockLines(run) });
       counters.codeBlocks += 1;
       continue;
     }
@@ -700,7 +763,10 @@ function pageBlocks(
     if (options.detectTables) {
       const table = tryTable(lines, index, levels);
       if (table) {
-        blocks.push(renderTable(table.rows));
+        blocks.push({
+          type: "table",
+          rows: table.rows.map((row) => row.cells),
+        });
         counters.tables += 1;
         index = table.end;
         continue;
@@ -711,7 +777,11 @@ function pageBlocks(
     {
       const level = levels[index];
       if (level > 0) {
-        blocks.push(`${"#".repeat(level)} ${escapeInline(line.text)}`);
+        blocks.push({
+          type: "heading",
+          level: level as 1 | 2 | 3,
+          text: line.text,
+        });
         counters.headings += 1;
         index += 1;
         continue;
@@ -759,21 +829,24 @@ function pageBlocks(
         index += 1;
       }
 
-      blocks.push(
-        entries
-          .map((entry) => {
-            const indent = "  ".repeat(entry.level);
-            const bullet = entry.ordered ? `${entry.number}. ` : "- ";
-            return `${indent}${bullet}${entry.text.trim()}`;
-          })
-          .join("\n"),
-      );
+      blocks.push({
+        type: "list",
+        items: entries.map((entry) => ({
+          level: entry.level,
+          ordered: entry.ordered,
+          number: entry.number,
+          text: entry.text.trim(),
+        })),
+      });
       counters.listItems += entries.length;
       continue;
     }
 
     // 5. Parrafo: se pegan las lineas hasta que algo indica que acabo.
+    // `bold` es un AND conservador: solo queda en `true` si TODAS las
+    // lineas unidas eran negrita.
     let paragraph = line.text;
+    let paragraphBold = line.bold;
     let previous = line;
     index += 1;
     while (index < lines.length) {
@@ -790,32 +863,84 @@ function pageBlocks(
       // Sangria de primera linea = parrafo nuevo.
       if (next.x > previous.x + previous.fontSize) break;
       paragraph = joinParagraph(paragraph, next.text);
+      paragraphBold = paragraphBold && next.bold;
       previous = next;
       index += 1;
     }
-    blocks.push(escapeInline(paragraph.trim()));
+    blocks.push({
+      type: "paragraph",
+      text: paragraph.trim(),
+      bold: paragraphBold,
+    });
   }
 
   return blocks;
 }
 
+/**
+ * Reproduce EXACTAMENTE el Markdown que `pageBlocks`/`ocrBlocks` generaban
+ * antes de separar la construccion de bloques de su renderizado. `bold` en
+ * un `paragraph` se ignora a proposito: el Markdown de parrafo nunca ha
+ * usado negrita y no debe empezar a hacerlo como efecto secundario de
+ * tener el dato disponible.
+ */
+export function renderBlockToMarkdown(block: DocBlock): string {
+  switch (block.type) {
+    case "heading":
+      return `${"#".repeat(block.level)} ${escapeInline(block.text)}`;
+    case "paragraph":
+      return escapeInline(block.text);
+    case "list":
+      return block.items
+        .map((item) => {
+          const indent = "  ".repeat(item.level);
+          const bullet = item.ordered ? `${item.number}. ` : "- ";
+          return `${indent}${bullet}${item.text}`;
+        })
+        .join("\n");
+    case "table":
+      return renderTable(block.rows);
+    case "codeBlock":
+      return renderCode(block.lines);
+    case "pageBreak":
+      return "";
+    default: {
+      const exhaustive: never = block;
+      return exhaustive;
+    }
+  }
+}
+
 /** Texto OCR -> parrafos planos (el reconocimiento no da estructura). */
-function ocrBlocks(text: string): string[] {
+function ocrBlocks(text: string): DocBlock[] {
   return text
     .split(/\n\s*\n+/)
     .map((chunk) => normalizeSpaces(chunk))
     .filter((chunk) => chunk.length > 0)
-    .map((chunk) => escapeInline(chunk));
+    .map((chunk) => ({ type: "paragraph" as const, text: chunk, bold: false }));
 }
 
 /* ------------------------------------------------------------------ *
  * Capa pura: documento completo
  * ------------------------------------------------------------------ */
 
-export function buildMarkdown(
+type PreparedDocument = {
+  /** Lineas por pagina, ya sin los encabezados/pies repetidos. */
+  cleaned: MarkdownLine[][];
+  scale: HeadingScale;
+  codeAllowed: boolean;
+};
+
+/**
+ * Preparacion compartida por `buildMarkdown` y `buildDocument`: limpieza
+ * de lineas repetidas entre paginas, escala de titulos y si el documento
+ * tiene, de verdad, un bloque minoritario de texto monoespaciado (y no es
+ * sencillamente un documento entero compuesto en una fuente de Courier).
+ */
+function prepareDocument(
   pages: MarkdownPage[],
-  options: PdfToMarkdownOptions = DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
-): PdfToMarkdownResult {
+  options: PdfToMarkdownOptions,
+): PreparedDocument {
   const linesByPage = pages.map((page) =>
     page.source === "text" ? buildLines(page) : [],
   );
@@ -846,6 +971,30 @@ export function buildMarkdown(
   const codeAllowed =
     monoLines > 0 && monoLines <= Math.max(1, allLines.length) * MAX_CODE_LINE_SHARE;
 
+  return { cleaned, scale, codeAllowed };
+}
+
+type PageBlocksResult = {
+  /** Bloques de cada pagina, EN ORDEN, sin `pageBreak` (eso lo decide quien llama). */
+  blocksByPage: DocBlock[][];
+  textPages: number;
+  ocrPages: number;
+  ocrFailedPages: number;
+  emptyPages: number;
+  counters: Counters;
+};
+
+/**
+ * Recorre las paginas (texto normal, OCR, OCR fallido o vacias) y produce
+ * los `DocBlock[]` de cada una, mas los contadores agregados. Comparten
+ * este recorrido `buildMarkdown` y `buildDocument`: ninguno de los dos
+ * decide aqui como unir los bloques entre paginas.
+ */
+function buildBlocksByPage(
+  pages: MarkdownPage[],
+  prepared: PreparedDocument,
+  options: PdfToMarkdownOptions,
+): PageBlocksResult {
   const counters: Counters = {
     headings: 0,
     listItems: 0,
@@ -857,11 +1006,11 @@ export function buildMarkdown(
   let ocrPages = 0;
   let ocrFailedPages = 0;
   let emptyPages = 0;
-  const rendered: string[] = [];
+  const blocksByPage: DocBlock[][] = [];
 
   for (let index = 0; index < pages.length; index += 1) {
     const page = pages[index];
-    let blocks: string[] = [];
+    let blocks: DocBlock[] = [];
 
     if (page.source === "ocr") {
       ocrPages += 1;
@@ -872,17 +1021,42 @@ export function buildMarkdown(
     } else if (page.source === "text") {
       textPages += 1;
       blocks = pageBlocks(
-        cleaned[index],
-        scale,
+        prepared.cleaned[index],
+        prepared.scale,
         options,
-        codeAllowed,
+        prepared.codeAllowed,
         counters,
       );
     } else {
       emptyPages += 1;
     }
 
-    const body = blocks.filter((block) => block.trim().length > 0).join("\n\n");
+    blocksByPage.push(blocks);
+  }
+
+  return { blocksByPage, textPages, ocrPages, ocrFailedPages, emptyPages, counters };
+}
+
+export function buildMarkdown(
+  pages: MarkdownPage[],
+  options: PdfToMarkdownOptions = DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
+): PdfToMarkdownResult {
+  const prepared = prepareDocument(pages, options);
+  const {
+    blocksByPage,
+    textPages,
+    ocrPages,
+    ocrFailedPages,
+    emptyPages,
+    counters,
+  } = buildBlocksByPage(pages, prepared, options);
+
+  const rendered: string[] = [];
+  for (const blocks of blocksByPage) {
+    const body = blocks
+      .map(renderBlockToMarkdown)
+      .filter((text) => text.trim().length > 0)
+      .join("\n\n");
     if (body.length > 0) rendered.push(body);
   }
 
@@ -902,6 +1076,85 @@ export function buildMarkdown(
       tables: counters.tables,
       codeBlocks: counters.codeBlocks,
       characters: markdown.length,
+    },
+  };
+}
+
+/**
+ * Hermana de `buildMarkdown`: mismo pipeline completo (limpieza de lineas
+ * repetidas, escala de titulos, deteccion de codigo minoritario,
+ * iteracion de paginas de texto vs OCR), pero devuelve los bloques
+ * estructurados en vez de Markdown ya renderizado.
+ *
+ * Entre el contenido de una pagina y el de la siguiente se inserta
+ * `{ type: "pageBreak" }` SOLO cuando ambas aportaron contenido real
+ * (una pagina cuyos bloques rendericen todos vacios no cuenta, ni genera
+ * un salto de pagina espurio antes o despues de ella): el mismo criterio
+ * que usa `buildMarkdown` para decidir que paginas aportan al `rendered`
+ * que despues une con su separador.
+ */
+export function buildDocument(
+  pages: MarkdownPage[],
+  options: PdfToMarkdownOptions = DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
+): DocumentBuildResult {
+  const prepared = prepareDocument(pages, options);
+  const {
+    blocksByPage,
+    textPages,
+    ocrPages,
+    ocrFailedPages,
+    emptyPages,
+    counters,
+  } = buildBlocksByPage(pages, prepared, options);
+
+  const blocks: DocBlock[] = [];
+  let sawContentPage = false;
+  for (const pageBlockList of blocksByPage) {
+    const contentBlocks = pageBlockList.filter(
+      (block) => renderBlockToMarkdown(block).trim().length > 0,
+    );
+    if (contentBlocks.length === 0) continue;
+    if (sawContentPage) blocks.push({ type: "pageBreak" });
+    blocks.push(...contentBlocks);
+    sawContentPage = true;
+  }
+
+  // Metrica derivada, no un Markdown real: se recalcula con EXACTAMENTE
+  // la misma formula que usa `buildMarkdown` para su propio
+  // `stats.characters` (mismo agrupado por pagina, mismo separador segun
+  // `options.pageSeparators`, mismo colapso de saltos y trim final) para
+  // que ambas funciones reporten un numero comparable sobre el mismo
+  // documento. Antes de este ajuste el conteo aqui ignoraba el separador
+  // de pagina y el salto final, divergiendo de `buildMarkdown` incluso
+  // para el mismo PDF (hallazgo real de revision).
+  const renderedPages = blocksByPage
+    .map((pageBlockList) =>
+      pageBlockList
+        .filter((block) => block.type !== "pageBreak")
+        .map(renderBlockToMarkdown)
+        .filter((text) => text.trim().length > 0)
+        .join("\n\n"),
+    )
+    .filter((body) => body.length > 0);
+  const pageSeparator = options.pageSeparators ? "\n\n---\n\n" : "\n\n";
+  const characters = `${renderedPages
+    .join(pageSeparator)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()}\n`.length;
+
+  return {
+    blocks,
+    stats: {
+      pages: pages.length,
+      textPages,
+      ocrPages,
+      ocrFailedPages,
+      emptyPages,
+      headings: counters.headings,
+      listItems: counters.listItems,
+      tables: counters.tables,
+      codeBlocks: counters.codeBlocks,
+      characters,
     },
   };
 }
@@ -1237,6 +1490,28 @@ export async function pdfToMarkdown(
     });
     onProgress?.(1);
     return { ...result, blob };
+  } catch (error) {
+    throw toPdfError(error);
+  }
+}
+
+/**
+ * Hermana de `pdfToMarkdown` para consumidores que necesitan la
+ * estructura del documento (pdf-to-word y compania) en vez de Markdown ya
+ * renderizado: reutiliza `extractMarkdownPages` + `buildDocument` con el
+ * mismo manejo de errores tipados (`PdfError` via `toPdfError`).
+ */
+export async function extractDocumentBlocks(
+  file: Blob,
+  options: PdfToMarkdownOptions = DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal,
+): Promise<DocumentBuildResult> {
+  try {
+    const pages = await extractMarkdownPages(file, options, onProgress, signal);
+    const result = buildDocument(pages, options);
+    if (result.blocks.length === 0) throw new PdfError("empty");
+    return result;
   } catch (error) {
     throw toPdfError(error);
   }

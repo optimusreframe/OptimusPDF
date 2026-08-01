@@ -80,7 +80,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "pdf-to-powerpoint": {
     name: "PDF to PowerPoint",
-    description: "Convert the PDF into an editable PPTX deck.",
+    description: "Convert the PDF into a PPTX deck with one page-image per slide (not editable text).",
   },
   "pdf-to-excel": {
     name: "PDF to Excel",
@@ -343,6 +343,8 @@ export const en: Dictionary = {
         "We only support the modern format (.docx/.xlsx/.pptx), not the old one (.doc/.xls/.ppt). Save the file in the new format from Word, Excel, or PowerPoint and try again.",
       unsupportedScript:
         "This document has text (Chinese, Japanese, Korean, Arabic, Hebrew, Thai, or emoji, for example) that this tool cannot draw in the PDF yet. For now we only support Latin, Cyrillic, and Greek alphabets.",
+      noTablesFound:
+        "We could not find any table in this PDF. This tool only extracts tables with regular grids detected in the text layer: if the document is scanned pages (images), it will not recognise them.",
     },
   },
   soon: {

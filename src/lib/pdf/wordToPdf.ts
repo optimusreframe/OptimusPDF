@@ -1,6 +1,7 @@
 import type { Content } from "pdfmake";
 import {
   MAX_DECOMPRESSED_OFFICE_BYTES,
+  MAX_TABLE_CELLS,
   PdfError,
   estimateZipUncompressedBytes,
   findUnsupportedGlyph,
@@ -96,28 +97,26 @@ function isRecord(value: unknown): value is UnknownRecord {
  * un `<w:gridSpan w:val="...">` (o `colspan` equivalente) manipulado a
  * mano en el XML, que `mammoth` vuelca sin validar y `html-to-pdfmake`
  * expande a un objeto-marcador de posicion POR CADA COLUMNA abarcada
- * antes de que este archivo vea el resultado (ver `MAX_TABLE_CELLS` mas
- * abajo para el porque de fondo).
+ * antes de que este archivo vea el resultado (ver `MAX_TABLE_CELLS` en
+ * `core.ts` para el porque de fondo).
  */
 const MAX_TABLE_ROW_CELLS = 500;
 
 /**
  * Tope del total de celdas (filas x columna mas ancha) de una sola
- * tabla, mismo orden de magnitud que `MAX_TABLE_CELLS` en el
- * `excelToPdf.ts` hermano (constante local, no compartida: solo esta
- * ruta de conversion necesita este calculo hoy). Un `gridSpan` con un
- * valor absurdo (decenas de miles, sin limite superior real dado que un
- * XML de unos pocos KB puede declararlo) hace que `html-to-pdfmake`
- * materialice esa misma cantidad de celdas en una sola fila ANTES de que
- * `padRaggedTableBody` (mas abajo) llegue a rellenar filas desiguales:
- * confirmado que un .docx de ~26 KB con un span de 50.000 basta para
- * producir una fila de pdfmake con 50.000 celdas, forzando una
- * asignacion sincrona masiva capaz de congelar o tumbar la pestana antes
- * de que `pdfmake.createPdf()` llegue siquiera a intentarlo. Se rechaza
- * aqui con un `PdfError("tooLarge")` limpio en vez de dejar que ese
- * costo se materialice.
+ * tabla: `MAX_TABLE_CELLS` en `core.ts`, compartida con el
+ * `excelToPdf.ts` hermano. Un `gridSpan` con un valor absurdo (decenas
+ * de miles, sin limite superior real dado que un XML de unos pocos KB
+ * puede declararlo) hace que `html-to-pdfmake` materialice esa misma
+ * cantidad de celdas en una sola fila ANTES de que `padRaggedTableBody`
+ * (mas abajo) llegue a rellenar filas desiguales: confirmado que un
+ * .docx de ~26 KB con un span de 50.000 basta para producir una fila de
+ * pdfmake con 50.000 celdas, forzando una asignacion sincrona masiva
+ * capaz de congelar o tumbar la pestana antes de que
+ * `pdfmake.createPdf()` llegue siquiera a intentarlo. Se rechaza aqui
+ * con un `PdfError("tooLarge")` limpio en vez de dejar que ese costo se
+ * materialice.
  */
-const MAX_TABLE_CELLS = 200_000;
 
 /** Extrae el tipo MIME de un `data:` URI, o `null` si no tiene esa forma. */
 function dataUriMimeType(uri: string): string | null {
