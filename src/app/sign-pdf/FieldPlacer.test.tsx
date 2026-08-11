@@ -316,6 +316,7 @@ function TextHarness({
   const [values, setValues] = useState<Record<string, string>>(initialValues);
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   return (
     <TextFieldPlacer
@@ -333,6 +334,8 @@ function TextHarness({
       onPageIndexChange={setPageIndex}
       selectedId={selectedId}
       onSelectedIdChange={setSelectedId}
+      editingId={editingId}
+      onEditingIdChange={setEditingId}
       strings={strings}
     />
   );
@@ -424,6 +427,91 @@ describe("TextFieldPlacer — src/app/sign-pdf/FieldPlacer.tsx", () => {
     });
 
     expect(screen.getByText(strings.lowConfidenceHint)).toBeTruthy();
+  });
+
+  it("un toque con temblor por debajo del umbral igual abre el editor sin mover el campo", async () => {
+    const field: DetectedField = {
+      id: "txt-1",
+      pageIndex: 0,
+      rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+      label: "Nombre",
+      source: "acroform",
+      confidence: "high",
+    };
+    let last: DetectedField[] = [field];
+    render(
+      <TextHarness
+        initialFields={[field]}
+        onFieldsChange={(fields) => (last = fields)}
+      />,
+    );
+    await waitForTextPreview();
+
+    const box = screen.getByRole("group", { name: "Nombre" });
+    fireEvent.pointerDown(box, { pointerId: 1, clientX: 100, clientY: 100 });
+    // 3px de temblor: por debajo de TAP_MOVE_THRESHOLD_PX (8), sigue siendo un toque.
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 102, clientY: 101 });
+    fireEvent.pointerUp(box, { pointerId: 1, clientX: 102, clientY: 101 });
+
+    expect(screen.getByRole("textbox", { name: "Nombre" })).toBeTruthy();
+    expect(last[0].rect).toEqual(field.rect);
+  });
+
+  it("un arrastre real (por encima del umbral) mueve el campo sin abrir el editor", async () => {
+    const field: DetectedField = {
+      id: "txt-1",
+      pageIndex: 0,
+      rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+      label: "Nombre",
+      source: "acroform",
+      confidence: "high",
+    };
+    let last: DetectedField[] = [field];
+    render(
+      <TextHarness
+        initialFields={[field]}
+        onFieldsChange={(fields) => (last = fields)}
+      />,
+    );
+    await waitForTextPreview();
+
+    const box = screen.getByRole("group", { name: "Nombre" });
+    fireEvent.pointerDown(box, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 160, clientY: 140 });
+    fireEvent.pointerUp(box, { pointerId: 1, clientX: 160, clientY: 140 });
+
+    expect(screen.queryByRole("textbox", { name: "Nombre" })).toBeNull();
+    expect(last[0].rect.x).toBeCloseTo(field.rect.x + 60 / HOST_WIDTH, 5);
+    expect(last[0].rect.y).toBeCloseTo(field.rect.y + 40 / HOST_HEIGHT, 5);
+  });
+
+  it("un segundo puntero no puede finalizar el arrastre del primero", async () => {
+    const field: DetectedField = {
+      id: "txt-1",
+      pageIndex: 0,
+      rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+      label: "Nombre",
+      source: "acroform",
+      confidence: "high",
+    };
+    let last: DetectedField[] = [field];
+    render(
+      <TextHarness
+        initialFields={[field]}
+        onFieldsChange={(fields) => (last = fields)}
+      />,
+    );
+    await waitForTextPreview();
+
+    const box = screen.getByRole("group", { name: "Nombre" });
+    fireEvent.pointerDown(box, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 160, clientY: 140 });
+    // Un segundo dedo (pointerId distinto) suelta: no debe cerrar el
+    // arrastre del primero ni abrir su editor.
+    fireEvent.pointerUp(box, { pointerId: 2, clientX: 160, clientY: 140 });
+
+    expect(screen.queryByRole("textbox", { name: "Nombre" })).toBeNull();
+    expect(last[0].rect.x).toBeCloseTo(field.rect.x + 60 / HOST_WIDTH, 5);
   });
 
   it("borrar el campo seleccionado lo saca del array", async () => {

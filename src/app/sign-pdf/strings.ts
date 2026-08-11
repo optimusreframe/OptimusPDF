@@ -103,8 +103,8 @@ export type SignStrings = {
   confirmClearAllTextFieldsBody: string;
   noTextFields: string;
   lowConfidenceHint: string;
-  formPanelTitle: string;
-  formPanelHint: string;
+  /** "12 de 31 campos rellenados" -- resumen de avance del panel de saltos. */
+  fieldsFilledSummary: (filled: number, total: number) => string;
   pageGroupLabel: (page: number) => string;
   reuseValuesPrompt: string;
   reuseValuesAccept: string;
@@ -249,7 +249,7 @@ const es: SignStrings = {
 
   textFieldsTitle: "Rellena el documento",
   textFieldsHint:
-    "Escribe en la lista de abajo o toca un campo sobre la página para editarlo ahí mismo. Arrastra sobre la página para añadir uno nuevo donde falte.",
+    "Toca un campo sobre la página para escribir ahí mismo. Arrastra sobre la página para añadir uno nuevo donde falte; el resumen de abajo sirve para saltar directo a cualquier campo.",
   detectingFields: "Buscando campos rellenables en el documento",
   detectionFailedHint:
     "No se pudieron detectar campos automáticamente, pero puedes añadirlos a mano arrastrando sobre la página.",
@@ -275,9 +275,8 @@ const es: SignStrings = {
     "Todavía no hay ningún campo de texto. Es opcional: puedes seguir sin rellenar nada.",
   lowConfidenceHint:
     "Contorno discontinuo = detección experimental sobre una imagen escaneada. Revísala antes de firmar; si no es un campo real, bórrala.",
-  formPanelTitle: "Lista de campos",
-  formPanelHint:
-    "Un campo vacío se deja en blanco: no estropea el documento final.",
+  fieldsFilledSummary: (filled, total) =>
+    `${filled} de ${total} campo${total === 1 ? "" : "s"} rellenado${total === 1 ? "" : "s"}`,
   pageGroupLabel: (page) => `Página ${page}`,
   reuseValuesPrompt: "¿Usar los mismos datos que en tu último documento?",
   reuseValuesAccept: "Sí, rellenar",
@@ -429,7 +428,7 @@ const en: SignStrings = {
 
   textFieldsTitle: "Fill in the document",
   textFieldsHint:
-    "Type in the list below, or tap a field on the page to edit it right there. Drag on the page to add a new one wherever one is missing.",
+    "Tap a field on the page to type right there. Drag on the page to add a new one wherever one is missing; the summary below jumps straight to any field.",
   detectingFields: "Looking for fillable fields in the document",
   detectionFailedHint:
     "Fields couldn't be detected automatically, but you can still add them by hand by dragging on the page.",
@@ -455,8 +454,8 @@ const en: SignStrings = {
     "There are no text fields yet. This is optional: you can continue without filling anything in.",
   lowConfidenceHint:
     "Dashed outline = experimental detection on a scanned image. Review it before signing; delete it if it isn't a real field.",
-  formPanelTitle: "Field list",
-  formPanelHint: "An empty field is left blank: it won't damage the final document.",
+  fieldsFilledSummary: (filled, total) =>
+    `${filled} of ${total} field${total === 1 ? "" : "s"} filled in`,
   pageGroupLabel: (page) => `Page ${page}`,
   reuseValuesPrompt: "Use the same data as your last document?",
   reuseValuesAccept: "Yes, fill it in",

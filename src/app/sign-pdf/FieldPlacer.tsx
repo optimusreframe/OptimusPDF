@@ -39,6 +39,19 @@ const MIN_FIELD_SIDE = 0.02;
 /** Movimiento por debajo del cual un puntero cuenta como clic, no arrastre. */
 const CLICK_SLOP = 0.004;
 
+/**
+ * Movimiento (en pixeles fisicos, no fraccion de pagina) por debajo del
+ * cual tocar un campo de texto YA EXISTENTE cuenta como un toque (abre
+ * el editor) y no como el inicio de un arrastre. A diferencia de
+ * `CLICK_SLOP` (fraccion del ancho de pagina, pensado para decidir si un
+ * gesto sobre lienzo vacio crea un campo centrado o uno del tamaño
+ * arrastrado), el temblor real de un dedo es una cantidad de pixeles
+ * fisicos constante, sin importar el zoom de la vista previa -- 8px
+ * coincide con el "touch slop" de referencia de Android (8dp) y esta
+ * cerca del de iOS (~10pt).
+ */
+const TAP_MOVE_THRESHOLD_PX = 8;
+
 /** Ancho inicial y proporcion (alto/ancho en pixeles) de cada tipo de hueco. */
 const DEFAULT_FIELD: Record<
   SignatureFieldType,
@@ -860,6 +873,10 @@ type TextDragState = {
   startX: number;
   startY: number;
   snapshot: DetectedField;
+  /** Puntero que inicio el gesto: un segundo dedo no debe poder finalizarlo ni moverlo. */
+  pointerId: number;
+  /** Se vuelve `true` en cuanto el movimiento supera `TAP_MOVE_THRESHOLD_PX`; hasta entonces, sigue siendo un toque en potencia. */
+  moved: boolean;
 };
 
 export type TextFieldPlacerProps = {
@@ -873,6 +890,9 @@ export type TextFieldPlacerProps = {
   onPageIndexChange: (index: number) => void;
   selectedId: string | null;
   onSelectedIdChange: (id: string | null) => void;
+  /** Campo con el input en linea abierto -- distinto de `selectedId` (borde/tiradores). */
+  editingId: string | null;
+  onEditingIdChange: (id: string | null) => void;
   strings: SignStrings;
   onError?: (code: PdfErrorCode) => void;
 };
@@ -894,6 +914,8 @@ function TextFieldPlacerInner({
   onPageIndexChange,
   selectedId,
   onSelectedIdChange,
+  editingId,
+  onEditingIdChange,
   strings,
   onError,
 }: TextFieldPlacerProps) {
@@ -968,8 +990,9 @@ function TextFieldPlacerInner({
       };
       onFieldsChange([...fields, field]);
       onSelectedIdChange(field.id);
+      onEditingIdChange(field.id);
     },
-    [fields, onFieldsChange, onSelectedIdChange, pageIndex],
+    [fields, onFieldsChange, onSelectedIdChange, onEditingIdChange, pageIndex],
   );
 
   const patchField = useCallback(
@@ -985,8 +1008,9 @@ function TextFieldPlacerInner({
     (id: string) => {
       onFieldsChange(fields.filter((field) => field.id !== id));
       if (selectedId === id) onSelectedIdChange(null);
+      if (editingId === id) onEditingIdChange(null);
     },
-    [fields, onFieldsChange, onSelectedIdChange, selectedId],
+    [fields, onFieldsChange, onSelectedIdChange, selectedId, editingId, onEditingIdChange],
   );
 
   const removeRef = useRef(removeField);
@@ -996,6 +1020,12 @@ function TextFieldPlacerInner({
   useEffect(() => {
     if (!selectedId) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        // Escape sale del editor sin perder la seleccion (tiradores/quitar
+        // siguen visibles); si ya no se estaba editando, no hace nada mas.
+        onEditingIdChange(null);
+        return;
+      }
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       const target = event.target as HTMLElement | null;
       if (target?.isContentEditable) return;
@@ -1005,7 +1035,7 @@ function TextFieldPlacerInner({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId]);
+  }, [selectedId, onEditingIdChange]);
 
   const addCentered = (x: number, y: number) => {
     addField({
@@ -1041,6 +1071,9 @@ function TextFieldPlacerInner({
     if (!point) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    // Tocar el lienzo vacio (para crear un campo nuevo) siempre cierra el
+    // editor de cualquier campo existente que estuviera abierto.
+    onEditingIdChange(null);
     draftOriginRef.current = point;
     setDraft({ x: point.x, y: point.y, toX: point.x, toY: point.y });
   };
@@ -1052,15 +1085,25 @@ function TextFieldPlacerInner({
     const id = target.dataset.elementId;
     const snapshot = fields.find((field) => field.id === id);
     if (!host || !mode || !id || !snapshot) return;
-    event.preventDefault();
     event.stopPropagation();
     target.setPointerCapture(event.pointerId);
+    // El tirador de redimensionar no tiene ambiguedad de "¿fue un toque?"
+    // (es un control pequeño y deliberado): sigue previniendo el
+    // comportamiento por defecto de inmediato, como antes. El cuerpo del
+    // campo (mode === "move") NO lo hace aqui todavia -- si se previniera
+    // ya en el pointerdown, un toque real (que abre el teclado en el
+    // input recien enfocado) se veria bloqueado en iOS; se previene recien
+    // en el primer pointermove que supera el umbral de temblor, una vez
+    // que ya sabemos que es un arrastre de verdad, no un toque.
+    if (mode === "resize") event.preventDefault();
     dragRef.current = {
       mode,
       id,
       startX: event.clientX,
       startY: event.clientY,
       snapshot,
+      pointerId: event.pointerId,
+      moved: false,
     };
     onSelectedIdChange(id);
   };
@@ -1069,7 +1112,18 @@ function TextFieldPlacerInner({
     const host = hostRef.current;
     const drag = dragRef.current;
     if (drag && host) {
+      if (event.pointerId !== drag.pointerId) return;
+
+      if (drag.mode === "move" && !drag.moved) {
+        const distance = Math.hypot(
+          event.clientX - drag.startX,
+          event.clientY - drag.startY,
+        );
+        if (distance <= TAP_MOVE_THRESHOLD_PX) return;
+        drag.moved = true;
+      }
       event.preventDefault();
+
       const bounds = host.getBoundingClientRect();
       const dx = (event.clientX - drag.startX) / (bounds.width || 1);
       const dy = (event.clientY - drag.startY) / (bounds.height || 1);
@@ -1103,9 +1157,25 @@ function TextFieldPlacerInner({
     );
   };
 
+  /** Puntero perdido a medio gesto (interrupcion del sistema): se aborta sin decidir toque ni arrastre. */
+  const onPointerCancel = () => {
+    dragRef.current = null;
+    draftOriginRef.current = null;
+    setDraft(null);
+  };
+
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragRef.current) {
+    const drag = dragRef.current;
+    if (drag) {
+      if (event.pointerId !== drag.pointerId) return;
       dragRef.current = null;
+      // Un toque limpio (sin superar el umbral de temblor) sobre el
+      // cuerpo de un campo existente abre el editor -- es la unica forma
+      // de rellenar que le pedimos al usuario, tiene que sentirse
+      // inmediata. El tirador de redimensionar nunca abre el editor.
+      if (drag.mode === "move" && !drag.moved) {
+        onEditingIdChange(drag.id);
+      }
       return;
     }
     const origin = draftOriginRef.current;
@@ -1163,7 +1233,10 @@ function TextFieldPlacerInner({
             size="sm"
             aria-label={strings.previousPage}
             disabled={pageIndex === 0}
-            onClick={() => onPageIndexChange(Math.max(0, pageIndex - 1))}
+            onClick={() => {
+              onEditingIdChange(null);
+              onPageIndexChange(Math.max(0, pageIndex - 1));
+            }}
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
           </Button>
@@ -1175,7 +1248,10 @@ function TextFieldPlacerInner({
             size="sm"
             aria-label={strings.nextPage}
             disabled={pageCount === 0 || pageIndex >= pageCount - 1}
-            onClick={() => onPageIndexChange(Math.min(pageCount - 1, pageIndex + 1))}
+            onClick={() => {
+              onEditingIdChange(null);
+              onPageIndexChange(Math.min(pageCount - 1, pageIndex + 1));
+            }}
           >
             <ChevronRight aria-hidden="true" className="size-4" />
           </Button>
@@ -1200,6 +1276,7 @@ function TextFieldPlacerInner({
             onClick={() => {
               onFieldsChange(fields.filter((field) => field.pageIndex !== pageIndex));
               onSelectedIdChange(null);
+              onEditingIdChange(null);
             }}
           >
             {strings.clearPageTextFields}
@@ -1221,7 +1298,7 @@ function TextFieldPlacerInner({
           onPointerDown={startCreate}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerCancel={onPointerCancel}
           className="relative w-full max-w-[640px] cursor-crosshair touch-none select-none"
         >
           {preview ? (
@@ -1248,10 +1325,12 @@ function TextFieldPlacerInner({
               value={values[field.id] ?? ""}
               onValueChange={(value) => onValueChange(field.id, value)}
               selected={field.id === selectedId}
+              editing={field.id === editingId}
               strings={strings}
               onPointerDownHandler={startDrag}
               onSelect={() => onSelectedIdChange(field.id)}
               onRemove={() => removeField(field.id)}
+              onEditEnd={() => onEditingIdChange(null)}
             />
           ))}
 
@@ -1288,6 +1367,7 @@ function TextFieldPlacerInner({
         onConfirm={() => {
           onFieldsChange([]);
           onSelectedIdChange(null);
+          onEditingIdChange(null);
         }}
         title={strings.confirmClearAllTextFieldsTitle}
         body={strings.confirmClearAllTextFieldsBody}
@@ -1305,17 +1385,22 @@ type TextFieldBoxProps = {
   value: string;
   onValueChange: (value: string) => void;
   selected: boolean;
+  /** Input en linea abierto (distinto de `selected`: un campo puede estar seleccionado -- tiradores visibles -- sin estar en edicion). */
+  editing: boolean;
   strings: SignStrings;
   onPointerDownHandler: (event: ReactPointerEvent<Element>) => void;
   onSelect: () => void;
   onRemove: () => void;
+  /** El input perdio el foco (toco otro campo/boton/fuera): cierra el editor sin perder la seleccion. */
+  onEditEnd: () => void;
 };
 
 /**
  * Un campo de texto sobre la vista previa: contorno solido (AcroForm o
  * vectorial) o discontinuo (deteccion raster experimental, confianza
- * baja). Al seleccionarlo aparece la misma caja de edicion en linea que
- * pide el "toca para editar", encima del propio campo.
+ * baja). Un toque limpio (sin arrastre) abre el input en linea justo
+ * encima del propio campo -- la unica forma de rellenar que se le pide
+ * al usuario, como tocar un hueco en Adobe Acrobat.
  */
 function TextFieldBox({
   field,
@@ -1323,10 +1408,12 @@ function TextFieldBox({
   value,
   onValueChange,
   selected,
+  editing,
   strings,
   onPointerDownHandler,
   onSelect,
   onRemove,
+  onEditEnd,
 }: TextFieldBoxProps) {
   const dashed = field.confidence === "low";
   const color = dashed ? "#f59e0b" : "#0d4bff";
@@ -1387,18 +1474,22 @@ function TextFieldBox({
           >
             <Move aria-hidden="true" className="size-3 text-foreground" />
           </span>
-
-          {/* Toca para editar: el input vive encima del propio campo. */}
-          <input
-            type="text"
-            aria-label={label}
-            value={value}
-            placeholder={strings.textFieldPlaceholder}
-            onPointerDown={(event) => event.stopPropagation()}
-            onChange={(event) => onValueChange(event.target.value)}
-            className="absolute inset-0 h-full w-full rounded-[3px] border-0 bg-white/95 px-1.5 text-xs text-black outline-none ring-2 ring-signal"
-          />
         </>
+      ) : null}
+
+      {/* Toca para editar: el input vive encima del propio campo, como un hueco de Adobe Acrobat. */}
+      {editing ? (
+        <input
+          type="text"
+          aria-label={label}
+          value={value}
+          placeholder={strings.textFieldPlaceholder}
+          autoFocus
+          onPointerDown={(event) => event.stopPropagation()}
+          onChange={(event) => onValueChange(event.target.value)}
+          onBlur={onEditEnd}
+          className="absolute inset-0 h-full w-full rounded-[3px] border-0 bg-white/95 px-1.5 text-xs text-black outline-none ring-2 ring-signal"
+        />
       ) : value ? (
         <span className="pointer-events-none absolute inset-0 flex items-center truncate px-1.5 text-xs text-white">
           {value}

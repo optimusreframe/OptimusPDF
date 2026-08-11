@@ -85,6 +85,8 @@ export type SignToolOptions = {
   textValues: Record<string, string>;
   textFieldPageIndex: number;
   selectedTextFieldId: string | null;
+  /** Campo con el input en linea abierto (distinto de "seleccionado"). */
+  editingTextFieldId: string | null;
 };
 
 const DEFAULT_OPTIONS: SignToolOptions = {
@@ -106,6 +108,7 @@ const DEFAULT_OPTIONS: SignToolOptions = {
   textValues: {},
   textFieldPageIndex: 0,
   selectedTextFieldId: null,
+  editingTextFieldId: null,
 };
 
 /* ------------------------------------------------------------------ *
@@ -590,6 +593,7 @@ export function MultiFlow({
         textValues: {},
         textFieldPageIndex: 0,
         selectedTextFieldId: null,
+        editingTextFieldId: null,
       });
       setReuseMatches(null);
       setDetectionFailed(false);
@@ -814,19 +818,22 @@ export function MultiFlow({
             onSelectedIdChange={(selectedTextFieldId) =>
               setOptions({ selectedTextFieldId })
             }
+            editingId={options.editingTextFieldId}
+            onEditingIdChange={(editingTextFieldId) =>
+              setOptions({ editingTextFieldId })
+            }
             strings={strings}
           />
 
           <FieldFormPanel
             fields={options.textFields}
             values={options.textValues}
-            onValueChange={onTextValueChange}
-            selectedId={options.selectedTextFieldId}
-            onSelectedIdChange={(selectedTextFieldId) =>
-              setOptions({ selectedTextFieldId })
-            }
-            onGoToField={(targetField) =>
-              setOptions({ textFieldPageIndex: targetField.pageIndex })
+            onJumpToField={(field) =>
+              setOptions({
+                selectedTextFieldId: field.id,
+                textFieldPageIndex: field.pageIndex,
+                editingTextFieldId: field.id,
+              })
             }
             strings={strings}
           />
