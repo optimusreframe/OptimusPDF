@@ -95,6 +95,7 @@ function optionsFor(documentKey: string): SignToolOptions {
     textValues: {},
     textFieldPageIndex: 0,
     selectedTextFieldId: null,
+    editingTextFieldId: null,
   };
 }
 
@@ -250,7 +251,13 @@ describe("MultiFlow — paso de texto (src/app/sign-pdf/SignToolClient.tsx)", ()
 
     fireEvent.click(textStepButton());
     expect(last.textFields[0].label).toBe("Nombre");
-    expect(screen.getByRole("textbox", { name: "Nombre" })).toBeTruthy();
+    // Detectado, no tocado todavia: aparece como enlace de salto en el
+    // resumen, pero no se abre ningun editor (eso solo pasa al tocarlo
+    // en el lienzo). El label tambien aparece sobre el propio campo en
+    // el lienzo (rotulo siempre visible), asi que se busca el enlace por
+    // su rol de boton, no por texto (ambiguo entre los dos).
+    expect(screen.getByRole("button", { name: "Nombre" })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Nombre" })).toBeNull();
   });
 
   it("el paso de texto siempre es alcanzable, y firmar se habilita en cuanto un campo tiene valor", async () => {

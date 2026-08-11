@@ -40,7 +40,11 @@ describe("SignerManager — src/app/sign-pdf/SignerManager.tsx", () => {
     addSigner();
 
     expect(last).toHaveLength(1);
-    expect(last[0].name).toBe(strings.defaultSignerName(1));
+    expect(last[0].name).toBe("");
+    expect(
+      (screen.getByLabelText(strings.signerNameLabel(1)) as HTMLInputElement)
+        .placeholder,
+    ).toBe(strings.defaultSignerName(1));
     expect(SIGNER_COLORS as readonly string[]).toContain(last[0].color);
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -70,7 +74,9 @@ describe("SignerManager — src/app/sign-pdf/SignerManager.tsx", () => {
     const third = last[2];
 
     fireEvent.click(
-      screen.getByRole("button", { name: strings.removeSigner(second.name) }),
+      screen.getByRole("button", {
+        name: strings.removeSigner(strings.defaultSignerName(2)),
+      }),
     );
 
     expect(last).toHaveLength(2);
@@ -94,7 +100,7 @@ describe("SignerManager — src/app/sign-pdf/SignerManager.tsx", () => {
     );
 
     expect(last[0].name).toBe("Ana");
-    expect(last[1].name).toBe(strings.defaultSignerName(2));
+    expect(last[1].name).toBe("");
   });
 
   it("no deja pasar del tamaño de la paleta", () => {

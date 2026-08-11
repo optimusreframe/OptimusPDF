@@ -7,6 +7,7 @@ import {
   originForCenter,
   savePdfToBlob,
   scaleProgress,
+  slugify,
   standardFontFor,
   toPdfError,
   viewPointToUser,
@@ -88,6 +89,46 @@ export const SIGNER_COLORS = [
 export function signerColorAt(index: number): string {
   const size = SIGNER_COLORS.length;
   return SIGNER_COLORS[((index % size) + size) % size];
+}
+
+/**
+ * Nombre a mostrar para un firmante: el propio nombre si escribio algo, o
+ * el generico ("Firmante N") si el campo esta vacio (ahora es el estado
+ * inicial real, no solo un valor precargado que el usuario tenia que
+ * borrar). Centraliza el fallback `name || defaultSignerName(...)` que
+ * antes se repetia en cada sitio que mostraba el nombre.
+ */
+export function signerDisplayName(
+  name: string,
+  index: number,
+  defaultSignerName: (position: number) => string,
+): string {
+  const trimmed = name.trim();
+  return trimmed.length > 0 ? trimmed : defaultSignerName(index + 1);
+}
+
+/**
+ * Prefijo de nombre de archivo a partir de los nombres de los firmantes,
+ * p.ej. `["Ana Perez", "Luis Gomez"]` -> `"ana-perez_and_luis-gomez"`. Un
+ * firmante sin nombre (o solo espacios) se OMITE del prefijo en vez de
+ * rellenarse con un generico "firmante-N" -- un nombre de archivo con un
+ * marcador feo es peor que uno mas corto. Si no queda ningun nombre
+ * usable devuelve `null`: quien llama no debe ofrecer el prefijo en ese
+ * caso. Cada nombre pasa por `slugify()` (guiones, sin acentos); varios
+ * nombres se unen con "_and_" para que el separador entre PERSONAS se
+ * distinga del separador entre PALABRAS de un mismo nombre.
+ */
+export function buildSignerFilenamePrefix(
+  names: readonly string[],
+): string | null {
+  const slugs = names
+    .map((name) => slugify(name))
+    .filter((slug) => slug.length > 0);
+  if (slugs.length === 0) return null;
+  if (slugs.length === 1) return slugs[0];
+  const last = slugs[slugs.length - 1];
+  const rest = slugs.slice(0, -1);
+  return `${rest.join("_")}_and_${last}`;
 }
 
 /** Hueco reservado para una firma/inicial (imagen) empotrada por `signPdfMulti`. */

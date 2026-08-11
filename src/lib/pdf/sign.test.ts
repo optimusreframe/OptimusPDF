@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { PDFDict, PDFDocument, PDFName } from "@cantoo/pdf-lib";
-import { dataUrlToBytes, signPdf, type SignOptions } from "@/lib/pdf/sign";
+import {
+  buildSignerFilenamePrefix,
+  dataUrlToBytes,
+  signPdf,
+  signerDisplayName,
+  type SignOptions,
+} from "@/lib/pdf/sign";
 
 /**
  * `dataUrlToBytes` usa `window.atob` (ver `sign.ts:42`). El entorno de
@@ -57,6 +63,59 @@ describe("dataUrlToBytes — src/lib/pdf/sign.ts", () => {
     } catch (error) {
       expect((error as { code?: string }).code).toBe("invalidType");
     }
+  });
+});
+
+describe("signerDisplayName — src/lib/pdf/sign.ts", () => {
+  const defaultName = (position: number) => `Firmante ${position}`;
+
+  it("devuelve el nombre real cuando hay uno", () => {
+    expect(signerDisplayName("Ana Perez", 0, defaultName)).toBe("Ana Perez");
+  });
+
+  it("devuelve el generico numerado cuando el nombre esta vacio", () => {
+    expect(signerDisplayName("", 2, defaultName)).toBe("Firmante 3");
+  });
+
+  it("trata un nombre de solo espacios como vacio", () => {
+    expect(signerDisplayName("   ", 0, defaultName)).toBe("Firmante 1");
+  });
+
+  it("recorta espacios sobrantes de un nombre real", () => {
+    expect(signerDisplayName("  Ana  ", 0, defaultName)).toBe("Ana");
+  });
+});
+
+describe("buildSignerFilenamePrefix — src/lib/pdf/sign.ts", () => {
+  it("un solo nombre: el slug tal cual", () => {
+    expect(buildSignerFilenamePrefix(["Ana Perez"])).toBe("ana-perez");
+  });
+
+  it("dos nombres: unidos con '_and_'", () => {
+    expect(buildSignerFilenamePrefix(["Ana Perez", "Luis Gomez"])).toBe(
+      "ana-perez_and_luis-gomez",
+    );
+  });
+
+  it("tres o mas nombres: todos menos el ultimo unidos por '_', el ultimo con '_and_'", () => {
+    expect(
+      buildSignerFilenamePrefix(["Ana", "Luis", "Marta"]),
+    ).toBe("ana_luis_and_marta");
+  });
+
+  it("quita acentos y caracteres especiales via slugify", () => {
+    expect(buildSignerFilenamePrefix(["José Núñez"])).toBe("jose-nunez");
+  });
+
+  it("omite nombres vacios o solo espacios en vez de rellenarlos con un generico", () => {
+    expect(buildSignerFilenamePrefix(["Ana", "", "  ", "Luis"])).toBe(
+      "ana_and_luis",
+    );
+  });
+
+  it("array vacio o solo nombres vacios: null (no ofrecer el prompt)", () => {
+    expect(buildSignerFilenamePrefix([])).toBeNull();
+    expect(buildSignerFilenamePrefix(["", "   "])).toBeNull();
   });
 });
 

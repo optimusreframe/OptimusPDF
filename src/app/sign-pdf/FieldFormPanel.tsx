@@ -9,29 +9,26 @@ export type FieldFormPanelProps = {
   fields: DetectedField[];
   /** Valor actual de cada campo, indexado por `id`. */
   values: Record<string, string>;
-  onValueChange: (id: string, value: string) => void;
-  selectedId: string | null;
-  onSelectedIdChange: (id: string | null) => void;
-  /** Al enfocar un campo de la lista, se salta a su pagina en el lienzo. */
-  onGoToField?: (field: DetectedField) => void;
+  /**
+   * Saltar a un campo: cambia de pagina y abre su editor en linea sobre
+   * el lienzo directamente, en un solo toque -- ya no hay un input
+   * propio aqui, el lienzo es la unica forma de escribir.
+   */
+  onJumpToField: (field: DetectedField) => void;
   strings: SignStrings;
 };
 
 /**
- * Lista desplazable de todos los campos de texto, agrupados por pagina.
- * Escribir aqui es equivalente a tocar el campo sobre la vista previa
- * (`TextFieldPlacer`): ambos escriben en el mismo mapa `values`. Un
- * campo de confianza baja (deteccion raster experimental) se marca con
- * un punto discontinuo en vez del punto solido del resto, igual que su
- * contorno sobre la pagina.
+ * Resumen de avance del paso de texto, ya no una lista de inputs
+ * duplicada: rellenar ocurre exclusivamente tocando el campo sobre el
+ * lienzo (`TextFieldPlacer`). Esto es solo un indice para ver de un
+ * vistazo cuanto falta y saltar directo a un campo sin buscarlo
+ * visualmente en el documento.
  */
 export function FieldFormPanel({
   fields,
   values,
-  onValueChange,
-  selectedId,
-  onSelectedIdChange,
-  onGoToField,
+  onJumpToField,
   strings,
 }: FieldFormPanelProps) {
   if (fields.length === 0) {
@@ -42,6 +39,10 @@ export function FieldFormPanel({
     );
   }
 
+  const filled = fields.filter(
+    (field) => (values[field.id] ?? "").trim().length > 0,
+  ).length;
+
   const byPage = new Map<number, DetectedField[]>();
   for (const field of fields) {
     const list = byPage.get(field.pageIndex);
@@ -51,34 +52,33 @@ export function FieldFormPanel({
   const pageIndexes = [...byPage.keys()].sort((a, b) => a - b);
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h3 className="hud-label text-[11px] text-muted-foreground">
-          {strings.formPanelTitle}
-        </h3>
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          {strings.formPanelHint}
-        </p>
-      </div>
+    <div className="space-y-4">
+      <p className="hud-label text-[11px] text-muted-foreground tabular-nums">
+        {strings.fieldsFilledSummary(filled, fields.length)}
+      </p>
 
       {pageIndexes.map((pageIndex) => (
         <div key={pageIndex}>
           <h4 className="hud-label mb-2 text-[10px] text-muted-foreground">
             {strings.pageGroupLabel(pageIndex + 1)}
           </h4>
-          <ul className="space-y-3">
+          <ul className="space-y-1.5">
             {(byPage.get(pageIndex) ?? []).map((field) => {
               const label =
                 field.label ??
                 strings.textFieldFallbackLabel(fields.indexOf(field) + 1);
-              const active = field.id === selectedId;
+              const hasValue = (values[field.id] ?? "").trim().length > 0;
               const lowConfidence = field.confidence === "low";
 
               return (
                 <li key={field.id}>
-                  <label
-                    htmlFor={`text-field-${field.id}`}
-                    className="hud-label mb-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground"
+                  <button
+                    type="button"
+                    onClick={() => onJumpToField(field)}
+                    className={cn(
+                      "flex min-h-11 w-full items-center gap-2.5 rounded-ios-sm border px-3 text-left text-sm transition-colors",
+                      "border-white/14 bg-white/5 hover:border-signal/40 hover:bg-white/8",
+                    )}
                   >
                     <span
                       aria-hidden="true"
@@ -86,27 +86,20 @@ export function FieldFormPanel({
                         "inline-block size-2 shrink-0 rounded-full",
                         lowConfidence
                           ? "border border-dashed border-amber-400"
-                          : "bg-signal",
+                          : hasValue
+                            ? "bg-signal"
+                            : "border border-white/25",
                       )}
                     />
-                    <span className="truncate">{label}</span>
-                  </label>
-                  <input
-                    id={`text-field-${field.id}`}
-                    type="text"
-                    value={values[field.id] ?? ""}
-                    placeholder={strings.textFieldPlaceholder}
-                    onFocus={() => {
-                      onSelectedIdChange(field.id);
-                      onGoToField?.(field);
-                    }}
-                    onChange={(event) => onValueChange(field.id, event.target.value)}
-                    className={cn(
-                      "h-11 w-full rounded-ios-sm border bg-white/5 px-3 text-sm text-foreground outline-none transition-colors",
-                      "placeholder:text-muted-foreground/60 focus:border-signal/60",
-                      active ? "border-signal/60" : "border-white/14",
-                    )}
-                  />
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate",
+                        hasValue ? "text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      {hasValue ? values[field.id] : label}
+                    </span>
+                  </button>
                 </li>
               );
             })}
