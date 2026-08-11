@@ -10,10 +10,11 @@ import {
   type SignatureDraft,
 } from "@/app/sign-pdf/SignatureComposer";
 import type { SignStrings } from "@/app/sign-pdf/strings";
-import type {
-  SignatureField,
-  SignatureFieldType,
-  Signer,
+import {
+  signerDisplayName,
+  type SignatureField,
+  type SignatureFieldType,
+  type Signer,
 } from "@/lib/pdf/sign";
 
 /** Lo que cada firmante ha creado en su turno. */
@@ -187,6 +188,15 @@ export function SigningCeremony({
     : 0;
   const ready = required.every((type) => capture[type] !== null);
 
+  /** Nombre a mostrar de un firmante, con el mismo fallback numerado que `SignerManager`. */
+  const displayNameOf = (signer: Signer): string =>
+    signerDisplayName(
+      signer.name,
+      signers.findIndex((candidate) => candidate.id === signer.id),
+      strings.defaultSignerName,
+    );
+  const currentDisplayName = current ? displayNameOf(current) : "";
+
   const typeLabel = (type: SignatureFieldType): string =>
     type === "signature" ? strings.fieldSignature : strings.fieldInitials;
 
@@ -236,10 +246,10 @@ export function SigningCeremony({
             />
           </span>
           <h4 className="mt-4 text-lg font-black tracking-[-0.02em] text-foreground">
-            {strings.handoffTitle(current.name)}
+            {strings.handoffTitle(currentDisplayName)}
           </h4>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-            {strings.handoffBody(current.name)}
+            {strings.handoffBody(currentDisplayName)}
           </p>
           <div className="mt-5 flex justify-center">
             <Button size="lg" onClick={() => setStage("capture")}>
@@ -252,7 +262,7 @@ export function SigningCeremony({
       {current && stage === "capture" ? (
         <div className="glass rounded-ios p-5">
           <h4 className="text-base font-black tracking-[-0.02em] text-foreground">
-            {strings.captureTitle(current.name)}
+            {strings.captureTitle(currentDisplayName)}
           </h4>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {strings.captureBody}
@@ -315,7 +325,7 @@ export function SigningCeremony({
       {current && stage === "review" ? (
         <div className="glass rounded-ios p-5">
           <h4 className="text-base font-black tracking-[-0.02em] text-foreground">
-            {strings.reviewTitle(current.name)}
+            {strings.reviewTitle(currentDisplayName)}
           </h4>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {strings.reviewBody(currentFieldCount)}
@@ -382,7 +392,7 @@ export function SigningCeremony({
                 style={{ backgroundColor: signer.color }}
               />
               <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                {signer.name}
+                {displayNameOf(signer)}
               </span>
               <span
                 className={cn(
@@ -450,8 +460,8 @@ export function SigningCeremony({
           variant={composer === "initials" ? "initials" : "signature"}
           title={
             composer === "initials"
-              ? strings.composerInitialsFor(current.name)
-              : strings.composerFor(current.name)
+              ? strings.composerInitialsFor(currentDisplayName)
+              : strings.composerFor(currentDisplayName)
           }
           onSave={(draft) => saveDraft(composer, draft)}
         />

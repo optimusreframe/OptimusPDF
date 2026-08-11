@@ -21,6 +21,7 @@ import {
 } from "@/lib/pdf/core";
 import {
   SIGNATURE_FIELD_TYPES,
+  signerDisplayName,
   type SignatureField,
   type SignatureFieldType,
   type Signer,
@@ -232,6 +233,13 @@ function FieldPlacerInner({
 
   const signerById = (id: string): Signer | null =>
     signers.find((signer) => signer.id === id) ?? null;
+
+  /** Nombre a mostrar de un firmante por id, con el mismo fallback numerado que `SignerManager`. */
+  const signerDisplayNameById = (id: string): string => {
+    const index = signers.findIndex((signer) => signer.id === id);
+    if (index === -1) return "";
+    return signerDisplayName(signers[index].name, index, strings.defaultSignerName);
+  };
 
   const activeSigner = activeSignerId ? signerById(activeSignerId) : null;
   const pageFields = fields.filter((field) => field.pageIndex === pageIndex);
@@ -469,7 +477,7 @@ function FieldPlacerInner({
             aria-label={strings.activeSignerLabel}
             className="flex flex-wrap gap-1.5"
           >
-            {signers.map((signer) => {
+            {signers.map((signer, index) => {
               const active = signer.id === activeSignerId;
               return (
                 <button
@@ -491,7 +499,9 @@ function FieldPlacerInner({
                     /* Color del firmante: dato del documento, no un token del tema. */
                     style={{ backgroundColor: signer.color }}
                   />
-                  <span className="max-w-32 truncate">{signer.name}</span>
+                  <span className="max-w-32 truncate">
+                    {signerDisplayName(signer.name, index, strings.defaultSignerName)}
+                  </span>
                 </button>
               );
             })}
@@ -550,7 +560,10 @@ function FieldPlacerInner({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="hud-label text-[10px] text-muted-foreground">
           {activeSigner
-            ? strings.fieldOwnerLabel(activeSigner.name, typeLabel(activeType))
+            ? strings.fieldOwnerLabel(
+                signerDisplayNameById(activeSigner.id),
+                typeLabel(activeType),
+              )
             : strings.needSigner}
         </p>
         <div className="flex items-center gap-2">
@@ -612,7 +625,7 @@ function FieldPlacerInner({
               signer={signerById(field.signerId)}
               selected={field.id === selectedId}
               label={strings.fieldOwnerLabel(
-                signerById(field.signerId)?.name ?? "",
+                signerDisplayNameById(field.signerId),
                 typeLabel(field.type),
               )}
               strings={strings}

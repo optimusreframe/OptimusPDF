@@ -90,6 +90,22 @@ export function signerColorAt(index: number): string {
   return SIGNER_COLORS[((index % size) + size) % size];
 }
 
+/**
+ * Nombre a mostrar para un firmante: el propio nombre si escribio algo, o
+ * el generico ("Firmante N") si el campo esta vacio (ahora es el estado
+ * inicial real, no solo un valor precargado que el usuario tenia que
+ * borrar). Centraliza el fallback `name || defaultSignerName(...)` que
+ * antes se repetia en cada sitio que mostraba el nombre.
+ */
+export function signerDisplayName(
+  name: string,
+  index: number,
+  defaultSignerName: (position: number) => string,
+): string {
+  const trimmed = name.trim();
+  return trimmed.length > 0 ? trimmed : defaultSignerName(index + 1);
+}
+
 /** Hueco reservado para una firma/inicial (imagen) empotrada por `signPdfMulti`. */
 export type ImageSignPlacement = {
   kind: "image";

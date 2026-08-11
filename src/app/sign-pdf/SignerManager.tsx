@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import {
   SIGNER_COLORS,
   signerColorAt,
+  signerDisplayName,
   type Signer,
 } from "@/lib/pdf/sign";
 import type { SignStrings } from "@/app/sign-pdf/strings";
@@ -53,7 +54,7 @@ export function SignerManager({
     if (full) return;
     const signer: Signer = {
       id: nextSignerId(),
-      name: strings.defaultSignerName(signers.length + 1),
+      name: "",
       color: signerColorAt(signers.length),
     };
     onSignersChange(recolor([...signers, signer]));
@@ -105,7 +106,11 @@ export function SignerManager({
                 type="button"
                 role="radio"
                 aria-checked={active}
-                aria-label={signer.name || strings.defaultSignerName(index + 1)}
+                aria-label={signerDisplayName(
+                  signer.name,
+                  index,
+                  strings.defaultSignerName,
+                )}
                 onClick={() => onActiveSignerIdChange(signer.id)}
                 className="flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200 ease-spring"
                 /* Color del firmante: es dato del documento, no un token del tema. */
@@ -119,6 +124,7 @@ export function SignerManager({
                 type="text"
                 value={signer.name}
                 maxLength={40}
+                placeholder={strings.defaultSignerName(index + 1)}
                 aria-label={strings.signerNameLabel(index + 1)}
                 onChange={(event) => rename(signer.id, event.target.value)}
                 onFocus={() => onActiveSignerIdChange(signer.id)}
@@ -132,7 +138,7 @@ export function SignerManager({
               <button
                 type="button"
                 aria-label={strings.removeSigner(
-                  signer.name || strings.defaultSignerName(index + 1),
+                  signerDisplayName(signer.name, index, strings.defaultSignerName),
                 )}
                 onClick={() => remove(signer.id)}
                 className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-muted-foreground transition-colors hover:bg-white/15 hover:text-destructive"
