@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { PenLine } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { Sheet } from "@/components/ui/Sheet";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import {
   SignatureComposer,
@@ -29,6 +30,7 @@ import { useI18n } from "@/lib/i18n";
 import { PdfError, withSuffix, type ProgressCallback } from "@/lib/pdf/core";
 import { detectFields, type DetectedField } from "@/lib/pdf/detectFields";
 import {
+  buildSignerFilenamePrefix,
   dataUrlToBytes,
   signPdf,
   signPdfMulti,
@@ -268,12 +270,45 @@ function multiReady(
 }
 
 export function SignToolClient() {
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const strings = SIGN_STRINGS[language];
   const [composerOpen, setComposerOpen] = useState(false);
   const [pageCount, setPageCount] = useState(0);
   /** Lo rellena `ToolShell`: remata la ronda con el mismo procesado de siempre. */
   const runRef = useRef<(() => void) | null>(null);
+
+  /**
+   * Respuesta del prompt de prefijo de firmantes (ver `requestFinish`),
+   * leida por `process()` en el momento de escribir el archivo. Va en un
+   * ref (no en `SignToolOptions`) para no depender de que un `setOptions`
+   * asincronico ya se haya reflejado en el render antes de disparar
+   * `runRef.current?.()` -- evita una condicion de carrera real entre
+   * "guardar la eleccion" y "arrancar el procesado".
+   */
+  const signerPrefixRef = useRef(false);
+  const [prefixPromptOpen, setPrefixPromptOpen] = useState(false);
+
+  /**
+   * Se llama al pulsar "Firmar y descargar"/"Aplicar y descargar" en modo
+   * multi. Si hay al menos un firmante con nombre, pregunta si prefijar
+   * el archivo con esos nombres antes de arrancar el procesado real; si
+   * ninguno tiene nombre, no tiene sentido preguntar y se salta directo.
+   */
+  const requestFinish = useCallback((signers: Signer[]) => {
+    const hasNamedSigner = signers.some((signer) => signer.name.trim().length > 0);
+    if (!hasNamedSigner) {
+      signerPrefixRef.current = false;
+      runRef.current?.();
+      return;
+    }
+    setPrefixPromptOpen(true);
+  }, []);
+
+  const choosePrefix = useCallback((useSignerPrefix: boolean) => {
+    signerPrefixRef.current = useSignerPrefix;
+    setPrefixPromptOpen(false);
+    runRef.current?.();
+  }, []);
 
   const process = useCallback(
     async (
@@ -282,7 +317,7 @@ export function SignToolClient() {
       onProgress: ProgressCallback,
     ): Promise<ProcessResult> => {
       const file = files[0];
-      const filename = withSuffix(file.name, strings.filenameSuffix);
+      const baseFilename = withSuffix(file.name, strings.filenameSuffix);
 
       if (options.mode === "single") {
         const blob = await signPdf(
@@ -293,7 +328,7 @@ export function SignToolClient() {
           },
           onProgress,
         );
-        return { blob, filename };
+        return { blob, filename: baseFilename };
       }
 
       const hasText = hasFilledTextValue(options.textFields, options.textValues);
@@ -315,12 +350,18 @@ export function SignToolClient() {
       // Solo se guarda tras un empotrado con exito: si `signPdfMulti`
       // lanza, la linea de arriba corta antes de llegar aqui.
       saveStoredValues(options.textFields, options.textValues);
+
+      const prefix = signerPrefixRef.current
+        ? buildSignerFilenamePrefix(options.signers.map((signer) => signer.name))
+        : null;
+      const filename = prefix ? `${prefix}_${baseFilename}` : baseFilename;
       return { blob, filename };
     },
     [strings.filenameSuffix],
   );
 
   return (
+    <Fragment>
     <ToolShell<SignToolOptions>
       tool={TOOL}
       defaultOptions={DEFAULT_OPTIONS}
@@ -387,7 +428,7 @@ export function SignToolClient() {
               file={files[0] ?? null}
               options={options}
               setOptions={setOptions}
-              onFinish={() => runRef.current?.()}
+              onFinish={() => requestFinish(options.signers)}
               strings={strings}
             />
           )}
@@ -464,6 +505,30 @@ export function SignToolClient() {
         )
       }
     />
+    <Sheet
+      open={prefixPromptOpen}
+      onClose={() => setPrefixPromptOpen(false)}
+      title={strings.filenamePrefixTitle}
+      closeLabel={t.common.close}
+    >
+      <p className="pb-2 text-sm leading-relaxed text-muted-foreground">
+        {strings.filenamePrefixBody}
+      </p>
+      <div className="flex flex-col gap-2 pb-2">
+        <Button size="md" fullWidth onClick={() => choosePrefix(true)}>
+          {strings.filenamePrefixYes}
+        </Button>
+        <Button
+          variant="ghost"
+          size="md"
+          fullWidth
+          onClick={() => choosePrefix(false)}
+        >
+          {strings.filenamePrefixNo}
+        </Button>
+      </div>
+    </Sheet>
+    </Fragment>
   );
 }
 

@@ -7,6 +7,7 @@ import {
   originForCenter,
   savePdfToBlob,
   scaleProgress,
+  slugify,
   standardFontFor,
   toPdfError,
   viewPointToUser,
@@ -104,6 +105,30 @@ export function signerDisplayName(
 ): string {
   const trimmed = name.trim();
   return trimmed.length > 0 ? trimmed : defaultSignerName(index + 1);
+}
+
+/**
+ * Prefijo de nombre de archivo a partir de los nombres de los firmantes,
+ * p.ej. `["Ana Perez", "Luis Gomez"]` -> `"ana-perez_and_luis-gomez"`. Un
+ * firmante sin nombre (o solo espacios) se OMITE del prefijo en vez de
+ * rellenarse con un generico "firmante-N" -- un nombre de archivo con un
+ * marcador feo es peor que uno mas corto. Si no queda ningun nombre
+ * usable devuelve `null`: quien llama no debe ofrecer el prefijo en ese
+ * caso. Cada nombre pasa por `slugify()` (guiones, sin acentos); varios
+ * nombres se unen con "_and_" para que el separador entre PERSONAS se
+ * distinga del separador entre PALABRAS de un mismo nombre.
+ */
+export function buildSignerFilenamePrefix(
+  names: readonly string[],
+): string | null {
+  const slugs = names
+    .map((name) => slugify(name))
+    .filter((slug) => slug.length > 0);
+  if (slugs.length === 0) return null;
+  if (slugs.length === 1) return slugs[0];
+  const last = slugs[slugs.length - 1];
+  const rest = slugs.slice(0, -1);
+  return `${rest.join("_")}_and_${last}`;
 }
 
 /** Hueco reservado para una firma/inicial (imagen) empotrada por `signPdfMulti`. */

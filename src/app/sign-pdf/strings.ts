@@ -132,6 +132,12 @@ export type SignStrings = {
   textOnlyReadyBody: string;
   finishAndDownload: string;
 
+  /* --- Prefijo de firmantes en el nombre de archivo --- */
+  filenamePrefixTitle: string;
+  filenamePrefixBody: string;
+  filenamePrefixYes: string;
+  filenamePrefixNo: string;
+
   /* --- Compositor con contexto --- */
   composerFor: (name: string) => string;
   composerInitialsFor: (name: string) => string;
@@ -300,6 +306,12 @@ const es: SignStrings = {
     "Este documento no tiene firmas por recoger: aplica los campos de texto rellenos y genera el PDF final.",
   finishAndDownload: "Aplicar y descargar",
 
+  filenamePrefixTitle: "Nombre del archivo",
+  filenamePrefixBody:
+    "¿Agregamos los nombres de los firmantes al principio del nombre del archivo? Por ejemplo: ana-perez_and_luis-gomez_contrato-firmado.pdf.",
+  filenamePrefixYes: "Sí, agregarlos",
+  filenamePrefixNo: "No, dejar el nombre como está",
+
   composerFor: (name) => `Firma de ${name}`,
   composerInitialsFor: (name) => `Iniciales de ${name}`,
   initialsHint:
@@ -463,6 +475,12 @@ const en: SignStrings = {
   textOnlyReadyBody:
     "This document has no signatures to collect: apply the filled text fields and generate the final PDF.",
   finishAndDownload: "Apply and download",
+
+  filenamePrefixTitle: "File name",
+  filenamePrefixBody:
+    "Should we add the signers' names at the start of the file name? For example: ana-perez_and_luis-gomez_contract-signed.pdf.",
+  filenamePrefixYes: "Yes, add them",
+  filenamePrefixNo: "No, leave the name as is",
 
   composerFor: (name) => `${name}'s signature`,
   composerInitialsFor: (name) => `${name}'s initials`,
