@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { FieldPlacer, TextFieldPlacer } from "@/app/sign-pdf/FieldPlacer";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import type { SignatureField, SignatureFieldType, Signer } from "@/lib/pdf/sign";
@@ -268,6 +268,33 @@ describe("FieldPlacer — src/app/sign-pdf/FieldPlacer.tsx", () => {
     expect(button.disabled).toBe(true);
     expect(screen.getByText(strings.needSigner)).toBeTruthy();
   });
+
+  it("'Borrar todos los huecos' no borra nada hasta confirmar en el Sheet", async () => {
+    let last: SignatureField[] = [];
+    render(<Harness onFieldsChange={(fields) => (last = fields)} />);
+    await waitForPreview();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+    expect(last).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: strings.clearAllFields }));
+    // Un solo toque en el boton NO debe mutar el estado: solo abre el Sheet.
+    expect(last).toHaveLength(1);
+    expect(screen.getByText(strings.confirmClearAllFieldsBody)).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.confirmCancel }),
+    );
+    expect(last).toHaveLength(1);
+    expect(screen.queryByText(strings.confirmClearAllFieldsBody)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.clearAllFields }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: strings.clearAllFields }),
+    );
+    expect(last).toHaveLength(0);
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -416,5 +443,28 @@ describe("TextFieldPlacer — src/app/sign-pdf/FieldPlacer.tsx", () => {
     await waitForTextPreview();
 
     expect(screen.getByText(strings.noTextFields)).toBeTruthy();
+  });
+
+  it("'Borrar todos los campos' no borra nada hasta confirmar en el Sheet", async () => {
+    let last: DetectedField[] = [];
+    render(<TextHarness onFieldsChange={(fields) => (last = fields)} />);
+    await waitForTextPreview();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+    expect(last).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.clearAllTextFields }),
+    );
+    expect(last).toHaveLength(1);
+    expect(screen.getByText(strings.confirmClearAllTextFieldsBody)).toBeTruthy();
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: strings.clearAllTextFields }),
+    );
+    expect(last).toHaveLength(0);
   });
 });

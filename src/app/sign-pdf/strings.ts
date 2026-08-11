@@ -10,6 +10,10 @@ export type SignStrings = {
   modeUpload: string;
   drawHint: string;
   clear: string;
+  /** Boton "no, cancelar" de un `ConfirmSheet` -- generico, cualquier confirmacion lo reutiliza. */
+  confirmCancel: string;
+  /** Aria-label del boton "X" de cerrar de un `ConfirmSheet` -- distinto de `confirmCancel` para no repetir el mismo texto en dos botones del mismo dialogo. */
+  confirmClose: string;
   typeLabel: string;
   typePlaceholder: string;
   styleLabel: string;
@@ -73,6 +77,8 @@ export type SignStrings = {
   totalFields: (count: number) => string;
   clearPageFields: string;
   clearAllFields: string;
+  confirmClearAllFieldsTitle: string;
+  confirmClearAllFieldsBody: string;
   noFields: string;
   thumbsTitle: string;
   goToPage: (page: number) => string;
@@ -93,6 +99,8 @@ export type SignStrings = {
   totalTextFields: (count: number) => string;
   clearPageTextFields: string;
   clearAllTextFields: string;
+  confirmClearAllTextFieldsTitle: string;
+  confirmClearAllTextFieldsBody: string;
   noTextFields: string;
   lowConfidenceHint: string;
   formPanelTitle: string;
@@ -159,6 +167,8 @@ const es: SignStrings = {
   modeUpload: "Subir",
   drawHint: "Traza la firma con el dedo o el ratón dentro del recuadro.",
   clear: "Borrar trazo",
+  confirmCancel: "Cancelar",
+  confirmClose: "Cerrar",
   typeLabel: "Nombre",
   typePlaceholder: "Escribe tu nombre",
   styleLabel: "Estilo de letra",
@@ -227,8 +237,11 @@ const es: SignStrings = {
     count === 1 ? "1 hueco en esta página" : `${count} huecos en esta página`,
   totalFields: (count) =>
     count === 1 ? "1 hueco en total" : `${count} huecos en total`,
-  clearPageFields: "Vaciar la página",
-  clearAllFields: "Vaciar todo",
+  clearPageFields: "Quitar los huecos de esta página",
+  clearAllFields: "Borrar todos los huecos del documento",
+  confirmClearAllFieldsTitle: "¿Borrar todos los huecos?",
+  confirmClearAllFieldsBody:
+    "Se van a quitar todos los huecos de firma/iniciales reservados en el documento, en todas las páginas. Esta acción no se puede deshacer.",
   noFields: "Reserva al menos un hueco para poder firmar.",
   thumbsTitle: "Páginas",
   goToPage: (page) => `Ir a la página ${page}`,
@@ -253,8 +266,11 @@ const es: SignStrings = {
     count === 1 ? "1 campo en esta página" : `${count} campos en esta página`,
   totalTextFields: (count) =>
     count === 1 ? "1 campo en total" : `${count} campos en total`,
-  clearPageTextFields: "Vaciar la página",
-  clearAllTextFields: "Vaciar todo",
+  clearPageTextFields: "Quitar los campos de esta página",
+  clearAllTextFields: "Borrar todos los campos del documento",
+  confirmClearAllTextFieldsTitle: "¿Borrar todos los campos?",
+  confirmClearAllTextFieldsBody:
+    "Se van a quitar todos los campos de texto detectados o añadidos a mano, en todas las páginas, junto con lo que hayas escrito en ellos. Esta acción no se puede deshacer.",
   noTextFields:
     "Todavía no hay ningún campo de texto. Es opcional: puedes seguir sin rellenar nada.",
   lowConfidenceHint:
@@ -332,6 +348,8 @@ const en: SignStrings = {
   modeUpload: "Upload",
   drawHint: "Trace your signature with a finger or the mouse inside the box.",
   clear: "Clear stroke",
+  confirmCancel: "Cancel",
+  confirmClose: "Close",
   typeLabel: "Name",
   typePlaceholder: "Type your name",
   styleLabel: "Lettering style",
@@ -399,8 +417,11 @@ const en: SignStrings = {
     count === 1 ? "1 slot on this page" : `${count} slots on this page`,
   totalFields: (count) =>
     count === 1 ? "1 slot in total" : `${count} slots in total`,
-  clearPageFields: "Clear the page",
-  clearAllFields: "Clear everything",
+  clearPageFields: "Remove slots on this page",
+  clearAllFields: "Delete all slots in this document",
+  confirmClearAllFieldsTitle: "Delete all slots?",
+  confirmClearAllFieldsBody:
+    "This removes every signature/initials slot reserved in the document, on every page. This cannot be undone.",
   noFields: "Reserve at least one slot so there is something to sign.",
   thumbsTitle: "Pages",
   goToPage: (page) => `Go to page ${page}`,
@@ -425,8 +446,11 @@ const en: SignStrings = {
     count === 1 ? "1 field on this page" : `${count} fields on this page`,
   totalTextFields: (count) =>
     count === 1 ? "1 field in total" : `${count} fields in total`,
-  clearPageTextFields: "Clear the page",
-  clearAllTextFields: "Clear everything",
+  clearPageTextFields: "Remove fields on this page",
+  clearAllTextFields: "Delete all fields in this document",
+  confirmClearAllTextFieldsTitle: "Delete all fields?",
+  confirmClearAllTextFieldsBody:
+    "This removes every text field, detected or added by hand, on every page, along with whatever you typed into them. This cannot be undone.",
   noTextFields:
     "There are no text fields yet. This is optional: you can continue without filling anything in.",
   lowConfidenceHint:

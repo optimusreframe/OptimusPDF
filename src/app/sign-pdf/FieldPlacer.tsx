@@ -9,6 +9,7 @@ import {
 } from "react";
 import { ChevronLeft, ChevronRight, Move, PenLine, Type, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
 import {
@@ -136,6 +137,7 @@ function FieldPlacerInner({
   const [loading, setLoading] = useState(false);
   const [hostSize, setHostSize] = useState({ width: 0, height: 0 });
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -593,6 +595,42 @@ function FieldPlacerInner({
         </div>
       </div>
 
+      {/*
+       * Controles destructivos arriba, lejos de las miniaturas: en movil
+       * se hace scroll dentro de la vista previa para moverse entre
+       * paginas, y un boton que borra todo justo antes de las miniaturas
+       * quedaba en esa misma ruta de scroll -- facil de tocar sin querer.
+       */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <p className="hud-label text-[10px] text-muted-foreground tabular-nums">
+          {strings.fieldsOnPage(pageFields.length)} ·{" "}
+          {strings.totalFields(fields.length)}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={pageFields.length === 0}
+            onClick={() => {
+              onFieldsChange(
+                fields.filter((field) => field.pageIndex !== pageIndex),
+              );
+              onSelectedIdChange(null);
+            }}
+          >
+            {strings.clearPageFields}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={fields.length === 0}
+            onClick={() => setConfirmClearAllOpen(true)}
+          >
+            {strings.clearAllFields}
+          </Button>
+        </div>
+      </div>
+
       <div className="glass rounded-ios flex justify-center p-3">
         <div
           ref={hostRef}
@@ -650,39 +688,6 @@ function FieldPlacerInner({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="hud-label text-[10px] text-muted-foreground tabular-nums">
-          {strings.fieldsOnPage(pageFields.length)} ·{" "}
-          {strings.totalFields(fields.length)}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={pageFields.length === 0}
-            onClick={() => {
-              onFieldsChange(
-                fields.filter((field) => field.pageIndex !== pageIndex),
-              );
-              onSelectedIdChange(null);
-            }}
-          >
-            {strings.clearPageFields}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={fields.length === 0}
-            onClick={() => {
-              onFieldsChange([]);
-              onSelectedIdChange(null);
-            }}
-          >
-            {strings.clearAllFields}
-          </Button>
-        </div>
-      </div>
-
       {fields.length === 0 ? (
         <p role="alert" className="mt-3 text-xs text-destructive">
           {strings.noFields}
@@ -731,6 +736,20 @@ function FieldPlacerInner({
           </ul>
         </div>
       ) : null}
+
+      <ConfirmSheet
+        open={confirmClearAllOpen}
+        onClose={() => setConfirmClearAllOpen(false)}
+        onConfirm={() => {
+          onFieldsChange([]);
+          onSelectedIdChange(null);
+        }}
+        title={strings.confirmClearAllFieldsTitle}
+        body={strings.confirmClearAllFieldsBody}
+        confirmLabel={strings.clearAllFields}
+        cancelLabel={strings.confirmCancel}
+        closeLabel={strings.confirmClose}
+      />
     </div>
   );
 }
@@ -882,6 +901,7 @@ function TextFieldPlacerInner({
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<TextDragState | null>(null);
@@ -1162,6 +1182,39 @@ function TextFieldPlacerInner({
         </div>
       </div>
 
+      {/*
+       * Controles destructivos arriba: en movil se hace scroll dentro de
+       * la vista previa para moverse por el documento, asi que ningun
+       * boton que borre todo queda en esa ruta de scroll.
+       */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <p className="hud-label text-[10px] text-muted-foreground tabular-nums">
+          {strings.textFieldsOnPage(pageFields.length)} ·{" "}
+          {strings.totalTextFields(fields.length)}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={pageFields.length === 0}
+            onClick={() => {
+              onFieldsChange(fields.filter((field) => field.pageIndex !== pageIndex));
+              onSelectedIdChange(null);
+            }}
+          >
+            {strings.clearPageTextFields}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={fields.length === 0}
+            onClick={() => setConfirmClearAllOpen(true)}
+          >
+            {strings.clearAllTextFields}
+          </Button>
+        </div>
+      </div>
+
       <div className="glass rounded-ios flex justify-center p-3">
         <div
           ref={hostRef}
@@ -1223,42 +1276,25 @@ function TextFieldPlacerInner({
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="hud-label text-[10px] text-muted-foreground tabular-nums">
-          {strings.textFieldsOnPage(pageFields.length)} ·{" "}
-          {strings.totalTextFields(fields.length)}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={pageFields.length === 0}
-            onClick={() => {
-              onFieldsChange(fields.filter((field) => field.pageIndex !== pageIndex));
-              onSelectedIdChange(null);
-            }}
-          >
-            {strings.clearPageTextFields}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={fields.length === 0}
-            onClick={() => {
-              onFieldsChange([]);
-              onSelectedIdChange(null);
-            }}
-          >
-            {strings.clearAllTextFields}
-          </Button>
-        </div>
-      </div>
-
       {fields.length === 0 ? (
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           {strings.noTextFields}
         </p>
       ) : null}
+
+      <ConfirmSheet
+        open={confirmClearAllOpen}
+        onClose={() => setConfirmClearAllOpen(false)}
+        onConfirm={() => {
+          onFieldsChange([]);
+          onSelectedIdChange(null);
+        }}
+        title={strings.confirmClearAllTextFieldsTitle}
+        body={strings.confirmClearAllTextFieldsBody}
+        confirmLabel={strings.clearAllTextFields}
+        cancelLabel={strings.confirmCancel}
+        closeLabel={strings.confirmClose}
+      />
     </div>
   );
 }
