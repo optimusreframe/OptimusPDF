@@ -40,7 +40,7 @@ export function Header() {
   }, [openCategory]);
 
   return (
-    <header className="glass-bar safe-top sticky top-0 z-40 border-b border-white/10">
+    <header className="glass-bar safe-top sticky top-0 z-40 border-b border-white/10 lg:hidden">
       <div className="mx-auto flex h-14 max-w-[1200px] items-center gap-6 px-4 md:h-16 md:px-6">
         <Logo />
 
