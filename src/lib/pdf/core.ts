@@ -93,7 +93,13 @@ export type PdfErrorCode =
    * (a proposito) no intenta OCR para buscarlas — ver comentario junto a
    * `extractDocumentBlocks` en `pdfToExcel.ts`.
    */
-  | "noTablesFound";
+  | "noTablesFound"
+  /**
+   * Un zip de configuracion de firma (exportado con `signConfig.ts`) no
+   * es un zip valido, le falta `manifest.json`, su `version` no se
+   * reconoce, o su contenido no pasa el type guard escrito a mano.
+   */
+  | "invalidConfig";
 
 /** Error tipado del motor: la UI traduce `code` mediante i18n. */
 export class PdfError extends Error {

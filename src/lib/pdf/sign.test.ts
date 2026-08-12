@@ -3,6 +3,7 @@ import { PDFDict, PDFDocument, PDFName } from "@cantoo/pdf-lib";
 import {
   buildSignerFilenamePrefix,
   dataUrlToBytes,
+  normalizeFieldLabel,
   signPdf,
   signerDisplayName,
   type SignOptions,
@@ -116,6 +117,22 @@ describe("buildSignerFilenamePrefix — src/lib/pdf/sign.ts", () => {
   it("array vacio o solo nombres vacios: null (no ofrecer el prompt)", () => {
     expect(buildSignerFilenamePrefix([])).toBeNull();
     expect(buildSignerFilenamePrefix(["", "   "])).toBeNull();
+  });
+});
+
+describe("normalizeFieldLabel — src/lib/pdf/sign.ts", () => {
+  it("minusculas, sin acentos, puntuacion colapsada a un espacio", () => {
+    expect(normalizeFieldLabel("Cliente/Asegurado:")).toBe("cliente asegurado");
+  });
+
+  it("dos etiquetas equivalentes normalizan a la misma clave", () => {
+    expect(normalizeFieldLabel("Número de Póliza")).toBe(
+      normalizeFieldLabel("numero de poliza"),
+    );
+  });
+
+  it("recorta espacios sobrantes en los bordes", () => {
+    expect(normalizeFieldLabel("  Nombre  ")).toBe("nombre");
   });
 });
 

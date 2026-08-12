@@ -81,6 +81,39 @@ export type ToolShellProps<TOptions> = {
    * la pantalla de descarga.
    */
   runRef?: RefObject<(() => void) | null>;
+  /**
+   * Contenido extra despues de `DownloadScreen`, solo en `phase === "done"`.
+   * Lo necesita quien quiere ofrecer algo mas que "empezar de nuevo" justo
+   * tras descargar (ej. un prompt para reusar datos en otro documento). No
+   * incluye un `reset()` propio a proposito: quien pasa `renderDone` es el
+   * mismo componente que crea y pasa `resetRef` (o `runRef`), asi que ya
+   * lo tiene en su propio closure -- reenviarlo aqui duplicaria la API sin
+   * necesidad, y ademas ensuciaria este render con una funcion que lee
+   * refs (`react-hooks/refs` lo marca con razon: nada impide que una
+   * implementacion de `renderDone` la invoque sincronicamente en vez de
+   * dentro de su propio manejador de evento).
+   */
+  renderDone?: (context: {
+    result: ProcessResult;
+    options: TOptions;
+  }) => ReactNode;
+  /**
+   * Se rellena con una version de `reset()` que acepta un patch parcial de
+   * opciones en vez de volver siempre a `defaultOptions`. Lo necesita quien
+   * quiere reiniciar el flujo (archivo fuera, vuelta a `"idle"`) pero
+   * conservando algo que el usuario ya cargo (ej. el roster de firmantes).
+   */
+  resetRef?: RefObject<((patch?: Partial<TOptions>) => void) | null>;
+  /**
+   * Se rellena con una funcion que carga archivos y un patch de opciones
+   * sin pasar por el dropzone. Lo necesita quien reanuda un borrador
+   * guardado (archivo reconstruido desde bytes) o importa una
+   * configuracion. A diferencia de `resetRef`, deja `phase` en `"files"`
+   * (hay archivo) en vez de `"idle"`.
+   */
+  loadRef?: RefObject<
+    ((files: File[], patch?: Partial<TOptions>) => void) | null
+  >;
 };
 
 type Phase = "idle" | "files" | "options" | "processing" | "done";
@@ -95,6 +128,9 @@ export function ToolShell<TOptions>({
   canRun: canRunProp,
   progressMessage,
   runRef,
+  renderDone,
+  resetRef,
+  loadRef,
 }: ToolShellProps<TOptions>) {
   const t = useT();
   const Icon = tool.icon;
@@ -120,15 +156,55 @@ export function ToolShell<TOptions>({
     setPhase(next.length === 0 ? "idle" : "files");
   }, []);
 
-  const reset = useCallback(() => {
-    runIdRef.current += 1;
-    setFiles([]);
-    setOptionsState(defaultOptions);
-    setResult(null);
-    setProgress(0);
-    setError(null);
-    setPhase("idle");
-  }, [defaultOptions]);
+  /**
+   * Base de `reset()` y del `resetRef` expuesto: vuelve siempre a
+   * `"idle"` sin archivos (nunca a un `phase` que exija `files` para
+   * pintar, ver `showWorkspace` mas abajo), y aborta cualquier `process()`
+   * en vuelo -- `reset()` hoy solo se alcanza tras `"done"` (sin ejecucion
+   * en marcha), pero `resetRef` es publico y llamable en cualquier
+   * momento, asi que necesita la misma guardia que ya usa `cancel()`.
+   * Solo sobrevive del estado anterior lo que el patch nombra
+   * explicitamente -- fusionar contra `defaultOptions`, no contra el
+   * `options` actual, para no arrastrar datos del documento anterior
+   * (huecos, valores de texto) que ya no describen el archivo nuevo.
+   */
+  const resetWith = useCallback(
+    (patch?: Partial<TOptions>) => {
+      runIdRef.current += 1;
+      abortRef.current?.abort();
+      abortRef.current = null;
+      setFiles([]);
+      setOptionsState({ ...defaultOptions, ...patch });
+      setResult(null);
+      setProgress(0);
+      setError(null);
+      setPhase("idle");
+    },
+    [defaultOptions],
+  );
+
+  const reset = useCallback(() => resetWith(), [resetWith]);
+
+  /**
+   * Igual que `resetWith`, pero con archivos: entra directo a `"files"`
+   * (o `"idle"` si `files` viene vacio) en vez de siempre a `"idle"`, para
+   * quien reanuda un borrador o importa una configuracion sin pasar por
+   * el dropzone. Misma guardia de `runIdRef`/`abortRef` que `resetWith`.
+   */
+  const loadWith = useCallback(
+    (nextFiles: File[], patch?: Partial<TOptions>) => {
+      runIdRef.current += 1;
+      abortRef.current?.abort();
+      abortRef.current = null;
+      setFiles(nextFiles);
+      setOptionsState({ ...defaultOptions, ...patch });
+      setResult(null);
+      setProgress(0);
+      setError(null);
+      setPhase(nextFiles.length === 0 ? "idle" : "files");
+    },
+    [defaultOptions],
+  );
 
   const run = useCallback(async () => {
     if (files.length < minFiles) {
@@ -182,6 +258,22 @@ export function ToolShell<TOptions>({
       runRef.current = null;
     };
   }, [run, runRef]);
+
+  useEffect(() => {
+    if (!resetRef) return;
+    resetRef.current = resetWith;
+    return () => {
+      resetRef.current = null;
+    };
+  }, [resetWith, resetRef]);
+
+  useEffect(() => {
+    if (!loadRef) return;
+    loadRef.current = loadWith;
+    return () => {
+      loadRef.current = null;
+    };
+  }, [loadWith, loadRef]);
 
   const cancel = useCallback(() => {
     runIdRef.current += 1;
@@ -355,13 +447,16 @@ export function ToolShell<TOptions>({
       ) : null}
 
       {phase === "done" && result ? (
-        <DownloadScreen
-          slug={tool.slug}
-          filename={result.filename}
-          size={result.blob.size}
-          onDownload={() => downloadBlob(result.blob, result.filename)}
-          onStartOver={reset}
-        />
+        <>
+          <DownloadScreen
+            slug={tool.slug}
+            filename={result.filename}
+            size={result.blob.size}
+            onDownload={() => downloadBlob(result.blob, result.filename)}
+            onStartOver={reset}
+          />
+          {renderDone ? renderDone({ result, options }) : null}
+        </>
       ) : null}
     </div>
   );

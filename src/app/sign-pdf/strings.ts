@@ -109,6 +109,8 @@ export type SignStrings = {
   reuseValuesPrompt: string;
   reuseValuesAccept: string;
   reuseValuesDecline: string;
+  /** Aria-label del boton "x" para olvidar una sugerencia guardada, ej. "Olvidar «Ana Perez»". */
+  forgetSuggestion: (value: string) => string;
 
   /* --- Ceremonia por turnos --- */
   ceremonyTitle: string;
@@ -156,6 +158,33 @@ export type SignStrings = {
   noFieldsError: string;
   notAllSignedError: string;
   progressMessage: string;
+
+  /* --- Privacidad del historial de valores (localStorage) --- */
+  privacyNoticeToggle: string;
+  privacyNoticeBody: string;
+  privacyClearData: string;
+  privacyClearDataTitle: string;
+  privacyClearDataBody: string;
+  privacyDataCleared: string;
+
+  /* --- "Firmar otro documento con los mismos datos?" --- */
+  signAgainTitle: string;
+  signAgainBody: string;
+  signAgainAccept: string;
+
+  /* --- Borradores locales (IndexedDB) --- */
+  draftsButton: string;
+  draftsTitle: string;
+  draftsEmpty: string;
+  draftsResume: string;
+  draftsDelete: (fileName: string) => string;
+  draftsSavedAt: (date: string) => string;
+  draftsConfirmDeleteTitle: string;
+  draftsConfirmDeleteBody: string;
+
+  /* --- Exportar/importar configuracion --- */
+  exportConfigButton: string;
+  importConfigButton: string;
 };
 
 const es: SignStrings = {
@@ -281,6 +310,7 @@ const es: SignStrings = {
   reuseValuesPrompt: "¿Usar los mismos datos que en tu último documento?",
   reuseValuesAccept: "Sí, rellenar",
   reuseValuesDecline: "No, empezar en blanco",
+  forgetSuggestion: (value) => `Olvidar «${value}»`,
 
   ceremonyTitle: "Firmad por turnos",
   checkingDocument: "Comprobando el documento antes de firmar",
@@ -336,6 +366,33 @@ const es: SignStrings = {
   noFieldsError: "No hay ningún hueco reservado sobre el documento.",
   notAllSignedError: "Todavía falta gente por firmar.",
   progressMessage: "Aplicando las firmas",
+
+  privacyNoticeToggle: "Cómo usamos tus datos",
+  privacyNoticeBody:
+    "OptimusPDF no guarda datos en la nube ni en un servidor. Los datos únicamente existen y se manejan en su dispositivo y tu navegador. Si deseas eliminar completamente los datos, solo cierra la pestaña, borra los datos de navegación de tu navegador o haz clic en el botón 'Borrar datos'. Los datos que se guardan en tu navegador solo sirven para usarlos en otros documentos que abras en tu navegador, puedes borrarlos cuando lo desees.",
+  privacyClearData: "Borrar datos",
+  privacyClearDataTitle: "¿Borrar los datos guardados?",
+  privacyClearDataBody:
+    "Se van a borrar todos los valores de campos que se recordaron para sugerirlos en otros documentos (nombres, direcciones, números y demás texto que hayas escrito). Esta acción no se puede deshacer.",
+  privacyDataCleared: "Datos borrados.",
+
+  signAgainTitle: "¿Firmar otro documento?",
+  signAgainBody:
+    "Vuelve al paso de firmantes con la misma lista de personas ya cargada, para no tener que añadirlas de nuevo.",
+  signAgainAccept: "Sí, firmar otro con los mismos firmantes",
+
+  draftsButton: "Ver borradores",
+  draftsTitle: "Borradores guardados",
+  draftsEmpty: "Todavía no hay ningún borrador guardado en este dispositivo.",
+  draftsResume: "Reanudar",
+  draftsDelete: (fileName) => `Borrar el borrador de ${fileName}`,
+  draftsSavedAt: (date) => `Guardado el ${date}`,
+  draftsConfirmDeleteTitle: "¿Borrar este borrador?",
+  draftsConfirmDeleteBody:
+    "Se va a borrar el documento y todo lo configurado en él. Esta acción no se puede deshacer.",
+
+  exportConfigButton: "Exportar configuración",
+  importConfigButton: "Importar configuración",
 };
 
 const en: SignStrings = {
@@ -460,6 +517,7 @@ const en: SignStrings = {
   reuseValuesPrompt: "Use the same data as your last document?",
   reuseValuesAccept: "Yes, fill it in",
   reuseValuesDecline: "No, start blank",
+  forgetSuggestion: (value) => `Forget "${value}"`,
 
   ceremonyTitle: "Sign in turns",
   checkingDocument: "Checking the document before signing",
@@ -514,6 +572,33 @@ const en: SignStrings = {
   noFieldsError: "There is no slot reserved on the document.",
   notAllSignedError: "Some people still have to sign.",
   progressMessage: "Applying the signatures",
+
+  privacyNoticeToggle: "How we use your data",
+  privacyNoticeBody:
+    "OptimusPDF does not store data in the cloud or on a server. Data only exists and is handled on your own device and browser. If you want to fully remove it, just close the tab, clear your browser's browsing data, or click the 'Clear data' button. Whatever is stored in your browser is only used to fill in other documents you open in this browser, and you can clear it whenever you want.",
+  privacyClearData: "Clear data",
+  privacyClearDataTitle: "Clear the stored data?",
+  privacyClearDataBody:
+    "This deletes every field value remembered to suggest it in other documents (names, addresses, numbers and any other text you typed). This cannot be undone.",
+  privacyDataCleared: "Data cleared.",
+
+  signAgainTitle: "Sign another document?",
+  signAgainBody:
+    "Go back to the signers step with the same list of people already loaded, so you don't have to add them again.",
+  signAgainAccept: "Yes, sign another with the same signers",
+
+  draftsButton: "View drafts",
+  draftsTitle: "Saved drafts",
+  draftsEmpty: "There are no drafts saved on this device yet.",
+  draftsResume: "Resume",
+  draftsDelete: (fileName) => `Delete the draft for ${fileName}`,
+  draftsSavedAt: (date) => `Saved on ${date}`,
+  draftsConfirmDeleteTitle: "Delete this draft?",
+  draftsConfirmDeleteBody:
+    "This deletes the document and everything configured in it. This cannot be undone.",
+
+  exportConfigButton: "Export configuration",
+  importConfigButton: "Import configuration",
 };
 
 export const SIGN_STRINGS: Record<Language, SignStrings> = { es, en };

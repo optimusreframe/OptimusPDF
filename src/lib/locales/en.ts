@@ -364,6 +364,8 @@ export const en: Dictionary = {
         "This document has text (Chinese, Japanese, Korean, Arabic, Hebrew, Thai, or emoji, for example) that this tool cannot draw in the PDF yet. For now we only support Latin, Cyrillic, and Greek alphabets.",
       noTablesFound:
         "We could not find any table in this PDF. This tool only extracts tables with regular grids detected in the text layer: if the document is scanned pages (images), it will not recognise them.",
+      invalidConfig:
+        "This file is not a valid signing configuration (or its version isn't supported). Export it again from \"Sign PDF\" and try again.",
     },
   },
   soon: {
@@ -390,7 +392,7 @@ export const en: Dictionary = {
     languageBody: "Change the language of the whole interface.",
     dataTitle: "Local data",
     dataBody:
-      "The only things OptimusPDF keeps in your browser are the chosen language and the list of recent jobs.",
+      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (the full PDF and signature captures).",
     clearData: "Clear local data",
     cleared: "Local data cleared.",
     aboutTitle: "About the app",

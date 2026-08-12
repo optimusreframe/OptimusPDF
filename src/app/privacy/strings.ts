@@ -71,7 +71,8 @@ export const STRINGS: Record<Language, PrivacyStrings> = {
         title: "Qué más guarda tu navegador para esta página",
         body: [
           "Además de los modelos, guardamos en el almacenamiento local de tu navegador (localStorage, nunca en un servidor): el historial de «Recientes» (nombre del archivo que procesaste, qué herramienta usaste y la fecha, nunca el contenido del archivo) y tus preferencias de idioma y tema. El nombre de un archivo puede ser información sensible por sí mismo (por ejemplo, «Contrato-Divorcio-Juan.pdf»), así que ten esto en cuenta si compartes el dispositivo.",
-          "Puedes borrar el historial reciente desde la página «Recientes», o borrar todo (historial y preferencias incluidos) borrando los datos del sitio desde la configuración de tu navegador.",
+          "Si usas «Firmar PDF» en modo «Varios firmantes», también guardamos ahí los valores de los campos de texto que escribes (nombres, direcciones, números de póliza y similares), para poder sugerirlos al rellenar otro documento. Además, mientras trabajas en un documento con varios firmantes, esa misma herramienta guarda automáticamente un borrador local en tu navegador (en IndexedDB, no en localStorage): el PDF completo y las capturas de firma/iniciales de cada firmante, para poder retomarlo si cierras la pestaña sin terminar. Nada de esto se envía a ningún servidor. Esta herramienta te avisa de esto la primera vez que abres un documento y tiene su propio botón «Borrar datos», siempre visible mientras hay un archivo cargado, que borra tanto los valores de campo como los borradores guardados.",
+          "Puedes borrar el historial reciente desde la página «Recientes», o borrar todo (historial, preferencias, los valores y los borradores de «Firmar PDF» incluidos) desde el botón «Borrar datos locales» en «Ajustes», o borrando los datos del sitio desde la configuración de tu navegador.",
         ],
       },
       {
@@ -132,7 +133,8 @@ export const STRINGS: Record<Language, PrivacyStrings> = {
         title: "What else your browser stores for this page",
         body: [
           "Besides models, we store in your browser's local storage (localStorage, never on a server): your \"Recent\" history (the name of the file you processed, which tool you used, and the date — never the file's content) and your language and theme preferences. A file name can be sensitive information on its own (for example, \"Divorce-Contract-John.pdf\"), so keep that in mind if you share the device.",
-          "You can clear the recent history from the \"Recent\" page, or clear everything (history and preferences included) by clearing this site's data from your browser settings.",
+          "If you use \"Sign PDF\" in \"Several signers\" mode, we also store there the text field values you type (names, addresses, policy numbers and the like), so they can be suggested while filling in another document. On top of that, while you work on a document with several signers, that same tool automatically saves a local draft in your browser (in IndexedDB, not localStorage): the full PDF and each signer's signature/initials captures, so you can pick it up again if you close the tab before finishing. None of this is sent to any server. That tool tells you about this the first time you open a document and has its own \"Clear data\" button, always visible while a file is loaded, which clears both the field values and any saved drafts.",
+          "You can clear the recent history from the \"Recent\" page, or clear everything (history, preferences, and the \"Sign PDF\" values and drafts included) from the \"Clear local data\" button in \"Settings\", or by clearing this site's data from your browser settings.",
         ],
       },
       {
