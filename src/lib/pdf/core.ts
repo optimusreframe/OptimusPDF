@@ -1089,6 +1089,22 @@ export function toWinAnsiSafe(text: string): string {
  * Salida
  * ------------------------------------------------------------------ */
 
+/**
+ * SHA-256 de unos bytes, en hexadecimal. Extraido de
+ * `documentContentKey` (`src/app/sign-pdf/documentKey.ts`), que hace
+ * exactamente esto sobre un `File`: comparten la misma huella para no
+ * duplicar la conversion a hex, ese archivo ahora llama a esta funcion.
+ */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    bytes as unknown as BufferSource,
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

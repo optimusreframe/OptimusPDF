@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { clearValueHistory } from "@/lib/valueHistory";
 import { clearAllDrafts } from "@/app/sign-pdf/signDrafts";
+import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 
 const PRIVACY_NOTICE_SEEN_KEY = "optimuspdf.sign-pdf.privacyNoticeSeen";
@@ -105,6 +106,7 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
           // "Datos borrados" hasta que de verdad termino.
           void (async () => {
             clearValueHistory();
+            clearAllTemplates();
             await clearAllDrafts();
             setCleared(true);
           })();

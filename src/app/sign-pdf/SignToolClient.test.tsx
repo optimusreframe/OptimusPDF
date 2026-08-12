@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { useCallback, useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import {
   MultiFlow,
@@ -13,7 +13,12 @@ import { captureStamp, type CaptureMap } from "@/app/sign-pdf/SigningCeremony";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 import { fileKey } from "@/app/organize-pdf/pageToolkit";
-import { normalizeFieldLabel, type SignatureField, type Signer } from "@/lib/pdf/sign";
+import {
+  normalizeFieldLabel,
+  signerColorAt,
+  type SignatureField,
+  type Signer,
+} from "@/lib/pdf/sign";
 import { detectFields, type DetectedField } from "@/lib/pdf/detectFields";
 import { clearAllDrafts, listDrafts } from "@/app/sign-pdf/signDrafts";
 import { exportSignConfig } from "@/app/sign-pdf/signConfig";
@@ -21,6 +26,11 @@ import {
   __resetValueHistoryCacheForTests,
   recordValue,
 } from "@/lib/valueHistory";
+import {
+  __resetSignPdfFeatureFlagsCacheForTests,
+  setSignPdfFeatureFlag,
+} from "@/app/sign-pdf/signFeatureFlags";
+import { __resetSignTemplatesCacheForTests } from "@/app/sign-pdf/signTemplates";
 
 /**
  * `detectFields` abre el documento con pdf-lib y pdf.js de verdad; los
@@ -78,6 +88,8 @@ beforeEach(() => {
   window.sessionStorage.clear();
   window.localStorage.clear();
   __resetValueHistoryCacheForTests();
+  __resetSignPdfFeatureFlagsCacheForTests();
+  __resetSignTemplatesCacheForTests();
   // `localStorage.clear()` de arriba tambien borra el idioma: sin esto,
   // `<SignToolClient>` (a diferencia de `<MultiFlow>`, que recibe
   // `strings` ya resuelto) lee `useI18n()` el mismo y pintaria en el
@@ -398,6 +410,107 @@ describe("MultiFlow — paso de texto (src/app/sign-pdf/SignToolClient.tsx)", ()
   });
 });
 
+describe("MultiFlow — aviso de campos pendientes (Recomendacion #2)", () => {
+  it("avisa, sin bloquear, si queda algun campo de texto sin rellenar", async () => {
+    let last: SignToolOptions = freshTextOnlyOptions();
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={freshTextOnlyOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    await settled();
+    fireEvent.click(textStepButton());
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+    await waitFor(() => expect(last.textFields).toHaveLength(1));
+
+    // Rellenar el primero MIENTRAS sigue en edicion: el siguiente click
+    // en "anadir" (otro elemento) le hace perder el foco y cierra su
+    // editor, igual que tocaria otro campo un usuario real.
+    const firstLabel = strings.textFieldFallbackLabel(1);
+    fireEvent.change(screen.getByRole("textbox", { name: firstLabel }), {
+      target: { value: "Ana" },
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+    await waitFor(() => expect(last.textFields).toHaveLength(2));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(strings.pendingTextFieldsWarning(1)),
+      ).toBeTruthy(),
+    );
+    // No bloquea: "Siguiente" solo depende de poder alcanzar el paso
+    // siguiente, no de que todos los campos esten rellenos.
+    const next = screen.getByRole("button", {
+      name: strings.next,
+    }) as HTMLButtonElement;
+    expect(next.disabled).toBe(false);
+  });
+
+  it("no muestra nada si todos los campos ya tienen valor", async () => {
+    let last: SignToolOptions = freshTextOnlyOptions();
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={freshTextOnlyOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    await settled();
+    fireEvent.click(textStepButton());
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+    await waitFor(() => expect(last.textFields).toHaveLength(1));
+
+    const label = strings.textFieldFallbackLabel(1);
+    const input = screen.getAllByRole("textbox", { name: label })[0];
+    fireEvent.change(input, { target: { value: "Ana" } });
+
+    await waitFor(() => expect(last.textValues[last.textFields[0].id]).toBe("Ana"));
+    expect(screen.queryByText(strings.pendingTextFieldsWarning(1))).toBeNull();
+  });
+
+  it("con la funcion apagada en Ajustes, no se muestra aunque falten campos", async () => {
+    setSignPdfFeatureFlag("fieldsCompleteNotice", false);
+    let last: SignToolOptions = freshTextOnlyOptions();
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={freshTextOnlyOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    await settled();
+    fireEvent.click(textStepButton());
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+    await waitFor(() => expect(last.textFields).toHaveLength(1));
+
+    const firstLabel = strings.textFieldFallbackLabel(1);
+    fireEvent.change(screen.getByRole("textbox", { name: firstLabel }), {
+      target: { value: "Ana" },
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+    await waitFor(() => expect(last.textFields).toHaveLength(2));
+
+    expect(screen.queryByText(strings.pendingTextFieldsWarning(1))).toBeNull();
+  });
+});
+
 describe("SignToolClient — flujo completo (firmar -> prompt -> aceptar)", () => {
   /** El input de PDF, no el de zip que pinta la fila de "Importar configuracion". */
   function pdfInput(container: HTMLElement): HTMLInputElement {
@@ -614,5 +727,267 @@ describe("SignToolClient — borradores locales y configuracion (WS8/WS9)", () =
         }),
       ).toBeTruthy(),
     );
+  });
+});
+
+describe("SignToolClient — plantillas de disposicion (Recomendacion #4)", () => {
+  async function pdfFile(name: string): Promise<File> {
+    const document = await PDFDocument.create();
+    document.addPage([300, 300]);
+    const bytes = await document.save({ useObjectStreams: true });
+    return new File([bytes as unknown as BlobPart], name, {
+      type: "application/pdf",
+    });
+  }
+
+  function pdfInput(container: HTMLElement): HTMLInputElement {
+    const input = container.querySelector('input[type="file"][accept*="pdf"]');
+    if (!input) throw new Error("no se encontro el input de archivo PDF");
+    return input as HTMLInputElement;
+  }
+
+  it("guardar como plantilla la deja disponible para aplicar, y aplicar pide confirmacion porque ya hay firmantes", async () => {
+    const file = await pdfFile("contrato.pdf");
+    const { container } = render(
+      <LanguageProvider>
+        <SignToolClient />
+      </LanguageProvider>,
+    );
+
+    fireEvent.change(pdfInput(container), { target: { files: [file] } });
+    fireEvent.click(
+      await screen.findByRole("tab", { name: strings.modeMulti }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
+
+    // Guardar como plantilla.
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.saveAsTemplateButton }),
+    );
+    const nameInput = screen.getByLabelText(strings.saveTemplateNameLabel, {
+      selector: "input",
+    }) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "Contrato estandar" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.saveTemplateConfirm }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText(strings.saveTemplateSuccess)).toBeTruthy(),
+    );
+
+    // Aparece en "Plantillas".
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.templatesButton }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Contrato estandar")).toBeTruthy(),
+    );
+
+    // Aplicar pide confirmacion: ya hay un firmante cargado.
+    fireEvent.click(screen.getByRole("button", { name: strings.templatesApply }));
+    expect(screen.getByText(strings.applyTemplateConfirmBody)).toBeTruthy();
+
+    const dialog = screen.getByRole("dialog", {
+      name: strings.applyTemplateConfirmTitle,
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: strings.applyTemplateConfirm }),
+    );
+
+    // El sheet de plantillas se cierra tras aplicar con exito.
+    await waitFor(() =>
+      expect(screen.queryByText(strings.templatesTitle)).toBeNull(),
+    );
+  });
+
+  it("con la funcion apagada en Ajustes, no aparecen los botones de plantillas", async () => {
+    setSignPdfFeatureFlag("reusableTemplates", false);
+    const file = await pdfFile("contrato.pdf");
+    const { container } = render(
+      <LanguageProvider>
+        <SignToolClient />
+      </LanguageProvider>,
+    );
+
+    fireEvent.change(pdfInput(container), { target: { files: [file] } });
+    fireEvent.click(
+      await screen.findByRole("tab", { name: strings.modeMulti }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
+
+    expect(
+      screen.queryByRole("button", { name: strings.templatesButton }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: strings.saveAsTemplateButton }),
+    ).toBeNull();
+  });
+});
+
+describe("MultiFlow — deshacer al borrar un firmante (deferred #1)", () => {
+  const LUIS_ID = "sg-luis-undo";
+
+  function twoSignerOptions(): SignToolOptions {
+    const ana: Signer = { ...ANA, color: signerColorAt(0) };
+    const luis: Signer = { id: LUIS_ID, name: "Luis", color: signerColorAt(1) };
+    const fieldAna: SignatureField = {
+      id: "f-ana-undo",
+      signerId: ana.id,
+      pageIndex: 0,
+      type: "signature",
+      rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.1 },
+    };
+    const fieldLuis: SignatureField = {
+      id: "f-luis-undo",
+      signerId: luis.id,
+      pageIndex: 0,
+      type: "signature",
+      rect: { x: 0.1, y: 0.3, width: 0.3, height: 0.1 },
+    };
+    const captures: CaptureMap = {
+      [ana.id]: {
+        signature: { dataUrl: "data:image/png;base64,iVBORw0KGgo=", ratio: 0.3 },
+        initials: null,
+        stamp: captureStamp(CLAVE_PRIMERO, [fieldAna], ana.id),
+      },
+      [luis.id]: {
+        signature: { dataUrl: "data:image/png;base64,iVBORw0KGgo=", ratio: 0.3 },
+        initials: null,
+        stamp: captureStamp(CLAVE_PRIMERO, [fieldLuis], luis.id),
+      },
+    };
+    return {
+      ...optionsFor(CLAVE_PRIMERO),
+      step: "signers",
+      signers: [ana, luis],
+      fields: [fieldAna, fieldLuis],
+      captures,
+      activeSignerId: luis.id,
+    };
+  }
+
+  it("borrar a un firmante muestra 'Deshacer' y se lleva sus huecos y su captura", async () => {
+    let last: SignToolOptions = twoSignerOptions();
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={twoSignerOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    await settled();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.removeSigner("Luis") }));
+
+    expect(last.signers).toHaveLength(1);
+    expect(last.signers[0].id).toBe(ANA.id);
+    expect(last.fields).toHaveLength(1);
+    expect(last.fields[0].signerId).toBe(ANA.id);
+    expect(last.captures[LUIS_ID]).toBeUndefined();
+    expect(screen.getByText(strings.signerDeletedNotice)).toBeTruthy();
+  });
+
+  it("'Deshacer' repone al firmante, sus huecos, su captura y el color de todos, exactamente como antes", async () => {
+    let last: SignToolOptions = twoSignerOptions();
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={twoSignerOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    await settled();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.removeSigner("Luis") }));
+    expect(last.signers).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.undoRemoveSigner }),
+    );
+
+    expect(last.signers).toHaveLength(2);
+    expect(last.signers.map((s) => s.id)).toEqual([ANA.id, LUIS_ID]);
+    // Colores recalculados por posicion para TODOS, no solo el repuesto.
+    expect(last.signers[0].color).toBe(signerColorAt(0));
+    expect(last.signers[1].color).toBe(signerColorAt(1));
+    expect(last.fields).toHaveLength(2);
+    expect(last.fields.some((f) => f.id === "f-luis-undo")).toBe(true);
+    // La captura vuelve intacta: mismo id/rect de hueco, mismo stamp ->
+    // sigue validando sin pedirle a Luis que vuelva a firmar.
+    expect(last.captures[LUIS_ID]).toBeDefined();
+    expect(last.captures[LUIS_ID].stamp).toBe(
+      captureStamp(CLAVE_PRIMERO, [last.fields.find((f) => f.id === "f-luis-undo")!], LUIS_ID),
+    );
+    // Luis estaba activo antes de borrarlo: al deshacer, vuelve a estarlo.
+    expect(last.activeSignerId).toBe(LUIS_ID);
+    expect(screen.queryByText(strings.signerDeletedNotice)).toBeNull();
+  });
+
+  it("renombrar a un firmante NO activa ningun 'Deshacer' (mismo callback que borrar)", async () => {
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={twoSignerOptions()}
+        onOptions={() => {}}
+      />,
+    );
+    await settled();
+
+    fireEvent.change(screen.getByDisplayValue("Luis"), {
+      target: { value: "Luisa" },
+    });
+
+    expect(screen.queryByText(strings.signerDeletedNotice)).toBeNull();
+  });
+
+  it("con la funcion apagada, borrar un firmante no muestra ningun aviso (comportamiento previo)", async () => {
+    setSignPdfFeatureFlag("undoDelete", false);
+    let last: SignToolOptions = twoSignerOptions();
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={twoSignerOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    await settled();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.removeSigner("Luis") }));
+
+    expect(last.signers).toHaveLength(1);
+    expect(screen.queryByText(strings.signerDeletedNotice)).toBeNull();
+  });
+
+  it("borrar un segundo firmante reemplaza el 'Deshacer' pendiente: el primero ya quedo en firme", async () => {
+    const ana: Signer = { ...ANA, color: signerColorAt(0) };
+    const luis: Signer = { id: LUIS_ID, name: "Luis", color: signerColorAt(1) };
+    const marta: Signer = { id: "sg-marta-undo", name: "Marta", color: signerColorAt(2) };
+    const options: SignToolOptions = {
+      ...optionsFor(CLAVE_PRIMERO),
+      step: "signers",
+      signers: [ana, luis, marta],
+      fields: [],
+      captures: {},
+      activeSignerId: null,
+    };
+    let last: SignToolOptions = options;
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={options}
+        onOptions={(o) => (last = o)}
+      />,
+    );
+    await settled();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.removeSigner("Luis") }));
+    fireEvent.click(screen.getByRole("button", { name: strings.removeSigner("Marta") }));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.undoRemoveSigner }),
+    );
+
+    // Solo Marta (la ultima borrada) vuelve; Luis ya quedo en firme.
+    expect(last.signers.map((s) => s.name)).toEqual(["Ana", "Marta"]);
   });
 });

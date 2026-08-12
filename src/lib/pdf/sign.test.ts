@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { PDFDict, PDFDocument, PDFName } from "@cantoo/pdf-lib";
+import { sha256Hex } from "@/lib/pdf/core";
 import {
   buildSignerFilenamePrefix,
   dataUrlToBytes,
   normalizeFieldLabel,
   signPdf,
+  signPdfMulti,
   signerDisplayName,
   type SignOptions,
 } from "@/lib/pdf/sign";
@@ -240,5 +242,171 @@ describe("signPdf — src/lib/pdf/sign.ts", () => {
     await expect(
       signPdf(file, { signaturePng: MINIMAL_PNG_DATA_URL, placement: basePlacement(0) }),
     ).rejects.toMatchObject({ code: "encrypted" });
+  });
+});
+
+describe("signPdfMulti — placements de texto (Recomendacion #5: tipos de campo)", () => {
+  it("empotra un placement de texto (aparece un recurso de fuente que antes no existia)", async () => {
+    const document = await createDocument(1);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "text", value: "Ana Perez", ...basePlacement(0) }],
+    });
+
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const signed = await PDFDocument.load(bytes, { updateMetadata: false });
+    const page = signed.getPages()[0];
+    const fonts = page.node.Resources()?.lookup(PDFName.of("Font"), PDFDict);
+    expect(fonts).toBeDefined();
+    expect(fonts!.keys().length).toBeGreaterThan(0);
+  });
+
+  it("un placement centrado (casilla marcada, \"X\") no revienta y empotra igual", async () => {
+    const document = await createDocument(1);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [
+        { kind: "text", value: "X", align: "center", ...basePlacement(0) },
+      ],
+    });
+
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const signed = await PDFDocument.load(bytes, { updateMetadata: false });
+    expect(signed.getPageCount()).toBe(1);
+    const fonts = signed
+      .getPages()[0]
+      .node.Resources()
+      ?.lookup(PDFName.of("Font"), PDFDict);
+    expect(fonts!.keys().length).toBeGreaterThan(0);
+  });
+
+  it("un placement de texto vacio no empotra nada, sin lanzar", async () => {
+    const document = await createDocument(1);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "text", value: "   ", ...basePlacement(0) }],
+    });
+
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const signed = await PDFDocument.load(bytes, { updateMetadata: false });
+    expect(signed.getPageCount()).toBe(1);
+  });
+});
+
+/**
+ * Extrae el texto de una pagina ya generada, para comprobar de verdad
+ * lo que se leeria en el certificado (no solo que "algun recurso de
+ * fuente" aparecio). Misma tecnica que `detectFields.test.ts`: el build
+ * legacy de pdf.js analiza sin DOM en Node.
+ */
+async function extractPageText(bytes: Uint8Array, pageNumber: number): Promise<string> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const document = await pdfjs.getDocument({ data: bytes }).promise;
+  const page = await document.getPage(pageNumber);
+  const content = await page.getTextContent();
+  return content.items
+    .map((item) => ("str" in item ? item.str : ""))
+    .join(" ");
+}
+
+const CERTIFICATE_LABELS = {
+  title: "Certificado de finalización",
+  hashLabel: "Hash SHA-256 del documento firmado",
+  timestampLabel: "Fecha y hora",
+  signersLabel: "Firmantes",
+  noSignerName: "Sin nombre",
+  disclaimer:
+    "Esta página es solo trazabilidad informal: el hash permite comprobar que el documento no cambió después de firmarse. No es una firma electrónica cualificada ni certificada.",
+};
+
+describe("signPdfMulti — certificado de finalizacion (Recomendacion #6)", () => {
+  it("sin `certificate`, el documento no gana ninguna pagina extra", async () => {
+    const document = await createDocument(1);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "text", value: "Ana Perez", ...basePlacement(0) }],
+    });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const signed = await PDFDocument.load(bytes, { updateMetadata: false });
+    expect(signed.getPageCount()).toBe(1);
+  });
+
+  it("con `certificate`, anade exactamente una pagina al final", async () => {
+    const document = await createDocument(2);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "text", value: "Ana Perez", ...basePlacement(0) }],
+      certificate: { signerNames: ["Ana Perez"], labels: CERTIFICATE_LABELS },
+    });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const signed = await PDFDocument.load(bytes, { updateMetadata: false });
+    expect(signed.getPageCount()).toBe(3);
+  });
+
+  it("la pagina de certificado incluye el titulo, los firmantes y el aviso legal", async () => {
+    const document = await createDocument(1);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "text", value: "Ana Perez", ...basePlacement(0) }],
+      certificate: {
+        signerNames: ["Ana Perez", "Roberto Diaz"],
+        labels: CERTIFICATE_LABELS,
+      },
+    });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const text = await extractPageText(bytes, 2);
+
+    expect(text).toContain("Certificado de finalización");
+    expect(text).toContain("Ana Perez");
+    expect(text).toContain("Roberto Diaz");
+    expect(text).toContain("trazabilidad informal");
+  });
+
+  it("sin firmantes con nombre, usa el texto de respaldo en vez de una linea vacia", async () => {
+    const document = await createDocument(1);
+    const file = await toFile(document);
+
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "text", value: "Ana Perez", ...basePlacement(0) }],
+      certificate: { signerNames: [], labels: CERTIFICATE_LABELS },
+    });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const text = await extractPageText(bytes, 2);
+
+    expect(text).toContain("Sin nombre");
+  });
+
+  it("el hash que aparece en el certificado es el SHA-256 real del documento YA firmado (sin la propia pagina de certificado)", async () => {
+    const document = await createDocument(1);
+    const file = await toFile(document);
+    const placements = [
+      { kind: "text" as const, value: "Ana Perez", ...basePlacement(0) },
+    ];
+
+    // Genera el mismo documento firmado SIN certificado, para saber el
+    // hash que el certificado deberia citar.
+    const signedOnly = await signPdfMulti(file, { placements });
+    const expectedHash = await sha256Hex(
+      new Uint8Array(await signedOnly.arrayBuffer()),
+    );
+
+    const withCertificate = await signPdfMulti(file, {
+      placements,
+      certificate: { signerNames: ["Ana Perez"], labels: CERTIFICATE_LABELS },
+    });
+    const text = await extractPageText(
+      new Uint8Array(await withCertificate.arrayBuffer()),
+      2,
+    );
+
+    // El hash se parte en varias lineas de texto (linea de ~60 caracteres
+    // hex): se comprueba que sus primeros caracteres aparecen literalmente.
+    expect(text.replace(/\s+/g, "")).toContain(expectedHash.slice(0, 20));
   });
 });

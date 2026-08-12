@@ -152,4 +152,42 @@ describe("isSignConfigManifest — src/app/sign-pdf/signConfig.ts", () => {
     };
     expect(isSignConfigManifest(bad)).toBe(false);
   });
+
+  it("un textField SIN `type` (export de antes de esta funcion) sigue siendo valido, sin subir CONFIG_VERSION", () => {
+    const withoutType = {
+      ...MANIFEST,
+      version: 1,
+      textFields: [
+        {
+          id: "txt-1",
+          pageIndex: 0,
+          rect: { x: 0.2, y: 0.2, width: 0.3, height: 0.05 },
+          label: "Nombre",
+          source: "manual",
+          confidence: "high",
+        },
+      ],
+    };
+    expect(isSignConfigManifest(withoutType)).toBe(true);
+  });
+
+  it("acepta un textField con un `type` conocido (casilla, fecha, inicial)", () => {
+    for (const type of ["text", "checkbox", "date", "initials"]) {
+      const withType = {
+        ...MANIFEST,
+        version: 1,
+        textFields: [{ ...MANIFEST.textFields[0], type }],
+      };
+      expect(isSignConfigManifest(withType)).toBe(true);
+    }
+  });
+
+  it("rechaza un textField con un `type` desconocido (zip manipulado)", () => {
+    const bad = {
+      ...MANIFEST,
+      version: 1,
+      textFields: [{ ...MANIFEST.textFields[0], type: "signature-stamp" }],
+    };
+    expect(isSignConfigManifest(bad)).toBe(false);
+  });
 });

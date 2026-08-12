@@ -369,6 +369,39 @@ export const en: Dictionary = {
     clearData: "Clear local data",
     cleared: "Local data cleared.",
     aboutTitle: "About the app",
+    signPdfFeaturesTitle: "Sign PDF: new features",
+    signPdfFeaturesBody:
+      "Turn them on or off as you like. This preference is local to this browser only — it is never synced to an account or sent anywhere.",
+    signPdfFeatures: {
+      keyboardNav: {
+        label: "Keyboard navigation",
+        hint: "Tab or Enter jumps to the next empty text field without leaving the canvas.",
+      },
+      fieldsCompleteNotice: {
+        label: "Pending fields notice",
+        hint: "Shows a non-blocking notice if fields are still empty before you sign or download.",
+      },
+      undoDelete: {
+        label: "Undo instead of confirming",
+        hint: "Deleting a single text field shows an “Undo” button instead of asking for confirmation. Deleting a whole signer still asks for confirmation.",
+      },
+      reusableTemplates: {
+        label: "Layout templates",
+        hint: "Lets you save the signer/field layout as a template to reuse on other documents.",
+      },
+      richFieldTypes: {
+        label: "Richer field types",
+        hint: "Adds checkbox, date and initials as field types, alongside free text.",
+      },
+      completionCertificate: {
+        label: "Completion certificate",
+        hint: "Adds a final page with the document hash, the date and the list of signers.",
+      },
+      pinchZoom: {
+        label: "Pinch to zoom",
+        hint: "Lets you pinch-zoom the canvas on dense forms with many small fields.",
+      },
+    },
   },
   pricing: {
     title: "Pricing",

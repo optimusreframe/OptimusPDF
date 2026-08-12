@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { sha256Hex } from "@/lib/pdf/core";
 
 /**
  * Identidad del documento por su contenido, para firma.
@@ -12,13 +13,7 @@ import { useEffect, useState } from "react";
  * nadie llegase a verlo. El hash del contenido no se confunde.
  */
 export async function documentContentKey(file: File): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    await file.arrayBuffer(),
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  return sha256Hex(new Uint8Array(await file.arrayBuffer()));
 }
 
 /** Huellas ya calculadas; la entrada se libera con el propio `File`. */

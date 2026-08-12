@@ -5,8 +5,13 @@ import {
   detectAcroFormFields,
   detectDarkBands,
   detectVectorFieldsOnPage,
+  embeddedValueFor,
+  fieldTypeOf,
+  formatIsoDate,
+  isFieldFilled,
   nearestLabel,
   toLuminance,
+  type DetectedField,
   type PdfJsOps,
 } from "@/lib/pdf/detectFields";
 
@@ -227,5 +232,82 @@ describe("detectDarkBands / toLuminance — heuristica raster (src/lib/pdf/detec
     const luminance = toLuminance(rgba);
     expect(luminance[0]).toBeCloseTo(0, 5);
     expect(luminance[1]).toBeCloseTo(255, 5);
+  });
+});
+
+describe("fieldTypeOf / isFieldFilled / embeddedValueFor — src/lib/pdf/detectFields.ts (Recomendacion #5)", () => {
+  const base: Omit<DetectedField, "type"> = {
+    id: "txt-1",
+    pageIndex: 0,
+    rect: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 },
+    source: "manual",
+    confidence: "high",
+  };
+
+  it("un campo sin `type` (borrador/export de antes de esta funcion) se lee como texto libre", () => {
+    expect(fieldTypeOf(base)).toBe("text");
+  });
+
+  it("un campo con `type` explicito respeta ese tipo", () => {
+    expect(fieldTypeOf({ ...base, type: "checkbox" })).toBe("checkbox");
+  });
+
+  it("una casilla cuenta como rellena en cuanto se coloca, marcada o no", () => {
+    const checkbox: DetectedField = { ...base, type: "checkbox" };
+    expect(isFieldFilled(checkbox, "")).toBe(true);
+    expect(isFieldFilled(checkbox, "true")).toBe(true);
+    expect(isFieldFilled(checkbox, undefined)).toBe(true);
+  });
+
+  it("texto, fecha e inicial siguen la regla de siempre: vacio = no relleno", () => {
+    for (const type of ["text", "date", "initials"] as const) {
+      const field: DetectedField = { ...base, type };
+      expect(isFieldFilled(field, "")).toBe(false);
+      expect(isFieldFilled(field, "   ")).toBe(false);
+      expect(isFieldFilled(field, "x")).toBe(true);
+    }
+  });
+
+  it("una casilla marcada se empotra como \"X\" (ASCII), nunca un simbolo de check", () => {
+    const checkbox: DetectedField = { ...base, type: "checkbox" };
+    expect(embeddedValueFor(checkbox, "true", "es")).toBe("X");
+  });
+
+  it("una casilla sin marcar no empotra nada", () => {
+    const checkbox: DetectedField = { ...base, type: "checkbox" };
+    expect(embeddedValueFor(checkbox, "", "es")).toBe("");
+  });
+
+  it("una fecha se empotra formateada segun el idioma activo", () => {
+    const date: DetectedField = { ...base, type: "date" };
+    expect(embeddedValueFor(date, "2026-08-12", "es")).toContain("2026");
+    expect(embeddedValueFor(date, "2026-08-12", "es")).not.toBe("2026-08-12");
+  });
+
+  it("texto e inicial se empotran tal cual, sin transformar", () => {
+    expect(embeddedValueFor({ ...base, type: "text" }, "Ana Perez", "es")).toBe(
+      "Ana Perez",
+    );
+    expect(embeddedValueFor({ ...base, type: "initials" }, "AP", "es")).toBe(
+      "AP",
+    );
+  });
+});
+
+describe("formatIsoDate — src/lib/pdf/detectFields.ts", () => {
+  it("formatea una fecha ISO en espanol", () => {
+    expect(formatIsoDate("2026-08-12", "es")).toContain("2026");
+  });
+
+  it("formatea una fecha ISO en ingles", () => {
+    expect(formatIsoDate("2026-08-12", "en")).toContain("2026");
+  });
+
+  it("una cadena vacia no revienta: devuelve vacio", () => {
+    expect(formatIsoDate("", "es")).toBe("");
+  });
+
+  it("una fecha invalida se devuelve tal cual en vez de reventar", () => {
+    expect(formatIsoDate("no-es-una-fecha", "es")).toBe("no-es-una-fecha");
   });
 });

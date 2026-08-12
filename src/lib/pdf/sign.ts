@@ -1,4 +1,4 @@
-import { degrees, type PDFFont, type PDFPage } from "@cantoo/pdf-lib";
+import { degrees, type PDFDocument, type PDFFont, type PDFPage } from "@cantoo/pdf-lib";
 import {
   PdfError,
   getPageGeometry,
@@ -7,6 +7,7 @@ import {
   originForCenter,
   savePdfToBlob,
   scaleProgress,
+  sha256Hex,
   slugify,
   standardFontFor,
   toPdfError,
@@ -172,12 +173,39 @@ export type TextSignPlacement = {
   pageIndex: number;
   /** Rectangulo 0..1 sobre la vista, origen arriba-izquierda del DOM. */
   rect: NormalizedRect;
+  /** Ausente = "left" (comportamiento de siempre). "center" es para una casilla marcada ("X"), que se veria pegada al borde si no. */
+  align?: "left" | "center";
 };
 
 export type SignPlacement = ImageSignPlacement | TextSignPlacement;
 
+/**
+ * Pagina final opcional con el hash del documento YA firmado (todos los
+ * `placements` aplicados, pero antes de anadir esta misma pagina --
+ * certificar el hash de una pagina que se certifica a si misma no
+ * tendria sentido), la fecha y la lista de firmantes. Trazabilidad
+ * informal (se puede volver a calcular el hash y compararlo a mano),
+ * NUNCA una firma electronica certificada -- por eso el texto lo deja
+ * explicito (`labels.disclaimer`).
+ *
+ * Los textos llegan ya resueltos en el idioma activo: este motor no
+ * importa `strings.ts` (es UI), igual que el resto de `sign.ts`.
+ */
+export type SignCertificateInfo = {
+  signerNames: readonly string[];
+  labels: {
+    title: string;
+    hashLabel: string;
+    timestampLabel: string;
+    signersLabel: string;
+    noSignerName: string;
+    disclaimer: string;
+  };
+};
+
 export type SignMultiOptions = {
   placements: readonly SignPlacement[];
+  certificate?: SignCertificateInfo;
 };
 
 /** Cuerpo maximo de letra para un campo de texto, antes de encajar. */
@@ -248,7 +276,12 @@ function drawTextPlacement(
   lines.forEach((line, index) => {
     if (line.length === 0) return;
     const fromTop = top + index * lineHeight + baselineFromLineTop;
-    const origin = viewPointToUser(geometry, left, geometry.viewHeight - fromTop);
+    const lineLeft =
+      placement.align === "center"
+        ? rect.x * geometry.viewWidth +
+          (maxWidth - font.widthOfTextAtSize(line, size)) / 2
+        : left;
+    const origin = viewPointToUser(geometry, lineLeft, geometry.viewHeight - fromTop);
     page.drawText(line, {
       x: origin.x,
       y: origin.y,
@@ -258,6 +291,73 @@ function drawTextPlacement(
       rotate: degrees(angle),
     });
   });
+}
+
+/**
+ * Anade una pagina final con el hash del documento (ya firmado, sin
+ * contar esta pagina), la fecha y los firmantes. Mismo tamaño que la
+ * ultima pagina del documento, para que no desentone.
+ */
+async function appendCertificatePage(
+  document: PDFDocument,
+  info: SignCertificateInfo,
+  hash: string,
+): Promise<void> {
+  const pages = document.getPages();
+  const { width, height } =
+    pages.length > 0 ? pages[pages.length - 1].getSize() : { width: 612, height: 792 };
+  const page = document.addPage([width, height]);
+
+  const titleFont = await document.embedFont(
+    standardFontFor("helvetica", true, false),
+  );
+  const bodyFont = await document.embedFont(
+    standardFontFor("helvetica", false, false),
+  );
+  const monoFont = await document.embedFont(
+    standardFontFor("courier", false, false),
+  );
+
+  const margin = Math.min(72, width * 0.1);
+  const maxWidth = width - margin * 2;
+  const black = hexToPdfColor("#000000");
+  const gray = hexToPdfColor("#555555");
+
+  let cursorY = height - margin;
+  const drawLine = (
+    text: string,
+    font: PDFFont,
+    size: number,
+    color = black,
+    gap = size * 1.4,
+  ) => {
+    page.drawText(text, { x: margin, y: cursorY - size, size, font, color });
+    cursorY -= gap;
+  };
+
+  drawLine(info.labels.title, titleFont, 18, black, 34);
+  cursorY -= 10;
+
+  drawLine(info.labels.timestampLabel, bodyFont, 11, gray, 16);
+  drawLine(new Date().toLocaleString(), bodyFont, 12, black, 26);
+
+  drawLine(info.labels.hashLabel, bodyFont, 11, gray, 16);
+  for (const line of wrapText(monoFont, hash, 10, maxWidth)) {
+    drawLine(line, monoFont, 10, black, 14);
+  }
+  cursorY -= 12;
+
+  drawLine(info.labels.signersLabel, bodyFont, 11, gray, 16);
+  const names =
+    info.signerNames.length > 0 ? info.signerNames : [info.labels.noSignerName];
+  for (const name of names) {
+    drawLine(`• ${name.trim() || info.labels.noSignerName}`, bodyFont, 12, black, 18);
+  }
+  cursorY -= 16;
+
+  for (const line of wrapText(bodyFont, info.labels.disclaimer, 9, maxWidth)) {
+    drawLine(line, bodyFont, 9, gray, 13);
+  }
 }
 
 /** Convierte un data URL base64 en bytes, sin pasar por la red. */
@@ -358,6 +458,15 @@ export async function signPdfMulti(
       onProgress?.(
         scaleProgress((position + 1) / placements.length, 0.15, 0.85),
       );
+    }
+
+    if (params.certificate) {
+      // El hash es del documento YA firmado (placements aplicados), pero
+      // ANTES de anadir esta misma pagina -- certificar el hash de una
+      // pagina que se certifica a si misma no tendria sentido.
+      const signedBytes = await document.save({ useObjectStreams: true });
+      const hash = await sha256Hex(signedBytes);
+      await appendCertificatePage(document, params.certificate, hash);
     }
 
     const blob = await savePdfToBlob(document);

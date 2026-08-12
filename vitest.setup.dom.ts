@@ -37,4 +37,39 @@ if (!("ResizeObserver" in globalThis)) {
     ResizeObserverStub;
 }
 
+/**
+ * Node 22+ define `localStorage`/`sessionStorage` como globales propias
+ * (detras de `--localstorage-file`) y esas globales tapan la
+ * implementacion real de jsdom en `window.localStorage`: cualquier
+ * acceso revienta con "Cannot read properties of undefined". Se
+ * reemplaza por un Storage en memoria de verdad para que el codigo bajo
+ * prueba (drafts, historial de valores, ajustes) pueda usarlo tal cual
+ * lo haria en un navegador real.
+ */
+function createMemoryStorage(): Storage {
+  const store = new Map<string, string>();
+  return {
+    get length() {
+      return store.size;
+    },
+    clear: () => store.clear(),
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+  };
+}
+
+for (const key of ["localStorage", "sessionStorage"] as const) {
+  Object.defineProperty(window, key, {
+    value: createMemoryStorage(),
+    writable: true,
+    configurable: true,
+  });
+}
+
 afterEach(cleanup);

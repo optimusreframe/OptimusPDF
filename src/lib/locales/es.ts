@@ -386,6 +386,39 @@ export const es = {
     clearData: "Borrar datos locales",
     cleared: "Datos locales borrados.",
     aboutTitle: "Sobre la aplicación",
+    signPdfFeaturesTitle: "Firmar PDF: funciones nuevas",
+    signPdfFeaturesBody:
+      "Actívalas o desactívalas como prefieras. Esta preferencia es solo de este navegador: no se sincroniza a ninguna cuenta ni sale de tu dispositivo.",
+    signPdfFeatures: {
+      keyboardNav: {
+        label: "Navegación por teclado",
+        hint: "Tab o Enter salta al siguiente campo de texto vacío sin soltar el lienzo.",
+      },
+      fieldsCompleteNotice: {
+        label: "Aviso de campos pendientes",
+        hint: "Muestra un aviso, sin bloquear, si quedan campos sin rellenar antes de firmar o descargar.",
+      },
+      undoDelete: {
+        label: "Deshacer en vez de confirmar",
+        hint: "Al borrar un campo de texto individual aparece un botón «Deshacer» en vez de pedir confirmación. Borrar un firmante completo sigue pidiendo confirmación.",
+      },
+      reusableTemplates: {
+        label: "Plantillas de disposición",
+        hint: "Permite guardar la disposición de firmantes y campos como plantilla, para reutilizarla en otros documentos.",
+      },
+      richFieldTypes: {
+        label: "Tipos de campo enriquecidos",
+        hint: "Añade casilla, fecha e inicial como tipos de campo, además del texto libre.",
+      },
+      completionCertificate: {
+        label: "Certificado de finalización",
+        hint: "Añade una página final con el hash del documento, la fecha y la lista de firmantes.",
+      },
+      pinchZoom: {
+        label: "Zoom con pellizco",
+        hint: "Permite acercar el lienzo con dos dedos en formularios con campos pequeños y juntos.",
+      },
+    },
   },
   pricing: {
     title: "Precios",

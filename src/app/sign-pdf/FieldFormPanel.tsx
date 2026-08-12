@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/cn";
-import type { DetectedField } from "@/lib/pdf/detectFields";
+import { isFieldFilled, type DetectedField } from "@/lib/pdf/detectFields";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 
 export type FieldFormPanelProps = {
@@ -39,8 +39,8 @@ export function FieldFormPanel({
     );
   }
 
-  const filled = fields.filter(
-    (field) => (values[field.id] ?? "").trim().length > 0,
+  const filled = fields.filter((field) =>
+    isFieldFilled(field, values[field.id]),
   ).length;
 
   const byPage = new Map<number, DetectedField[]>();
@@ -67,7 +67,7 @@ export function FieldFormPanel({
               const label =
                 field.label ??
                 strings.textFieldFallbackLabel(fields.indexOf(field) + 1);
-              const hasValue = (values[field.id] ?? "").trim().length > 0;
+              const hasValue = isFieldFilled(field, values[field.id]);
               const lowConfidence = field.confidence === "low";
 
               return (

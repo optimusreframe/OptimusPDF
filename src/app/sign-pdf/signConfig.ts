@@ -6,7 +6,13 @@ import {
   withSuffix,
   type NormalizedRect,
 } from "@/lib/pdf/core";
-import type { DetectedField, FieldConfidence, FieldSource } from "@/lib/pdf/detectFields";
+import {
+  DETECTED_FIELD_TYPES,
+  type DetectedField,
+  type DetectedFieldType,
+  type FieldConfidence,
+  type FieldSource,
+} from "@/lib/pdf/detectFields";
 import type { Signer, SignatureField, SignatureFieldType } from "@/lib/pdf/sign";
 import type { SignMode } from "@/app/sign-pdf/SignToolClient";
 
@@ -45,7 +51,8 @@ function isPlausibleUnit(value: number): boolean {
   return value >= -0.01 && value <= 1.01;
 }
 
-function isValidRect(value: unknown): value is NormalizedRect {
+/** Exportado: `signTemplates.ts` valida rects con el mismo criterio, sin duplicarlo. */
+export function isValidRect(value: unknown): value is NormalizedRect {
   if (typeof value !== "object" || value === null) return false;
   const rect = value as Record<string, unknown>;
   return (
@@ -115,6 +122,18 @@ function isValidDetectedField(value: unknown): value is DetectedField {
     !FIELD_SOURCE_VALUES.includes(field.source as FieldSource) ||
     typeof field.confidence !== "string" ||
     !FIELD_CONFIDENCE_VALUES.includes(field.confidence as FieldConfidence)
+  ) {
+    return false;
+  }
+  // `type` es opcional (ausente = "text", ver `fieldTypeOf`): un export
+  // de antes de que este campo existiera sigue siendo valido sin tocar
+  // `CONFIG_VERSION`. Si esta presente, tiene que ser uno de los 4
+  // tipos conocidos -- un zip manipulado no debe poder colar un string
+  // cualquiera hasta el switch de render.
+  if (
+    field.type !== undefined &&
+    (typeof field.type !== "string" ||
+      !DETECTED_FIELD_TYPES.includes(field.type as DetectedFieldType))
   ) {
     return false;
   }

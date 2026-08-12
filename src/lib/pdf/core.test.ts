@@ -25,6 +25,7 @@ import {
   rotatedBounds,
   savePdfToBlob,
   scaleProgress,
+  sha256Hex,
   slugify,
   standardFontFor,
   throwIfAborted,
@@ -572,5 +573,28 @@ describe("scaleProgress — src/lib/pdf/core.ts", () => {
 describe("constantes — src/lib/pdf/core.ts", () => {
   it("MAX_SAFE_FILE_SIZE es 100 MB en bytes", () => {
     expect(MAX_SAFE_FILE_SIZE).toBe(100 * 1024 * 1024);
+  });
+});
+
+describe("sha256Hex — src/lib/pdf/core.ts", () => {
+  it("calcula el SHA-256 conocido de una cadena vacia", async () => {
+    const hash = await sha256Hex(new Uint8Array(0));
+    expect(hash).toBe(
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    );
+  });
+
+  it("es determinista: los mismos bytes dan siempre el mismo hash", async () => {
+    const bytes = new TextEncoder().encode("OptimusPDF");
+    const first = await sha256Hex(bytes);
+    const second = await sha256Hex(bytes);
+    expect(first).toBe(second);
+    expect(first).toHaveLength(64);
+  });
+
+  it("bytes distintos dan hashes distintos", async () => {
+    const a = await sha256Hex(new TextEncoder().encode("a"));
+    const b = await sha256Hex(new TextEncoder().encode("b"));
+    expect(a).not.toBe(b);
   });
 });

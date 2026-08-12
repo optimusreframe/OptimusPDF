@@ -5,16 +5,23 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { useI18n, type Language } from "@/lib/i18n";
 import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { clearRecentEntries } from "@/lib/recent";
 import { clearValueHistory } from "@/lib/valueHistory";
 import { clearAllDrafts } from "@/app/sign-pdf/signDrafts";
+import {
+  SIGN_PDF_FEATURE_FLAGS,
+  setSignPdfFeatureFlag,
+  useSignPdfFeatureFlags,
+} from "@/app/sign-pdf/signFeatureFlags";
 
 export function SettingsView() {
   const { t, language, setLanguage } = useI18n();
   const { theme, setTheme } = useTheme();
   const [cleared, setCleared] = useState(false);
+  const signPdfFlags = useSignPdfFeatureFlags();
 
   return (
     <div className="mx-auto max-w-[800px] px-4 pt-10 pb-16 md:px-6 md:pt-16">
@@ -58,6 +65,26 @@ export function SettingsView() {
               { value: "en", label: t.common.english },
             ]}
           />
+        </GlassCard>
+
+        <GlassCard className="p-6">
+          <h2 className="hud-label text-[11px] text-foreground">
+            {t.settings.signPdfFeaturesTitle}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t.settings.signPdfFeaturesBody}
+          </p>
+          <div className="mt-5 space-y-4">
+            {SIGN_PDF_FEATURE_FLAGS.map((flag) => (
+              <Checkbox
+                key={flag}
+                label={t.settings.signPdfFeatures[flag].label}
+                hint={t.settings.signPdfFeatures[flag].hint}
+                checked={signPdfFlags[flag]}
+                onChange={(enabled) => setSignPdfFeatureFlag(flag, enabled)}
+              />
+            ))}
+          </div>
         </GlassCard>
 
         <GlassCard className="p-6">

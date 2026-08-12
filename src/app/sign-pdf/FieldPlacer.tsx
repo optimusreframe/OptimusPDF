@@ -7,9 +7,10 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ChevronLeft, ChevronRight, Move, PenLine, Type, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Move, PenLine, Type, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
 import {
@@ -28,7 +29,11 @@ import {
   type SignatureFieldType,
   type Signer,
 } from "@/lib/pdf/sign";
-import type { DetectedField } from "@/lib/pdf/detectFields";
+import {
+  fieldTypeOf,
+  type DetectedField,
+  type DetectedFieldType,
+} from "@/lib/pdf/detectFields";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 import { ValueSuggestions } from "@/app/sign-pdf/ValueSuggestions";
 import {
@@ -74,9 +79,15 @@ const TYPE_ICONS: Record<SignatureFieldType, typeof Type> = {
   initials: Type,
 };
 
-/** Identificadores estables sin depender de `crypto.randomUUID`. */
+/**
+ * Identificadores estables sin depender de `crypto.randomUUID`. Exportado
+ * (no solo de uso interno) porque aplicar una plantilla de disposicion
+ * (`signTemplates.ts`) tiene que acuñar ids nuevos con el mismo contador
+ * que "anadir campo a mano" -- nunca reutilizar los ids guardados en la
+ * plantilla, que pueden colisionar con los del documento actual.
+ */
 let fieldCounter = 0;
-function nextFieldId(): string {
+export function nextFieldId(): string {
   fieldCounter += 1;
   return `fld-${fieldCounter}`;
 }
@@ -122,6 +133,8 @@ export type FieldPlacerProps = {
   onSelectedIdChange: (id: string | null) => void;
   strings: SignStrings;
   onError?: (code: PdfErrorCode) => void;
+  /** Borrar un hueco muestra "Deshacer" en vez de borrarlo sin red de seguridad. Mismo flag que el de campos de texto. */
+  undoDeleteEnabled?: boolean;
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -165,6 +178,7 @@ function FieldPlacerInner({
   onSelectedIdChange,
   strings,
   onError,
+  undoDeleteEnabled = false,
 }: FieldPlacerProps) {
   const [pageCount, setPageCount] = useState(0);
   const [preview, setPreview] = useState<string | null>(null);
@@ -173,6 +187,27 @@ function FieldPlacerInner({
   const [hostSize, setHostSize] = useState({ width: 0, height: 0 });
   const [draft, setDraft] = useState<Draft | null>(null);
   const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
+
+  /**
+   * "Deshacer" al borrar un hueco: mismo patron que `TextFieldPlacer`
+   * (unico pendiente, 6s, se reemplaza si se borra otro antes). A
+   * diferencia de un campo de texto, un hueco no tiene un "valor" propio
+   * que restaurar -- pero SI importa restaurar el id y el rect EXACTOS
+   * (nunca regenerarlos): `captureStamp` (`SigningCeremony.tsx`) los usa
+   * para validar la captura del firmante, asi que borrar y deshacer un
+   * hueco tiene que revalidarla en silencio, no dejarla marcada como
+   * "hay que volver a firmar".
+   */
+  const [pendingUndo, setPendingUndo] = useState<{
+    field: SignatureField;
+    index: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!pendingUndo) return;
+    const timer = window.setTimeout(() => setPendingUndo(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [pendingUndo]);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -322,11 +357,25 @@ function FieldPlacerInner({
 
   const removeField = useCallback(
     (id: string) => {
+      const index = fields.findIndex((field) => field.id === id);
+      if (undoDeleteEnabled && index !== -1) {
+        setPendingUndo({ field: fields[index], index });
+      }
       onFieldsChange(fields.filter((field) => field.id !== id));
       if (selectedId === id) onSelectedIdChange(null);
     },
-    [fields, onFieldsChange, onSelectedIdChange, selectedId],
+    [fields, undoDeleteEnabled, onFieldsChange, onSelectedIdChange, selectedId],
   );
+
+  /** Repone el hueco borrado en su posicion original, id y rect intactos. */
+  const restorePendingUndo = useCallback(() => {
+    if (!pendingUndo) return;
+    const next = [...fields];
+    next.splice(Math.min(pendingUndo.index, next.length), 0, pendingUndo.field);
+    onFieldsChange(next);
+    onSelectedIdChange(pendingUndo.field.id);
+    setPendingUndo(null);
+  }, [pendingUndo, fields, onFieldsChange, onSelectedIdChange]);
 
   /* Tecla Supr/Retroceso sobre el hueco seleccionado. */
   const removeRef = useRef(removeField);
@@ -729,6 +778,21 @@ function FieldPlacerInner({
         </p>
       ) : null}
 
+      {pendingUndo ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-3 flex items-center justify-between gap-3 rounded-ios-sm border border-white/14 bg-elevated px-3.5 py-2.5"
+        >
+          <span className="text-xs text-muted-foreground">
+            {strings.fieldDeletedNotice}
+          </span>
+          <Button variant="ghost" size="sm" onClick={restorePendingUndo}>
+            {strings.undoRemoveField}
+          </Button>
+        </div>
+      ) : null}
+
       {thumbs.length > 1 ? (
         <div className="mt-6">
           <h4 className="hud-label mb-2 text-[10px] text-muted-foreground">
@@ -882,9 +946,9 @@ function FieldBox({
 /** Lado y alto por defecto de un campo de texto nuevo, en fraccion de pagina. */
 const DEFAULT_TEXT_FIELD = { width: 0.28, height: 0.045 };
 
-/** Identificadores estables para los campos anadidos a mano. */
+/** Identificadores estables para los campos anadidos a mano. Exportado por el mismo motivo que `nextFieldId`. */
 let textFieldCounter = 0;
-function nextTextFieldId(): string {
+export function nextTextFieldId(): string {
   textFieldCounter += 1;
   return `txt-${textFieldCounter}`;
 }
@@ -925,6 +989,14 @@ export type TextFieldPlacerProps = {
   onEditingIdChange: (id: string | null) => void;
   strings: SignStrings;
   onError?: (code: PdfErrorCode) => void;
+  /** Tab/Enter salta al siguiente campo vacio en vez de cerrar el editor. */
+  keyboardNavEnabled?: boolean;
+  /** Borrar un campo muestra "Deshacer" en vez de borrarlo sin red de seguridad. */
+  undoDeleteEnabled?: boolean;
+  /** Permite elegir el tipo del campo seleccionado (casilla, fecha, inicial), no solo texto libre. */
+  richFieldTypesEnabled?: boolean;
+  /** Pellizco con dos dedos para acercar el lienzo, en formularios densos. */
+  pinchZoomEnabled?: boolean;
 };
 
 export function TextFieldPlacer(props: TextFieldPlacerProps) {
@@ -948,15 +1020,64 @@ function TextFieldPlacerInner({
   onEditingIdChange,
   strings,
   onError,
+  keyboardNavEnabled = false,
+  undoDeleteEnabled = false,
+  richFieldTypesEnabled = false,
+  pinchZoomEnabled = false,
 }: TextFieldPlacerProps) {
   const [pageCount, setPageCount] = useState(0);
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
+
+  /**
+   * Zoom con pellizco (dos dedos): `zoom` y `pan` viven aqui, no en el
+   * padre, igual que "Deshacer" -- solo importan mientras este lienzo
+   * concreto este montado. `activePointersRef` registra TODOS los
+   * punteros activos (no solo el que arrastra un campo) para poder medir
+   * la distancia entre dos dedos; `pinchRef` solo existe mientras el
+   * pellizco esta en marcha.
+   */
+  const MAX_ZOOM = 3;
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(
+    new Map(),
+  );
+  const pinchRef = useRef<{
+    pointerIds: [number, number];
+    startDistance: number;
+    startZoom: number;
+    startPan: { x: number; y: number };
+    startMid: { x: number; y: number };
+  } | null>(null);
+
+  const resetZoom = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
   // Re-renderiza este subarbol cuando el historial cambia, incluida otra
   // pestaña (borrar datos ahi debe apagar las sugerencias aqui tambien).
   useValueHistoryVersion();
+
+  /**
+   * Un unico "Deshacer" pendiente a la vez (no una cola): borrar otro
+   * campo mientras el anterior sigue deshacible lo reemplaza sin mas
+   * -- el anterior queda borrado en firme. Vive aqui, no en el padre,
+   * porque solo importa mientras este subarbol este montado.
+   */
+  const [pendingUndo, setPendingUndo] = useState<{
+    field: DetectedField;
+    index: number;
+    value: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!pendingUndo) return;
+    const timer = window.setTimeout(() => setPendingUndo(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [pendingUndo]);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<TextDragState | null>(null);
@@ -1039,12 +1160,36 @@ function TextFieldPlacerInner({
 
   const removeField = useCallback(
     (id: string) => {
+      const index = fields.findIndex((field) => field.id === id);
+      if (undoDeleteEnabled && index !== -1) {
+        setPendingUndo({ field: fields[index], index, value: values[id] ?? "" });
+      }
       onFieldsChange(fields.filter((field) => field.id !== id));
       if (selectedId === id) onSelectedIdChange(null);
       if (editingId === id) onEditingIdChange(null);
     },
-    [fields, onFieldsChange, onSelectedIdChange, selectedId, editingId, onEditingIdChange],
+    [
+      fields,
+      values,
+      undoDeleteEnabled,
+      onFieldsChange,
+      onSelectedIdChange,
+      selectedId,
+      editingId,
+      onEditingIdChange,
+    ],
   );
+
+  /** Repone el campo borrado (y su valor) en su posicion original. */
+  const restorePendingUndo = useCallback(() => {
+    if (!pendingUndo) return;
+    const next = [...fields];
+    next.splice(Math.min(pendingUndo.index, next.length), 0, pendingUndo.field);
+    onFieldsChange(next);
+    if (pendingUndo.value) onValueChange(pendingUndo.field.id, pendingUndo.value);
+    onSelectedIdChange(pendingUndo.field.id);
+    setPendingUndo(null);
+  }, [pendingUndo, fields, onFieldsChange, onValueChange, onSelectedIdChange]);
 
   const removeRef = useRef(removeField);
   useEffect(() => {
@@ -1069,6 +1214,37 @@ function TextFieldPlacerInner({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedId, onEditingIdChange]);
+
+  /**
+   * Tab/Enter en un campo: salta al siguiente campo vacio en orden de
+   * documento (todas las paginas, pagina por pagina), cambiando de
+   * pagina si hace falta. Si no queda ninguno vacio, simplemente cierra
+   * el editor (mismo resultado que hoy sin navegacion por teclado).
+   */
+  const advanceToNextEmptyField = useCallback(
+    (currentId: string) => {
+      const ordered = [...fields].sort((a, b) => a.pageIndex - b.pageIndex);
+      const currentIndex = ordered.findIndex((f) => f.id === currentId);
+      if (currentIndex === -1 || ordered.length === 0) {
+        onEditingIdChange(null);
+        return;
+      }
+      const isEmpty = (f: DetectedField) =>
+        (values[f.id] ?? "").trim().length === 0;
+      const total = ordered.length;
+      for (let step = 1; step <= total; step++) {
+        const candidate = ordered[(currentIndex + step) % total];
+        if (candidate.id !== currentId && isEmpty(candidate)) {
+          onSelectedIdChange(candidate.id);
+          onPageIndexChange(candidate.pageIndex);
+          onEditingIdChange(candidate.id);
+          return;
+        }
+      }
+      onEditingIdChange(null);
+    },
+    [fields, values, onSelectedIdChange, onPageIndexChange, onEditingIdChange],
+  );
 
   const addCentered = (x: number, y: number) => {
     addField({
@@ -1099,6 +1275,35 @@ function TextFieldPlacerInner({
   };
 
   const startCreate = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pinchZoomEnabled) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      activePointersRef.current.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+      });
+      // Un segundo dedo mientras no hay ningun campo en arrastre es un
+      // pellizco, nunca un segundo intento de dibujar un campo.
+      if (activePointersRef.current.size === 2 && !dragRef.current) {
+        const [[idA, a], [idB, b]] = [...activePointersRef.current.entries()];
+        event.preventDefault();
+        // Si el primer dedo habia empezado a dibujar un campo nuevo, ese
+        // borrador queda cancelado: dos dedos ya no son "dibujar".
+        draftOriginRef.current = null;
+        setDraft(null);
+        pinchRef.current = {
+          pointerIds: [idA, idB],
+          startDistance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+          startZoom: zoom,
+          startPan: pan,
+          startMid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+        };
+        return;
+      }
+      // Un tercer dedo, o cualquier dedo mientras el pellizco ya esta en
+      // marcha: se ignora, no reinicia nada.
+      if (activePointersRef.current.size > 2 || pinchRef.current) return;
+    }
+
     if (!preview) return;
     const point = toNormalized(event.clientX, event.clientY);
     if (!point) return;
@@ -1142,6 +1347,48 @@ function TextFieldPlacerInner({
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pinchZoomEnabled) {
+      if (activePointersRef.current.has(event.pointerId)) {
+        activePointersRef.current.set(event.pointerId, {
+          x: event.clientX,
+          y: event.clientY,
+        });
+      }
+      const pinch = pinchRef.current;
+      if (pinch) {
+        const a = activePointersRef.current.get(pinch.pointerIds[0]);
+        const b = activePointersRef.current.get(pinch.pointerIds[1]);
+        if (a && b) {
+          event.preventDefault();
+          const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+          const nextZoom = clamp(
+            pinch.startZoom * (distance / pinch.startDistance),
+            1,
+            MAX_ZOOM,
+          );
+          const midX = (a.x + b.x) / 2;
+          const midY = (a.y + b.y) / 2;
+          // Cota generosa, no un contenido pixel-perfecto: solo evita
+          // que el pellizco arrastre el lienzo a valores disparatados.
+          const PAN_LIMIT_PX = 400;
+          setZoom(nextZoom);
+          setPan({
+            x: clamp(
+              pinch.startPan.x + (midX - pinch.startMid.x),
+              -PAN_LIMIT_PX,
+              PAN_LIMIT_PX,
+            ),
+            y: clamp(
+              pinch.startPan.y + (midY - pinch.startMid.y),
+              -PAN_LIMIT_PX,
+              PAN_LIMIT_PX,
+            ),
+          });
+        }
+        return;
+      }
+    }
+
     const host = hostRef.current;
     const drag = dragRef.current;
     if (drag && host) {
@@ -1190,14 +1437,37 @@ function TextFieldPlacerInner({
     );
   };
 
+  /**
+   * Deja de rastrear un dedo para el pellizco. Si era uno de los dos que
+   * lo sostenian, el pellizco termina; si ademas el zoom quedo muy cerca
+   * de 1x, encaja del todo (sin esto un pellizco que vuelve casi a 1
+   * dejaria un zoom/pan residual imperceptible pero ya no reiniciable
+   * sin pasar primero por debajo de 1x).
+   */
+  const endPinchPointer = (pointerId: number) => {
+    if (!pinchZoomEnabled) return;
+    activePointersRef.current.delete(pointerId);
+    const pinch = pinchRef.current;
+    if (pinch && pinch.pointerIds.includes(pointerId)) {
+      pinchRef.current = null;
+      setZoom((current) => {
+        if (current > 1.02) return current;
+        setPan({ x: 0, y: 0 });
+        return 1;
+      });
+    }
+  };
+
   /** Puntero perdido a medio gesto (interrupcion del sistema): se aborta sin decidir toque ni arrastre. */
-  const onPointerCancel = () => {
+  const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    endPinchPointer(event.pointerId);
     dragRef.current = null;
     draftOriginRef.current = null;
     setDraft(null);
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    endPinchPointer(event.pointerId);
     const drag = dragRef.current;
     if (drag) {
       if (event.pointerId !== drag.pointerId) return;
@@ -1207,7 +1477,15 @@ function TextFieldPlacerInner({
       // de rellenar que le pedimos al usuario, tiene que sentirse
       // inmediata. El tirador de redimensionar nunca abre el editor.
       if (drag.mode === "move" && !drag.moved) {
-        onEditingIdChange(drag.id);
+        const tapped = fields.find((field) => field.id === drag.id);
+        // Una casilla no tiene modo "editar": el mismo toque limpio que
+        // abriria el editor en cualquier otro tipo la marca/desmarca
+        // directamente.
+        if (tapped && fieldTypeOf(tapped) === "checkbox") {
+          onValueChange(tapped.id, (values[tapped.id] ?? "") ? "" : "true");
+        } else {
+          onEditingIdChange(drag.id);
+        }
       }
       return;
     }
@@ -1257,9 +1535,16 @@ function TextFieldPlacerInner({
       </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <Button variant="secondary" size="sm" onClick={() => addCentered(0.5, 0.75)}>
-          {strings.addTextFieldHere}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => addCentered(0.5, 0.75)}>
+            {strings.addTextFieldHere}
+          </Button>
+          {pinchZoomEnabled && zoom !== 1 ? (
+            <Button variant="ghost" size="sm" onClick={resetZoom}>
+              {strings.resetZoomButton}
+            </Button>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -1325,7 +1610,7 @@ function TextFieldPlacerInner({
         </div>
       </div>
 
-      <div className="glass rounded-ios flex justify-center p-3">
+      <div className="glass rounded-ios flex justify-center overflow-hidden p-3">
         <div
           ref={hostRef}
           onPointerDown={startCreate}
@@ -1333,6 +1618,14 @@ function TextFieldPlacerInner({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
           className="relative w-full max-w-[640px] cursor-crosshair touch-none select-none"
+          style={
+            zoom !== 1 || pan.x !== 0 || pan.y !== 0
+              ? {
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: "center center",
+                }
+              : undefined
+          }
         >
           {preview ? (
             /* eslint-disable-next-line @next/next/no-img-element */
@@ -1357,7 +1650,13 @@ function TextFieldPlacerInner({
               label={field.label ?? fallbackLabel(field.id)}
               value={values[field.id] ?? ""}
               onValueChange={(value) => onValueChange(field.id, value)}
-              historyKey={field.label ? normalizeFieldLabel(field.label) : null}
+              historyKey={
+                field.label &&
+                (fieldTypeOf(field) === "text" ||
+                  fieldTypeOf(field) === "initials")
+                  ? normalizeFieldLabel(field.label)
+                  : null
+              }
               selected={field.id === selectedId}
               editing={field.id === editingId}
               strings={strings}
@@ -1365,6 +1664,11 @@ function TextFieldPlacerInner({
               onSelect={() => onSelectedIdChange(field.id)}
               onRemove={() => removeField(field.id)}
               onEditEnd={() => onEditingIdChange(null)}
+              onAdvance={
+                keyboardNavEnabled
+                  ? () => advanceToNextEmptyField(field.id)
+                  : undefined
+              }
             />
           ))}
 
@@ -1383,6 +1687,33 @@ function TextFieldPlacerInner({
         </div>
       </div>
 
+      {richFieldTypesEnabled && selectedField ? (
+        <div className="mt-3">
+          <SegmentedControl<DetectedFieldType>
+            size="sm"
+            label={strings.textFieldTypeLabel}
+            value={fieldTypeOf(selectedField)}
+            onChange={(type) => {
+              onFieldsChange(
+                fields.map((field) =>
+                  field.id === selectedField.id ? { ...field, type } : field,
+                ),
+              );
+              // El valor anterior podria no tener sentido en el tipo
+              // nuevo (ej. un texto escrito, empotrado como "X" si se
+              // cambia a casilla): se limpia al cambiar de tipo.
+              onValueChange(selectedField.id, "");
+            }}
+            options={[
+              { value: "text", label: strings.fieldTypeText },
+              { value: "checkbox", label: strings.fieldTypeCheckbox },
+              { value: "date", label: strings.fieldTypeDate },
+              { value: "initials", label: strings.fieldTypeInitials },
+            ]}
+          />
+        </div>
+      ) : null}
+
       {selectedField?.confidence === "low" ? (
         <p className="mt-3 text-xs leading-relaxed text-amber-400">
           {strings.lowConfidenceHint}
@@ -1393,6 +1724,21 @@ function TextFieldPlacerInner({
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           {strings.noTextFields}
         </p>
+      ) : null}
+
+      {pendingUndo ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-3 flex items-center justify-between gap-3 rounded-ios-sm border border-white/14 bg-elevated px-3.5 py-2.5"
+        >
+          <span className="text-xs text-muted-foreground">
+            {strings.textFieldDeletedNotice}
+          </span>
+          <Button variant="ghost" size="sm" onClick={restorePendingUndo}>
+            {strings.undoRemoveTextField}
+          </Button>
+        </div>
       ) : null}
 
       <ConfirmSheet
@@ -1429,6 +1775,8 @@ type TextFieldBoxProps = {
   onRemove: () => void;
   /** El input perdio el foco (toco otro campo/boton/fuera): cierra el editor sin perder la seleccion. */
   onEditEnd: () => void;
+  /** Tab/Enter: saltar al siguiente campo vacio. `undefined` si la navegacion por teclado esta apagada. */
+  onAdvance?: () => void;
 };
 
 /**
@@ -1451,7 +1799,9 @@ function TextFieldBox({
   onSelect,
   onRemove,
   onEditEnd,
+  onAdvance,
 }: TextFieldBoxProps) {
+  const type = fieldTypeOf(field);
   const dashed = field.confidence === "low";
   const color = dashed ? "#f59e0b" : "#0d4bff";
 
@@ -1532,42 +1882,81 @@ function TextFieldBox({
         </>
       ) : null}
 
-      {/* Toca para editar: el input vive encima del propio campo, como un hueco de Adobe Acrobat. */}
-      {editing ? (
+      {/* Una casilla no tiene modo "editar": el toque limpio que la marca/desmarca vive en `onPointerUp` del lienzo, esto solo pinta el estado. */}
+      {type === "checkbox" ? (
+        value ? (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <Check aria-hidden="true" className="size-4 text-white" />
+          </span>
+        ) : null
+      ) : /* Toca para editar: el input vive encima del propio campo, como un hueco de Adobe Acrobat. */
+      editing ? (
         <>
           <input
-            type="text"
+            type={type === "date" ? "date" : "text"}
             aria-label={label}
             value={value}
-            placeholder={strings.textFieldPlaceholder}
+            placeholder={
+              type === "initials"
+                ? strings.initialsFieldPlaceholder
+                : strings.textFieldPlaceholder
+            }
+            maxLength={type === "initials" ? 4 : undefined}
             autoFocus
             onPointerDown={(event) => event.stopPropagation()}
             onChange={(event) => {
-              onValueChange(event.target.value);
+              const next =
+                type === "initials"
+                  ? event.target.value.toUpperCase()
+                  : event.target.value;
+              onValueChange(next);
               setHighlightedIndex(-1);
               setSuggestionsDismissed(false);
             }}
             onBlur={commitAndClose}
             onKeyDown={(event) => {
-              if (suggestions.length === 0) return;
-              if (event.key === "ArrowDown") {
+              if (suggestions.length > 0) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setHighlightedIndex((index) =>
+                    Math.min(index + 1, suggestions.length - 1),
+                  );
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setHighlightedIndex((index) => Math.max(index - 1, 0));
+                  return;
+                }
+                if (event.key === "Enter" && highlightedIndex >= 0) {
+                  event.preventDefault();
+                  onValueChange(suggestions[highlightedIndex]);
+                  setSuggestionsDismissed(true);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  setSuggestionsDismissed(true);
+                  return;
+                }
+              }
+
+              // Navegacion por teclado (si esta activa en Ajustes): Tab o
+              // Enter confirma el valor y salta al siguiente campo vacio,
+              // sin soltar el lienzo.
+              if (
+                onAdvance &&
+                (event.key === "Enter" ||
+                  (event.key === "Tab" && !event.shiftKey))
+              ) {
                 event.preventDefault();
-                setHighlightedIndex((index) =>
-                  Math.min(index + 1, suggestions.length - 1),
-                );
-              } else if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setHighlightedIndex((index) => Math.max(index - 1, 0));
-              } else if (event.key === "Enter" && highlightedIndex >= 0) {
-                event.preventDefault();
-                onValueChange(suggestions[highlightedIndex]);
+                if (historyKey) recordValue(historyKey, value);
                 setSuggestionsDismissed(true);
-              } else if (event.key === "Escape") {
-                setSuggestionsDismissed(true);
+                onAdvance();
               }
             }}
             className="absolute inset-0 h-full w-full rounded-[3px] border-0 bg-white/95 px-1.5 text-xs text-black outline-none ring-2 ring-signal"
           />
+          {/* Fecha/inicial no tienen historial de sugerencias (`historyKey` llega null desde el padre): la lista siempre esta vacia y este componente no pinta nada. */}
           <ValueSuggestions
             id={`${field.id}-suggestions`}
             suggestions={suggestions}

@@ -35,6 +35,14 @@ export type SignStrings = {
   legalNote: string;
   filenameSuffix: string;
 
+  /* --- Certificado de finalizacion (pagina final opcional) --- */
+  certificateTitle: string;
+  certificateHashLabel: string;
+  certificateTimestampLabel: string;
+  certificateSignersLabel: string;
+  certificateNoSignerName: string;
+  certificateDisclaimer: string;
+
   /* --- Eleccion de flujo --- */
   modeLabel: string;
   modeSingle: string;
@@ -62,6 +70,9 @@ export type SignStrings = {
   signerFieldCount: (count: number) => string;
   activeSignerLabel: string;
   activeSignerHint: string;
+  /** Anuncio del snackbar tras borrar un firmante con "Deshacer" activo. */
+  signerDeletedNotice: string;
+  undoRemoveSigner: string;
 
   /* --- Campos --- */
   fieldsTitle: string;
@@ -73,6 +84,9 @@ export type SignStrings = {
   fieldOwnerLabel: (name: string, type: string) => string;
   removeField: string;
   resizeField: string;
+  /** Anuncio del snackbar tras borrar un hueco con "Deshacer" activo. */
+  fieldDeletedNotice: string;
+  undoRemoveField: string;
   fieldsOnPage: (count: number) => string;
   totalFields: (count: number) => string;
   clearPageFields: string;
@@ -91,8 +105,17 @@ export type SignStrings = {
   detectionFailedHint: string;
   detectedFieldsSummary: (count: number) => string;
   addTextFieldHere: string;
+  /** Vuelve el lienzo a 1x tras un pellizco (Ajustes > Zoom con pellizco). */
+  resetZoomButton: string;
   textFieldFallbackLabel: (position: number) => string;
   textFieldPlaceholder: string;
+  initialsFieldPlaceholder: string;
+  /** Segmentado "Texto / Casilla / Fecha / Inicial" del campo seleccionado. */
+  textFieldTypeLabel: string;
+  fieldTypeText: string;
+  fieldTypeCheckbox: string;
+  fieldTypeDate: string;
+  fieldTypeInitials: string;
   removeTextField: string;
   resizeTextField: string;
   textFieldsOnPage: (count: number) => string;
@@ -105,6 +128,11 @@ export type SignStrings = {
   lowConfidenceHint: string;
   /** "12 de 31 campos rellenados" -- resumen de avance del panel de saltos. */
   fieldsFilledSummary: (filled: number, total: number) => string;
+  /** Aviso NO bloqueante antes de firmar/descargar si quedan campos vacios. */
+  pendingTextFieldsWarning: (missing: number) => string;
+  /** Anuncio del snackbar tras borrar un campo con "Deshacer" activo. */
+  textFieldDeletedNotice: string;
+  undoRemoveTextField: string;
   pageGroupLabel: (page: number) => string;
   reuseValuesPrompt: string;
   reuseValuesAccept: string;
@@ -185,6 +213,37 @@ export type SignStrings = {
   /* --- Exportar/importar configuracion --- */
   exportConfigButton: string;
   importConfigButton: string;
+
+  /* --- Plantillas de disposicion reutilizables (localStorage) --- */
+  templatesButton: string;
+  templatesTitle: string;
+  templatesEmpty: string;
+  templatesApply: string;
+  templatesDelete: (name: string) => string;
+  templatesSavedAt: (date: string) => string;
+  /** "2 firmantes · 3 huecos · 1 campo de texto". */
+  templatesSummary: (
+    signers: number,
+    fields: number,
+    textFields: number,
+  ) => string;
+  templatesConfirmDeleteTitle: string;
+  templatesConfirmDeleteBody: string;
+  saveAsTemplateButton: string;
+  saveTemplateTitle: string;
+  saveTemplateBody: string;
+  saveTemplateNameLabel: string;
+  saveTemplateNamePlaceholder: string;
+  saveTemplateConfirm: string;
+  saveTemplateLimitError: string;
+  saveTemplateUnavailableError: string;
+  saveTemplateSuccess: string;
+  applyTemplateConfirmTitle: string;
+  applyTemplateConfirmBody: string;
+  applyTemplateConfirm: string;
+  /** Se aplico, pero algunos campos no encajaban en el documento actual. */
+  applyTemplateDropped: (dropped: number) => string;
+  applyTemplateNothingFits: string;
 };
 
 const es: SignStrings = {
@@ -222,6 +281,14 @@ const es: SignStrings = {
     "Es una firma visual: se dibuja sobre la página. No sustituye a una firma electrónica cualificada con certificado.",
   filenameSuffix: "firmado",
 
+  certificateTitle: "Certificado de finalización",
+  certificateHashLabel: "Hash SHA-256 del documento firmado",
+  certificateTimestampLabel: "Fecha y hora",
+  certificateSignersLabel: "Firmantes",
+  certificateNoSignerName: "Sin nombre",
+  certificateDisclaimer:
+    "Esta página es solo trazabilidad informal: el hash permite comprobar que el documento no cambió después de firmarse. No es una firma electrónica cualificada ni certificada.",
+
   modeLabel: "¿Quién firma?",
   modeSingle: "Solo yo",
   modeSingleHint:
@@ -251,6 +318,8 @@ const es: SignStrings = {
   activeSignerLabel: "Firmante activo",
   activeSignerHint:
     "Los huecos nuevos se asignan al firmante activo. Cámbialo antes de marcar los suyos.",
+  signerDeletedNotice: "Firmante eliminado, junto con sus huecos y su firma.",
+  undoRemoveSigner: "Deshacer",
 
   fieldsTitle: "Reserva los huecos",
   fieldsHint:
@@ -261,6 +330,8 @@ const es: SignStrings = {
   addFieldHere: "Añadir hueco en esta página",
   fieldOwnerLabel: (name, type) => `${name} — ${type}`,
   removeField: "Quitar el hueco",
+  fieldDeletedNotice: "Hueco eliminado.",
+  undoRemoveField: "Deshacer",
   resizeField: "Cambiar el tamaño del hueco",
   fieldsOnPage: (count) =>
     count === 1 ? "1 hueco en esta página" : `${count} huecos en esta página`,
@@ -287,8 +358,15 @@ const es: SignStrings = {
       ? "Se detectó 1 campo. Revísalo antes de firmar."
       : `Se detectaron ${count} campos. Revísalos antes de firmar.`,
   addTextFieldHere: "Añadir campo en esta página",
+  resetZoomButton: "Restablecer zoom",
   textFieldFallbackLabel: (position) => `Campo ${position}`,
   textFieldPlaceholder: "Escribe el valor",
+  initialsFieldPlaceholder: "Iniciales",
+  textFieldTypeLabel: "Tipo de campo",
+  fieldTypeText: "Texto",
+  fieldTypeCheckbox: "Casilla",
+  fieldTypeDate: "Fecha",
+  fieldTypeInitials: "Inicial",
   removeTextField: "Quitar el campo",
   resizeTextField: "Cambiar el tamaño del campo",
   textFieldsOnPage: (count) =>
@@ -306,6 +384,10 @@ const es: SignStrings = {
     "Contorno discontinuo = detección experimental sobre una imagen escaneada. Revísala antes de firmar; si no es un campo real, bórrala.",
   fieldsFilledSummary: (filled, total) =>
     `${filled} de ${total} campo${total === 1 ? "" : "s"} rellenado${total === 1 ? "" : "s"}`,
+  pendingTextFieldsWarning: (missing) =>
+    `Queda${missing === 1 ? "" : "n"} ${missing} campo${missing === 1 ? "" : "s"} de texto sin rellenar. Puedes continuar igual.`,
+  textFieldDeletedNotice: "Campo eliminado.",
+  undoRemoveTextField: "Deshacer",
   pageGroupLabel: (page) => `Página ${page}`,
   reuseValuesPrompt: "¿Usar los mismos datos que en tu último documento?",
   reuseValuesAccept: "Sí, rellenar",
@@ -373,7 +455,7 @@ const es: SignStrings = {
   privacyClearData: "Borrar datos",
   privacyClearDataTitle: "¿Borrar los datos guardados?",
   privacyClearDataBody:
-    "Se van a borrar todos los valores de campos que se recordaron para sugerirlos en otros documentos (nombres, direcciones, números y demás texto que hayas escrito). Esta acción no se puede deshacer.",
+    "Se van a borrar todos los valores de campos que se recordaron para sugerirlos en otros documentos (nombres, direcciones, números y demás texto que hayas escrito), además de las plantillas de disposición guardadas. Esta acción no se puede deshacer.",
   privacyDataCleared: "Datos borrados.",
 
   signAgainTitle: "¿Firmar otro documento?",
@@ -393,6 +475,39 @@ const es: SignStrings = {
 
   exportConfigButton: "Exportar configuración",
   importConfigButton: "Importar configuración",
+
+  templatesButton: "Plantillas",
+  templatesTitle: "Plantillas de disposición",
+  templatesEmpty:
+    "Todavía no has guardado ninguna plantilla en este navegador.",
+  templatesApply: "Aplicar",
+  templatesDelete: (name) => `Borrar la plantilla «${name}»`,
+  templatesSavedAt: (date) => `Guardada el ${date}`,
+  templatesSummary: (signers, fields, textFields) =>
+    `${signers} firmante${signers === 1 ? "" : "s"} · ${fields} hueco${fields === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"} de texto`,
+  templatesConfirmDeleteTitle: "¿Borrar esta plantilla?",
+  templatesConfirmDeleteBody:
+    "Esta acción no se puede deshacer. Los documentos donde ya se aplicó no se ven afectados.",
+  saveAsTemplateButton: "Guardar como plantilla",
+  saveTemplateTitle: "Guardar como plantilla",
+  saveTemplateBody:
+    "Guarda la disposición de firmantes, huecos y campos de texto (sin lo que hayas escrito) para reutilizarla en otro documento. Solo se guarda en este navegador.",
+  saveTemplateNameLabel: "Nombre de la plantilla",
+  saveTemplateNamePlaceholder: "Ej. Contrato estándar",
+  saveTemplateConfirm: "Guardar plantilla",
+  saveTemplateLimitError:
+    "Ya tienes el máximo de plantillas guardadas. Borra alguna antes de guardar una nueva.",
+  saveTemplateUnavailableError:
+    "No se pudo guardar la plantilla en este navegador.",
+  saveTemplateSuccess: "Plantilla guardada.",
+  applyTemplateConfirmTitle: "¿Aplicar esta plantilla?",
+  applyTemplateConfirmBody:
+    "Reemplaza los firmantes, huecos y campos de texto actuales por los de la plantilla. Lo que ya hayas escrito o firmado en este documento se pierde.",
+  applyTemplateConfirm: "Sí, aplicar plantilla",
+  applyTemplateDropped: (dropped) =>
+    `Aplicada. ${dropped} campo${dropped === 1 ? "" : "s"} de la plantilla no encajaba${dropped === 1 ? "" : "n"} en este documento (menos páginas) y se descartó${dropped === 1 ? "" : "aron"}.`,
+  applyTemplateNothingFits:
+    "Esta plantilla no encaja en este documento: todos sus campos caen en páginas que este documento no tiene.",
 };
 
 const en: SignStrings = {
@@ -430,6 +545,14 @@ const en: SignStrings = {
     "This is a visual signature drawn onto the page. It does not replace a qualified electronic signature backed by a certificate.",
   filenameSuffix: "signed",
 
+  certificateTitle: "Completion certificate",
+  certificateHashLabel: "SHA-256 hash of the signed document",
+  certificateTimestampLabel: "Date and time",
+  certificateSignersLabel: "Signers",
+  certificateNoSignerName: "No name",
+  certificateDisclaimer:
+    "This page is informal traceability only: the hash lets you check the document didn't change after signing. It is not a qualified or certified electronic signature.",
+
   modeLabel: "Who is signing?",
   modeSingle: "Just me",
   modeSingleHint:
@@ -458,6 +581,8 @@ const en: SignStrings = {
   activeSignerLabel: "Active signer",
   activeSignerHint:
     "New slots go to the active signer. Switch first, then mark their slots.",
+  signerDeletedNotice: "Signer deleted, along with their slots and signature.",
+  undoRemoveSigner: "Undo",
 
   fieldsTitle: "Reserve the slots",
   fieldsHint:
@@ -468,6 +593,8 @@ const en: SignStrings = {
   addFieldHere: "Add a slot on this page",
   fieldOwnerLabel: (name, type) => `${name} — ${type}`,
   removeField: "Remove the slot",
+  fieldDeletedNotice: "Slot deleted.",
+  undoRemoveField: "Undo",
   resizeField: "Resize the slot",
   fieldsOnPage: (count) =>
     count === 1 ? "1 slot on this page" : `${count} slots on this page`,
@@ -494,8 +621,15 @@ const en: SignStrings = {
       ? "1 field was detected. Review it before signing."
       : `${count} fields were detected. Review them before signing.`,
   addTextFieldHere: "Add a field on this page",
+  resetZoomButton: "Reset zoom",
   textFieldFallbackLabel: (position) => `Field ${position}`,
   textFieldPlaceholder: "Type the value",
+  initialsFieldPlaceholder: "Initials",
+  textFieldTypeLabel: "Field type",
+  fieldTypeText: "Text",
+  fieldTypeCheckbox: "Checkbox",
+  fieldTypeDate: "Date",
+  fieldTypeInitials: "Initials",
   removeTextField: "Remove the field",
   resizeTextField: "Resize the field",
   textFieldsOnPage: (count) =>
@@ -513,6 +647,10 @@ const en: SignStrings = {
     "Dashed outline = experimental detection on a scanned image. Review it before signing; delete it if it isn't a real field.",
   fieldsFilledSummary: (filled, total) =>
     `${filled} of ${total} field${total === 1 ? "" : "s"} filled in`,
+  pendingTextFieldsWarning: (missing) =>
+    `${missing} text field${missing === 1 ? "" : "s"} still empty. You can continue anyway.`,
+  textFieldDeletedNotice: "Field deleted.",
+  undoRemoveTextField: "Undo",
   pageGroupLabel: (page) => `Page ${page}`,
   reuseValuesPrompt: "Use the same data as your last document?",
   reuseValuesAccept: "Yes, fill it in",
@@ -579,7 +717,7 @@ const en: SignStrings = {
   privacyClearData: "Clear data",
   privacyClearDataTitle: "Clear the stored data?",
   privacyClearDataBody:
-    "This deletes every field value remembered to suggest it in other documents (names, addresses, numbers and any other text you typed). This cannot be undone.",
+    "This deletes every field value remembered to suggest it in other documents (names, addresses, numbers and any other text you typed), plus any saved layout templates. This cannot be undone.",
   privacyDataCleared: "Data cleared.",
 
   signAgainTitle: "Sign another document?",
@@ -599,6 +737,37 @@ const en: SignStrings = {
 
   exportConfigButton: "Export configuration",
   importConfigButton: "Import configuration",
+
+  templatesButton: "Templates",
+  templatesTitle: "Layout templates",
+  templatesEmpty: "You haven't saved any template in this browser yet.",
+  templatesApply: "Apply",
+  templatesDelete: (name) => `Delete the "${name}" template`,
+  templatesSavedAt: (date) => `Saved on ${date}`,
+  templatesSummary: (signers, fields, textFields) =>
+    `${signers} signer${signers === 1 ? "" : "s"} · ${fields} field${fields === 1 ? "" : "s"} · ${textFields} text field${textFields === 1 ? "" : "s"}`,
+  templatesConfirmDeleteTitle: "Delete this template?",
+  templatesConfirmDeleteBody:
+    "This cannot be undone. Documents it was already applied to are not affected.",
+  saveAsTemplateButton: "Save as template",
+  saveTemplateTitle: "Save as template",
+  saveTemplateBody:
+    "Saves the layout of signers, fields and text fields (not what you typed in) to reuse on another document. Only saved in this browser.",
+  saveTemplateNameLabel: "Template name",
+  saveTemplateNamePlaceholder: "E.g. Standard contract",
+  saveTemplateConfirm: "Save template",
+  saveTemplateLimitError:
+    "You already have the maximum number of templates saved. Delete one before saving a new one.",
+  saveTemplateUnavailableError: "Couldn't save the template in this browser.",
+  saveTemplateSuccess: "Template saved.",
+  applyTemplateConfirmTitle: "Apply this template?",
+  applyTemplateConfirmBody:
+    "Replaces the current signers, fields and text fields with the ones from the template. Anything you already typed or signed on this document is lost.",
+  applyTemplateConfirm: "Yes, apply template",
+  applyTemplateDropped: (dropped) =>
+    `Applied. ${dropped} field${dropped === 1 ? "" : "s"} from the template didn't fit this document (fewer pages) and ${dropped === 1 ? "was" : "were"} dropped.`,
+  applyTemplateNothingFits:
+    "This template doesn't fit this document: all of its fields fall on pages this document doesn't have.",
 };
 
 export const SIGN_STRINGS: Record<Language, SignStrings> = { es, en };

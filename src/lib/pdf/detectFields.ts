@@ -34,6 +34,20 @@ export type FieldSource =
 
 export type FieldConfidence = "high" | "medium" | "low";
 
+/**
+ * Tipo de campo de texto. `"initials"` aqui es un campo de texto corto
+ * (2-4 letras escritas a mano por teclado) -- NO tiene relacion con
+ * `SignatureFieldType["initials"]` de `src/lib/pdf/sign.ts`, que es un
+ * hueco de imagen (trazo capturado) atado a un firmante concreto.
+ */
+export type DetectedFieldType = "text" | "checkbox" | "date" | "initials";
+export const DETECTED_FIELD_TYPES: readonly DetectedFieldType[] = [
+  "text",
+  "checkbox",
+  "date",
+  "initials",
+] as const;
+
 export type DetectedField = {
   id: string;
   pageIndex: number;
@@ -43,7 +57,60 @@ export type DetectedField = {
   label?: string;
   source: FieldSource;
   confidence: FieldConfidence;
+  /**
+   * Ausente = `"text"` (nunca se escribe "text" explicitamente, ver
+   * `fieldTypeOf`): asi, todo campo ya guardado antes de que este tipo
+   * existiera (borradores, configs exportadas) se sigue leyendo como
+   * texto libre sin ninguna migracion.
+   */
+  type?: DetectedFieldType;
 };
+
+/** Tipo efectivo de un campo, con el default de "ausente = texto libre" ya resuelto. */
+export function fieldTypeOf(field: DetectedField): DetectedFieldType {
+  return field.type ?? "text";
+}
+
+/**
+ * "Relleno" depende del tipo: una casilla cuenta como completa en
+ * cuanto se coloca (no marcarla es una respuesta valida, ej. "no
+ * consiento"), nunca como pendiente eterno en el aviso de campos sin
+ * rellenar.
+ */
+export function isFieldFilled(
+  field: DetectedField,
+  value: string | undefined,
+): boolean {
+  if (fieldTypeOf(field) === "checkbox") return true;
+  return (value ?? "").trim().length > 0;
+}
+
+/**
+ * Valor tal como se empotra en el PDF final. Solo ASCII a proposito:
+ * `Helvetica.encodeText("✓")` de `@cantoo/pdf-lib` no lanza, pero
+ * imprime un "?" en silencio (WinAnsi no tiene glifo de check) -- una
+ * casilla marcada se empotra como "X", no como un simbolo de check.
+ */
+export function embeddedValueFor(
+  field: DetectedField,
+  value: string,
+  language: "es" | "en",
+): string {
+  const type = fieldTypeOf(field);
+  if (type === "checkbox") return value ? "X" : "";
+  if (type === "date") return formatIsoDate(value, language);
+  return value;
+}
+
+/** `"YYYY-MM-DD"` (lo que da `<input type="date">`) a fecha legible en el idioma activo. */
+export function formatIsoDate(iso: string, language: "es" | "en"): string {
+  if (!iso) return "";
+  const parsed = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return new Intl.DateTimeFormat(language === "es" ? "es-ES" : "en-GB", {
+    dateStyle: "medium",
+  }).format(parsed);
+}
 
 /* ------------------------------------------------------------------ *
  * 1. AcroForm (confianza alta)

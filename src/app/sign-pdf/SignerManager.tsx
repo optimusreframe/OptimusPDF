@@ -21,9 +21,9 @@ export type SignerManagerProps = {
   strings: SignStrings;
 };
 
-/** Identificadores estables sin depender de `crypto.randomUUID`. */
+/** Identificadores estables sin depender de `crypto.randomUUID`. Exportado por el mismo motivo que `nextFieldId` en `FieldPlacer.tsx`. */
 let signerCounter = 0;
-function nextSignerId(): string {
+export function nextSignerId(): string {
   signerCounter += 1;
   return `sg-${signerCounter}`;
 }
@@ -39,9 +39,12 @@ export function reserveSignerIds(ids: readonly string[]): void {
 /**
  * El color no se guarda al crear el firmante sino que se reparte por
  * posicion cada vez que la lista cambia: asi, al quitar a alguien de en
- * medio, no quedan dos personas con el mismo color.
+ * medio, no quedan dos personas con el mismo color. Exportado: restaurar
+ * un firmante borrado (`SignToolClient.tsx`) tiene que recalcular los
+ * colores de TODOS con el mismo criterio, no solo insertar el suyo, o
+ * quedarian dos firmantes con el mismo color tras deshacer.
  */
-function recolor(signers: Signer[]): Signer[] {
+export function recolor(signers: Signer[]): Signer[] {
   return signers.map((signer, index) => ({
     ...signer,
     color: signerColorAt(index),

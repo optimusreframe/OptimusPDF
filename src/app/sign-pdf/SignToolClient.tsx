@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { PenLine } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { Spinner } from "@/components/ui/Spinner";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Sheet } from "@/components/ui/Sheet";
@@ -12,16 +13,30 @@ import {
   type SignatureDraft,
 } from "@/app/sign-pdf/SignatureComposer";
 import { SignaturePlacer } from "@/app/sign-pdf/SignaturePlacer";
-import { SignerManager, reserveSignerIds } from "@/app/sign-pdf/SignerManager";
+import {
+  SignerManager,
+  nextSignerId,
+  recolor,
+  reserveSignerIds,
+} from "@/app/sign-pdf/SignerManager";
 import {
   FieldPlacer,
   TextFieldPlacer,
+  nextFieldId,
+  nextTextFieldId,
   reserveFieldIds,
   reserveTextFieldIds,
 } from "@/app/sign-pdf/FieldPlacer";
 import { FieldFormPanel } from "@/app/sign-pdf/FieldFormPanel";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
 import { DraftsSheet } from "@/app/sign-pdf/DraftsSheet";
+import { TemplatesSheet } from "@/app/sign-pdf/TemplatesSheet";
+import {
+  instantiateTemplate,
+  saveTemplate,
+  TEMPLATE_NAME_MAX,
+  type SignTemplate,
+} from "@/app/sign-pdf/signTemplates";
 import {
   SigningCeremony,
   pendingSigners,
@@ -44,19 +59,28 @@ import {
   type SaveDraftParams,
 } from "@/app/sign-pdf/signDrafts";
 import { SIGN_STRINGS, type SignStrings } from "@/app/sign-pdf/strings";
-import { useI18n } from "@/lib/i18n";
+import { useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
+import { useI18n, type Language } from "@/lib/i18n";
 import {
   MAX_SAFE_FILE_SIZE,
   PdfError,
   downloadBlob,
+  loadPdf,
   matchesAccept,
   toPdfError,
   withSuffix,
   type PdfErrorCode,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { detectFields, type DetectedField } from "@/lib/pdf/detectFields";
 import {
+  detectFields,
+  embeddedValueFor,
+  fieldTypeOf,
+  isFieldFilled,
+  type DetectedField,
+} from "@/lib/pdf/detectFields";
+import {
+  SIGNER_COLORS,
   buildSignerFilenamePrefix,
   dataUrlToBytes,
   normalizeFieldLabel,
@@ -222,7 +246,7 @@ function hasFilledTextValue(
   fields: readonly DetectedField[],
   values: Record<string, string>,
 ): boolean {
-  return fields.some((field) => (values[field.id] ?? "").trim().length > 0);
+  return fields.some((field) => isFieldFilled(field, values[field.id]));
 }
 
 /**
@@ -234,6 +258,7 @@ function hasFilledTextValue(
 function buildPlacements(
   options: SignToolOptions,
   documentKey: string,
+  language: Language,
 ): SignPlacement[] {
   const decoded = new Map<string, Uint8Array>();
   const placements: SignPlacement[] = [];
@@ -264,13 +289,15 @@ function buildPlacements(
   // blanco" ni estropea el documento), asi que aqui se descartan sin
   // avisar en vez de exigir que esten todos rellenos.
   for (const field of options.textFields) {
-    const value = options.textValues[field.id]?.trim();
+    const raw = options.textValues[field.id] ?? "";
+    const value = embeddedValueFor(field, raw, language);
     if (!value) continue;
     placements.push({
       kind: "text",
       value,
       pageIndex: field.pageIndex,
       rect: field.rect,
+      align: fieldTypeOf(field) === "checkbox" ? "center" : "left",
     });
   }
 
@@ -306,6 +333,9 @@ function multiReady(
 export function SignToolClient() {
   const { language, t } = useI18n();
   const strings = SIGN_STRINGS[language];
+  const completionCertificateEnabled = useSignPdfFeatureFlag(
+    "completionCertificate",
+  );
   const [composerOpen, setComposerOpen] = useState(false);
   const [pageCount, setPageCount] = useState(0);
   /** Lo rellena `ToolShell`: remata la ronda con el mismo procesado de siempre. */
@@ -320,6 +350,17 @@ export function SignToolClient() {
   >(null);
   const [draftsOpen, setDraftsOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const reusableTemplatesEnabled = useSignPdfFeatureFlag("reusableTemplates");
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  /** Mensaje de la ultima accion de plantilla (exito, error o "N campos descartados"). Compartido entre guardar/aplicar: solo una accion de plantilla esta en marcha a la vez. */
+  const [templateFeedback, setTemplateFeedback] = useState<string | null>(
+    null,
+  );
+  /** Plantilla elegida en el sheet, esperando confirmacion porque ya hay disposicion cargada que se perderia. */
+  const [pendingApplyTemplate, setPendingApplyTemplate] =
+    useState<SignTemplate | null>(null);
 
   /**
    * Respuesta del prompt de prefijo de firmantes (ver `requestFinish`),
@@ -458,6 +499,96 @@ export function SignToolClient() {
     [],
   );
 
+  /**
+   * Guarda la disposicion ACTUAL (firmantes + huecos + campos de texto,
+   * sin valores) como plantilla con nombre, reutilizable en otro
+   * documento. `pageCount` se resuelve del propio archivo en vez de
+   * confiar en el `pageCount` de estado del componente: ese solo lo
+   * alimenta `SignaturePlacer` (modo "solo yo"), nunca el flujo multi.
+   */
+  const handleSaveTemplate = useCallback(
+    async (file: File, options: SignToolOptions, name: string) => {
+      try {
+        const pdf = await loadPdf(file);
+        const result = saveTemplate({
+          name,
+          pageCount: pdf.getPageCount(),
+          signers: options.signers,
+          fields: options.fields,
+          textFields: options.textFields,
+        });
+        if (result === "limit") {
+          setTemplateFeedback(strings.saveTemplateLimitError);
+          return;
+        }
+        if (result === "unavailable") {
+          setTemplateFeedback(strings.saveTemplateUnavailableError);
+          return;
+        }
+        setTemplateFeedback(strings.saveTemplateSuccess);
+      } catch {
+        setTemplateFeedback(strings.saveTemplateUnavailableError);
+      }
+    },
+    [strings],
+  );
+
+  /**
+   * Aplica una plantilla al documento YA cargado (nunca lo reemplaza):
+   * ids siempre nuevos (los acuñadores, nunca los guardados en la
+   * plantilla), y `textFieldsDetectedFor` fijado al `documentKey` actual
+   * -- sin esto, el efecto de deteccion de `MultiFlow` pisaria en
+   * silencio los campos de texto recien aplicados (mismo riesgo que ya
+   * evita `handleImportConfig`).
+   */
+  const performApplyTemplate = useCallback(
+    async (
+      template: SignTemplate,
+      file: File,
+      setOptions: (patch: Partial<SignToolOptions>) => void,
+    ) => {
+      try {
+        const pdf = await loadPdf(file);
+        const documentKey = await documentContentKey(file);
+        const instantiated = instantiateTemplate(template, {
+          pageCount: pdf.getPageCount(),
+          mintSignerId: nextSignerId,
+          mintFieldId: nextFieldId,
+          mintTextFieldId: nextTextFieldId,
+        });
+        if (!instantiated) {
+          setTemplateFeedback(strings.applyTemplateNothingFits);
+          setPendingApplyTemplate(null);
+          return;
+        }
+        setOptions({
+          signers: instantiated.signers,
+          fields: instantiated.fields,
+          textFields: instantiated.textFields,
+          captures: {},
+          textValues: {},
+          activeSignerId: instantiated.signers[0]?.id ?? null,
+          selectedFieldId: null,
+          selectedTextFieldId: null,
+          editingTextFieldId: null,
+          textFieldsDetectedFor: documentKey,
+          step: "fields",
+        });
+        setTemplateFeedback(
+          instantiated.dropped > 0
+            ? strings.applyTemplateDropped(instantiated.dropped)
+            : null,
+        );
+        setTemplatesOpen(false);
+        setPendingApplyTemplate(null);
+      } catch (caught) {
+        setPendingApplyTemplate(null);
+        setLoadError(toPdfError(caught).code);
+      }
+    },
+    [strings],
+  );
+
   const process = useCallback(
     async (
       files: File[],
@@ -492,7 +623,22 @@ export function SignToolClient() {
       }
       const blob = await signPdfMulti(
         file,
-        { placements: buildPlacements(options, documentKey) },
+        {
+          placements: buildPlacements(options, documentKey, language),
+          certificate: completionCertificateEnabled
+            ? {
+                signerNames: options.signers.map((signer) => signer.name),
+                labels: {
+                  title: strings.certificateTitle,
+                  hashLabel: strings.certificateHashLabel,
+                  timestampLabel: strings.certificateTimestampLabel,
+                  signersLabel: strings.certificateSignersLabel,
+                  noSignerName: strings.certificateNoSignerName,
+                  disclaimer: strings.certificateDisclaimer,
+                },
+              }
+            : undefined,
+        },
         onProgress,
       );
       // Solo se guarda tras un empotrado con exito: si `signPdfMulti`
@@ -505,7 +651,7 @@ export function SignToolClient() {
       const filename = prefix ? `${prefix}_${baseFilename}` : baseFilename;
       return { blob, filename };
     },
-    [strings.filenameSuffix],
+    [strings, language, completionCertificateEnabled],
   );
 
   return (
@@ -632,7 +778,7 @@ export function SignToolClient() {
           )}
         </div>
       )}
-      renderOptions={({ files, options }) =>
+      renderOptions={({ files, options, setOptions }) =>
         options.mode === "single" ? (
           <section className="space-y-4">
             <Button
@@ -706,6 +852,119 @@ export function SignToolClient() {
                 {strings.exportConfigButton}
               </Button>
             ) : null}
+
+            {reusableTemplatesEnabled ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  onClick={() => {
+                    setTemplateFeedback(null);
+                    setTemplatesOpen(true);
+                  }}
+                >
+                  {strings.templatesButton}
+                </Button>
+                {files[0] &&
+                (options.signers.length > 0 ||
+                  options.fields.length > 0 ||
+                  options.textFields.length > 0) ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    onClick={() => {
+                      setTemplateName("");
+                      setTemplateFeedback(null);
+                      setSaveTemplateOpen(true);
+                    }}
+                  >
+                    {strings.saveAsTemplateButton}
+                  </Button>
+                ) : null}
+
+                <TemplatesSheet
+                  open={templatesOpen}
+                  onClose={() => setTemplatesOpen(false)}
+                  onApply={(template) => {
+                    const hasExisting =
+                      options.signers.length > 0 ||
+                      options.fields.length > 0 ||
+                      options.textFields.length > 0;
+                    if (!files[0]) return;
+                    if (hasExisting) {
+                      setPendingApplyTemplate(template);
+                    } else {
+                      void performApplyTemplate(template, files[0], setOptions);
+                    }
+                  }}
+                  strings={strings}
+                />
+
+                <ConfirmSheet
+                  open={pendingApplyTemplate !== null}
+                  onClose={() => setPendingApplyTemplate(null)}
+                  onConfirm={() => {
+                    if (pendingApplyTemplate && files[0]) {
+                      void performApplyTemplate(
+                        pendingApplyTemplate,
+                        files[0],
+                        setOptions,
+                      );
+                    }
+                  }}
+                  title={strings.applyTemplateConfirmTitle}
+                  body={strings.applyTemplateConfirmBody}
+                  confirmLabel={strings.applyTemplateConfirm}
+                  cancelLabel={strings.confirmCancel}
+                  closeLabel={strings.confirmClose}
+                />
+
+                <Sheet
+                  open={saveTemplateOpen}
+                  onClose={() => setSaveTemplateOpen(false)}
+                  title={strings.saveTemplateTitle}
+                  closeLabel={t.common.close}
+                >
+                  <p className="pb-2 text-sm leading-relaxed text-muted-foreground">
+                    {strings.saveTemplateBody}
+                  </p>
+                  <label
+                    htmlFor="sign-pdf-template-name"
+                    className="block pb-1 text-xs font-medium text-foreground"
+                  >
+                    {strings.saveTemplateNameLabel}
+                  </label>
+                  <input
+                    id="sign-pdf-template-name"
+                    type="text"
+                    value={templateName}
+                    maxLength={TEMPLATE_NAME_MAX}
+                    placeholder={strings.saveTemplateNamePlaceholder}
+                    onChange={(event) => setTemplateName(event.target.value)}
+                    className="mb-3 h-10 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60"
+                  />
+                  {templateFeedback ? (
+                    <p role="status" className="pb-2 text-xs text-muted-foreground">
+                      {templateFeedback}
+                    </p>
+                  ) : null}
+                  <Button
+                    size="md"
+                    fullWidth
+                    disabled={templateName.trim().length === 0}
+                    onClick={() => {
+                      if (!files[0]) return;
+                      void handleSaveTemplate(files[0], options, templateName);
+                    }}
+                  >
+                    {strings.saveTemplateConfirm}
+                  </Button>
+                </Sheet>
+              </>
+            ) : null}
+
             <p className="text-xs leading-relaxed text-muted-foreground">
               {strings.legalNote}
             </p>
@@ -784,6 +1043,70 @@ export function MultiFlow({
   onFinish,
   strings,
 }: MultiFlowProps) {
+  const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
+  const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
+    "fieldsCompleteNotice",
+  );
+  const undoDeleteEnabled = useSignPdfFeatureFlag("undoDelete");
+  const richFieldTypesEnabled = useSignPdfFeatureFlag("richFieldTypes");
+  const pinchZoomEnabled = useSignPdfFeatureFlag("pinchZoom");
+
+  /**
+   * "Deshacer" al borrar un firmante: unico y propio (nunca comparte
+   * hueco con el de un campo de texto/hueco de imagen -- `SignerManager`
+   * y `FieldPlacer`/`TextFieldPlacer` nunca estan montados a la vez, asi
+   * que no hace falta coordinarlos). Restaura no solo al firmante sino
+   * tambien sus huecos y su captura -- borrarlo hoy se los lleva a los
+   * tres en silencio, sin ningun aviso.
+   */
+  const [pendingSignerUndo, setPendingSignerUndo] = useState<{
+    signer: Signer;
+    index: number;
+    fields: SignatureField[];
+    capture: CaptureMap[string] | undefined;
+    wasActive: boolean;
+    documentKey: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!pendingSignerUndo) return;
+    const timer = window.setTimeout(() => setPendingSignerUndo(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [pendingSignerUndo]);
+
+  /**
+   * Derivado en render, no limpiado con un `setState` dentro de un
+   * efecto (eso encadena renders sin necesidad): deja de tener sentido
+   * en cuanto cambia el documento, se sale del paso de firmantes, o ya
+   * no cabe un firmante mas sin que dos compartan color al deshacer
+   * (`signerColorAt` da la vuelta modulo el numero de colores). El
+   * estado de abajo puede seguir "vivo" un rato de mas -- no importa,
+   * nunca se lee ni se muestra fuera de esta variable derivada.
+   */
+  const visiblePendingSignerUndo =
+    pendingSignerUndo &&
+    pendingSignerUndo.documentKey === options.signature &&
+    options.step === "signers" &&
+    options.signers.length < SIGNER_COLORS.length
+      ? pendingSignerUndo
+      : null;
+
+  const restorePendingSignerUndo = () => {
+    if (!visiblePendingSignerUndo) return;
+    const snap = visiblePendingSignerUndo;
+    const next = [...options.signers];
+    next.splice(Math.min(snap.index, next.length), 0, snap.signer);
+    setOptions({
+      signers: recolor(next),
+      fields: [...options.fields, ...snap.fields],
+      captures: snap.capture
+        ? { ...options.captures, [snap.signer.id]: snap.capture }
+        : options.captures,
+      ...(snap.wasActive ? { activeSignerId: snap.signer.id } : {}),
+    });
+    setPendingSignerUndo(null);
+  };
+
   /** Huella del contenido del archivo; `null` mientras se calcula. */
   const documentKey = useDocumentKey(file);
   const [detecting, setDetecting] = useState(false);
@@ -1022,6 +1345,20 @@ export function MultiFlow({
   const nextStep = MULTI_STEPS[position + 1];
   const previousStep = MULTI_STEPS[position - 1];
 
+  /**
+   * Aviso NO bloqueante (Recomendacion #2): se calcula aqui, no solo en
+   * `FieldFormPanel`, porque tiene que sobrevivir a salir del paso
+   * "text" -- es el ultimo momento antes de firmar o descargar en que
+   * el usuario puede verlo.
+   */
+  const textFieldsMissing = options.textFields.filter(
+    (field) => !isFieldFilled(field, options.textValues[field.id]),
+  ).length;
+  const showPendingTextFieldsNotice =
+    fieldsCompleteNoticeEnabled &&
+    options.step === "text" &&
+    textFieldsMissing > 0;
+
   const fieldCounts: Record<string, number> = {};
   for (const field of options.fields) {
     fieldCounts[field.signerId] = (fieldCounts[field.signerId] ?? 0) + 1;
@@ -1030,7 +1367,10 @@ export function MultiFlow({
   /**
    * Al quitar a un firmante desaparecen tambien sus huecos y su trazo:
    * dejarlos sueltos convertiria el documento en algo imposible de
-   * completar.
+   * completar. `onSignersChange` tambien corre en un renombrado o un
+   * alta (mismo callback para las tres cosas en `SignerManager`) -- se
+   * detecta que hubo un BORRADO comparando los ids de antes contra los
+   * de ahora; en un renombrado/alta esa resta siempre sale vacia.
    */
   const onSignersChange = (signers: Signer[]) => {
     const alive = new Set(signers.map((signer) => signer.id));
@@ -1039,6 +1379,22 @@ export function MultiFlow({
     for (const [id, capture] of Object.entries(options.captures)) {
       if (alive.has(id)) captures[id] = capture;
     }
+
+    if (undoDeleteEnabled) {
+      const removedId = options.signers.find((s) => !alive.has(s.id))?.id;
+      if (removedId) {
+        const index = options.signers.findIndex((s) => s.id === removedId);
+        setPendingSignerUndo({
+          signer: options.signers[index],
+          index,
+          fields: options.fields.filter((field) => field.signerId === removedId),
+          capture: options.captures[removedId],
+          wasActive: options.activeSignerId === removedId,
+          documentKey: options.signature,
+        });
+      }
+    }
+
     setOptions({ signers, fields, captures });
   };
 
@@ -1070,16 +1426,36 @@ export function MultiFlow({
       <PrivacyNotice strings={strings} />
 
       {options.step === "signers" ? (
-        <SignerManager
-          signers={options.signers}
-          onSignersChange={onSignersChange}
-          activeSignerId={options.activeSignerId}
-          onActiveSignerIdChange={(activeSignerId) =>
-            setOptions({ activeSignerId })
-          }
-          fieldCounts={fieldCounts}
-          strings={strings}
-        />
+        <>
+          <SignerManager
+            signers={options.signers}
+            onSignersChange={onSignersChange}
+            activeSignerId={options.activeSignerId}
+            onActiveSignerIdChange={(activeSignerId) =>
+              setOptions({ activeSignerId })
+            }
+            fieldCounts={fieldCounts}
+            strings={strings}
+          />
+          {visiblePendingSignerUndo ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-3 flex items-center justify-between gap-3 rounded-ios-sm border border-white/14 bg-elevated px-3.5 py-2.5"
+            >
+              <span className="text-xs text-muted-foreground">
+                {strings.signerDeletedNotice}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={restorePendingSignerUndo}
+              >
+                {strings.undoRemoveSigner}
+              </Button>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       {options.step === "fields" ? (
@@ -1101,6 +1477,7 @@ export function MultiFlow({
             setOptions({ selectedFieldId })
           }
           strings={strings}
+          undoDeleteEnabled={undoDeleteEnabled}
         />
       ) : null}
 
@@ -1183,6 +1560,10 @@ export function MultiFlow({
               setOptions({ editingTextFieldId })
             }
             strings={strings}
+            keyboardNavEnabled={keyboardNavEnabled}
+            undoDeleteEnabled={undoDeleteEnabled}
+            richFieldTypesEnabled={richFieldTypesEnabled}
+            pinchZoomEnabled={pinchZoomEnabled}
           />
 
           <FieldFormPanel
@@ -1227,6 +1608,14 @@ export function MultiFlow({
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {strings.textOnlyReadyBody}
           </p>
+          {fieldsCompleteNoticeEnabled && textFieldsMissing > 0 ? (
+            <p
+              role="status"
+              className="mt-2 text-xs leading-relaxed text-amber-400"
+            >
+              {strings.pendingTextFieldsWarning(textFieldsMissing)}
+            </p>
+          ) : null}
           <div className="mt-4">
             <Button
               size="lg"
@@ -1237,6 +1626,12 @@ export function MultiFlow({
             </Button>
           </div>
         </div>
+      ) : null}
+
+      {showPendingTextFieldsNotice ? (
+        <p role="status" className="text-xs leading-relaxed text-amber-400">
+          {strings.pendingTextFieldsWarning(textFieldsMissing)}
+        </p>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
