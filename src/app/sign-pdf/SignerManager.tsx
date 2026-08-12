@@ -28,6 +28,14 @@ function nextSignerId(): string {
   return `sg-${signerCounter}`;
 }
 
+/** Mismo motivo que `reserveFieldIds` en `FieldPlacer.tsx`, para firmantes (`sg-N`). */
+export function reserveSignerIds(ids: readonly string[]): void {
+  for (const id of ids) {
+    const match = /^sg-(\d+)$/.exec(id);
+    if (match) signerCounter = Math.max(signerCounter, Number(match[1]));
+  }
+}
+
 /**
  * El color no se guarda al crear el firmante sino que se reparte por
  * posicion cada vez que la lista cambia: asi, al quitar a alguien de en

@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/Badge";
 import { useI18n, type Language } from "@/lib/i18n";
 import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { clearRecentEntries } from "@/lib/recent";
+import { clearValueHistory } from "@/lib/valueHistory";
+import { clearAllDrafts } from "@/app/sign-pdf/signDrafts";
 
 export function SettingsView() {
   const { t, language, setLanguage } = useI18n();
@@ -71,7 +73,10 @@ export function SettingsView() {
               size="sm"
               onClick={() => {
                 clearRecentEntries();
-                setCleared(true);
+                clearValueHistory();
+                // Async (IndexedDB): no se afirma "borrado" hasta que
+                // de verdad termino.
+                void clearAllDrafts().then(() => setCleared(true));
               }}
             >
               {t.settings.clearData}

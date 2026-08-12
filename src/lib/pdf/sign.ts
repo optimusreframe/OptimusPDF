@@ -107,6 +107,24 @@ export function signerDisplayName(
   return trimmed.length > 0 ? trimmed : defaultSignerName(index + 1);
 }
 
+/** Marcas diacriticas combinantes U+0300..U+036F (igual que `core.ts:slugify`). */
+const FIELD_LABEL_DIACRITICS = new RegExp("[\\u0300-\\u036f]", "g");
+
+/**
+ * Clave de indexado para el historial de valores e reutilizacion entre
+ * documentos: "Cliente/Asegurado:" -> "cliente asegurado". Dos campos con
+ * la misma etiqueta (en distintos documentos) comparten la misma clave
+ * aunque difieran en mayusculas, acentos o puntuacion.
+ */
+export function normalizeFieldLabel(label: string): string {
+  return label
+    .normalize("NFD")
+    .replace(FIELD_LABEL_DIACRITICS, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 /**
  * Prefijo de nombre de archivo a partir de los nombres de los firmantes,
  * p.ej. `["Ana Perez", "Luis Gomez"]` -> `"ana-perez_and_luis-gomez"`. Un

@@ -382,6 +382,8 @@ export const es = {
         "Este documento tiene texto (chino, japonés, coreano, árabe, hebreo, tailandés o emoji, por ejemplo) que esta herramienta todavía no puede dibujar en el PDF. Por ahora solo soportamos alfabetos latinos, cirílico y griego.",
       noTablesFound:
         "No encontramos ninguna tabla en este PDF. Esta herramienta solo extrae tablas con rejillas regulares detectadas en la capa de texto: si el documento son páginas escaneadas (imágenes), no las reconoce.",
+      invalidConfig:
+        "Este archivo no es una configuración de firma válida (o su versión no es compatible). Expórtala de nuevo desde «Firmar PDF» e inténtalo otra vez.",
     },
   },
   soon: {
@@ -408,7 +410,7 @@ export const es = {
     languageBody: "Cambia el idioma de toda la interfaz.",
     dataTitle: "Datos locales",
     dataBody:
-      "Lo único que OptimusPDF guarda en tu navegador es el idioma elegido y la lista de trabajos recientes.",
+      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (PDF completo y capturas de firma).",
     clearData: "Borrar datos locales",
     cleared: "Datos locales borrados.",
     aboutTitle: "Sobre la aplicación",

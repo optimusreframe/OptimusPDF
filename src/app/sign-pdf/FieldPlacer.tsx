@@ -22,6 +22,7 @@ import {
 } from "@/lib/pdf/core";
 import {
   SIGNATURE_FIELD_TYPES,
+  normalizeFieldLabel,
   signerDisplayName,
   type SignatureField,
   type SignatureFieldType,
@@ -29,6 +30,13 @@ import {
 } from "@/lib/pdf/sign";
 import type { DetectedField } from "@/lib/pdf/detectFields";
 import type { SignStrings } from "@/app/sign-pdf/strings";
+import { ValueSuggestions } from "@/app/sign-pdf/ValueSuggestions";
+import {
+  forgetValue,
+  recordValue,
+  suggestValues,
+  useValueHistoryVersion,
+} from "@/lib/valueHistory";
 
 const PREVIEW_WIDTH = 900;
 const THUMB_WIDTH = 96;
@@ -71,6 +79,20 @@ let fieldCounter = 0;
 function nextFieldId(): string {
   fieldCounter += 1;
   return `fld-${fieldCounter}`;
+}
+
+/**
+ * Adelanta el contador por encima de los ids ya en uso. Necesario al
+ * restaurar un borrador o una configuracion importada: el contador
+ * arranca en 0 en cada carga de pagina, asi que sin esto un campo nuevo
+ * anadido despues de restaurar podria regenerar un id ya usado por el
+ * borrador (`fld-1` de nuevo) y pisar silenciosamente el campo original.
+ */
+export function reserveFieldIds(ids: readonly string[]): void {
+  for (const id of ids) {
+    const match = /^fld-(\d+)$/.exec(id);
+    if (match) fieldCounter = Math.max(fieldCounter, Number(match[1]));
+  }
 }
 
 type DragMode = "move" | "resize";
@@ -867,6 +889,14 @@ function nextTextFieldId(): string {
   return `txt-${textFieldCounter}`;
 }
 
+/** Mismo motivo que `reserveFieldIds`, para los campos de texto (`txt-N`). */
+export function reserveTextFieldIds(ids: readonly string[]): void {
+  for (const id of ids) {
+    const match = /^txt-(\d+)$/.exec(id);
+    if (match) textFieldCounter = Math.max(textFieldCounter, Number(match[1]));
+  }
+}
+
 type TextDragState = {
   mode: DragMode;
   id: string;
@@ -924,6 +954,9 @@ function TextFieldPlacerInner({
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
+  // Re-renderiza este subarbol cuando el historial cambia, incluida otra
+  // pestaña (borrar datos ahi debe apagar las sugerencias aqui tambien).
+  useValueHistoryVersion();
 
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<TextDragState | null>(null);
@@ -1324,6 +1357,7 @@ function TextFieldPlacerInner({
               label={field.label ?? fallbackLabel(field.id)}
               value={values[field.id] ?? ""}
               onValueChange={(value) => onValueChange(field.id, value)}
+              historyKey={field.label ? normalizeFieldLabel(field.label) : null}
               selected={field.id === selectedId}
               editing={field.id === editingId}
               strings={strings}
@@ -1384,6 +1418,8 @@ type TextFieldBoxProps = {
   label: string;
   value: string;
   onValueChange: (value: string) => void;
+  /** Clave del historial de valores (etiqueta normalizada), o `null` sin etiqueta estable. */
+  historyKey: string | null;
   selected: boolean;
   /** Input en linea abierto (distinto de `selected`: un campo puede estar seleccionado -- tiradores visibles -- sin estar en edicion). */
   editing: boolean;
@@ -1407,6 +1443,7 @@ function TextFieldBox({
   label,
   value,
   onValueChange,
+  historyKey,
   selected,
   editing,
   strings,
@@ -1417,6 +1454,19 @@ function TextFieldBox({
 }: TextFieldBoxProps) {
   const dashed = field.confidence === "low";
   const color = dashed ? "#f59e0b" : "#0d4bff";
+
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+
+  const suggestions =
+    editing && historyKey && !suggestionsDismissed
+      ? suggestValues(historyKey, value, 5)
+      : [];
+
+  const commitAndClose = () => {
+    if (historyKey) recordValue(historyKey, value);
+    onEditEnd();
+  };
 
   return (
     <div
@@ -1439,6 +1489,11 @@ function TextFieldBox({
         backgroundColor: value ? `${color}22` : "transparent",
         outline: selected ? "1px solid var(--color-signal)" : undefined,
         outlineOffset: "2px",
+        // Por encima de los campos siguientes (hermanos absolutos sin
+        // z-index propio, se apilan por orden del DOM): sin esto, el
+        // dropdown de sugerencias de un campo puede quedar tapado por un
+        // campo posterior en la misma pagina.
+        zIndex: editing ? 30 : undefined,
       }}
     >
       <span
@@ -1479,17 +1534,55 @@ function TextFieldBox({
 
       {/* Toca para editar: el input vive encima del propio campo, como un hueco de Adobe Acrobat. */}
       {editing ? (
-        <input
-          type="text"
-          aria-label={label}
-          value={value}
-          placeholder={strings.textFieldPlaceholder}
-          autoFocus
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => onValueChange(event.target.value)}
-          onBlur={onEditEnd}
-          className="absolute inset-0 h-full w-full rounded-[3px] border-0 bg-white/95 px-1.5 text-xs text-black outline-none ring-2 ring-signal"
-        />
+        <>
+          <input
+            type="text"
+            aria-label={label}
+            value={value}
+            placeholder={strings.textFieldPlaceholder}
+            autoFocus
+            onPointerDown={(event) => event.stopPropagation()}
+            onChange={(event) => {
+              onValueChange(event.target.value);
+              setHighlightedIndex(-1);
+              setSuggestionsDismissed(false);
+            }}
+            onBlur={commitAndClose}
+            onKeyDown={(event) => {
+              if (suggestions.length === 0) return;
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setHighlightedIndex((index) =>
+                  Math.min(index + 1, suggestions.length - 1),
+                );
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setHighlightedIndex((index) => Math.max(index - 1, 0));
+              } else if (event.key === "Enter" && highlightedIndex >= 0) {
+                event.preventDefault();
+                onValueChange(suggestions[highlightedIndex]);
+                setSuggestionsDismissed(true);
+              } else if (event.key === "Escape") {
+                setSuggestionsDismissed(true);
+              }
+            }}
+            className="absolute inset-0 h-full w-full rounded-[3px] border-0 bg-white/95 px-1.5 text-xs text-black outline-none ring-2 ring-signal"
+          />
+          <ValueSuggestions
+            id={`${field.id}-suggestions`}
+            suggestions={suggestions}
+            highlightedIndex={highlightedIndex}
+            placement={field.rect.y > 0.5 ? "top" : "bottom"}
+            onPick={(picked) => {
+              onValueChange(picked);
+              setSuggestionsDismissed(true);
+            }}
+            onForget={(forgotten) => {
+              if (historyKey) forgetValue(historyKey, forgotten);
+            }}
+            strings={strings}
+          />
+        </>
       ) : value ? (
         <span className="pointer-events-none absolute inset-0 flex items-center truncate px-1.5 text-xs text-white">
           {value}
