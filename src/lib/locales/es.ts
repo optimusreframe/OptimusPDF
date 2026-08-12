@@ -270,44 +270,16 @@ export const es = {
     pricing: "Precios",
     about: "Proyecto",
     allTools: "Ver todas las herramientas",
+    searchPlaceholder: "Buscar herramienta…",
+    searchEmpty: "Sin resultados",
+    collapseSidebar: "Colapsar barra lateral",
+    expandSidebar: "Expandir barra lateral",
+    categoriesLabel: "Categorías",
   },
   categories,
   home: {
-    badge: "LIVE · 100% LOCAL",
-    title: "Todas las herramientas PDF.",
-    titleAccent: "Cero subidas.",
-    subtitle:
-      "Unir, dividir, comprimir, convertir, firmar y proteger documentos sin que ni un byte salga de tu dispositivo. El motor corre entero en tu navegador.",
-    ctaPrimary: "Empezar a trabajar",
-    ctaSecondary: "Cómo funciona",
-    statTools: "Herramientas",
-    statUploads: "Archivos subidos",
-    statAccounts: "Cuentas necesarias",
-    statAccountsValue: "Ninguna",
-    toolsTitle: "El catálogo completo",
-    toolsSubtitle:
-      "Herramientas organizadas por lo que necesitas hacer, no por lo que vende el sector.",
-    privacyTitle: "Tus archivos nunca salen de tu dispositivo",
-    privacySubtitle:
-      "No es una promesa comercial: es una consecuencia de la arquitectura. No hay servidor al que subir nada.",
-    privacyPoints: [
-      {
-        title: "Procesado en el navegador",
-        body: "El motor PDF se descarga una vez y trabaja con la memoria de tu pestaña. El archivo se queda donde está.",
-      },
-      {
-        title: "Sin cuentas ni rastreo",
-        body: "No pedimos correo, no ponemos cookies de seguimiento y no guardamos historial de documentos.",
-      },
-      {
-        title: "Funciona sin conexión",
-        body: "Una vez cargada la aplicación puedes desconectarte del wifi y seguir trabajando igual.",
-      },
-    ],
-    ctaTitle: "Abre un documento y compruébalo",
-    ctaBody:
-      "Sin registro, sin límite de archivos por día, sin marcas de agua escondidas.",
-    ctaButton: "Unir mi primer PDF",
+    recentTitle: "Recientes",
+    recentSeeAll: "Ver todas",
   },
   toolsPage: {
     title: "Herramientas",

@@ -3,6 +3,7 @@ import { Caveat, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/layout/Providers";
 import { Header } from "@/components/layout/Header";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { Footer } from "@/components/layout/Footer";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 
@@ -28,7 +29,7 @@ const caveat = Caveat({
 export const metadata: Metadata = {
   metadataBase: new URL("https://optimuspdf.app"),
   title: {
-    default: "OptimusPDF — Todas las herramientas PDF. Cero subidas.",
+    default: "OptimusPDF — Herramientas PDF sin subir archivos",
     template: "%s · OptimusPDF",
   },
   description:
@@ -44,7 +45,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "OptimusPDF",
-    title: "OptimusPDF — Todas las herramientas PDF. Cero subidas.",
+    title: "OptimusPDF — Herramientas PDF sin subir archivos",
     description:
       "Procesa tus PDF sin que salgan del dispositivo. Sin cuentas, sin servidores, sin límites diarios.",
     images: [
@@ -58,7 +59,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "OptimusPDF — Todas las herramientas PDF. Cero subidas.",
+    title: "OptimusPDF — Herramientas PDF sin subir archivos",
     description:
       "Procesa tus PDF sin que salgan del dispositivo. Sin cuentas, sin servidores, sin límites diarios.",
     images: ["/og-image.png"],
@@ -89,17 +90,24 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col bg-background text-foreground antialiased">
         <Providers>
-          <Header />
-          <main id="content" className="flex-1">
-            {children}
-          </main>
-          <Footer />
-          {/* Reserva del alto de la tab bar fija en movil. */}
-          <div
-            aria-hidden="true"
-            className="md:hidden"
-            style={{ height: "calc(4.5rem + env(safe-area-inset-bottom, 0px))" }}
-          />
+          <div className="flex flex-1">
+            <Sidebar />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <Header />
+              <main id="content" className="flex-1">
+                {children}
+              </main>
+              <Footer />
+              {/* Reserva del alto de la tab bar fija en movil. */}
+              <div
+                aria-hidden="true"
+                className="md:hidden"
+                style={{
+                  height: "calc(4.5rem + env(safe-area-inset-bottom, 0px))",
+                }}
+              />
+            </div>
+          </div>
           <MobileTabBar />
         </Providers>
       </body>

@@ -1,5 +1,7 @@
 import {
   Archive,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   Braces,
   Camera,
   Code,
@@ -26,6 +28,7 @@ import {
   RotateCw,
   ScanText,
   Scissors,
+  ShieldCheck,
   Signature,
   Sparkles,
   Table,
@@ -130,6 +133,16 @@ export const CATEGORY_ACCENT: Record<ToolCategory, ToolAccent> = {
   "convert-from": "convert",
   edit: "edit",
   security: "security",
+};
+
+/** Icono representativo por categoria, para navegacion (sidebar, etc). */
+export const CATEGORY_ICON: Record<ToolCategory, LucideIcon> = {
+  organize: LayoutGrid,
+  optimize: Minimize2,
+  "convert-to": ArrowDownToLine,
+  "convert-from": ArrowUpFromLine,
+  edit: PenTool,
+  security: ShieldCheck,
 };
 
 /**

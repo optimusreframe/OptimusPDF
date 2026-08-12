@@ -253,43 +253,16 @@ export const en: Dictionary = {
     pricing: "Pricing",
     about: "Project",
     allTools: "See every tool",
+    searchPlaceholder: "Search a tool…",
+    searchEmpty: "No results",
+    collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
+    categoriesLabel: "Categories",
   },
   categories,
   home: {
-    badge: "LIVE · 100% LOCAL",
-    title: "Every PDF tool.",
-    titleAccent: "Zero uploads.",
-    subtitle:
-      "Merge, split, compress, convert, sign and protect documents without a single byte leaving your device. The engine runs entirely in your browser.",
-    ctaPrimary: "Start working",
-    ctaSecondary: "How it works",
-    statTools: "Tools",
-    statUploads: "Files uploaded",
-    statAccounts: "Accounts needed",
-    statAccountsValue: "None",
-    toolsTitle: "The full catalogue",
-    toolsSubtitle:
-      "Tools grouped by what you actually need to do, not by what the industry sells.",
-    privacyTitle: "Your files never leave your device",
-    privacySubtitle:
-      "This is not a marketing promise: it falls out of the architecture. There is no server to upload anything to.",
-    privacyPoints: [
-      {
-        title: "Processed in the browser",
-        body: "The PDF engine downloads once and works inside your tab's memory. The file stays where it is.",
-      },
-      {
-        title: "No accounts, no tracking",
-        body: "We ask for no email, set no tracking cookies and keep no document history.",
-      },
-      {
-        title: "Works offline",
-        body: "Once the app has loaded you can drop the wifi and carry on working exactly the same.",
-      },
-    ],
-    ctaTitle: "Open a document and check for yourself",
-    ctaBody: "No sign-up, no daily file limit, no hidden watermarks.",
-    ctaButton: "Merge my first PDF",
+    recentTitle: "Recent",
+    recentSeeAll: "See all",
   },
   toolsPage: {
     title: "Tools",
