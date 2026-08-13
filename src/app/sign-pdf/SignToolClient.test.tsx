@@ -521,7 +521,15 @@ describe("SignToolClient — flujo completo (firmar -> prompt -> aceptar)", () =
 
   async function pdfFile(name: string): Promise<File> {
     const document = await PDFDocument.create();
-    document.addPage([300, 300]);
+    // Tamano de pagina propio (distinto del 300x300 que usa el describe
+    // de "borradores locales" mas abajo con el mismo nombre de archivo,
+    // "contrato.pdf"): `pdf-lib` genera bytes deterministas para una
+    // creacion identica, y `documentContentKey` solo mira el contenido.
+    // Este describe SI llega hasta firmar (autoguarda con `step: "sign"`
+    // via el autoguardado real de SignToolClient) -- coincidir de huella
+    // con el otro describe hacia que su lectura de "el borrador que YO
+    // acabo de guardar" pudiera devolver este, con un paso distinto.
+    document.addPage([310, 310]);
     const bytes = await document.save({ useObjectStreams: true });
     return new File([bytes as unknown as BlobPart], name, {
       type: "application/pdf",
@@ -604,7 +612,16 @@ describe("SignToolClient — flujo completo (firmar -> prompt -> aceptar)", () =
 describe("SignToolClient — borradores locales y configuracion (WS8/WS9)", () => {
   async function pdfFile(name: string): Promise<File> {
     const document = await PDFDocument.create();
-    document.addPage([300, 300]);
+    // Tamano de pagina propio: `pdf-lib` genera bytes deterministas para
+    // una creacion identica, y `documentContentKey` (la identidad de
+    // "que borrador es este") solo mira el contenido, nunca el nombre de
+    // archivo. Este describe lee de vuelta lo que EL PROPIO autoguardado
+    // real escribio (no un `Harness` con estado fijo) -- si otro
+    // describe de este archivo usara el mismo tamano por defecto de
+    // 300x300 para su "contrato.pdf", ambos compartirian huella y una
+    // escritura tardia de uno (el autoguardado no se cancela solo por
+    // desmontar) podria aterrizar en el borrador que este lee.
+    document.addPage([305, 305]);
     const bytes = await document.save({ useObjectStreams: true });
     return new File([bytes as unknown as BlobPart], name, {
       type: "application/pdf",
@@ -728,6 +745,115 @@ describe("SignToolClient — borradores locales y configuracion (WS8/WS9)", () =
       ).toBeTruthy(),
     );
   });
+});
+
+describe("SignToolClient — borrador durante la ventana de 'Deshacer' (limitacion 4.3)", () => {
+  async function pdfFile(name: string): Promise<File> {
+    const document = await PDFDocument.create();
+    // Tamano de pagina distinto al resto de fixtures de este archivo
+    // (algunos usan 300x300): `pdf-lib` genera bytes deterministas para
+    // una creacion identica, y `documentContentKey` solo mira el
+    // contenido -- coincidir de tamano coincidiria de huella tambien, y
+    // una escritura tardia de otro describe (una promesa que sigue en
+    // vuelo tras desmontar) podria aterrizar en el borrador de este test.
+    document.addPage([301, 301]);
+    const bytes = await document.save({ useObjectStreams: true });
+    return new File([bytes as unknown as BlobPart], name, {
+      type: "application/pdf",
+    });
+  }
+
+  function pdfInput(container: HTMLElement): HTMLInputElement {
+    const input = container.querySelector('input[type="file"][accept*="pdf"]');
+    if (!input) throw new Error("no se encontro el input de archivo PDF");
+    return input as HTMLInputElement;
+  }
+
+  beforeEach(async () => {
+    await clearAllDrafts();
+  });
+
+  /**
+   * No hay forma de "recargar la pestaña" de verdad en jsdom: se simula
+   * desmontando el componente, que es exactamente lo que dispara la
+   * limpieza del autoguardado (SignToolClient.tsx) -- el mismo camino de
+   * codigo que corre en un reload real justo antes de que el navegador
+   * descarte el arbol de React.
+   */
+  it(
+    "borrar un firmante y desmontar dentro de los 6s de 'Deshacer' persiste el estado limpio, sin el firmante",
+    async () => {
+      const file = await pdfFile("contrato-4-3.pdf");
+      const id = await documentContentKey(file);
+      const { container, unmount } = render(
+        <LanguageProvider>
+          <SignToolClient />
+        </LanguageProvider>,
+      );
+
+      fireEvent.change(pdfInput(container), { target: { files: [file] } });
+      fireEvent.click(
+        await screen.findByRole("tab", { name: strings.modeMulti }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: strings.addSigner }),
+      );
+
+      const signerName = strings.defaultSignerName(1);
+      await waitFor(async () => {
+        const drafts = await listDrafts();
+        const saved = drafts.find((draft) => draft.id === id);
+        expect(saved?.signers).toHaveLength(1);
+      });
+
+      // Borra al unico firmante: entra a la ventana de "Deshacer" de 6s.
+      fireEvent.click(
+        screen.getByRole("button", { name: strings.removeSigner(signerName) }),
+      );
+      expect(screen.getByText(strings.signerDeletedNotice)).toBeTruthy();
+
+      // "Recarga" (desmontar) muy dentro de la ventana de 6s, sin esperar
+      // el debounce de 800ms del autoguardado: la limpieza del efecto la
+      // vacia igual con el estado actual (ya sin el firmante -- sin
+      // progreso, el borrador entero se borra en vez de quedar a medias,
+      // ver el comentario junto al efecto de autoguardado). El propio
+      // borrado sigue siendo asincrono (escritura real en IndexedDB), asi
+      // que se espera a que aterrice -- igual que el resto de este archivo
+      // espera al autoguardado real en vez de simular el tiempo.
+      unmount();
+
+      await waitFor(async () => {
+        const drafts = await listDrafts();
+        expect(drafts.some((draft) => draft.id === id)).toBe(false);
+      });
+      // Limpio: nada a medias tampoco en la lista completa (ni un
+      // borrador huerfano con huecos o capturas sueltas de otro id).
+      const remaining = await listDrafts();
+      expect(remaining.every((draft) => draft.id !== id)).toBe(true);
+
+      // Reabrir (nueva pestaña / reload real): no hay nada que reanudar,
+      // y desde luego no el firmante borrado ni ningun rastro de
+      // "Deshacer" -- ese estado era efimero y no se esperaba que
+      // sobreviviera.
+      render(
+        <LanguageProvider>
+          <SignToolClient />
+        </LanguageProvider>,
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: strings.draftsButton }),
+      );
+
+      expect(
+        screen.queryByRole("button", { name: strings.draftsResume }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: strings.removeSigner(signerName) }),
+      ).toBeNull();
+      expect(screen.queryByText(strings.signerDeletedNotice)).toBeNull();
+    },
+    10_000,
+  );
 });
 
 describe("SignToolClient — plantillas de disposicion (Recomendacion #4)", () => {

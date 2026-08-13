@@ -384,6 +384,7 @@ type TextHarnessProps = {
   richFieldTypesEnabled?: boolean;
   pinchZoomEnabled?: boolean;
   onValuesChange?: (values: Record<string, string>) => void;
+  onEditingIdChange?: (id: string | null) => void;
 };
 
 function TextHarness({
@@ -395,6 +396,7 @@ function TextHarness({
   richFieldTypesEnabled,
   pinchZoomEnabled,
   onValuesChange,
+  onEditingIdChange,
 }: TextHarnessProps) {
   const [fields, setFields] = useState<DetectedField[]>(initialFields);
   const [values, setValues] = useState<Record<string, string>>(initialValues);
@@ -423,7 +425,10 @@ function TextHarness({
       selectedId={selectedId}
       onSelectedIdChange={setSelectedId}
       editingId={editingId}
-      onEditingIdChange={setEditingId}
+      onEditingIdChange={(id) => {
+        setEditingId(id);
+        onEditingIdChange?.(id);
+      }}
       strings={strings}
       keyboardNavEnabled={keyboardNavEnabled}
       undoDeleteEnabled={undoDeleteEnabled}
@@ -749,6 +754,172 @@ describe("TextFieldPlacer — src/app/sign-pdf/FieldPlacer.tsx", () => {
 
       // Sigue abierto: Enter no hace nada sin navegacion por teclado.
       expect(screen.getByRole("textbox", { name: "Campo 1" })).toBeTruthy();
+    });
+
+    describe("casillas alcanzables por teclado (limitacion 4.2)", () => {
+      const checkboxField: DetectedField = {
+        id: "txt-c",
+        pageIndex: 0,
+        rect: { x: 0.5, y: 0.5, width: 0.15, height: 0.05 },
+        source: "manual",
+        confidence: "high",
+        type: "checkbox",
+      };
+      const checkboxField2: DetectedField = {
+        id: "txt-d",
+        pageIndex: 0,
+        rect: { x: 0.5, y: 0.7, width: 0.15, height: 0.05 },
+        source: "manual",
+        confidence: "high",
+        type: "checkbox",
+      };
+
+      it("Enter desde un campo de texto aterriza en la casilla sin marcar, la enfoca y no cambia su valor", async () => {
+        let lastValues: Record<string, string> = {};
+        render(
+          <TextHarness
+            initialFields={[fieldA, checkboxField]}
+            onFieldsChange={() => {}}
+            onValuesChange={(values) => (lastValues = values)}
+            keyboardNavEnabled
+          />,
+        );
+        await waitForTextPreview();
+
+        openEditor("Campo 1");
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "Campo 1" }), {
+          key: "Enter",
+        });
+
+        const checkbox = screen.getByRole("checkbox", { name: "Campo 2" });
+        expect(checkbox).toBe(document.activeElement);
+        expect(checkbox.getAttribute("aria-checked")).toBe("false");
+        expect(lastValues["txt-c"] ?? "").toBe("");
+      });
+
+      it("la barra espaciadora sobre la casilla enfocada la marca y no avanza a otro campo", async () => {
+        render(
+          <TextHarness
+            initialFields={[fieldA, checkboxField]}
+            onFieldsChange={() => {}}
+            keyboardNavEnabled
+          />,
+        );
+        await waitForTextPreview();
+
+        openEditor("Campo 1");
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "Campo 1" }), {
+          key: "Enter",
+        });
+        const checkbox = screen.getByRole("checkbox", { name: "Campo 2" });
+        fireEvent.keyDown(checkbox, { key: " " });
+
+        expect(checkbox.getAttribute("aria-checked")).toBe("true");
+        // Sigue siendo el mismo nodo: la barra espaciadora no avanzo de campo.
+        expect(screen.getByRole("checkbox", { name: "Campo 2" })).toBe(checkbox);
+      });
+
+      it("Tab desde la casilla sin marcarla avanza al siguiente campo pendiente, sin cambiar su valor", async () => {
+        render(
+          <TextHarness
+            initialFields={[fieldA, checkboxField, fieldB]}
+            initialValues={{ "txt-a": "Ana" }}
+            onFieldsChange={() => {}}
+            keyboardNavEnabled
+          />,
+        );
+        await waitForTextPreview();
+
+        openEditor("Campo 1");
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "Campo 1" }), {
+          key: "Enter",
+        });
+        const checkbox = screen.getByRole("checkbox", { name: "Campo 2" });
+        fireEvent.keyDown(checkbox, { key: "Tab" });
+
+        expect(checkbox.getAttribute("aria-checked")).toBe("false");
+        expect(screen.getByRole("textbox", { name: "Campo 3" })).toBeTruthy();
+      });
+
+      it("una casilla ya marcada se salta durante la navegacion (no vuelve a ofrecerse)", async () => {
+        render(
+          <TextHarness
+            initialFields={[fieldA, checkboxField, fieldB]}
+            initialValues={{ "txt-c": "true" }}
+            onFieldsChange={() => {}}
+            keyboardNavEnabled
+          />,
+        );
+        await waitForTextPreview();
+
+        openEditor("Campo 1");
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "Campo 1" }), {
+          key: "Enter",
+        });
+
+        // Salta directo a Campo 3 (texto): la casilla ya marcada no cuenta
+        // como pendiente.
+        expect(screen.getByRole("textbox", { name: "Campo 3" })).toBeTruthy();
+      });
+
+      it("dos casillas sin marcar terminan la navegacion sin bucle: la tercera vez cierra el editor", async () => {
+        let lastEditingId: string | null = "unset";
+        render(
+          <TextHarness
+            initialFields={[fieldA, checkboxField, checkboxField2]}
+            initialValues={{ "txt-a": "Ana" }}
+            onFieldsChange={() => {}}
+            onEditingIdChange={(id) => (lastEditingId = id)}
+            keyboardNavEnabled
+          />,
+        );
+        await waitForTextPreview();
+
+        openEditor("Campo 1");
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "Campo 1" }), {
+          key: "Enter",
+        });
+        const checkbox1 = screen.getByRole("checkbox", { name: "Campo 2" });
+        fireEvent.keyDown(checkbox1, { key: "Tab" });
+        const checkbox2 = screen.getByRole("checkbox", { name: "Campo 3" });
+        expect(checkbox2).toBe(document.activeElement);
+        fireEvent.keyDown(checkbox2, { key: "Tab" });
+
+        // Nada quedaba pendiente (Campo 1 relleno, ambas casillas ya
+        // tocadas): el editor se cierra en vez de volver a Campo 2.
+        expect(lastEditingId).toBeNull();
+      });
+
+      it("alternar una casilla dos veces por toque (marcar y desmarcar) la deja tocada: no reaparece como pendiente", async () => {
+        let lastEditingId: string | null = "unset";
+        render(
+          <TextHarness
+            initialFields={[checkboxField, fieldA]}
+            onFieldsChange={() => {}}
+            onEditingIdChange={(id) => (lastEditingId = id)}
+            keyboardNavEnabled
+          />,
+        );
+        await waitForTextPreview();
+
+        const group = screen.getByRole("group", { name: "Campo 1" });
+        fireEvent.pointerDown(group, { pointerId: 1, clientX: 100, clientY: 100 });
+        fireEvent.pointerUp(group, { pointerId: 1 });
+        fireEvent.pointerDown(group, { pointerId: 1, clientX: 100, clientY: 100 });
+        fireEvent.pointerUp(group, { pointerId: 1 });
+        expect(
+          screen.getByRole("checkbox", { name: "Campo 1" }).getAttribute("aria-checked"),
+        ).toBe("false");
+
+        openEditor("Campo 2");
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "Campo 2" }), {
+          key: "Enter",
+        });
+
+        // La unica otra candidata es la casilla ya tocada: no hay a donde
+        // saltar, el editor se cierra.
+        expect(lastEditingId).toBeNull();
+      });
     });
   });
 

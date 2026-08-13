@@ -1079,6 +1079,21 @@ function TextFieldPlacerInner({
     return () => window.clearTimeout(timer);
   }, [pendingUndo]);
 
+  /**
+   * Casillas "tocadas" en esta pasada por el paso "text": una casilla sin
+   * marcar cuenta como pendiente para la navegacion por teclado (Tab/Enter)
+   * solo mientras nadie la haya visitado o alternado todavia. Vive en un
+   * ref, no en `SignToolOptions`, porque nadie mas la consume (a
+   * diferencia de `selectedTextFieldId`/`editingTextFieldId`, que el
+   * padre si escribe) y porque nunca debe entrar en el ciclo de
+   * autoguardado ni en `SignConfigManifest` -- es estado de esta sesion
+   * de edicion, no del documento. Se reinicia al desmontar/remontar este
+   * lienzo (salir del paso "text" y volver), que es el comportamiento
+   * correcto: una pasada nueva por el formulario vuelve a ofrecer cada
+   * casilla una vez.
+   */
+  const touchedCheckboxesRef = useRef<Set<string>>(new Set());
+
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<TextDragState | null>(null);
   const draftOriginRef = useRef<{ x: number; y: number } | null>(null);
@@ -1216,11 +1231,30 @@ function TextFieldPlacerInner({
   }, [selectedId, onEditingIdChange]);
 
   /**
-   * Tab/Enter en un campo: salta al siguiente campo vacio en orden de
-   * documento (todas las paginas, pagina por pagina), cambiando de
-   * pagina si hace falta. Si no queda ninguno vacio, simplemente cierra
-   * el editor (mismo resultado que hoy sin navegacion por teclado).
+   * Tab/Enter en un campo: salta al siguiente campo pendiente en orden de
+   * documento (todas las paginas, pagina por pagina), cambiando de pagina
+   * si hace falta. Si no queda ninguno pendiente, simplemente cierra el
+   * editor (mismo resultado que hoy sin navegacion por teclado).
+   *
+   * "Pendiente" no es lo mismo que "sin rellenar" (`isFieldFilled` en
+   * detectFields.ts, que alimenta el aviso de campos pendientes): una
+   * casilla sin marcar es una respuesta valida y por eso siempre cuenta
+   * como "rellena" ahi. Para la navegacion, en cambio, una casilla sin
+   * marcar SI es pendiente -- pero solo la primera vez que el cursor la
+   * visita en esta pasada; visitarla no la marca, la deja lista para que
+   * el usuario decida con la barra espaciadora.
    */
+  const isPendingForNav = useCallback(
+    (f: DetectedField) => {
+      const value = values[f.id] ?? "";
+      if (fieldTypeOf(f) === "checkbox") {
+        return value.length === 0 && !touchedCheckboxesRef.current.has(f.id);
+      }
+      return value.trim().length === 0;
+    },
+    [values],
+  );
+
   const advanceToNextEmptyField = useCallback(
     (currentId: string) => {
       const ordered = [...fields].sort((a, b) => a.pageIndex - b.pageIndex);
@@ -1229,12 +1263,13 @@ function TextFieldPlacerInner({
         onEditingIdChange(null);
         return;
       }
-      const isEmpty = (f: DetectedField) =>
-        (values[f.id] ?? "").trim().length === 0;
       const total = ordered.length;
       for (let step = 1; step <= total; step++) {
         const candidate = ordered[(currentIndex + step) % total];
-        if (candidate.id !== currentId && isEmpty(candidate)) {
+        if (candidate.id !== currentId && isPendingForNav(candidate)) {
+          if (fieldTypeOf(candidate) === "checkbox") {
+            touchedCheckboxesRef.current.add(candidate.id);
+          }
           onSelectedIdChange(candidate.id);
           onPageIndexChange(candidate.pageIndex);
           onEditingIdChange(candidate.id);
@@ -1243,7 +1278,7 @@ function TextFieldPlacerInner({
       }
       onEditingIdChange(null);
     },
-    [fields, values, onSelectedIdChange, onPageIndexChange, onEditingIdChange],
+    [fields, isPendingForNav, onSelectedIdChange, onPageIndexChange, onEditingIdChange],
   );
 
   const addCentered = (x: number, y: number) => {
@@ -1482,6 +1517,7 @@ function TextFieldPlacerInner({
         // abriria el editor en cualquier otro tipo la marca/desmarca
         // directamente.
         if (tapped && fieldTypeOf(tapped) === "checkbox") {
+          touchedCheckboxesRef.current.add(tapped.id);
           onValueChange(tapped.id, (values[tapped.id] ?? "") ? "" : "true");
         } else {
           onEditingIdChange(drag.id);
@@ -1669,6 +1705,17 @@ function TextFieldPlacerInner({
                   ? () => advanceToNextEmptyField(field.id)
                   : undefined
               }
+              onToggle={
+                fieldTypeOf(field) === "checkbox"
+                  ? () => {
+                      touchedCheckboxesRef.current.add(field.id);
+                      onValueChange(
+                        field.id,
+                        (values[field.id] ?? "") ? "" : "true",
+                      );
+                    }
+                  : undefined
+              }
             />
           ))}
 
@@ -1775,8 +1822,10 @@ type TextFieldBoxProps = {
   onRemove: () => void;
   /** El input perdio el foco (toco otro campo/boton/fuera): cierra el editor sin perder la seleccion. */
   onEditEnd: () => void;
-  /** Tab/Enter: saltar al siguiente campo vacio. `undefined` si la navegacion por teclado esta apagada. */
+  /** Tab/Enter: saltar al siguiente campo pendiente. `undefined` si la navegacion por teclado esta apagada. */
   onAdvance?: () => void;
+  /** Alterna una casilla (marca/desmarca) y la registra como "tocada". Solo definido para `type === "checkbox"`. */
+  onToggle?: () => void;
 };
 
 /**
@@ -1800,6 +1849,7 @@ function TextFieldBox({
   onRemove,
   onEditEnd,
   onAdvance,
+  onToggle,
 }: TextFieldBoxProps) {
   const type = fieldTypeOf(field);
   const dashed = field.confidence === "low";
@@ -1807,6 +1857,13 @@ function TextFieldBox({
 
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const checkboxRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (type === "checkbox" && editing) {
+      checkboxRef.current?.focus();
+    }
+  }, [type, editing]);
 
   const suggestions =
     editing && historyKey && !suggestionsDismissed
@@ -1882,13 +1939,40 @@ function TextFieldBox({
         </>
       ) : null}
 
-      {/* Una casilla no tiene modo "editar": el toque limpio que la marca/desmarca vive en `onPointerUp` del lienzo, esto solo pinta el estado. */}
+      {/*
+        Una casilla no tiene modo "editar": el toque limpio que la
+        marca/desmarca vive en `onPointerUp` del lienzo. Este nodo es solo
+        el objetivo de foco para Tab/Enter (navegacion por teclado) y
+        Espacio (alternar) -- no intercepta punteros (`pointer-events-none`,
+        sin onClick/onPointerDown) para no interferir con el arrastre ni
+        con el toggle por toque, que siguen viviendo en el lienzo.
+      */}
       {type === "checkbox" ? (
-        value ? (
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <Check aria-hidden="true" className="size-4 text-white" />
-          </span>
-        ) : null
+        <span
+          ref={checkboxRef}
+          role="checkbox"
+          aria-checked={Boolean(value)}
+          aria-label={label}
+          tabIndex={-1}
+          onKeyDown={(event) => {
+            if (event.key === " ") {
+              event.preventDefault();
+              onToggle?.();
+              return;
+            }
+            if (
+              onAdvance &&
+              (event.key === "Enter" ||
+                (event.key === "Tab" && !event.shiftKey))
+            ) {
+              event.preventDefault();
+              onAdvance();
+            }
+          }}
+          className="pointer-events-none absolute inset-0 flex items-center justify-center outline-none"
+        >
+          {value ? <Check aria-hidden="true" className="size-4 text-white" /> : null}
+        </span>
       ) : /* Toca para editar: el input vive encima del propio campo, como un hueco de Adobe Acrobat. */
       editing ? (
         <>

@@ -54,6 +54,7 @@ import {
   type SignConfigManifest,
 } from "@/app/sign-pdf/signConfig";
 import {
+  deleteDraft,
   loadDraft,
   saveDraft,
   type SaveDraftParams,
@@ -1231,49 +1232,108 @@ export function MultiFlow({
   };
 
   /**
+   * Generacion del autoguardado: se incrementa en cada pasada de este
+   * efecto. Un volcado tardio (ver mas abajo) que todavia esta leyendo
+   * los bytes del PDF puede completarse DESPUES de que una transicion
+   * mas nueva ya decidiera otra cosa (por ejemplo un borrado) --
+   * resucitando en IndexedDB un estado que el usuario ya dejo atras. Se
+   * detecto de verdad asi, escribiendo un test que reproduce borrar el
+   * ultimo firmante y desmontar de inmediato (limitacion 4.3 del
+   * backlog), no es hipotetico. Cada volcado comprueba, justo antes de
+   * escribir de verdad (no al principio: el salto asincrono de por
+   * medio es lo que importa), si sigue siendo la generacion vigente; si
+   * no, calla -- la generacion que lo reemplazo ya se encarga de dejar
+   * el estado correcto.
+   */
+  const autosaveGenerationRef = useRef(0);
+
+  /**
+   * Documentos para los que este componente ya escribio (o esta a punto
+   * de escribir) un borrador real -- para saber si un borrado hace
+   * falta. Sin esto, la primerisima vez que se carga un archivo (antes
+   * de tocar nada, sin progreso) programaria un `deleteDraft` sobre un
+   * `id` que nunca se guardo: inofensivo en si mismo, pero un viaje de
+   * ida y vuelta a IndexedDB de mas en el caso, con mucha diferencia,
+   * mas comun (abrir el documento y no hacer nada todavia).
+   */
+  const hasSavedDraftRef = useRef<Set<string>>(new Set());
+
+  /**
    * Autoguardado del borrador con debounce: espera ~800ms de calma tras
-   * el ultimo cambio antes de escribir. Solo arranca si ya hay algun
-   * progreso real (firmante, hueco o valor de texto) -- de lo contrario,
-   * cargar un documento y no tocar nada todavia dejaria un borrador vacio
-   * en la lista. El `id`/estado que se guarda es el vigente en el momento
-   * en que se AGENDA el guardado (capturado en el cierre del efecto), no
-   * el que haya cuando el timer dispare: si el documento cambia a medio
-   * camino, el guardado tardio del documento anterior no debe escribirse
-   * bajo el `id` del nuevo. Si el efecto se limpia antes de que el timer
-   * dispare (documento distinto, o el componente se desmonta) se vuelca
-   * el guardado pendiente de inmediato en vez de perderlo sin mas.
+   * el ultimo cambio antes de escribir. El `id`/estado que se guarda es
+   * el vigente en el momento en que se AGENDA el guardado (capturado en
+   * el cierre del efecto), no el que haya cuando el timer dispare: si el
+   * documento cambia a medio camino, el guardado tardio del documento
+   * anterior no debe escribirse bajo el `id` del nuevo. Si el efecto se
+   * limpia antes de que el timer dispare (documento distinto, o el
+   * componente se desmonta) se vuelca el guardado pendiente de
+   * inmediato en vez de perderlo sin mas.
+   *
+   * Sin progreso (ni firmante, ni hueco, ni valor de texto) no hay nada
+   * que guardar -- pero si YA existia un borrador de esta sesion porque
+   * el usuario acaba de borrar el ultimo firmante/hueco/valor que
+   * quedaba, hay que reflejarlo borrando ese borrador tambien, con el
+   * mismo mecanismo de "volcar al limpiar" que el guardado. Saltarse
+   * este caso (como hacia antes un `if (!hasProgress) return;` temprano,
+   * sin dejar ningun volcado pendiente) deja el ultimo guardado CON
+   * progreso como el estado persistido para siempre: lo borrado
+   * "resucita" al reanudar, en vez de reflejar la lista vacia que el
+   * usuario ve en pantalla.
    */
   useEffect(() => {
     if (!file || !documentKey) return;
+    autosaveGenerationRef.current += 1;
+    const myGeneration = autosaveGenerationRef.current;
     const hasProgress =
       options.signers.length > 0 ||
       options.fields.length > 0 ||
       options.textFields.length > 0 ||
       Object.keys(options.textValues).length > 0;
-    if (!hasProgress) return;
 
-    const snapshot: Omit<SaveDraftParams, "fileBytes"> = {
-      id: documentKey,
-      fileName: file.name,
-      manifest: {
-        mode: options.mode,
-        signers: options.signers,
-        fields: options.fields,
-        textFields: options.textFields,
-        textValues: options.textValues,
-      },
-      step: options.step,
-      captures: options.captures,
-      textFieldsDetectedFor: options.textFieldsDetectedFor,
-    };
+    const targetId = documentKey;
+    if (!hasProgress && !hasSavedDraftRef.current.has(targetId)) return;
+
+    // Marcado de inmediato (no cuando el guardado/borrado asincrono
+    // termina): una transicion posterior, incluso muy rapida, tiene que
+    // ver ya la intencion vigente, no la del ultimo guardado que aterrizo.
+    if (hasProgress) {
+      hasSavedDraftRef.current.add(targetId);
+    } else {
+      hasSavedDraftRef.current.delete(targetId);
+    }
+
+    const snapshot: Omit<SaveDraftParams, "fileBytes"> | null = hasProgress
+      ? {
+          id: targetId,
+          fileName: file.name,
+          manifest: {
+            mode: options.mode,
+            signers: options.signers,
+            fields: options.fields,
+            textFields: options.textFields,
+            textValues: options.textValues,
+          },
+          step: options.step,
+          captures: options.captures,
+          textFieldsDetectedFor: options.textFieldsDetectedFor,
+        }
+      : null;
     const targetFile = file;
 
     let fired = false;
     const flush = () => {
       fired = true;
-      void getFileBytes(targetFile).then((fileBytes) =>
-        saveDraft({ ...snapshot, fileBytes }),
-      );
+      if (snapshot) {
+        void getFileBytes(targetFile).then((fileBytes) => {
+          if (autosaveGenerationRef.current !== myGeneration) return;
+          return saveDraft({ ...snapshot, fileBytes });
+        });
+      } else {
+        void Promise.resolve().then(() => {
+          if (autosaveGenerationRef.current !== myGeneration) return;
+          return deleteDraft(targetId);
+        });
+      }
     };
     const timer = setTimeout(flush, 800);
     return () => {
