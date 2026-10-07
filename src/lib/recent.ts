@@ -86,6 +86,42 @@ export function addRecentEntry(slug: ToolSlug, fileName: string): void {
   emit();
 }
 
+export type RankedRecentEntry = {
+  slug: ToolSlug;
+  /** Veces que se uso esta herramienta entre las entradas recibidas. */
+  count: number;
+  /** Entrada mas reciente de esta herramienta (para mostrar el ultimo archivo). */
+  latest: RecentEntry;
+};
+
+/**
+ * Herramientas mas usadas, no solo la ultima tocada: agrupa por
+ * herramienta y ordena por frecuencia real, con el uso mas reciente como
+ * desempate. El llamador es responsable de filtrar `entries` a slugs
+ * conocidos primero (un slug de una herramienta ya retirada no deberia
+ * llegar aqui).
+ */
+export function rankByUsage(
+  entries: readonly RecentEntry[],
+  limit: number,
+): RankedRecentEntry[] {
+  const bySlug = new Map<ToolSlug, RankedRecentEntry>();
+  for (const entry of entries) {
+    const existing = bySlug.get(entry.slug);
+    if (existing) {
+      existing.count += 1;
+      if (entry.date > existing.latest.date) existing.latest = entry;
+    } else {
+      bySlug.set(entry.slug, { slug: entry.slug, count: 1, latest: entry });
+    }
+  }
+  return [...bySlug.values()]
+    .sort(
+      (a, b) => b.count - a.count || (a.latest.date < b.latest.date ? 1 : -1),
+    )
+    .slice(0, limit);
+}
+
 export function clearRecentEntries(): void {
   if (typeof window === "undefined") return;
   cache = EMPTY;

@@ -264,7 +264,7 @@ export const es = {
   },
   nav: {
     home: "Inicio",
-    tools: "Herramientas",
+    primaryNav: "Navegación principal",
     recent: "Recientes",
     settings: "Ajustes",
     pricing: "Precios",
@@ -278,13 +278,8 @@ export const es = {
   },
   categories,
   home: {
-    recentTitle: "Recientes",
-    recentSeeAll: "Ver todas",
-  },
-  toolsPage: {
-    title: "Herramientas",
-    subtitle:
-      "Todo el catálogo, agrupado por tarea. Las marcadas como próximamente aún no funcionan y lo decimos claramente.",
+    mostUsedTitle: "Más usadas",
+    mostUsedSeeAll: "Ver historial",
     liveCount: "disponibles ahora",
     soonCount: "en camino",
   },

@@ -40,7 +40,7 @@ export function RecentView() {
           </span>
           <p className="mt-4 text-sm text-muted-foreground">{t.recent.empty}</p>
           <Link
-            href="/tools"
+            href="/"
             className={`${buttonClasses("secondary", "md")} mt-6`}
           >
             {t.recent.emptyCta}

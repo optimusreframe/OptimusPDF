@@ -2,19 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clock, House, LayoutGrid, Settings, type LucideIcon } from "lucide-react";
+import { Clock, House, Settings, type LucideIcon } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
 type Tab = {
   href: string;
   icon: LucideIcon;
-  labelKey: "home" | "tools" | "recent" | "settings";
+  labelKey: "home" | "recent" | "settings";
 };
 
 const TABS: Tab[] = [
   { href: "/", icon: House, labelKey: "home" },
-  { href: "/tools", icon: LayoutGrid, labelKey: "tools" },
   { href: "/recent", icon: Clock, labelKey: "recent" },
   { href: "/settings", icon: Settings, labelKey: "settings" },
 ];
@@ -26,7 +25,7 @@ export function MobileTabBar() {
 
   return (
     <nav
-      aria-label={t.nav.tools}
+      aria-label={t.nav.primaryNav}
       className="glass-bar fixed inset-x-0 bottom-0 z-40 border-t border-white/10 md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
     >

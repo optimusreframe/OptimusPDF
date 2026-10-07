@@ -66,7 +66,7 @@ export function ToolPageSoon({ slug }: ToolPageSoonProps) {
         </div>
 
         <Link
-          href="/tools"
+          href="/"
           className={cn(buttonClasses("secondary", "md"), "mt-8")}
         >
           {t.soon.backHome}

@@ -56,7 +56,7 @@ export function PricingView() {
           </ul>
 
           <Link
-            href="/tools"
+            href="/"
             className={cn(buttonClasses("primary", "lg"), "mt-8 w-full")}
           >
             {t.pricing.freeCta}

@@ -247,7 +247,7 @@ export const en: Dictionary = {
   },
   nav: {
     home: "Home",
-    tools: "Tools",
+    primaryNav: "Primary navigation",
     recent: "Recent",
     settings: "Settings",
     pricing: "Pricing",
@@ -261,13 +261,8 @@ export const en: Dictionary = {
   },
   categories,
   home: {
-    recentTitle: "Recent",
-    recentSeeAll: "See all",
-  },
-  toolsPage: {
-    title: "Tools",
-    subtitle:
-      "The whole catalogue, grouped by task. The ones marked coming soon do not work yet, and we say so plainly.",
+    mostUsedTitle: "Most used",
+    mostUsedSeeAll: "See history",
     liveCount: "available now",
     soonCount: "on the way",
   },

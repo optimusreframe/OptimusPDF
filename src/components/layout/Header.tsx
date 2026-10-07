@@ -111,7 +111,7 @@ export function Header() {
               </div>
               <div className="mt-1 border-t border-white/10 px-3 pt-2 pb-1">
                 <Link
-                  href="/tools"
+                  href="/"
                   onClick={() => setOpenCategory(null)}
                   className="hud-label text-[10px] text-signal hover:text-glow"
                 >

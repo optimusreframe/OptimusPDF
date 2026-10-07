@@ -53,6 +53,19 @@ const contentSecurityPolicy = `
 `;
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      // "/tools" era una copia exacta del catalogo que ya vive en "/"
+      // (mismo `ToolCatalogGrid`) -- se elimino en vez de mantener dos
+      // rutas. El navegador conserva el fragmento ("#organizar") del
+      // enlace original al no haber uno propio en el destino.
+      {
+        source: "/tools",
+        destination: "/",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

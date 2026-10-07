@@ -8,7 +8,6 @@ import {
   ChevronsRight,
   Clock,
   House,
-  LayoutGrid,
   Search,
   Settings,
   type LucideIcon,
@@ -117,7 +116,6 @@ export function Sidebar() {
       : [];
 
   const isHome = pathname === "/";
-  const isTools = pathname === "/tools";
   const isRecent = pathname.startsWith("/recent");
   const isSettings = pathname.startsWith("/settings");
 
@@ -199,7 +197,7 @@ export function Sidebar() {
       )}
 
       <nav
-        aria-label={t.nav.tools}
+        aria-label={t.nav.primaryNav}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-3"
       >
         <div className="space-y-0.5">
@@ -208,13 +206,6 @@ export function Sidebar() {
             icon={House}
             label={t.nav.home}
             active={isHome}
-            collapsed={collapsed}
-          />
-          <SidebarLink
-            href="/tools"
-            icon={LayoutGrid}
-            label={t.nav.tools}
-            active={isTools}
             collapsed={collapsed}
           />
         </div>
@@ -228,7 +219,7 @@ export function Sidebar() {
           {CATEGORY_ORDER.map((category) => (
             <SidebarLink
               key={category}
-              href={`/tools#${category}`}
+              href={`/#${category}`}
               icon={CATEGORY_ICON[category]}
               label={t.categories[category].label}
               collapsed={collapsed}
