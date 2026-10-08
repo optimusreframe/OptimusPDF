@@ -59,7 +59,7 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          className="hud-label flex items-center gap-1.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          className="flex items-center gap-1.5 text-footnote font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <Info aria-hidden="true" className="size-3.5" />
           {strings.privacyNoticeToggle}

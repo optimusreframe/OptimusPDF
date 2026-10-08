@@ -223,7 +223,7 @@ function SplitOptions({
               className="rounded-ios-sm border border-white/10 bg-white/4 p-3"
             >
               <div className="mb-2 flex items-center justify-between">
-                <span className="hud-label text-[10px] text-muted-foreground">
+                <span className="ui-label text-muted-foreground">
                   {strings.rangeTitle(index + 1)}
                 </span>
                 <button
@@ -448,7 +448,7 @@ function SplitBoard({
       loading={loading}
       errorText={error ? errors[error] : null}
       toolbar={
-        <span className="hud-label text-[10px] text-muted-foreground">
+        <span className="text-caption text-muted-foreground">
           {strings.outsideHint}
         </span>
       }

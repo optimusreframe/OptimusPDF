@@ -160,7 +160,7 @@ export function PdfToJpgClient() {
               ) : null}
             </div>
 
-            <p className="hud-label text-[10px] leading-relaxed text-muted-foreground">
+            <p className="text-footnote leading-relaxed text-muted-foreground">
               {s.outputHint}
             </p>
           </>

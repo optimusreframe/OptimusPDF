@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type CSSProperties } from "react";
 import { cn } from "@/lib/cn";
 
 export type SliderProps = {
@@ -16,6 +16,12 @@ export type SliderProps = {
   className?: string;
 };
 
+/*
+ * Input range nativo (role slider, teclado y lector de pantalla gratis)
+ * vestido como UISlider: pista de 4 px rellena hasta el valor, thumb
+ * blanco de 28 px con elevacion y feedback en pointerdown (ver
+ * `slider-ios` en globals.css). El relleno se pasa como variable CSS.
+ */
 export function Slider({
   label,
   value,
@@ -28,16 +34,17 @@ export function Slider({
   className,
 }: SliderProps) {
   const id = useId();
+  const span = max - min;
+  const fraction = span > 0 ? (value - min) / span : 0;
+  const fill = `${Math.min(100, Math.max(0, fraction * 100))}%`;
+
   return (
     <div className={cn("w-full", className)}>
-      <div className="mb-2 flex items-center justify-between">
-        <label
-          htmlFor={id}
-          className="hud-label text-[10px] text-muted-foreground"
-        >
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor={id} className="ui-label text-muted-foreground">
           {label}
         </label>
-        <span className="hud-label text-[10px] text-foreground tabular-nums">
+        <span className="text-caption text-foreground tabular-nums">
           {value}
           {suffix}
         </span>
@@ -51,15 +58,8 @@ export function Slider({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className={cn(
-          "h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10",
-          "[&::-webkit-slider-thumb]:size-5 [&::-webkit-slider-thumb]:appearance-none",
-          "[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-signal",
-          "[&::-webkit-slider-thumb]:shadow-[0_0_16px_-2px_var(--color-glow)]",
-          "[&::-moz-range-thumb]:size-5 [&::-moz-range-thumb]:rounded-full",
-          "[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-signal",
-          "disabled:opacity-40",
-        )}
+        className="slider-ios"
+        style={{ "--slider-fill": fill } as CSSProperties}
       />
     </div>
   );

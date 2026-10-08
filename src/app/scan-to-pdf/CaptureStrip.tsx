@@ -50,7 +50,7 @@ export function CaptureStrip({
 
   return (
     <div>
-      <h3 className="hud-label mb-3 text-[11px] text-muted-foreground">
+      <h3 className="ui-label mb-3 text-muted-foreground">
         {s.capturesTitle}
       </h3>
 
@@ -80,13 +80,13 @@ export function CaptureStrip({
               </span>
 
               {capture.corners && !capture.pending ? (
-                <span className="hud-label absolute top-3 left-3 rounded-full bg-signal/85 px-2 py-0.5 text-[9px] text-[var(--color-on-signal)]">
+                <span className="absolute top-3 left-3 rounded-full bg-signal/85 px-2 py-0.5 text-caption-2 leading-tight font-semibold text-[var(--color-on-signal)]">
                   {s.croppedBadge}
                 </span>
               ) : null}
 
               <div className="mt-2 flex items-center justify-between gap-1">
-                <span className="hud-label text-[9px] text-muted-foreground">
+                <span className="text-caption text-muted-foreground tabular-nums">
                   {index + 1}
                 </span>
                 <div className="flex items-center gap-0.5">

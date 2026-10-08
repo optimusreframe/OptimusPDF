@@ -70,7 +70,7 @@ export function TemplatesSheet({
                   <p className="truncate text-sm font-medium text-foreground">
                     {template.name}
                   </p>
-                  <p className="hud-label text-[10px] text-muted-foreground">
+                  <p className="text-caption text-muted-foreground">
                     {strings.templatesSavedAt(
                       formatter.format(new Date(template.savedAt)),
                     )}

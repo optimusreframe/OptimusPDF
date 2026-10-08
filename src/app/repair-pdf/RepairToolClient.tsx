@@ -112,7 +112,7 @@ function RepairReportView({
     <div className="space-y-6">
       {/* Diagnostico */}
       <section>
-        <h3 className="hud-label text-[11px] text-foreground">
+        <h3 className="text-headline text-foreground">
           {s.damageTitle}
         </h3>
         <div className="mt-3 space-y-2">
@@ -139,7 +139,7 @@ function RepairReportView({
 
       {/* Que se hizo */}
       <section>
-        <h3 className="hud-label text-[11px] text-foreground">{s.planTitle}</h3>
+        <h3 className="text-headline text-foreground">{s.planTitle}</h3>
         {report.actions.length === 0 ? (
           <div className="mt-3">
             <Row icon={CheckCircle2} tone="good">
@@ -161,7 +161,7 @@ function RepairReportView({
 
       {/* Resultado medido */}
       <section>
-        <h3 className="hud-label text-[11px] text-foreground">
+        <h3 className="text-headline text-foreground">
           {s.resultTitle}
         </h3>
         <div className="mt-3 space-y-2">
@@ -311,7 +311,7 @@ export function RepairToolClient() {
                   className="mt-0.5 size-5 shrink-0 text-muted-foreground"
                 />
                 <div className="min-w-0">
-                  <h3 className="hud-label text-[11px] text-foreground">
+                  <h3 className="text-headline text-foreground">
                     {s.scopeTitle}
                   </h3>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -342,7 +342,7 @@ export function RepairToolClient() {
                       className="mt-0.5 size-5 shrink-0 text-destructive"
                     />
                     <div className="min-w-0">
-                      <h3 className="hud-label text-[11px] text-destructive">
+                      <h3 className="text-headline text-destructive-text">
                         {s.errorTitle}
                       </h3>
                       <p className="mt-2 text-sm leading-relaxed text-foreground">

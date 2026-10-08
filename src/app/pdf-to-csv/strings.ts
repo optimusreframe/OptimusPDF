@@ -22,7 +22,7 @@ export type PdfToCsvStrings = {
 const es: PdfToCsvStrings = {
   howItWorksTitle: "Cómo se convierte",
   howItWorksBody:
-    "Busca tablas con rejillas regulares en la capa de texto del PDF (la misma detección que usa PDF a Markdown y PDF a Excel) y extrae SOLO esas tablas — no el resto del documento — a un archivo CSV o JSON, en el orden en que aparecen.",
+    "Busca tablas con rejillas regulares en la capa de texto del PDF (la misma detección que usa PDF a Markdown y PDF a Excel) y extrae solo esas tablas — no el resto del documento — a un archivo CSV o JSON, en el orden en que aparecen.",
   limitsTitle: "Lo que no hace",
   limitsBody:
     "Se extrae solo el texto de cada celda: no se reconstruyen fórmulas, gráficos ni el formato visual (colores, bordes, anchos de columna) de la tabla original. Si el PDF son páginas escaneadas (imágenes sin capa de texto), esta herramienta no encuentra ninguna tabla — a propósito no hace OCR aquí, porque el reconocimiento de texto nunca reconstruye una rejilla de tabla.",
@@ -39,7 +39,7 @@ const es: PdfToCsvStrings = {
 const en: PdfToCsvStrings = {
   howItWorksTitle: "How the conversion works",
   howItWorksBody:
-    "It looks for tables with regular grids in the PDF's text layer (the same detection PDF to Markdown and PDF to Excel use) and extracts ONLY those tables — not the rest of the document — into a CSV or JSON file, in the order they appear.",
+    "It looks for tables with regular grids in the PDF's text layer (the same detection PDF to Markdown and PDF to Excel use) and extracts only those tables — not the rest of the document — into a CSV or JSON file, in the order they appear.",
   limitsTitle: "What it does not do",
   limitsBody:
     "Only the text of each cell is extracted: formulas, charts, and the original table's visual formatting (colours, borders, column widths) are not rebuilt. If the PDF is scanned pages (images with no text layer), this tool finds no tables at all — it deliberately does not run OCR here, since OCR text recognition never reconstructs a table grid.",

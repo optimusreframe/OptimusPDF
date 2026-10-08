@@ -104,7 +104,7 @@ export function CompressToolClient() {
           <>
             <StatsResetProbe onReset={clearStats} />
             <section className="glass rounded-ios p-5">
-              <h3 className="hud-label text-[11px] text-foreground">
+              <h3 className="text-headline text-foreground">
                 {s.howItWorksTitle}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -122,7 +122,7 @@ export function CompressToolClient() {
                 </div>
               ) : null}
               {files[0] ? (
-                <p className="hud-label mt-4 text-[10px] text-muted-foreground tabular-nums">
+                <p className="mt-4 text-caption text-muted-foreground tabular-nums">
                   {s.originalLabel} · {formatFileSize(files[0].size, locale)}
                 </p>
               ) : null}
@@ -173,7 +173,7 @@ export function CompressToolClient() {
       {stats ? (
         <div className="mx-auto w-full max-w-[1200px] px-4 pb-16 md:px-6">
           <section className="glass rounded-ios p-5">
-            <h2 className="hud-label text-[11px] text-muted-foreground">
+            <h2 className="ui-label text-muted-foreground">
               {s.summaryTitle}
             </h2>
             <p className="mt-1 truncate text-sm font-medium text-foreground">
@@ -181,7 +181,7 @@ export function CompressToolClient() {
             </p>
             <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-ios border border-white/10 bg-white/5 p-4">
-                <dt className="hud-label text-[10px] text-muted-foreground">
+                <dt className="text-footnote text-muted-foreground">
                   {s.beforeLabel}
                 </dt>
                 <dd className="mt-1 text-lg font-bold text-foreground tabular-nums">
@@ -189,7 +189,7 @@ export function CompressToolClient() {
                 </dd>
               </div>
               <div className="rounded-ios border border-white/10 bg-white/5 p-4">
-                <dt className="hud-label text-[10px] text-muted-foreground">
+                <dt className="text-footnote text-muted-foreground">
                   {s.afterLabel}
                 </dt>
                 <dd className="mt-1 text-lg font-bold text-foreground tabular-nums">
@@ -197,7 +197,7 @@ export function CompressToolClient() {
                 </dd>
               </div>
               <div className="rounded-ios border border-white/10 bg-white/5 p-4">
-                <dt className="hud-label text-[10px] text-muted-foreground">
+                <dt className="text-footnote text-muted-foreground">
                   {s.reductionLabel}
                 </dt>
                 <dd

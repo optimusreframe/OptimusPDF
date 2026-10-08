@@ -544,7 +544,7 @@ function FieldPlacerInner({
   return (
     <div>
       <div className="mb-3">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {strings.fieldsTitle}
         </h3>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -555,7 +555,7 @@ function FieldPlacerInner({
       {/* Dueño del proximo hueco: se cambia aqui mismo, sin volver al paso 1. */}
       {signers.length > 0 ? (
         <div className="mb-3">
-          <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+          <span className="ui-label mb-2 block text-muted-foreground">
             {strings.activeSignerLabel}
           </span>
           <div
@@ -600,7 +600,7 @@ function FieldPlacerInner({
 
       {/* Tipo del proximo hueco */}
       <div className="mb-3">
-        <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+        <span className="ui-label mb-2 block text-muted-foreground">
           {strings.fieldTypeLabel}
         </span>
         <div
@@ -619,7 +619,7 @@ function FieldPlacerInner({
                 aria-checked={active}
                 onClick={() => onActiveTypeChange(type)}
                 className={cn(
-                  "hud-label flex min-h-11 items-center gap-2 rounded-ios-sm border px-3 text-[10px] transition-all duration-200 ease-spring",
+                  "flex min-h-11 items-center gap-2 rounded-ios-sm border px-3 text-footnote font-semibold transition-all duration-200 ease-spring",
                   active
                     ? "border-signal/60 bg-signal/15 text-foreground"
                     : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/25 hover:bg-white/10 hover:text-foreground",
@@ -644,7 +644,7 @@ function FieldPlacerInner({
 
       {/* Cabecera con navegacion de paginas */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="hud-label text-[10px] text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           {activeSigner
             ? strings.fieldOwnerLabel(
                 signerDisplayNameById(activeSigner.id),
@@ -662,7 +662,7 @@ function FieldPlacerInner({
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
           </Button>
-          <span className="hud-label text-[10px] text-foreground tabular-nums">
+          <span className="text-footnote font-medium text-foreground tabular-nums">
             {strings.pageOf(pageIndex + 1, total)}
           </span>
           <Button
@@ -686,7 +686,7 @@ function FieldPlacerInner({
        * quedaba en esa misma ruta de scroll -- facil de tocar sin querer.
        */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="hud-label text-[10px] text-muted-foreground tabular-nums">
+        <p className="text-caption text-muted-foreground tabular-nums">
           {strings.fieldsOnPage(pageFields.length)} ·{" "}
           {strings.totalFields(fields.length)}
         </p>
@@ -795,7 +795,7 @@ function FieldPlacerInner({
 
       {thumbs.length > 1 ? (
         <div className="mt-6">
-          <h4 className="hud-label mb-2 text-[10px] text-muted-foreground">
+          <h4 className="ui-label mb-2 text-muted-foreground">
             {strings.thumbsTitle}
           </h4>
           <ul className="flex gap-2 overflow-x-auto pb-2">
@@ -825,7 +825,7 @@ function FieldPlacerInner({
                       draggable={false}
                       className="block w-16 rounded-[8px]"
                     />
-                    <span className="hud-label absolute right-1 bottom-1 rounded-full bg-background/85 px-1.5 py-0.5 text-[9px] text-foreground tabular-nums">
+                    <span className="absolute right-1 bottom-1 rounded-full bg-background/85 px-1.5 py-0.5 text-caption-2 leading-tight font-semibold text-foreground tabular-nums">
                       {count > 0 ? `${index + 1} · ${count}` : index + 1}
                     </span>
                   </button>
@@ -896,7 +896,7 @@ function FieldBox({
       }}
     >
       <span
-        className="pointer-events-none absolute -top-0.5 left-0 max-w-full -translate-y-full truncate rounded-t-[4px] px-1.5 py-0.5 text-[10px] font-semibold text-white"
+        className="pointer-events-none absolute -top-0.5 left-0 max-w-full -translate-y-full truncate rounded-t-[4px] px-1.5 py-0.5 text-caption-2 font-semibold text-white"
         style={{ backgroundColor: color }}
       >
         {label}
@@ -1562,7 +1562,7 @@ function TextFieldPlacerInner({
   return (
     <div>
       <div className="mb-3">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {strings.textFieldsTitle}
         </h3>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -1594,7 +1594,7 @@ function TextFieldPlacerInner({
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
           </Button>
-          <span className="hud-label text-[10px] text-foreground tabular-nums">
+          <span className="text-footnote font-medium text-foreground tabular-nums">
             {strings.pageOf(pageIndex + 1, total)}
           </span>
           <Button
@@ -1618,7 +1618,7 @@ function TextFieldPlacerInner({
        * boton que borre todo queda en esa ruta de scroll.
        */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="hud-label text-[10px] text-muted-foreground tabular-nums">
+        <p className="text-caption text-muted-foreground tabular-nums">
           {strings.textFieldsOnPage(pageFields.length)} ·{" "}
           {strings.totalTextFields(fields.length)}
         </p>
@@ -1904,7 +1904,7 @@ function TextFieldBox({
       }}
     >
       <span
-        className="pointer-events-none absolute -top-0.5 left-0 max-w-full -translate-y-full truncate rounded-t-[4px] px-1.5 py-0.5 text-[10px] font-semibold text-white"
+        className="pointer-events-none absolute -top-0.5 left-0 max-w-full -translate-y-full truncate rounded-t-[4px] px-1.5 py-0.5 text-caption-2 font-semibold text-white"
         style={{ backgroundColor: color }}
       >
         {label}
@@ -1969,7 +1969,7 @@ function TextFieldBox({
               onAdvance();
             }
           }}
-          className="pointer-events-none absolute inset-0 flex items-center justify-center outline-none"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
         >
           {value ? <Check aria-hidden="true" className="size-4 text-white" /> : null}
         </span>

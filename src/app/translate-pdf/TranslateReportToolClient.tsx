@@ -68,7 +68,7 @@ export function TranslateReportToolClient() {
               className="mt-0.5 size-5 shrink-0 text-accent-optimize"
             />
             <div className="min-w-0">
-              <h3 className="hud-label text-[11px] text-foreground">
+              <h3 className="text-headline text-foreground">
                 {s.howItWorksTitle}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -88,7 +88,7 @@ export function TranslateReportToolClient() {
               className="mt-0.5 size-4 shrink-0 text-destructive"
             />
             <div className="min-w-0">
-              <p className="hud-label text-[10px] text-destructive">
+              <p className="ui-label text-destructive-text">
                 {s.notAPdfTitle}
               </p>
               <p className="mt-1 text-sm leading-relaxed text-foreground">
@@ -186,7 +186,7 @@ export function TranslateReportToolClient() {
             */}
             {pair ? (
               <div className="rounded-ios border border-white/10 bg-white/5 p-4">
-                <p className="hud-label text-[10px] text-foreground">
+                <p className="text-subheadline font-semibold text-foreground">
                   {s.consentTitle}
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">

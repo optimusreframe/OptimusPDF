@@ -45,7 +45,7 @@ export function HtmlToPdfToolClient() {
       process={process}
       renderMain={() => (
         <section className="glass rounded-ios p-5">
-          <h3 className="hud-label text-[11px] text-foreground">
+          <h3 className="text-headline text-foreground">
             {s.howItWorksTitle}
           </h3>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -73,7 +73,7 @@ export function HtmlToPdfToolClient() {
               className="mt-0.5 size-4 shrink-0 text-signal"
             />
             <div className="min-w-0">
-              <h4 className="hud-label text-[10px] text-foreground">
+              <h4 className="text-subheadline font-semibold text-foreground">
                 {s.securityTitle}
               </h4>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

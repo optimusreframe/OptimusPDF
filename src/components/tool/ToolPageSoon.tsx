@@ -19,7 +19,10 @@ export type ToolPageSoonProps = {
   slug: ToolSlug;
 };
 
-/** Pagina honesta para herramientas que aun no funcionan en local. */
+/**
+ * Pagina honesta para herramientas que aun no funcionan en local: dice
+ * por que, ofrece el camino de vuelta y alternativas que si funcionan.
+ */
 export function ToolPageSoon({ slug }: ToolPageSoonProps) {
   const t = useT();
   const tool = getTool(slug);
@@ -30,11 +33,11 @@ export function ToolPageSoon({ slug }: ToolPageSoonProps) {
   );
 
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-4 pt-8 pb-16 md:px-6 md:pt-12">
-      <div className="glass rounded-ios-lg flex flex-col items-center px-6 py-14 text-center md:py-20">
+    <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-16 md:px-6 md:pt-10">
+      <div className="surface-card flex flex-col items-center rounded-ios-lg px-6 py-14 text-center md:py-20">
         <span
           className={cn(
-            "flex size-14 items-center justify-center rounded-ios",
+            "flex size-14 items-center justify-center rounded-ios opacity-70",
             ACCENT_BG_SOFT[tool.accent],
           )}
         >
@@ -49,18 +52,14 @@ export function ToolPageSoon({ slug }: ToolPageSoonProps) {
           {t.soon.badge}
         </Badge>
 
-        <h1 className="mt-4 text-3xl font-black tracking-[-0.025em] text-foreground md:text-4xl">
-          {copy.name}
-        </h1>
-        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
+        <h1 className="mt-4 text-title-1 text-foreground">{copy.name}</h1>
+        <p className="mt-2 max-w-xl text-callout text-muted-foreground">
           {copy.description}
         </p>
 
-        <div className="rounded-ios mt-8 max-w-xl border border-white/10 bg-white/5 p-5">
-          <h2 className="hud-label text-[10px] text-foreground">
-            {t.soon.title}
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+        <div className="mt-8 max-w-xl rounded-ios border border-hairline bg-white/5 p-5 text-left">
+          <h2 className="text-headline text-foreground">{t.soon.title}</h2>
+          <p className="mt-1.5 text-subheadline text-muted-foreground">
             {t.soon.body}
           </p>
         </div>
@@ -74,15 +73,17 @@ export function ToolPageSoon({ slug }: ToolPageSoonProps) {
       </div>
 
       {alternatives.length > 0 ? (
-        <section className="mt-10">
-          <h2 className="hud-label mb-4 text-[11px] text-muted-foreground">
+        <section className="mt-10" aria-labelledby="alternatives-title">
+          <h2 id="alternatives-title" className="ui-label mb-3 text-muted-foreground">
             {t.soon.alternativesTitle}
           </h2>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <ul className="grid gap-3 sm:grid-cols-3">
             {alternatives.map((candidate) => (
-              <ToolCard key={candidate.slug} tool={candidate} compact />
+              <li key={candidate.slug}>
+                <ToolCard tool={candidate} compact />
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
       ) : null}
     </div>

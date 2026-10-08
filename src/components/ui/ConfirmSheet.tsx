@@ -16,10 +16,9 @@ export type ConfirmSheetProps = {
 
 /**
  * Paso de confirmacion para una accion destructiva, en forma de `Sheet`.
- * No existia ningun patron de "¿estas seguro?" en el repo antes de esto
- * (las acciones destructivas se ejecutaban directo al toque) -- este
- * componente es el primero, pensado para reutilizarse en cualquier boton
- * que borre algo sin vuelta atras.
+ * Jerarquia Apple: la accion destructiva es la prominente (tintada en
+ * rojo) y cancelar es un boton secundario de material, ambos de 44 px.
+ * Hereda del Sheet el arrastre, el foco atrapado y la salida animada.
  */
 export function ConfirmSheet({
   open,
@@ -33,9 +32,7 @@ export function ConfirmSheet({
 }: ConfirmSheetProps) {
   return (
     <Sheet open={open} onClose={onClose} title={title} closeLabel={closeLabel}>
-      <p className="pb-2 text-sm leading-relaxed text-muted-foreground">
-        {body}
-      </p>
+      <p className="pb-4 text-subheadline text-muted-foreground">{body}</p>
       <div className="flex flex-col gap-2 pb-2">
         <Button
           variant="destructive"
@@ -48,7 +45,7 @@ export function ConfirmSheet({
         >
           {confirmLabel}
         </Button>
-        <Button variant="ghost" size="md" fullWidth onClick={onClose}>
+        <Button variant="secondary" size="md" fullWidth onClick={onClose}>
           {cancelLabel}
         </Button>
       </div>

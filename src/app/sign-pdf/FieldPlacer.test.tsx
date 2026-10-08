@@ -360,7 +360,10 @@ describe("FieldPlacer — src/app/sign-pdf/FieldPlacer.tsx", () => {
       screen.getByRole("button", { name: strings.confirmCancel }),
     );
     expect(last).toHaveLength(1);
-    expect(screen.queryByText(strings.confirmClearAllFieldsBody)).toBeNull();
+    // El Sheet anima su salida (W1-B) antes de desmontar el contenido.
+    await waitFor(() =>
+      expect(screen.queryByText(strings.confirmClearAllFieldsBody)).toBeNull(),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: strings.clearAllFields }));
     const dialog = screen.getByRole("dialog");

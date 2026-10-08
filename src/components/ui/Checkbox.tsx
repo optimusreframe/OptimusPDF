@@ -16,7 +16,12 @@ export type CheckboxProps = {
   className?: string;
 };
 
-/** Casilla de verificacion con estetica HUD (input real, accesible). */
+/*
+ * Casilla con input real (role checkbox nativo, etiqueta asociada por
+ * `htmlFor`). Toda la fila es el objetivo (min 44 px de alto); la caja
+ * responde en pointerdown hundiendose a 0.9 y al marcar el check entra
+ * por escala+opacidad con --ease-spring (bajo reduced motion solo funde).
+ */
 export function Checkbox({
   label,
   checked,
@@ -32,8 +37,13 @@ export function Checkbox({
 
   return (
     <div className={cn("w-full", className)}>
-      <div className="flex items-start gap-3">
-        <span className="relative flex size-5 shrink-0 items-center justify-center">
+      <div
+        className={cn(
+          "group flex min-h-11 items-center gap-3",
+          disabled ? "cursor-not-allowed" : "cursor-pointer",
+        )}
+      >
+        <span className="relative flex size-[22px] shrink-0 items-center justify-center">
           <input
             id={inputId}
             type="checkbox"
@@ -41,18 +51,30 @@ export function Checkbox({
             disabled={disabled}
             aria-describedby={hintId}
             onChange={(event) => onChange(event.target.checked)}
-            className="peer absolute inset-0 size-full cursor-pointer appearance-none rounded-[7px] border border-white/14 bg-white/5 transition-colors checked:border-signal checked:bg-signal disabled:cursor-not-allowed disabled:opacity-40"
+            className={cn(
+              "peer absolute inset-0 size-full appearance-none rounded-[7px] border border-hairline-strong bg-white/5",
+              "transition-[background-color,border-color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
+              "checked:border-signal checked:bg-signal",
+              "active:scale-90 active:duration-[80ms] group-active:scale-90",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
+              disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+            )}
           />
           <Check
             aria-hidden="true"
-            className="pointer-events-none size-3.5 text-foreground opacity-0 transition-opacity peer-checked:opacity-100"
+            strokeWidth={3}
+            className={cn(
+              "pointer-events-none size-3.5 scale-50 text-[var(--color-on-signal)] opacity-0",
+              "transition-[scale,opacity] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
+              "peer-checked:scale-100 peer-checked:opacity-100",
+            )}
           />
         </span>
         <label
           htmlFor={inputId}
           className={cn(
-            "text-sm leading-snug font-medium text-foreground",
-            disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer",
+            "flex min-h-11 flex-1 items-center text-subheadline font-medium text-foreground select-none",
+            disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
           )}
         >
           {label}
@@ -61,7 +83,7 @@ export function Checkbox({
       {hint ? (
         <p
           id={hintId}
-          className="mt-2 pl-8 text-xs leading-relaxed text-muted-foreground"
+          className="-mt-1 pl-[34px] text-footnote text-muted-foreground"
         >
           {hint}
         </p>

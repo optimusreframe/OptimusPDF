@@ -346,7 +346,7 @@ export function ScanToPdfClient() {
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-black tracking-[-0.025em] text-foreground md:text-3xl">
+            <h1 className="text-title-1 text-foreground">
               {copy.name}
             </h1>
             <Badge variant="live" dot>
@@ -369,7 +369,7 @@ export function ScanToPdfClient() {
             className="mt-0.5 size-4 shrink-0 text-destructive"
           />
           <div>
-            <p className="hud-label text-[10px] text-destructive">
+            <p className="ui-label text-destructive-text">
               {t.tool.errors.title}
             </p>
             <p className="mt-1 text-sm text-foreground">

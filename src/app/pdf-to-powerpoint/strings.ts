@@ -27,7 +27,7 @@ export const STRINGS: Record<Language, PdfToPowerpointStrings> = {
     scale2x: "2x",
     scale3x: "3x",
     scaleHint: "1x equivale a 72 puntos por pulgada; 3x, a 216.",
-    notEditableTitle: "Esto NO genera diapositivas editables",
+    notEditableTitle: "Esto no genera diapositivas editables",
     notEditableBody:
       "Cada página del PDF se convierte en una imagen y esa imagen ocupa una diapositiva completa. No vas a poder seleccionar ni editar el texto dentro de PowerPoint: si necesitas contenido editable, esta herramienta no es la indicada.",
     progress: "Convirtiendo páginas a diapositivas…",
@@ -41,7 +41,7 @@ export const STRINGS: Record<Language, PdfToPowerpointStrings> = {
     scale2x: "2x",
     scale3x: "3x",
     scaleHint: "1x equals 72 dots per inch; 3x equals 216.",
-    notEditableTitle: "This does NOT produce editable slides",
+    notEditableTitle: "This does not produce editable slides",
     notEditableBody:
       "Every PDF page becomes an image, and that image fills an entire slide. You won't be able to select or edit the text inside PowerPoint: if you need editable content, this tool is not the right one.",
     progress: "Converting pages to slides…",

@@ -81,7 +81,7 @@ export function RedactToolClient() {
                 className="mt-0.5 size-5 shrink-0 text-accent-security"
               />
               <div className="min-w-0">
-                <h3 className="hud-label text-[11px] text-foreground">
+                <h3 className="text-headline text-foreground">
                   {s.howItWorksTitle}
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -98,7 +98,7 @@ export function RedactToolClient() {
       renderOptions={({ files, options }) => (
         <>
           <div>
-            <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+            <span className="ui-label mb-2 block text-muted-foreground">
               {s.canvasTitle}
             </span>
             <p className="text-sm text-foreground tabular-nums">

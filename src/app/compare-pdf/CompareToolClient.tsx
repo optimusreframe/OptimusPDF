@@ -119,7 +119,7 @@ export function CompareToolClient() {
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-black tracking-[-0.025em] text-foreground md:text-3xl">
+            <h1 className="text-title-1 text-foreground">
               {copy.name}
             </h1>
             <Badge variant="live" dot>
@@ -142,7 +142,7 @@ export function CompareToolClient() {
             className="mt-0.5 size-4 shrink-0 text-destructive"
           />
           <div>
-            <p className="hud-label text-[10px] text-destructive">
+            <p className="ui-label text-destructive-text">
               {t.tool.errors.title}
             </p>
             <p className="mt-1 text-sm text-foreground">{t.tool.errors[error]}</p>
@@ -186,7 +186,7 @@ export function CompareToolClient() {
             {!fileA || !fileB ? (
               <p className="text-xs text-muted-foreground">{strings.needBoth}</p>
             ) : null}
-            <p className="hud-label text-[10px] text-muted-foreground">
+            <p className="text-footnote text-muted-foreground">
               {t.tool.localNotice}
             </p>
           </div>
@@ -204,7 +204,7 @@ export function CompareToolClient() {
       {phase === "done" && result ? (
         <div className="animate-rise-in">
           <section className="glass rounded-ios p-5">
-            <h2 className="hud-label text-[11px] text-muted-foreground">
+            <h2 className="ui-label text-muted-foreground">
               {strings.summaryTitle}
             </h2>
             <p className="mt-3 text-lg font-bold text-foreground">
@@ -255,7 +255,7 @@ export function CompareToolClient() {
             {visiblePages.map((page) => (
               <section key={page.pageNumber} className="glass rounded-ios p-4">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <h3 className="hud-label text-[11px] text-foreground">
+                  <h3 className="text-subheadline font-semibold text-foreground">
                     {strings.pageLabel(page.pageNumber)}
                   </h3>
                   {page.changed ? (
@@ -297,7 +297,7 @@ export function CompareToolClient() {
           </div>
 
           <section className="mt-10">
-            <h3 className="hud-label mb-4 text-[11px] text-muted-foreground">
+            <h3 className="ui-label mb-4 text-muted-foreground">
               {t.tool.relatedTitle}
             </h3>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -316,7 +316,7 @@ function Legend({ className, label }: { className: string; label: string }) {
   return (
     <span className="flex items-center gap-2">
       <span aria-hidden="true" className={cn("size-2.5 rounded-full", className)} />
-      <span className="hud-label text-[10px] text-muted-foreground">{label}</span>
+      <span className="text-caption text-muted-foreground">{label}</span>
     </span>
   );
 }
@@ -340,7 +340,7 @@ function CompareSlot({
 }) {
   return (
     <div>
-      <h2 className="hud-label mb-1.5 text-[11px] text-muted-foreground">
+      <h2 className="ui-label mb-1.5 text-muted-foreground">
         {title}
       </h2>
       <p className="mb-3 text-xs text-muted-foreground">{hint}</p>
@@ -350,7 +350,7 @@ function CompareSlot({
             <p className="truncate text-sm font-medium text-foreground">
               {file.name}
             </p>
-            <p className="hud-label mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-footnote text-muted-foreground tabular-nums">
               {formatFileSize(file.size, locale)}
             </p>
           </div>

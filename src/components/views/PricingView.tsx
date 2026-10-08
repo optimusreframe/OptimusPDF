@@ -14,7 +14,7 @@ export function PricingView() {
   return (
     <div className="mx-auto max-w-[1200px] px-4 pt-10 pb-16 md:px-6 md:pt-16">
       <header className="max-w-2xl">
-        <h1 className="text-4xl font-black tracking-[-0.025em] text-foreground md:text-5xl">
+        <h1 className="text-title-1 text-foreground">
           {t.pricing.title}
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground md:text-base">
@@ -28,17 +28,17 @@ export function PricingView() {
           <Badge variant="live" dot className="self-start">
             {t.common.localBadge}
           </Badge>
-          <h2 className="mt-4 text-2xl font-black tracking-[-0.02em] text-foreground">
+          <h2 className="mt-4 text-title-2 text-foreground">
             {t.pricing.freeName}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {t.pricing.freeTagline}
           </p>
           <p className="mt-6 flex items-baseline gap-2">
-            <span className="text-4xl font-black tracking-[-0.03em] text-foreground">
+            <span className="text-title-1 text-foreground tabular-nums">
               {t.pricing.freePrice}
             </span>
-            <span className="hud-label text-[10px] text-muted-foreground">
+            <span className="text-caption text-muted-foreground">
               {t.pricing.freePeriod}
             </span>
           </p>
@@ -64,21 +64,21 @@ export function PricingView() {
         </GlassCard>
 
         {/* Plan servidor (aun no existe) */}
-        <GlassCard className="flex flex-col p-7 opacity-80">
+        <GlassCard className="flex flex-col p-7 opacity-90">
           <Badge variant="soon" className="self-start">
             {t.common.soon}
           </Badge>
-          <h2 className="mt-4 text-2xl font-black tracking-[-0.02em] text-foreground">
+          <h2 className="mt-4 text-title-2 text-foreground">
             {t.pricing.proName}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {t.pricing.proTagline}
           </p>
           <p className="mt-6 flex items-baseline gap-2">
-            <span className="text-4xl font-black tracking-[-0.03em] text-muted-foreground">
+            <span className="text-title-1 text-muted-foreground tabular-nums">
               {t.pricing.proPrice}
             </span>
-            <span className="hud-label text-[10px] text-muted-foreground">
+            <span className="text-caption text-muted-foreground">
               {t.pricing.proPeriod}
             </span>
           </p>
@@ -109,7 +109,7 @@ export function PricingView() {
 
       <section className="mt-12 grid gap-4 md:grid-cols-2">
         <GlassCard className="p-7">
-          <h2 className="hud-label text-[11px] text-foreground">
+          <h2 className="text-headline text-foreground">
             {t.pricing.honestyTitle}
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
@@ -118,7 +118,7 @@ export function PricingView() {
         </GlassCard>
 
         <GlassCard className="p-7">
-          <h2 className="hud-label text-[11px] text-foreground">
+          <h2 className="text-headline text-foreground">
             {t.pricing.faqTitle}
           </h2>
           <dl className="mt-4 space-y-4">

@@ -25,13 +25,13 @@ export function SettingsView() {
 
   return (
     <div className="mx-auto max-w-[800px] px-4 pt-10 pb-16 md:px-6 md:pt-16">
-      <h1 className="text-4xl font-black tracking-[-0.025em] text-foreground md:text-5xl">
+      <h1 className="text-title-1 text-foreground">
         {t.settings.title}
       </h1>
 
       <div className="mt-8 space-y-4">
         <GlassCard className="p-6">
-          <h2 className="hud-label text-[11px] text-foreground">
+          <h2 className="text-headline text-foreground">
             {t.settings.themeTitle}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -50,7 +50,7 @@ export function SettingsView() {
         </GlassCard>
 
         <GlassCard className="p-6">
-          <h2 className="hud-label text-[11px] text-foreground">
+          <h2 className="text-headline text-foreground">
             {t.settings.languageTitle}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -68,7 +68,7 @@ export function SettingsView() {
         </GlassCard>
 
         <GlassCard className="p-6">
-          <h2 className="hud-label text-[11px] text-foreground">
+          <h2 className="text-headline text-foreground">
             {t.settings.signPdfFeaturesTitle}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -88,7 +88,7 @@ export function SettingsView() {
         </GlassCard>
 
         <GlassCard className="p-6">
-          <h2 className="hud-label text-[11px] text-foreground">
+          <h2 className="text-headline text-foreground">
             {t.settings.dataTitle}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -115,7 +115,7 @@ export function SettingsView() {
         </GlassCard>
 
         <GlassCard className="p-6">
-          <h2 className="hud-label text-[11px] text-foreground">
+          <h2 className="text-headline text-foreground">
             {t.settings.aboutTitle}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">

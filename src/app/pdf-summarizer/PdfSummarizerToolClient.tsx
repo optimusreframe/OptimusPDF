@@ -379,7 +379,7 @@ export function PdfSummarizerToolClient() {
       </span>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-black tracking-[-0.025em] text-foreground md:text-3xl">
+          <h1 className="text-title-1 text-foreground">
             {copy.name}
           </h1>
           <Badge variant={TOOL.status === "live" ? "live" : "soon"} dot>
@@ -407,7 +407,7 @@ export function PdfSummarizerToolClient() {
         <section className="glass rounded-ios flex items-start gap-3 p-5">
           <Spinner className="mt-0.5 size-4 shrink-0" />
           <div className="min-w-0">
-            <h2 className="hud-label text-[11px] text-foreground">
+            <h2 className="text-headline text-foreground">
               {s.checkingTitle}
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -439,7 +439,7 @@ export function PdfSummarizerToolClient() {
               className="mt-0.5 size-5 shrink-0 text-destructive"
             />
             <div className="min-w-0">
-              <h2 className="hud-label text-[11px] text-destructive">
+              <h2 className="text-headline text-destructive-text">
                 {s.unsupportedTitle}
               </h2>
               <p className="mt-2 text-sm leading-relaxed text-foreground">
@@ -457,7 +457,7 @@ export function PdfSummarizerToolClient() {
 
         {alternatives.length > 0 ? (
           <section className="mt-10">
-            <h2 className="hud-label mb-4 text-[11px] text-muted-foreground">
+            <h2 className="ui-label mb-4 text-muted-foreground">
               {t.tool.relatedTitle}
             </h2>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -488,7 +488,7 @@ export function PdfSummarizerToolClient() {
             className="mt-0.5 size-4 shrink-0 text-destructive"
           />
           <div>
-            <p className="hud-label text-[10px] text-destructive">
+            <p className="ui-label text-destructive-text">
               {t.tool.errors.title}
             </p>
             <p className="mt-1 text-sm text-foreground">
@@ -508,7 +508,7 @@ export function PdfSummarizerToolClient() {
             className="mt-0.5 size-4 shrink-0 text-destructive"
           />
           <div className="min-w-0 flex-1">
-            <p className="hud-label text-[10px] text-destructive">
+            <p className="ui-label text-destructive-text">
               {t.tool.errors.title}
             </p>
             <p className="mt-1 text-sm text-foreground">
@@ -549,7 +549,7 @@ export function PdfSummarizerToolClient() {
                 <p className="truncate text-sm font-medium text-foreground">
                   {files[0].name}
                 </p>
-                <p className="hud-label mt-1 text-[10px] text-muted-foreground">
+                <p className="mt-1 text-footnote text-muted-foreground tabular-nums">
                   {formatFileSize(files[0].size, locale)}
                 </p>
               </div>
@@ -572,7 +572,7 @@ export function PdfSummarizerToolClient() {
                 className="mt-0.5 size-5 shrink-0 text-accent-edit"
               />
               <div className="min-w-0">
-                <h2 className="hud-label text-[11px] text-foreground">
+                <h2 className="text-headline text-foreground">
                   {s.howItWorksTitle}
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -596,7 +596,7 @@ export function PdfSummarizerToolClient() {
                 className="mt-0.5 size-5 shrink-0 text-accent-edit"
               />
               <div className="min-w-0">
-                <h2 className="hud-label text-[11px] text-foreground">
+                <h2 className="text-headline text-foreground">
                   {s.aiWarningTitle}
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-foreground">
@@ -607,7 +607,7 @@ export function PdfSummarizerToolClient() {
           </section>
 
           <section className="glass rounded-ios mt-4 p-5">
-            <h2 className="hud-label text-[11px] text-foreground">
+            <h2 className="text-headline text-foreground">
               {t.tool.optionsTitle}
             </h2>
 
@@ -625,7 +625,7 @@ export function PdfSummarizerToolClient() {
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   {s.modelHints[modelKey]}
                 </p>
-                <p className="hud-label mt-2 text-[10px] text-muted-foreground">
+                <p className="mt-2 text-caption text-muted-foreground">
                   {s.modelMeta(
                     formatFileSize(model.approxDownloadBytes, locale),
                     formatFileSize(model.approxVramMb * 1024 * 1024, locale),
@@ -672,7 +672,7 @@ export function PdfSummarizerToolClient() {
                 className="mt-0.5 size-5 shrink-0 text-muted-foreground"
               />
               <div className="min-w-0 flex-1">
-                <h2 className="hud-label text-[11px] text-foreground">
+                <h2 className="text-headline text-foreground">
                   {s.consentTitle}
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-foreground">
@@ -704,7 +704,7 @@ export function PdfSummarizerToolClient() {
                     <Sparkles aria-hidden="true" className="size-4" />
                     {cached ? s.consentButtonCached : s.consentButton}
                   </Button>
-                  <p className="hud-label text-[10px] text-muted-foreground">
+                  <p className="text-footnote text-muted-foreground">
                     {t.tool.localNotice}
                   </p>
                 </div>
@@ -736,7 +736,7 @@ export function PdfSummarizerToolClient() {
               />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="hud-label text-[11px] text-foreground">
+                  <h2 className="text-headline text-foreground">
                     {s.aiWarningTitle}
                   </h2>
                   <Badge variant="neutral">
@@ -747,7 +747,7 @@ export function PdfSummarizerToolClient() {
                 <p className="mt-2 text-sm leading-relaxed text-foreground">
                   {s.aiWarningBody}
                 </p>
-                <p className="hud-label mt-3 text-[10px] text-muted-foreground">
+                <p className="mt-3 text-caption text-muted-foreground">
                   {s.modelUsed(result.modelId)}
                 </p>
               </div>
@@ -771,7 +771,7 @@ export function PdfSummarizerToolClient() {
           ) : null}
 
           <section className="glass rounded-ios mt-6 p-5">
-            <h2 className="hud-label text-[11px] text-muted-foreground">
+            <h2 className="ui-label text-muted-foreground">
               {s.resultTitle}
             </h2>
             <p className="mt-3 text-base leading-relaxed whitespace-pre-wrap text-foreground">
@@ -804,7 +804,7 @@ export function PdfSummarizerToolClient() {
           */}
           {result.sections.length > 1 ? (
           <section className="mt-6">
-            <h2 className="hud-label text-[11px] text-muted-foreground">
+            <h2 className="ui-label text-muted-foreground">
               {s.sectionsTitle}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -834,7 +834,7 @@ export function PdfSummarizerToolClient() {
           ) : null}
 
           <section className="mt-10">
-            <h2 className="hud-label mb-4 text-[11px] text-muted-foreground">
+            <h2 className="ui-label mb-4 text-muted-foreground">
               {t.tool.relatedTitle}
             </h2>
             <div className="grid gap-3 sm:grid-cols-3">

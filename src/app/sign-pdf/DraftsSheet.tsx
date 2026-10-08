@@ -85,7 +85,7 @@ export function DraftsSheet({ open, onClose, onResume, strings }: DraftsSheetPro
                   <p className="truncate text-sm font-medium text-foreground">
                     {draft.fileName}
                   </p>
-                  <p className="hud-label text-[10px] text-muted-foreground">
+                  <p className="text-caption text-muted-foreground">
                     {strings.draftsSavedAt(formatter.format(new Date(draft.savedAt)))}
                     {" · "}
                     {formatFileSize(draft.fileSize, localeTag(language))}

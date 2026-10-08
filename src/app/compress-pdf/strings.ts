@@ -52,7 +52,7 @@ const es: CompressStrings = {
 
   flattenModeLabel: "Aplanar documento escaneado",
   flattenModeHint:
-    "Actívalo solo si el PDF es en realidad fotos de páginas escaneadas (no texto real): cada página se vuelve a dibujar como una única imagen JPEG a la resolución que elijas. Esto SÍ hace que el texto deje de poder seleccionarse, buscarse o leerse con lectores de pantalla, y que se pierdan enlaces, formularios y marcadores. Para un PDF con texto de verdad, deja esto desactivado.",
+    "Actívalo solo si el PDF es en realidad fotos de páginas escaneadas (no texto real): cada página se vuelve a dibujar como una única imagen JPEG a la resolución que elijas. Esto sí hace que el texto deje de poder seleccionarse, buscarse o leerse con lectores de pantalla, y que se pierdan enlaces, formularios y marcadores. Para un PDF con texto de verdad, deja esto desactivado.",
   rasterWarning:
     "Con \"Aplanar documento escaneado\" activado, el PDF se convierte en imágenes: el texto deja de poder seleccionarse, buscarse o leerse con lectores de pantalla, y se pierden enlaces, formularios y marcadores.",
 
@@ -89,7 +89,7 @@ const en: CompressStrings = {
 
   flattenModeLabel: "Flatten scanned document",
   flattenModeHint:
-    "Only turn this on if the PDF is really photos of scanned pages (not real text): every page is redrawn as a single JPEG image at the resolution you pick. This DOES make text unselectable, unsearchable and unreadable by screen readers, and drops links, forms and bookmarks. For a PDF with real text, leave this off.",
+    "Only turn this on if the PDF is really photos of scanned pages (not real text): every page is redrawn as a single JPEG image at the resolution you pick. This does make text unselectable, unsearchable and unreadable by screen readers, and drops links, forms and bookmarks. For a PDF with real text, leave this off.",
   rasterWarning:
     "With \"Flatten scanned document\" on, the PDF turns into images: text can no longer be selected, searched or read by screen readers, and links, forms and bookmarks are lost.",
 

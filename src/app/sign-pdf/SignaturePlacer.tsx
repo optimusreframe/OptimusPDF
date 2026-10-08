@@ -213,7 +213,7 @@ function SignaturePlacerInner({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {strings.placeTitle}
         </h3>
         <div className="flex items-center gap-2">
@@ -226,7 +226,7 @@ function SignaturePlacerInner({
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
           </Button>
-          <span className="hud-label text-[10px] text-foreground tabular-nums">
+          <span className="text-footnote font-medium text-foreground tabular-nums">
             {strings.pageOf(pageIndex + 1, Math.max(1, pageCount))}
           </span>
           <Button

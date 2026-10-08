@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Caveat, Inter, JetBrains_Mono } from "next/font/google";
+import { Caveat, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/layout/Providers";
 import { Header } from "@/components/layout/Header";
@@ -7,16 +7,20 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Footer } from "@/components/layout/Footer";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-  display: "swap",
-});
-
+/*
+ * La fuente de texto es la del sistema (SF Pro en Apple, Segoe UI en
+ * Windows, Roboto en Android): la define --font-sans en globals.css y no
+ * requiere descarga. Solo se autoalojan la mono (codigos, hashes) y la
+ * manuscrita (firmas).
+ */
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
   subsets: ["latin"],
   display: "swap",
+  // Desde W1-D ninguna etiqueta usa la fuente mono (la tipografia HUD ya no
+  // existe): queda para datos puntuales, asi que no se precarga en cada
+  // pagina; el navegador la baja solo si algo la pide.
+  preload: false,
 });
 
 /** Cursiva manuscrita para firmas (la consume /sign-pdf). */
@@ -85,7 +89,7 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${inter.variable} ${jetbrainsMono.variable} ${caveat.variable} h-full`}
+      className={`${jetbrainsMono.variable} ${caveat.variable} h-full`}
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col bg-background text-foreground antialiased">

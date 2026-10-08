@@ -107,7 +107,7 @@ export function PageNumbersOptionsPanel({
             onChange={(firstNumber) => setOptions({ firstNumber })}
           />
         </div>
-        <span className="hud-label block text-[10px] text-muted-foreground">
+        <span className="ui-label block text-muted-foreground">
           {strings.pagesLabel}
         </span>
         <div className="flex items-end gap-2">
@@ -153,10 +153,10 @@ export function PageNumbersOptionsPanel({
           />
         ) : null}
         <div className="rounded-ios-sm border border-white/10 bg-white/5 px-3 py-2.5">
-          <span className="hud-label block text-[9px] text-muted-foreground">
+          <span className="block text-caption text-muted-foreground">
             {strings.previewLabel}
           </span>
-          <span className="mt-1 block truncate text-sm text-foreground">
+          <span className="mt-1 block truncate text-sm text-foreground tabular-nums">
             {preview}
           </span>
         </div>

@@ -168,7 +168,7 @@ export function PdfToMarkdownToolClient() {
                   className="mt-0.5 size-5 shrink-0 text-accent-convert"
                 />
                 <div className="min-w-0">
-                  <h3 className="hud-label text-[11px] text-foreground">
+                  <h3 className="text-headline text-foreground">
                     {s.howItWorksTitle}
                   </h3>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -183,7 +183,7 @@ export function PdfToMarkdownToolClient() {
                   className="mt-0.5 size-4 shrink-0 text-muted-foreground"
                 />
                 <div className="min-w-0">
-                  <h4 className="hud-label text-[10px] text-foreground">
+                  <h4 className="text-subheadline font-semibold text-foreground">
                     {s.limitsTitle}
                   </h4>
                   <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -194,7 +194,7 @@ export function PdfToMarkdownToolClient() {
             </section>
 
             <section className="glass rounded-ios p-5">
-              <h3 className="hud-label text-[11px] text-foreground">
+              <h3 className="text-headline text-foreground">
                 {s.previewTitle}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -204,7 +204,7 @@ export function PdfToMarkdownToolClient() {
               {preview.status === "running" ? (
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <Spinner label={s.previewRunning} />
-                  <span className="hud-label text-[10px] text-muted-foreground">
+                  <span className="text-caption text-muted-foreground tabular-nums">
                     {s.previewRunning} · {preview.progress}%
                   </span>
                   <Button variant="ghost" size="sm" onClick={cancelPreview}>

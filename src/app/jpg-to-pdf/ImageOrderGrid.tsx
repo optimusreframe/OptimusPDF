@@ -84,7 +84,7 @@ function ImageOrderGridInner({
   return (
     <div className={className}>
       <div className="mb-1 flex items-center justify-between gap-3">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {s.previewTitle}
         </h3>
       </div>
@@ -137,7 +137,7 @@ function ImageOrderGridInner({
               </span>
 
               <div className="mt-2 flex items-center justify-between gap-1">
-                <span className="hud-label text-[9px] text-muted-foreground">
+                <span className="text-caption text-muted-foreground tabular-nums">
                   {position + 1}
                 </span>
                 <div className="flex items-center gap-0.5">

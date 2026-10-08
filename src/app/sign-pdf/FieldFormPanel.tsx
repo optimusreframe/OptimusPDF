@@ -53,13 +53,13 @@ export function FieldFormPanel({
 
   return (
     <div className="space-y-4">
-      <p className="hud-label text-[11px] text-muted-foreground tabular-nums">
+      <p className="text-footnote text-muted-foreground tabular-nums">
         {strings.fieldsFilledSummary(filled, fields.length)}
       </p>
 
       {pageIndexes.map((pageIndex) => (
         <div key={pageIndex}>
-          <h4 className="hud-label mb-2 text-[10px] text-muted-foreground">
+          <h4 className="ui-label mb-2 text-muted-foreground">
             {strings.pageGroupLabel(pageIndex + 1)}
           </h4>
           <ul className="space-y-1.5">

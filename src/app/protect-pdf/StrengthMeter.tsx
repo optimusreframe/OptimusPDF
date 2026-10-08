@@ -39,10 +39,10 @@ export function StrengthMeter({
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="hud-label text-[10px] text-muted-foreground">
+        <span className="ui-label text-muted-foreground">
           {label}
         </span>
-        <span className={cn("hud-label text-[10px]", TEXT[level])}>
+        <span className={cn("text-footnote font-semibold", TEXT[level])}>
           {levelLabel}
         </span>
       </div>

@@ -296,7 +296,7 @@ function ExtractPagesBoard({
       loading={loading}
       errorText={error ? errors[error] : null}
       toolbar={
-        <span className="hud-label text-[10px] text-muted-foreground">
+        <span className="text-caption text-muted-foreground">
           {strings.selected(selected.size, pageCount)}
         </span>
       }

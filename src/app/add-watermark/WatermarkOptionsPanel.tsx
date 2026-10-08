@@ -109,7 +109,7 @@ export function WatermarkOptionsPanel({
         </OptionSection>
       ) : (
         <OptionSection>
-          <span className="hud-label block text-[10px] text-muted-foreground">
+          <span className="ui-label block text-muted-foreground">
             {strings.imageLabel}
           </span>
           <input
@@ -202,7 +202,7 @@ export function WatermarkOptionsPanel({
       </OptionSection>
 
       <OptionSection>
-        <span className="hud-label block text-[10px] text-muted-foreground">
+        <span className="ui-label block text-muted-foreground">
           {strings.pagesLabel}
         </span>
         <div className="flex items-end gap-2">

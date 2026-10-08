@@ -1,11 +1,21 @@
 "use client";
 
-import { useCallback, useRef, useState, type DragEvent } from "react";
-import { Upload } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type MouseEvent,
+  type Ref,
+} from "react";
+import { motion } from "motion/react";
+import { Plus, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { useT } from "@/lib/i18n";
+import { useI18n, localeTag } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { MAX_SAFE_FILE_SIZE, matchesAccept } from "@/lib/pdf/core";
+import { springs } from "@/lib/motion";
+import { MAX_SAFE_FILE_SIZE, formatFileSize, matchesAccept } from "@/lib/pdf/core";
 import type { PdfErrorCode } from "@/lib/pdf/core";
 import type { Tool } from "@/lib/tools-registry";
 
@@ -14,21 +24,51 @@ export type FileDropzoneProps = {
   files: File[];
   onFilesChange: (files: File[]) => void;
   onError: (code: PdfErrorCode) => void;
+  /**
+   * Archivos descartados por formato cuando OTROS si valian. Si se pasa, el
+   * aviso es no bloqueante (el shell lo muestra junto a los archivos); si
+   * no, se mantiene el comportamiento anterior (`onError("invalidType")`).
+   */
+  onSkipped?: (skipped: File[]) => void;
+  /** Ref al boton de seleccionar: ToolShell le da el foco al volver a empezar. */
+  buttonRef?: Ref<HTMLButtonElement>;
   className?: string;
   compact?: boolean;
 };
 
+function hasFiles(event: DragEvent | globalThis.DragEvent): boolean {
+  const types = event.dataTransfer?.types;
+  return !!types && Array.from(types).includes("Files");
+}
+
+/**
+ * Zona de carga con estados vivos:
+ *   - reposo: superficie solida, icono en el azul de marca, accion primaria;
+ *   - arrastre sobre la pagina: la zona se ofrece (anillo tenue + copy
+ *     "Suelta para añadir") en cuanto un archivo entra en la ventana;
+ *   - arrastre encima: anillo de marca y escala 1.01 con spring, vuelve
+ *     al salir o soltar;
+ *   - error: lo publica el shell en lenguaje llano (`onError`).
+ * Toda la superficie abre el selector (el boton es el control enfocable);
+ * la validacion de tipo/tamaño es la de siempre (`matchesAccept`).
+ * `compact` es la fila "Añadir mas archivos" bajo la lista.
+ */
 export function FileDropzone({
   tool,
   files,
   onFilesChange,
   onError,
+  onSkipped,
+  buttonRef,
   className,
   compact = false,
 }: FileDropzoneProps) {
-  const t = useT();
+  const { t, language } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
+  const [over, setOver] = useState(false);
+  const [windowDragging, setWindowDragging] = useState(false);
+  /* Contador de dragenter/dragleave: los hijos disparan ambos al cruzarlos. */
+  const depthRef = useRef(0);
 
   const accept = [...tool.accept, ...tool.extensions].join(",");
 
@@ -44,7 +84,8 @@ export function FileDropzone({
         onError("invalidType");
         return;
       }
-      if (valid.length < candidates.length) {
+      const skipped = candidates.filter((file) => !valid.includes(file));
+      if (skipped.length > 0 && !onSkipped) {
         onError("invalidType");
       }
       if (valid.some((file) => file.size > MAX_SAFE_FILE_SIZE)) {
@@ -54,65 +95,174 @@ export function FileDropzone({
       onFilesChange(
         tool.multiple ? [...files, ...valid] : [valid[0]],
       );
+      // Despues de `onFilesChange`: el shell limpia los avisos al cambiar
+      // los archivos y este debe sobrevivir a ese mismo cambio.
+      if (skipped.length > 0 && onSkipped) onSkipped(skipped);
     },
-    [files, onError, onFilesChange, tool.accept, tool.extensions, tool.multiple],
+    [files, onError, onFilesChange, onSkipped, tool.accept, tool.extensions, tool.multiple],
   );
 
+  // Un archivo arrastrado a cualquier punto de la ventana: la zona se ofrece.
+  useEffect(() => {
+    let depth = 0;
+    const onEnter = (event: globalThis.DragEvent) => {
+      if (!hasFiles(event)) return;
+      depth += 1;
+      setWindowDragging(true);
+    };
+    const onLeave = () => {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setWindowDragging(false);
+    };
+    const onDrop = () => {
+      depth = 0;
+      setWindowDragging(false);
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  const onDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    depthRef.current += 1;
+    setOver(true);
+  };
+  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+  const onDragLeave = () => {
+    depthRef.current = Math.max(0, depthRef.current - 1);
+    if (depthRef.current === 0) setOver(false);
+  };
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    setDragging(false);
+    depthRef.current = 0;
+    setOver(false);
     acceptFiles(event.dataTransfer.files);
   };
 
-  return (
-    <div
-      onDragOver={(event) => {
-        event.preventDefault();
-        setDragging(true);
+  const openPicker = () => inputRef.current?.click();
+  const onSurfaceClick = (event: MouseEvent<HTMLDivElement>) => {
+    // El boton interno ya abre el selector por su cuenta (y su click
+    // burbujea hasta aqui): solo se actua cuando el click no viene de el.
+    if ((event.target as HTMLElement).closest("button")) return;
+    openPicker();
+  };
+
+  const input = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={accept}
+      multiple={tool.multiple}
+      className="sr-only"
+      tabIndex={-1}
+      onChange={(event) => {
+        acceptFiles(event.target.files);
+        event.target.value = "";
       }}
-      onDragLeave={() => setDragging(false)}
+    />
+  );
+
+  if (compact) {
+    return (
+      <motion.div
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        animate={{ scale: over ? 1.01 : 1 }}
+        transition={springs.snappy}
+        className={cn(
+          "rounded-ios border border-dashed transition-[border-color,background-color] duration-[var(--duration-fast)]",
+          over
+            ? "border-signal bg-signal/10"
+            : windowDragging
+              ? "border-signal/50 bg-signal/5"
+              : "border-hairline-strong",
+          className,
+        )}
+      >
+        {input}
+        <Button
+          ref={buttonRef}
+          variant="ghost"
+          size="md"
+          fullWidth
+          onClick={openPicker}
+          className="h-14 rounded-ios text-subheadline"
+        >
+          <Plus aria-hidden="true" className="size-4" />
+          {over || windowDragging ? t.tool.dropActive : t.tool.addMore}
+        </Button>
+      </motion.div>
+    );
+  }
+
+  const title = over || windowDragging
+    ? t.tool.dropActive
+    : tool.multiple
+      ? t.tool.dropTitleMultiple
+      : t.tool.dropTitle;
+
+  return (
+    <motion.div
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
       onDrop={onDrop}
+      onClick={onSurfaceClick}
+      animate={{ scale: over ? 1.01 : 1 }}
+      transition={springs.snappy}
       className={cn(
-        "glass rounded-ios-lg flex flex-col items-center justify-center text-center transition-all duration-200 ease-spring",
-        compact ? "px-6 py-8" : "px-6 py-14 md:py-20",
-        dragging && "border-signal/60 bg-signal/10 glow-signal",
+        "surface-card flex cursor-pointer flex-col items-center justify-center rounded-ios-lg px-6 py-14 text-center md:py-20",
+        "transition-[border-color,background-color,box-shadow] duration-[var(--duration-fast)]",
+        over
+          ? "border-signal bg-signal/8 shadow-[0_0_0_3px_var(--color-signal)]"
+          : windowDragging
+            ? "border-signal/50 bg-signal/5"
+            : "",
         className,
       )}
     >
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        multiple={tool.multiple}
-        className="sr-only"
-        onChange={(event) => {
-          acceptFiles(event.target.files);
-          event.target.value = "";
-        }}
-      />
+      {input}
 
-      <span className="flex size-14 items-center justify-center rounded-full bg-signal/15">
-        <Upload aria-hidden="true" className="size-6 text-signal" />
+      <span
+        className={cn(
+          "flex size-16 items-center justify-center rounded-full bg-signal/12 text-signal",
+          "transition-[scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
+          over && "scale-110",
+        )}
+      >
+        <Upload aria-hidden="true" className="size-7" />
       </span>
 
-      <h2 className="mt-5 text-lg font-bold text-foreground md:text-xl">
-        {tool.multiple ? t.tool.dropTitleMultiple : t.tool.dropTitle}
-      </h2>
-      <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+      <h2 className="mt-5 text-title-3 text-foreground">{title}</h2>
+      <p className="mt-1 max-w-sm text-subheadline text-muted-foreground">
         {t.tool.dropSubtitle}
       </p>
 
-      <Button
-        size="lg"
-        className="mt-6"
-        onClick={() => inputRef.current?.click()}
-      >
+      <Button ref={buttonRef} size="lg" className="mt-6" onClick={openPicker}>
         {tool.multiple ? t.tool.dropButtonMultiple : t.tool.dropButton}
       </Button>
 
-      <p className="hud-label mt-5 text-[10px] text-muted-foreground">
+      <p className="mt-5 text-caption text-muted-foreground tabular-nums">
+        {t.tool.accepts} {tool.extensions.join(", ")} · {t.tool.upTo}{" "}
+        {formatFileSize(MAX_SAFE_FILE_SIZE, localeTag(language))}
+      </p>
+      <p className="mt-2 inline-flex items-center gap-1.5 text-footnote text-muted-foreground">
+        <ShieldCheck aria-hidden="true" className="size-3.5 text-success" />
         {t.tool.localNotice}
       </p>
-    </div>
+    </motion.div>
   );
 }

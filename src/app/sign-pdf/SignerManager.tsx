@@ -89,7 +89,7 @@ export function SignerManager({
   return (
     <section>
       <div className="mb-3">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {strings.signersTitle}
         </h3>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -139,10 +139,10 @@ export function SignerManager({
                 aria-label={strings.signerNameLabel(index + 1)}
                 onChange={(event) => rename(signer.id, event.target.value)}
                 onFocus={() => onActiveSignerIdChange(signer.id)}
-                className="h-9 min-w-0 flex-1 rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60"
+                className="h-9 min-w-0 flex-1 rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
               />
 
-              <span className="hud-label shrink-0 text-[10px] text-muted-foreground tabular-nums">
+              <span className="shrink-0 text-caption text-muted-foreground tabular-nums">
                 {strings.signerFieldCount(count)}
               </span>
 

@@ -16,13 +16,13 @@ export function PrivacyView() {
         <Badge variant="live" dot>
           {t.common.localAndZeroUploads}
         </Badge>
-        <h1 className="mt-5 text-4xl font-black tracking-[-0.025em] text-foreground md:text-5xl">
+        <h1 className="mt-5 text-title-1 text-foreground">
           {s.title}
         </h1>
         <p className="mt-3 text-base text-muted-foreground md:text-lg">
           {s.subtitle}
         </p>
-        <p className="hud-label mt-4 text-[10px] text-muted-foreground">
+        <p className="mt-4 text-caption text-muted-foreground">
           {s.effectiveDate}
         </p>
       </header>
@@ -30,7 +30,7 @@ export function PrivacyView() {
       <div className="mt-10 space-y-8">
         {s.sections.map((section) => (
           <section key={section.title}>
-            <h2 className="hud-label mb-3 text-[11px] text-foreground">
+            <h2 className="mb-3 text-headline text-foreground">
               {section.title}
             </h2>
             <div className="space-y-3">
@@ -64,7 +64,7 @@ export function PrivacyView() {
       </div>
 
       <GlassCard className="mt-10 p-7">
-        <h2 className="hud-label text-[11px] text-foreground">
+        <h2 className="text-headline text-foreground">
           {s.contactTitle}
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">

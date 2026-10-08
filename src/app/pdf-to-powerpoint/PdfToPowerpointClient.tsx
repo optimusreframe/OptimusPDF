@@ -69,7 +69,7 @@ export function PdfToPowerpointClient() {
             className="mt-0.5 size-5 shrink-0 text-amber-400"
           />
           <div>
-            <h3 className="hud-label text-[11px] text-foreground">
+            <h3 className="text-headline text-foreground">
               {s.notEditableTitle}
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">

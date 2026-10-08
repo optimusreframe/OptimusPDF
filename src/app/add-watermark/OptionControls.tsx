@@ -33,9 +33,13 @@ export function ChoiceGroup<T extends string | number>({
   columns = 1,
   hint,
 }: ChoiceGroupProps<T>) {
+  // En el panel de opciones (280 px utiles) tres columnas dejan ~60 px de
+  // texto: con una etiqueta de mas de 9 caracteres se pasa a dos (W1-D).
+  const longest = Math.max(0, ...choices.map((choice) => String(choice.label).length));
+  const cols = columns === 3 && longest > 9 ? 2 : columns;
   return (
     <div>
-      <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+      <span className="ui-label mb-2 block text-muted-foreground">
         {label}
       </span>
       <div
@@ -43,8 +47,8 @@ export function ChoiceGroup<T extends string | number>({
         aria-label={label}
         className={cn(
           "grid gap-1.5",
-          columns === 3 && "grid-cols-3",
-          columns === 2 && "grid-cols-2",
+          cols === 3 && "grid-cols-3",
+          cols === 2 && "grid-cols-2",
         )}
       >
         {choices.map((choice) => {
@@ -55,17 +59,23 @@ export function ChoiceGroup<T extends string | number>({
               type="button"
               role="radio"
               aria-checked={active}
+              title={String(choice.label)}
               onClick={() => onChange(choice.value)}
               className={cn(
-                "flex min-h-11 items-center justify-between gap-2 rounded-ios-sm border px-3 py-2 text-left text-sm transition-all duration-200 ease-spring",
+                // Sin truncar: la etiqueta pasa a dos lineas y la marca de
+                // seleccion va en la esquina (no le quita ancho al texto).
+                "relative flex min-h-11 items-center rounded-ios-sm border py-2 pr-4 pl-2.5 text-left text-sm leading-tight whitespace-normal transition-all duration-200 ease-spring",
                 active
                   ? "border-signal/60 bg-signal/15 text-foreground"
                   : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/25 hover:bg-white/10 hover:text-foreground",
               )}
             >
-              <span className="min-w-0 truncate">{choice.label}</span>
+              <span className="min-w-0">{choice.label}</span>
               {active ? (
-                <Check aria-hidden="true" className="size-3.5 shrink-0 text-signal" />
+                <Check
+                  aria-hidden="true"
+                  className="absolute top-1 right-1 size-3 text-signal"
+                />
               ) : null}
             </button>
           );
@@ -97,7 +107,7 @@ export function ToggleRow({ label, checked, onChange, hint }: ToggleRowProps) {
         onClick={() => onChange(!checked)}
         className="flex w-full items-center justify-between gap-3 rounded-ios-sm border border-white/10 bg-white/5 px-3 py-2.5 transition-colors hover:border-white/25"
       >
-        <span className="hud-label text-[10px] text-foreground">{label}</span>
+        <span className="text-subheadline font-medium text-foreground">{label}</span>
         <span
           aria-hidden="true"
           className={cn(
@@ -142,7 +152,7 @@ export function NumberField({
     <div className="min-w-0 flex-1">
       <label
         htmlFor={id}
-        className="hud-label mb-1.5 block text-[10px] text-muted-foreground"
+        className="ui-label mb-1.5 block text-muted-foreground"
       >
         {label}
       </label>
@@ -157,7 +167,7 @@ export function NumberField({
           const next = Number.parseInt(event.target.value, 10);
           onChange(Number.isNaN(next) ? min : Math.min(max, Math.max(min, next)));
         }}
-        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground tabular-nums outline-none transition-colors focus:border-signal/60"
+        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground tabular-nums transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
       />
     </div>
   );
@@ -185,7 +195,7 @@ export function TextField({
     <div>
       <label
         htmlFor={id}
-        className="hud-label mb-1.5 block text-[10px] text-muted-foreground"
+        className="ui-label mb-1.5 block text-muted-foreground"
       >
         {label}
       </label>
@@ -196,7 +206,7 @@ export function TextField({
         placeholder={placeholder}
         maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60"
+        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
       />
       {hint ? (
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -227,7 +237,7 @@ export function ColorSwatches({
 }: ColorSwatchesProps) {
   return (
     <div>
-      <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+      <span className="ui-label mb-2 block text-muted-foreground">
         {label}
       </span>
       <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2">
@@ -267,7 +277,7 @@ export function OptionSection({
   return (
     <section className="space-y-4 border-t border-white/8 pt-5 first:border-0 first:pt-0">
       {title ? (
-        <h3 className="hud-label text-[10px] text-foreground">{title}</h3>
+        <h3 className="text-subheadline font-semibold text-foreground">{title}</h3>
       ) : null}
       {children}
     </section>

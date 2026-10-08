@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   ChevronsLeft,
   ChevronsRight,
@@ -14,9 +21,11 @@ import {
 } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
+import { requestSection, useActiveSection } from "@/components/layout/activeSection";
 import { Badge } from "@/components/ui/Badge";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { springs, withCrossFadeOpacity } from "@/lib/motion";
 import {
   ACCENT_TEXT,
   CATEGORY_ICON,
@@ -69,12 +78,22 @@ function writeCollapsed(next: boolean): void {
   for (const listener of collapseListeners) listener();
 }
 
+/** Normaliza para buscar: minusculas y sin diacriticos. */
+function fold(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
 /**
- * Sidebar persistente de escritorio (>=1024px), estilo Finder/Mail/Ajustes
- * de macOS: categorias, buscador y accesos rapidos siempre visibles, sin
- * necesidad de abrir nada. Colapsa a un riel de solo iconos. Por debajo de
- * 1024px no se renderiza contenido util: `Header` (<1024px) y
- * `MobileTabBar` (<768px) cubren esos anchos.
+ * Sidebar persistente de escritorio (>=1024px), al estilo de las barras
+ * laterales de macOS: superficie solida (no hay contenido que pase por
+ * debajo, asi que el blur seria coste sin efecto), categorias como anclas
+ * de la Home con la seccion visible resaltada (scroll-spy), accesos
+ * rapidos y buscador. Un unico indicador activo se desliza entre
+ * entradas con spring (`layoutId`). Colapsa a un riel de iconos. Por
+ * debajo de 1024px lo cubren `Header` (<1024px) y `MobileTabBar` (<768px).
  */
 export function Sidebar() {
   const t = useT();
@@ -84,8 +103,10 @@ export function Sidebar() {
     getCollapsedSnapshot,
     getCollapsedServerSnapshot,
   );
+  const activeSection = useActiveSection();
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLDivElement>(null);
+  const resultsId = useId();
 
   useEffect(() => {
     if (!query) return;
@@ -107,28 +128,38 @@ export function Sidebar() {
     writeCollapsed(!collapsed);
   }
 
-  const trimmed = query.trim().toLowerCase();
+  const trimmed = fold(query.trim());
   const results =
     trimmed.length > 0
       ? TOOLS.filter((tool) =>
-          t.tools[tool.slug].name.toLowerCase().includes(trimmed),
+          fold(t.tools[tool.slug].name).includes(trimmed),
         ).slice(0, 6)
       : [];
 
   const isHome = pathname === "/";
   const isRecent = pathname.startsWith("/recent");
   const isSettings = pathname.startsWith("/settings");
+  /* Una sola entrada activa: en Home manda la seccion visible; si aun no
+     hay ninguna (arriba del todo), "Inicio". */
+  const activeKey = isHome
+    ? (activeSection ?? "home")
+    : isRecent
+      ? "recent"
+      : isSettings
+        ? "settings"
+        : null;
 
   return (
     <aside
       className={cn(
-        "sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-white/10 bg-surface/60 backdrop-blur-2xl lg:flex",
-        collapsed ? "w-[4.5rem]" : "w-64",
+        "sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-hairline bg-surface lg:flex",
+        "transition-[width] duration-[var(--duration-base)] ease-[var(--ease-spring)]",
+        collapsed ? "w-[4.5rem]" : "w-[17rem]",
       )}
     >
       <div
         className={cn(
-          "flex h-16 shrink-0 items-center gap-2 px-4",
+          "flex h-16 shrink-0 items-center px-4",
           collapsed && "justify-center px-0",
         )}
       >
@@ -137,21 +168,24 @@ export function Sidebar() {
           type="button"
           onClick={toggleCollapsed}
           aria-label={collapsed ? t.nav.expandSidebar : t.nav.collapseSidebar}
+          aria-expanded={!collapsed}
           className={cn(
-            "flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground",
+            "group flex size-11 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-6px] focus-visible:outline-signal",
             !collapsed && "ml-auto",
           )}
         >
-          {collapsed ? (
-            <ChevronsRight aria-hidden="true" className="size-4" />
-          ) : (
-            <ChevronsLeft aria-hidden="true" className="size-4" />
-          )}
+          <span className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-hover:bg-white/8 group-hover:text-foreground group-active:scale-90 group-active:duration-[80ms]">
+            {collapsed ? (
+              <ChevronsRight aria-hidden="true" className="size-4" />
+            ) : (
+              <ChevronsLeft aria-hidden="true" className="size-4" />
+            )}
+          </span>
         </button>
       </div>
 
       {collapsed ? null : (
-        <div ref={searchRef} className="relative px-3 pb-3">
+        <div ref={searchRef} className="relative px-3 pb-2">
           <div className="relative">
             <Search
               aria-hidden="true"
@@ -162,59 +196,81 @@ export function Sidebar() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t.nav.searchPlaceholder}
-              className="h-10 w-full rounded-ios-sm border border-white/10 bg-white/5 pr-3 pl-9 text-sm text-foreground placeholder:text-muted-foreground focus:border-signal/50 focus:outline-none"
+              aria-label={t.nav.searchPlaceholder}
+              aria-controls={resultsId}
+              autoComplete="off"
+              className="h-10 w-full rounded-ios-sm border border-hairline bg-white/5 pr-3 pl-9 text-subheadline text-foreground placeholder:text-muted-foreground focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
             />
           </div>
 
-          {trimmed.length > 0 ? (
-            <div className="absolute inset-x-3 top-full z-50 mt-2 animate-rise-in overflow-hidden rounded-ios border border-white/10 bg-elevated/95 p-1.5 backdrop-blur-2xl">
-              {results.length > 0 ? (
-                results.map((tool) => {
-                  const Icon = tool.icon;
-                  return (
-                    <Link
-                      key={tool.slug}
-                      href={toolHref(tool.slug)}
-                      onClick={() => setQuery("")}
-                      className="flex items-center gap-2.5 rounded-ios-sm px-2.5 py-2 text-sm text-foreground transition-colors hover:bg-white/8"
-                    >
-                      <Icon
-                        aria-hidden="true"
-                        className={cn("size-4 shrink-0", ACCENT_TEXT[tool.accent])}
-                      />
-                      <span className="truncate">{t.tools[tool.slug].name}</span>
-                    </Link>
-                  );
-                })
-              ) : (
-                <p className="px-2.5 py-2 text-sm text-muted-foreground">
-                  {t.nav.searchEmpty}
-                </p>
-              )}
-            </div>
-          ) : null}
+          <AnimatePresence>
+            {trimmed.length > 0 ? (
+              <motion.div
+                key="results"
+                id={resultsId}
+                role="region"
+                aria-live="polite"
+                initial={{ opacity: 0, scale: 0.97, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: -2 }}
+                transition={withCrossFadeOpacity(springs.snappy)}
+                style={{ transformOrigin: "top center" }}
+                className="absolute inset-x-3 top-full z-50 mt-1 overflow-hidden rounded-ios border border-hairline bg-elevated p-1.5 shadow-elevation-3"
+              >
+                {results.length > 0 ? (
+                  <ul>
+                    {results.map((tool) => {
+                      const Icon = tool.icon;
+                      return (
+                        <li key={tool.slug}>
+                          <Link
+                            href={toolHref(tool.slug)}
+                            onClick={() => setQuery("")}
+                            className="flex h-10 items-center gap-2.5 rounded-ios-sm px-2.5 text-subheadline text-foreground transition-colors hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+                          >
+                            <Icon
+                              aria-hidden="true"
+                              className={cn("size-4 shrink-0", ACCENT_TEXT[tool.accent])}
+                            />
+                            <span className="truncate">{t.tools[tool.slug].name}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="px-2.5 py-2 text-subheadline text-muted-foreground">
+                    {t.nav.searchEmpty}
+                  </p>
+                )}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
       )}
 
       <nav
         aria-label={t.nav.primaryNav}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-3"
+        className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3"
       >
-        <div className="space-y-0.5">
+        <ul className="space-y-0.5">
           <SidebarLink
             href="/"
             icon={House}
             label={t.nav.home}
-            active={isHome}
+            active={activeKey === "home"}
             collapsed={collapsed}
           />
-        </div>
+        </ul>
 
-        <div className="space-y-0.5">
+        <ul className="mt-5 space-y-0.5">
           {collapsed ? null : (
-            <p className="hud-label px-2.5 pb-1 text-[10px] text-muted-foreground">
+            <li
+              aria-hidden="true"
+              className="ui-label px-2.5 pb-1.5 text-caption text-muted-foreground"
+            >
               {t.nav.categoriesLabel}
-            </p>
+            </li>
           )}
           {CATEGORY_ORDER.map((category) => (
             <SidebarLink
@@ -222,63 +278,73 @@ export function Sidebar() {
               href={`/#${category}`}
               icon={CATEGORY_ICON[category]}
               label={t.categories[category].label}
+              active={activeKey === category}
               collapsed={collapsed}
+              onClick={() => requestSection(category)}
             />
           ))}
-        </div>
+        </ul>
 
-        <div className="space-y-0.5 border-t border-white/10 pt-3">
+        <ul className="mt-4 space-y-0.5 border-t border-hairline pt-3">
           <SidebarLink
             href="/recent"
             icon={Clock}
             label={t.nav.recent}
-            active={isRecent}
+            active={activeKey === "recent"}
             collapsed={collapsed}
           />
           <SidebarLink
             href="/settings"
             icon={Settings}
             label={t.nav.settings}
-            active={isSettings}
+            active={activeKey === "settings"}
             collapsed={collapsed}
           />
-        </div>
+        </ul>
 
         {collapsed ? null : (
-          <div className="space-y-0.5 border-t border-white/10 pt-3">
-            <Link
-              href="/pricing"
-              className="block rounded-ios-sm px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
-            >
-              {t.nav.pricing}
-            </Link>
-            <Link
-              href="/about"
-              className="block rounded-ios-sm px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
-            >
-              {t.nav.about}
-            </Link>
-          </div>
+          <ul className="mt-4 space-y-0.5 border-t border-hairline pt-3">
+            <li>
+              <Link
+                href="/pricing"
+                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
+              >
+                {t.nav.pricing}
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/about"
+                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
+              >
+                {t.nav.about}
+              </Link>
+            </li>
+          </ul>
         )}
       </nav>
 
       <div
         className={cn(
-          "flex shrink-0 items-center gap-2 border-t border-white/10 p-3",
-          collapsed && "flex-col",
+          "flex shrink-0 flex-col gap-2 border-t border-hairline p-3",
+          collapsed && "items-center",
         )}
       >
         {collapsed ? (
           <span
-            aria-hidden="true"
-            className="size-2 shrink-0 rounded-full bg-success"
+            title={t.common.localAndZeroUploads}
+            aria-label={t.common.localAndZeroUploads}
+            role="img"
+            className="my-2 block size-2 shrink-0 rounded-full bg-success"
           />
         ) : (
-          <Badge variant="live" dot className="min-w-0">
-            <span className="truncate">{t.common.localAndZeroUploads}</span>
-          </Badge>
+          <>
+            <Badge variant="live" dot className="self-start max-w-full">
+              {t.common.localAndZeroUploads}
+            </Badge>
+            <LanguageToggle className="-ml-0.5" />
+          </>
         )}
-        {collapsed ? null : <LanguageToggle className="ml-auto shrink-0" />}
       </div>
     </aside>
   );
@@ -290,27 +356,46 @@ function SidebarLink({
   label,
   active = false,
   collapsed,
+  onClick,
 }: {
   href: string;
   icon: LucideIcon;
   label: string;
   active?: boolean;
   collapsed: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <Link
-      href={href}
-      title={collapsed ? label : undefined}
-      className={cn(
-        "flex items-center gap-2.5 rounded-ios-sm px-2.5 py-2 text-sm transition-colors duration-200",
-        collapsed && "justify-center px-0",
-        active
-          ? "bg-white/10 text-foreground"
-          : "text-muted-foreground hover:bg-white/8 hover:text-foreground",
-      )}
-    >
-      <Icon aria-hidden="true" className="size-4 shrink-0" />
-      {collapsed ? null : <span className="truncate">{label}</span>}
-    </Link>
+    <li>
+      <Link
+        href={href}
+        onClick={onClick}
+        title={collapsed ? label : undefined}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "relative isolate flex h-10 items-center gap-2.5 rounded-ios-sm px-2.5 text-subheadline font-medium",
+          "transition-[color,background-color] duration-[var(--duration-fast)]",
+          "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal",
+          collapsed && "justify-center px-0",
+          active
+            ? "text-foreground"
+            : "text-muted-foreground hover:bg-white/6 hover:text-foreground",
+        )}
+      >
+        {active ? (
+          <motion.span
+            aria-hidden="true"
+            layoutId="sidebar-active-pill"
+            transition={springs.snappy}
+            className="absolute inset-0 -z-10 rounded-ios-sm bg-white/10"
+          />
+        ) : null}
+        <Icon
+          aria-hidden="true"
+          className={cn("size-[18px] shrink-0", active && "text-signal")}
+        />
+        {collapsed ? null : <span className="truncate">{label}</span>}
+      </Link>
+    </li>
   );
 }

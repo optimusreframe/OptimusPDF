@@ -28,7 +28,7 @@ export function PositionGrid({
 }: PositionGridProps) {
   return (
     <div>
-      <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+      <span className="ui-label mb-2 block text-muted-foreground">
         {label}
       </span>
       <div

@@ -162,7 +162,7 @@ export function SigningCeremony({
   if (!documentKey) {
     return (
       <section className="space-y-4">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {strings.ceremonyTitle}
         </h3>
         <div className="glass rounded-ios flex items-center gap-3 p-6">
@@ -222,11 +222,11 @@ export function SigningCeremony({
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {strings.ceremonyTitle}
         </h3>
         {current ? (
-          <span className="hud-label text-[10px] text-foreground tabular-nums">
+          <span className="text-footnote font-medium text-foreground tabular-nums">
             {strings.turnOf(position + 1, queue.length)}
           </span>
         ) : null}
@@ -245,7 +245,7 @@ export function SigningCeremony({
               style={{ color: current.color }}
             />
           </span>
-          <h4 className="mt-4 text-lg font-black tracking-[-0.02em] text-foreground">
+          <h4 className="mt-4 text-title-3 text-foreground">
             {strings.handoffTitle(currentDisplayName)}
           </h4>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
@@ -261,7 +261,7 @@ export function SigningCeremony({
 
       {current && stage === "capture" ? (
         <div className="glass rounded-ios p-5">
-          <h4 className="text-base font-black tracking-[-0.02em] text-foreground">
+          <h4 className="text-headline text-foreground">
             {strings.captureTitle(currentDisplayName)}
           </h4>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -276,7 +276,7 @@ export function SigningCeremony({
                   key={type}
                   className="rounded-ios-sm flex flex-wrap items-center gap-3 border border-white/10 bg-white/5 p-3"
                 >
-                  <span className="hud-label min-w-20 text-[10px] text-muted-foreground">
+                  <span className="ui-label min-w-20 text-muted-foreground">
                     {typeLabel(type)}
                   </span>
                   {draft ? (
@@ -324,7 +324,7 @@ export function SigningCeremony({
 
       {current && stage === "review" ? (
         <div className="glass rounded-ios p-5">
-          <h4 className="text-base font-black tracking-[-0.02em] text-foreground">
+          <h4 className="text-headline text-foreground">
             {strings.reviewTitle(currentDisplayName)}
           </h4>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -346,7 +346,7 @@ export function SigningCeremony({
                     alt={typeLabel(type)}
                     className="max-h-16 w-auto max-w-40 object-contain"
                   />
-                  <figcaption className="hud-label mt-2 text-[9px] text-neutral-500">
+                  <figcaption className="mt-2 text-caption-2 text-neutral-500">
                     {typeLabel(type)}
                   </figcaption>
                 </figure>
@@ -396,7 +396,7 @@ export function SigningCeremony({
               </span>
               <span
                 className={cn(
-                  "hud-label flex items-center gap-1 text-[10px]",
+                  "flex items-center gap-1 text-caption font-semibold",
                   done ? "text-foreground" : "text-muted-foreground",
                 )}
               >
@@ -420,7 +420,7 @@ export function SigningCeremony({
       </ul>
 
       <div className="glass rounded-ios p-5">
-        <h4 className="text-base font-black tracking-[-0.02em] text-foreground">
+        <h4 className="text-headline text-foreground">
           {pending.length === 0 ? strings.allSignedTitle : strings.ceremonyTitle}
         </h4>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">

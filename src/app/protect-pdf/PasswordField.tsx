@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 
 const FIELD_CLASS =
   "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 pl-3 pr-11 text-sm text-foreground " +
-  "placeholder:text-muted-foreground/70 transition-colors focus:border-signal/60 focus:outline-none";
+  "placeholder:text-muted-foreground/70 transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal";
 
 export type PasswordFieldProps = {
   label: string;
@@ -44,7 +44,7 @@ export function PasswordField({
     <div className="w-full">
       <label
         htmlFor={id}
-        className="hud-label mb-2 block text-[10px] text-muted-foreground"
+        className="ui-label mb-2 block text-muted-foreground"
       >
         {label}
       </label>

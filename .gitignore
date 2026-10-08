@@ -46,6 +46,9 @@ next-env.d.ts
 # fixtures de prueba locales (nunca commitear PDFs reales de usuarios)
 /.local-test-assets/
 
+# handoffs de sesion HTML: solo para uso local, nunca a GitHub
+/docs/*-sesion-*.html
+
 # Playwright: resultados/trazas/reportes, no el codigo de los tests
 /.evidence/playwright/
 /.evidence/playwright-report/

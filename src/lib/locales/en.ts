@@ -223,13 +223,13 @@ const categories: Record<
 
 export const en: Dictionary = {
   common: {
-    brandFirst: "OPTIMUS",
+    brandFirst: "Optimus",
     brandSecond: "PDF",
-    live: "LIVE",
-    soon: "COMING SOON",
-    localBadge: "100% LOCAL",
-    zeroUploads: "0 UPLOADS",
-    localAndZeroUploads: "100% LOCAL · 0 UPLOADS",
+    live: "Available",
+    soon: "Coming soon",
+    localBadge: "100% local",
+    zeroUploads: "0 uploads",
+    localAndZeroUploads: "100% local · 0 uploads",
     cancel: "Cancel",
     close: "Close",
     back: "Back",
@@ -261,6 +261,13 @@ export const en: Dictionary = {
   },
   categories,
   home: {
+    title: "Tools",
+    searchPlaceholder: "Search tools",
+    clearSearch: "Clear search",
+    resultOne: "result",
+    resultMany: "results",
+    searchEmptyTitle: "Nothing matches your search",
+    searchEmptyHint: "Try what you want to do: merge, compress, sign, convert…",
     mostUsedTitle: "Most used",
     mostUsedSeeAll: "See history",
     liveCount: "available now",
@@ -295,9 +302,15 @@ export const en: Dictionary = {
     rotate: "Rotate",
     page: "Page",
     localNotice: "This file is not uploaded to any server.",
+    accepts: "Accepts",
+    upTo: "up to",
+    dropActive: "Drop to add",
+    skippedOne: "{names} was skipped: unsupported format.",
+    skippedMany: "{count} files were skipped ({names}): unsupported format.",
     errors: {
       title: "Could not finish",
       invalidType: "That format does not work with this tool.",
+      encryptedAction: "Open Unlock PDF",
       encrypted:
         "This PDF is password protected. Remove the password first with Unlock PDF.",
       corrupt: "The file looks damaged and cannot be read.",
@@ -337,7 +350,7 @@ export const en: Dictionary = {
     },
   },
   soon: {
-    badge: "COMING SOON",
+    badge: "Coming soon",
     title: "Not ready yet",
     body: "This tool needs server-side conversion to produce a faithful result, and today OptimusPDF processes everything on your device. We would rather not pretend it works.",
     alternativesTitle: "In the meantime you can use",

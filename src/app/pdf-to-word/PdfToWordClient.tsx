@@ -45,7 +45,7 @@ export function PdfToWordClient() {
       renderMain={() => (
         <div className="space-y-4">
           <section className="glass rounded-ios p-5">
-            <h3 className="hud-label text-[11px] text-foreground">
+            <h3 className="text-headline text-foreground">
               {s.howItWorksTitle}
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -62,7 +62,7 @@ export function PdfToWordClient() {
               className="mt-0.5 size-5 shrink-0 text-amber-400"
             />
             <div>
-              <h3 className="hud-label text-[11px] text-foreground">
+              <h3 className="text-headline text-foreground">
                 {s.limitsTitle}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">

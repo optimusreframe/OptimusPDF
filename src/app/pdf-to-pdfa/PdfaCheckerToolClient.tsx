@@ -190,7 +190,7 @@ export function PdfaCheckerToolClient() {
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-black tracking-[-0.025em] text-foreground md:text-3xl">
+            <h1 className="text-title-1 text-foreground">
               {copy.name}
             </h1>
             <Badge variant={TOOL.status === "live" ? "live" : "soon"} dot>
@@ -213,7 +213,7 @@ export function PdfaCheckerToolClient() {
             className="mt-0.5 size-4 shrink-0 text-destructive"
           />
           <div>
-            <p className="hud-label text-[10px] text-destructive">
+            <p className="ui-label text-destructive-text">
               {t.tool.errors.title}
             </p>
             <p className="mt-1 text-sm text-foreground">{t.tool.errors[error]}</p>
@@ -227,7 +227,7 @@ export function PdfaCheckerToolClient() {
           className="mt-0.5 size-4 shrink-0 text-muted-foreground"
         />
         <div>
-          <h2 className="hud-label text-[10px] text-foreground">
+          <h2 className="text-subheadline font-semibold text-foreground">
             {strings.noticeTitle}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -276,7 +276,7 @@ export function PdfaCheckerToolClient() {
       {phase === "done" && report ? (
         <div className="animate-rise-in">
           <section className="glass rounded-ios p-5">
-            <h2 className="hud-label text-[11px] text-muted-foreground">
+            <h2 className="ui-label text-muted-foreground">
               {strings.summaryTitle}
             </h2>
             <div className="mt-3 flex items-start gap-3">
@@ -327,7 +327,7 @@ export function PdfaCheckerToolClient() {
           </section>
 
           <section className="mt-6">
-            <h2 className="hud-label mb-3 text-[11px] text-muted-foreground">
+            <h2 className="ui-label mb-3 text-muted-foreground">
               {strings.checklistTitle}
             </h2>
             <ul className="space-y-3">
@@ -344,7 +344,7 @@ export function PdfaCheckerToolClient() {
           </section>
 
           <section className="glass rounded-ios mt-6 p-5">
-            <h2 className="hud-label text-[11px] text-muted-foreground">
+            <h2 className="ui-label text-muted-foreground">
               {strings.documentTitle}
             </h2>
             <p className="mt-3 truncate text-sm font-medium text-foreground">
@@ -361,7 +361,7 @@ export function PdfaCheckerToolClient() {
                   ? strings.factVersion(report.pdfVersion)
                   : strings.factVersionUnknown}
               </Badge>
-              <Badge variant="neutral">
+              <Badge variant="neutral" className="tabular-nums">
                 {formatFileSize(report.fileSize, locale)}
               </Badge>
               <Badge variant={claim ? "signal" : "neutral"}>
@@ -371,7 +371,7 @@ export function PdfaCheckerToolClient() {
           </section>
 
           <section className="rounded-ios mt-6 border border-white/10 bg-white/5 p-5">
-            <h2 className="hud-label text-[10px] text-foreground">
+            <h2 className="text-subheadline font-semibold text-foreground">
               {strings.nextStepsTitle}
             </h2>
             <ul className="mt-3 space-y-2">
@@ -391,7 +391,7 @@ export function PdfaCheckerToolClient() {
           </section>
 
           <section className="mt-10">
-            <h2 className="hud-label mb-4 text-[11px] text-muted-foreground">
+            <h2 className="ui-label mb-4 text-muted-foreground">
               {t.tool.relatedTitle}
             </h2>
             <div className="grid gap-3 sm:grid-cols-3">

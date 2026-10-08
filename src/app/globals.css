@@ -1,13 +1,34 @@
 @import "tailwindcss";
 
 /* ------------------------------------------------------------------ *
- * OptimusPDF — Design System "Optimus HUD x iOS Liquid Glass"
- * Tokens extraidos del blueprint §7. Ningun color se escribe inline:
- * todo consumo pasa por estas variables o por las utilidades Tailwind
- * generadas a partir de ellas.
+ * OptimusPDF — Sistema de diseño "Apple x Optimus"
+ *
+ * Base visual al estilo Apple sobre la identidad de marca Optimus
+ * (azul "signal", claro/oscuro). Ningun color se escribe inline: todo
+ * consumo pasa por estas variables o por las utilidades Tailwind que se
+ * generan a partir de ellas.
+ *
+ * Secciones:
+ *   1. Tokens @theme (color, tipografia, radios, sombras, motion)
+ *   2. Keyframes
+ *   3. Base por tema (claro/oscuro) y reset
+ *   4. Materiales translucidos (thin / regular / thick) + fallbacks
+ *   5. Utilidades heredadas (glass, safe-area...) y etiqueta ui-label
+ *   6. Accesibilidad de movimiento
  * ------------------------------------------------------------------ */
 
-@theme {
+/*
+ * `static`: se emiten TODAS las variables aunque ninguna utilidad las use
+ * todavia (Tailwind v4 solo emite las usadas por defecto). Asi los tokens
+ * de la escala tipografica y de materiales existen en :root desde ya,
+ * inspeccionables y utilizables desde CSS propio, antes de que W1-B/C/D
+ * los consuman. Coste: ~2 KB de CSS sin comprimir.
+ */
+@theme static {
+  /* ---------------------------------------------------------------- *
+   * Color
+   * ---------------------------------------------------------------- */
+
   /* Superficies */
   --color-background: oklch(4% 0 0);
   --color-surface: oklch(8% 0 0);
@@ -19,11 +40,40 @@
 
   /* Marca */
   --color-signal: oklch(52% 0.27 264);
-  --color-glow: oklch(60% 0.25 264);
+  /*
+   * 57 % (antes 60 %): es el fondo del boton primario en hover y con texto
+   * blanco a 60 % daba 4.43:1; a 57 % queda en 4.88:1 (W1-C). En claro
+   * sigue en 56 % (4.93:1).
+   */
+  --color-glow: oklch(57% 0.25 264);
+  /*
+   * Azul de marca para TEXTO sobre el fondo (wordmark, enlaces, pestaña
+   * activa): el signal a 52 % da 3.4:1 sobre negro, por debajo de AA para
+   * texto normal; esta variante sube la luminosidad en oscuro y la baja en
+   * claro (W1-C). Los rellenos y los iconos siguen usando --color-signal.
+   */
+  --color-signal-text: oklch(68% 0.2 264);
 
   /* Semanticos */
   --color-destructive: oklch(62% 0.22 25);
+  /*
+   * Variante de TEXTO del destructivo (W1-D, mismo patron que
+   * --color-signal-text): el texto rojo sobre un fondo teñido de rojo (boton
+   * destructivo, Badge, avisos de error) daba 3.44-4.31:1 en oscuro, por
+   * debajo de AA para texto pequeño. Mas claro en oscuro (>= 5:1 medido) y
+   * algo mas oscuro que --color-destructive en claro (margen sobre el tinte).
+   * Los rellenos y los iconos siguen usando --color-destructive.
+   */
+  --color-destructive-text: oklch(72% 0.17 25);
   --color-success: oklch(70% 0.17 160);
+  /*
+   * Variante de TEXTO del exito (W1-D): "text-success" sobre su propio tinte
+   * (Badge live/success, fragmentos añadidos de comparar) daba 4.41-4.58:1 en
+   * claro, justo en el limite de AA. En oscuro es el mismo success; en claro
+   * baja la luminosidad hasta >= 6:1 sobre el tinte. Rellenos e iconos siguen
+   * con --color-success.
+   */
+  --color-success-text: oklch(70% 0.17 160);
 
   /* Acentos por categoria de herramienta (solo icono/badge) */
   --color-accent-organize: oklch(52% 0.27 264);
@@ -37,22 +87,134 @@
   --color-hairline-strong: color-mix(in oklab, white 14%, transparent);
   --color-grid-line: color-mix(in oklab, white 5%, transparent);
 
+  /* ---------------------------------------------------------------- *
+   * Tipografia
+   *
+   * Fuente del sistema: en Apple resuelve a SF Pro (con optical sizing
+   * Text/Display automatico), en Windows a Segoe UI, en Android a Roboto.
+   * Evita descargar Inter y hereda el ajuste de legibilidad de cada OS.
+   * ---------------------------------------------------------------- */
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /*
+   * Escala tipografica (HIG iOS/macOS llevada a 16px base, en rem).
+   * Regla Apple: el tracking es NEGATIVO cuanto mas grande el texto y
+   * ligeramente POSITIVO en los tamaños pequeños; el leading es mas
+   * apretado cuanto mas grande el texto (1.1 en display) y se va
+   * abriendo hasta body (1.5). Por debajo de body se mantiene en 1.5:
+   * un texto de 12-15px necesita el mismo aire relativo que el cuerpo
+   * para leerse en parrafo; una etiqueta de una linea que deba ser mas
+   * compacta lo ajusta localmente con `leading-tight`/`leading-none`.
+   * Cada token lleva tamaño + leading + tracking + peso como conjunto:
+   * Tailwind v4 genera `text-display`, `text-title-1`, etc. con las
+   * cuatro propiedades acopladas.
+   */
+
+  /* Display: hero de Home. Fluido entre 34 y 48px. */
+  --text-display: clamp(2.125rem, 1.5rem + 2.5vw, 3rem);
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.025em;
+  --text-display--font-weight: 700;
+
+  /* Title 1: 28px — titulo de pantalla. */
+  --text-title-1: 1.75rem;
+  --text-title-1--line-height: 1.2;
+  --text-title-1--letter-spacing: -0.02em;
+  --text-title-1--font-weight: 700;
+
+  /* Title 2: 22px — titulo de seccion. */
+  --text-title-2: 1.375rem;
+  --text-title-2--line-height: 1.25;
+  --text-title-2--letter-spacing: -0.015em;
+  --text-title-2--font-weight: 600;
+
+  /* Title 3: 20px — titulo de tarjeta/panel. */
+  --text-title-3: 1.25rem;
+  --text-title-3--line-height: 1.3;
+  --text-title-3--letter-spacing: -0.01em;
+  --text-title-3--font-weight: 600;
+
+  /* Headline: 17px semibold — enfasis dentro del cuerpo. */
+  --text-headline: 1.0625rem;
+  --text-headline--line-height: 1.35;
+  --text-headline--letter-spacing: -0.005em;
+  --text-headline--font-weight: 600;
+
+  /* Body: 16px — texto corriente. Tracking neutro. */
+  --text-body: 1rem;
+  --text-body--line-height: 1.5;
+  --text-body--letter-spacing: 0em;
+  --text-body--font-weight: 400;
+
+  /* Callout: 15px — texto secundario, descripciones de tarjeta. */
+  --text-callout: 0.9375rem;
+  --text-callout--line-height: 1.5;
+  --text-callout--letter-spacing: 0em;
+  --text-callout--font-weight: 400;
+
+  /* Subheadline: 14px — texto de apoyo. */
+  --text-subheadline: 0.875rem;
+  --text-subheadline--line-height: 1.5;
+  --text-subheadline--letter-spacing: 0.005em;
+  --text-subheadline--font-weight: 400;
+
+  /* Footnote: 13px — cabeceras de grupo, ayudas de formulario. */
+  --text-footnote: 0.8125rem;
+  --text-footnote--line-height: 1.5;
+  --text-footnote--letter-spacing: 0.01em;
+  --text-footnote--font-weight: 400;
+
+  /* Caption: 12px — metadatos. Peso 500 para no desaparecer. */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.5;
+  --text-caption--letter-spacing: 0.015em;
+  --text-caption--font-weight: 500;
+
+  /* Caption 2: 11px — el mas pequeño permitido (tab bar, badges). */
+  --text-caption-2: 0.6875rem;
+  --text-caption-2--line-height: 1.5;
+  --text-caption-2--letter-spacing: 0.02em;
+  --text-caption-2--font-weight: 500;
+
+  /* ---------------------------------------------------------------- *
+   * Forma y profundidad
+   * ---------------------------------------------------------------- */
+
   /* Radios: continuous corners iOS */
   --radius-ios: 20px;
   --radius-ios-sm: 14px;
   --radius-ios-lg: 28px;
 
-  /* Curva spring iOS */
-  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  /*
+   * Elevacion: cuanto mas grande la superficie, mas "gruesa" se lee
+   * (sombra mas profunda). El color de la sombra sale de --shadow-umbra,
+   * que cada tema ajusta (en claro es mas tenue, en oscuro mas densa).
+   */
+  --shadow-elevation-1: 0 1px 2px var(--shadow-umbra), 0 0 0 1px var(--shadow-penumbra);
+  --shadow-elevation-2: 0 4px 12px -2px var(--shadow-umbra), 0 0 0 1px var(--shadow-penumbra);
+  --shadow-elevation-3: 0 16px 40px -8px var(--shadow-umbra), 0 0 0 1px var(--shadow-penumbra);
 
-  /* Animaciones */
+  /* ---------------------------------------------------------------- *
+   * Motion
+   *
+   * --ease-spring aproxima un spring criticamente amortiguado para
+   * transiciones CSS no gestuales. --ease-exit es su espejo (puntos de
+   * control invertidos) para que ida y vuelta recorran el mismo camino.
+   * Lo gestual e interrumpible no usa CSS: va por src/lib/motion.ts.
+   * ---------------------------------------------------------------- */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-exit: cubic-bezier(1, 0, 0.68, 0.28);
+
+  /* Animaciones de entrada (se degradan a fundido bajo reduced-motion) */
   --animate-sheet-in: sheet-in 320ms var(--ease-spring);
   --animate-fade-in: fade-in 200ms ease-out;
   --animate-rise-in: rise-in 320ms var(--ease-spring);
 }
 
 @theme inline {
-  --font-sans: var(--font-inter);
+  /* Mono se mantiene para codigos, hashes y numeros tabulares. */
   --font-mono: var(--font-jetbrains-mono);
 }
 
@@ -89,12 +251,33 @@
   /* ------------------------------------------------------------------ *
    * Tema oscuro (por defecto). Los valores de @theme son la identidad de
    * marca Optimus Reframe y no se tocan; aqui solo se anaden los tokens
-   * que las utilidades liquid glass necesitan para poder invertirse.
+   * que los materiales necesitan para poder invertirse.
    * ------------------------------------------------------------------ */
   :root {
     color-scheme: dark;
 
-    /* Superficies liquid glass: velo claro sobre negro. */
+    /* Duraciones de transicion CSS (no gestual). */
+    --duration-fast: 150ms;
+    --duration-base: 250ms;
+    --duration-slow: 400ms;
+
+    /* Sombras: en oscuro la umbra es densa para separar del fondo negro. */
+    --shadow-umbra: oklch(0% 0 0 / 0.55);
+    --shadow-penumbra: oklch(100% 0 0 / 0.06);
+
+    /*
+     * Materiales (3 pesos). Valores literales a proposito: un color-mix
+     * sobre var(--color-background) genera un fallback estatico que se
+     * resuelve contra el tema equivocado (ver nota del tema claro).
+     * En oscuro el velo es gris muy oscuro, no negro puro, para que se
+     * lea como material y no como agujero.
+     */
+    --material-thin-bg: oklch(14% 0 0 / 0.55);
+    --material-regular-bg: oklch(11% 0 0 / 0.72);
+    --material-thick-bg: oklch(9% 0 0 / 0.88);
+    --material-highlight: color-mix(in oklab, white 10%, transparent);
+
+    /* Superficies liquid glass heredadas: velo claro sobre negro. */
     --glass-bg: color-mix(in oklab, white 6%, transparent);
     --glass-highlight: color-mix(in oklab, white 8%, transparent);
     --glass-bar-bg: color-mix(
@@ -108,10 +291,9 @@
   }
 
   /* ------------------------------------------------------------------ *
-   * Tema claro. Mismo lenguaje visual (HUD tecnico x iOS) invertido:
-   * fondo casi blanco en vez de blanco puro, tinta casi negra, el mismo
-   * azul "signal" como acento de marca y hairlines de negro en baja
-   * opacidad en lugar de blanco.
+   * Tema claro. Mismo lenguaje visual invertido: fondo casi blanco en vez
+   * de blanco puro, tinta casi negra, el mismo azul "signal" como acento
+   * de marca y hairlines de negro en baja opacidad en lugar de blanco.
    * <ThemeProvider> escribe data-theme en <html>.
    * ------------------------------------------------------------------ */
   :root[data-theme="light"] {
@@ -129,10 +311,13 @@
     /* Marca: el azul signal es identico en ambos temas. */
     --color-signal: oklch(52% 0.27 264);
     --color-glow: oklch(56% 0.24 264);
+    --color-signal-text: oklch(46% 0.26 264);
 
     /* Semanticos: bajados de luminosidad para leerse sobre fondo claro. */
     --color-destructive: oklch(50% 0.21 25);
+    --color-destructive-text: oklch(45% 0.19 25);
     --color-success: oklch(48% 0.13 160);
+    --color-success-text: oklch(40% 0.12 160);
 
     /* Acentos por categoria (mismo tono, luminosidad legible en claro) */
     --color-accent-organize: oklch(52% 0.27 264);
@@ -145,6 +330,16 @@
     --color-hairline: color-mix(in oklab, black 12%, transparent);
     --color-hairline-strong: color-mix(in oklab, black 20%, transparent);
     --color-grid-line: color-mix(in oklab, black 6%, transparent);
+
+    /* Sombras: en claro la umbra es tenue; la penumbra es un hairline. */
+    --shadow-umbra: oklch(0% 0 0 / 0.14);
+    --shadow-penumbra: oklch(0% 0 0 / 0.05);
+
+    /* Materiales invertidos: velo blanco sobre gris muy claro. */
+    --material-thin-bg: oklch(99% 0 0 / 0.55);
+    --material-regular-bg: oklch(98.5% 0 0 / 0.72);
+    --material-thick-bg: oklch(98% 0 0 / 0.88);
+    --material-highlight: color-mix(in oklab, white 90%, transparent);
 
     /* Liquid glass invertido: velo blanco sobre gris muy claro. */
     --glass-bg: color-mix(in oklab, white 72%, transparent);
@@ -188,7 +383,13 @@
   }
 
   body {
-    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-sans);
+    /* SF Pro cambia de dibujo (Text/Display) segun el tamaño: dejar que lo haga. */
+    font-optical-sizing: auto;
+    /* Cuerpo por defecto = token body: 16px / 1.5 / tracking 0. */
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    letter-spacing: var(--text-body--letter-spacing);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -214,20 +415,125 @@
   }
 }
 
-/* iOS 26 liquid glass. El velo sale de tokens para invertirse en claro. */
+/* ------------------------------------------------------------------ *
+ * Materiales translucidos. Tres pesos: el peso codifica jerarquia
+ * (thin = chips y popovers pequeños; regular = tarjetas y paneles;
+ * thick = barras fijas, sidebars, sheets). Cuanto mas grande la
+ * superficie, mas blur y mas velo, para que se lea mas "gruesa".
+ * Cada uno lleva un borde superior de luz (inset 1px) que simula la luz
+ * incidiendo sobre el material, mas un hairline de contorno.
+ *
+ * Fallbacks de accesibilidad (ordenados de menos a mas intrusivo):
+ *   - sin soporte de backdrop-filter  -> fondo opaco (elevated)
+ *   - prefers-reduced-transparency    -> fondo opaco, sin blur
+ *   - prefers-contrast: more          -> fondo casi solido + borde definido
+ * ------------------------------------------------------------------ */
+@utility material-thin {
+  background-color: var(--material-thin-bg);
+  backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid var(--color-hairline);
+  box-shadow: inset 0 1px 0 0 var(--material-highlight);
+
+  @supports not (backdrop-filter: blur(1px)) {
+    background-color: var(--color-elevated);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    background-color: var(--color-elevated);
+    backdrop-filter: none;
+  }
+  @media (prefers-contrast: more) {
+    background-color: color-mix(in oklab, var(--color-elevated) 96%, transparent);
+    backdrop-filter: none;
+    border-color: color-mix(in oklab, var(--color-foreground) 45%, transparent);
+    box-shadow: none;
+  }
+}
+
+@utility material-regular {
+  background-color: var(--material-regular-bg);
+  backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--color-hairline);
+  box-shadow: inset 0 1px 0 0 var(--material-highlight);
+
+  @supports not (backdrop-filter: blur(1px)) {
+    background-color: var(--color-elevated);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    background-color: var(--color-elevated);
+    backdrop-filter: none;
+  }
+  @media (prefers-contrast: more) {
+    background-color: color-mix(in oklab, var(--color-elevated) 96%, transparent);
+    backdrop-filter: none;
+    border-color: color-mix(in oklab, var(--color-foreground) 45%, transparent);
+    box-shadow: none;
+  }
+}
+
+@utility material-thick {
+  background-color: var(--material-thick-bg);
+  backdrop-filter: blur(40px) saturate(1.6);
+  border: 1px solid var(--color-hairline);
+  box-shadow: inset 0 1px 0 0 var(--material-highlight);
+
+  @supports not (backdrop-filter: blur(1px)) {
+    background-color: var(--color-elevated);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    background-color: var(--color-elevated);
+    backdrop-filter: none;
+  }
+  @media (prefers-contrast: more) {
+    background-color: color-mix(in oklab, var(--color-elevated) 96%, transparent);
+    backdrop-filter: none;
+    border-color: color-mix(in oklab, var(--color-foreground) 45%, transparent);
+    box-shadow: none;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Utilidades heredadas (las consumen ~80 componentes; W1-B/C/D las
+ * migran a material-*). Conservan su aspecto pero reciben los mismos
+ * fallbacks de accesibilidad que los materiales nuevos.
+ * ------------------------------------------------------------------ */
 @utility glass {
   background-color: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
   border: 1px solid var(--color-hairline);
   box-shadow: inset 0 1px 0 0 var(--glass-highlight);
+
+  @supports not (backdrop-filter: blur(1px)) {
+    background-color: var(--color-elevated);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    background-color: var(--color-elevated);
+    backdrop-filter: none;
+  }
+  @media (prefers-contrast: more) {
+    background-color: color-mix(in oklab, var(--color-elevated) 96%, transparent);
+    backdrop-filter: none;
+    border-color: color-mix(in oklab, var(--color-foreground) 45%, transparent);
+    box-shadow: none;
+  }
 }
 
 /* Variante mas densa para barras fijas (header / tab bar) */
 @utility glass-bar {
   background-color: var(--glass-bar-bg);
   backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+
+  @supports not (backdrop-filter: blur(1px)) {
+    background-color: var(--color-background);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    background-color: var(--color-background);
+    backdrop-filter: none;
+  }
+  @media (prefers-contrast: more) {
+    background-color: var(--color-background);
+    backdrop-filter: none;
+    border-bottom: 1px solid color-mix(in oklab, var(--color-foreground) 45%, transparent);
+  }
 }
 
 @utility glow-signal {
@@ -246,12 +552,34 @@
   background-size: 64px 64px;
 }
 
-/* Etiquetas HUD: JetBrains Mono, uppercase, tracking ancho */
-@utility hud-label {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+/*
+ * Etiqueta de seccion o de campo al estilo Apple (cabeceras de grupo de
+ * iOS): fuente del sistema, footnote 13px, semibold, sentence-case y
+ * tracking ligeramente positivo por el tamaño. Es la unica etiqueta de
+ * interfaz: la tipografia HUD (mono + mayusculas) ya no existe (W1-D).
+ * `font-mono` queda solo para datos (hashes, codigos), nunca para etiquetas.
+ */
+@utility ui-label {
+  font-family: var(--font-sans);
+  font-size: var(--text-footnote);
+  line-height: var(--text-footnote--line-height);
+  letter-spacing: var(--text-footnote--letter-spacing);
   font-weight: 600;
+  text-transform: none;
+}
+
+/*
+ * Texto sobre un medio OSCURO en ambos temas (W1-D): el video de la camara es
+ * oscuro tambien con el tema claro, asi que los chips que lo cubren no pueden
+ * usar el texto oscuro del tema claro (medido 1.1-3.1:1). Reasigna, solo en
+ * este elemento y sus hijos, los tokens de texto a su valor del tema oscuro.
+ * Mantener sincronizado con los valores de :root (oscuro).
+ */
+@utility on-media {
+  --color-foreground: oklch(100% 0 0);
+  --color-muted-foreground: oklch(68% 0 0);
+  --color-success: oklch(70% 0.17 160);
+  --color-white: oklch(100% 0 0);
 }
 
 @utility safe-bottom {
@@ -266,6 +594,102 @@
   padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
 }
 
+/* ------------------------------------------------------------------ *
+ * Componentes base (W1-B). Solo lo que no se expresa bien con utilidades
+ * sueltas: el scrim modal por tema y el input range al estilo UISlider.
+ * ------------------------------------------------------------------ */
+@layer base {
+  :root {
+    /* Scrim de los sheets: negro al 60 % sobre fondo oscuro. */
+    --color-scrim: oklch(0% 0 0 / 0.6);
+  }
+  :root[data-theme="light"] {
+    /* En claro basta menos velo para enfocar sin apagar la pagina. */
+    --color-scrim: oklch(0% 0 0 / 0.35);
+  }
+}
+
+/*
+ * Slider estilo iOS: pista de 4 px rellena hasta el valor (`--slider-fill`,
+ * la pone el componente inline), thumb blanco de 28 px con elevacion
+ * -- blanco en ambos temas, como UISlider -- y feedback al presionar en
+ * el propio pointerdown (:active). La caja del input mide 44 px de alto
+ * para que el objetivo tactil cumpla sin engordar la pista.
+ */
+@utility slider-ios {
+  --slider-fill: 0%;
+  appearance: none;
+  width: 100%;
+  height: 2.75rem;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  /* Sin touch-action propio: el input range nativo gestiona el arrastre
+     horizontal del thumb y el swipe vertical sigue haciendo scroll. */
+
+  &::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to right,
+      var(--color-signal) var(--slider-fill),
+      var(--color-hairline-strong) var(--slider-fill)
+    );
+  }
+  &::-webkit-slider-thumb {
+    appearance: none;
+    width: 28px;
+    height: 28px;
+    margin-top: -12px;
+    border: 0;
+    border-radius: 9999px;
+    background: oklch(100% 0 0);
+    box-shadow: var(--shadow-elevation-2);
+    transition: transform var(--duration-fast) var(--ease-spring);
+  }
+  &:active::-webkit-slider-thumb {
+    transform: scale(1.12);
+    transition-duration: 80ms;
+  }
+  &::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--color-hairline-strong);
+  }
+  &::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--color-signal);
+  }
+  &::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 9999px;
+    background: oklch(100% 0 0);
+    box-shadow: var(--shadow-elevation-2);
+    transition: transform var(--duration-fast) var(--ease-spring);
+  }
+  &:active::-moz-range-thumb {
+    transform: scale(1.12);
+  }
+  &:focus-visible {
+    outline: none;
+  }
+  &:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+  &:focus-visible::-moz-range-thumb {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
 /* Continuous corners (squircle) donde el navegador lo soporte */
 @supports (corner-shape: squircle) {
   .rounded-ios,
@@ -275,12 +699,156 @@
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Layout y navegacion (W1-C).
+ * ------------------------------------------------------------------ */
+
+/*
+ * Borde de scroll (scroll edge effect): en vez de un divisor duro bajo
+ * una barra fija, un hairline y un degradado de 12 px que solo aparecen
+ * cuando hay contenido desplazado debajo (`data-scrolled="true"`, lo
+ * escribe el hook useScrollEdge). `-bottom` para cabeceras pegadas
+ * arriba, `-top` para la tab bar / barras de accion pegadas abajo.
+ */
+@utility scroll-edge-bottom {
+  &::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 100%;
+    height: 12px;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-background) 55%, transparent),
+      transparent
+    );
+    border-top: 1px solid var(--color-hairline);
+    opacity: 0;
+    transition: opacity var(--duration-base) ease-out;
+  }
+  &[data-scrolled="true"]::after {
+    opacity: 1;
+  }
+}
+
+@utility scroll-edge-top {
+  &::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 100%;
+    height: 12px;
+    pointer-events: none;
+    background: linear-gradient(
+      to top,
+      color-mix(in oklab, var(--color-background) 55%, transparent),
+      transparent
+    );
+    border-bottom: 1px solid var(--color-hairline);
+    opacity: 0;
+    transition: opacity var(--duration-base) ease-out;
+  }
+  &[data-scrolled="true"]::before {
+    opacity: 1;
+  }
+}
+
+/* Carrusel de chips sin barra de scroll visible (el contenido sigue
+   desplazandose con el dedo, la rueda o las flechas). */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/*
+ * Superficie solida de tarjeta/panel: la alternativa sin blur a los
+ * materiales para todo lo que se repite muchas veces en una pantalla
+ * (tarjetas del catalogo, filas de archivos, miniaturas). Mismo borde de
+ * luz que los materiales para que convivan sin que se note la costura.
+ */
+@utility surface-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  box-shadow: inset 0 1px 0 0 var(--material-highlight);
+  @media (prefers-contrast: more) {
+    border-color: color-mix(in oklab, var(--color-foreground) 45%, transparent);
+    box-shadow: none;
+  }
+}
+
+/*
+ * Bajo la cabecera fija (< 1024 px) el `::before` de 44 px de los botones
+ * `sm` con puntero grueso sobresale 4 px por encima del boton; sin este
+ * margen esa franja queda debajo de la barra (z-40) y el toque no llega.
+ * Es cosa del contenedor, no del boton (nota de W1-B).
+ */
+@layer base {
+  @media (max-width: 1023.98px) {
+    main#content {
+      padding-top: 0.25rem;
+    }
+  }
+
+  /*
+   * Mientras una herramienta muestra su barra de accion fija en movil
+   * (ToolShell escribe data-action-bar en <html>), el final de la pagina
+   * (footer incluido) reserva el alto de esa barra (44 px + 2 x 12 px) por
+   * encima de la reserva de la tab bar que ya pone el layout.
+   */
+  @media (max-width: 767.98px) {
+    :root[data-action-bar] body {
+      padding-bottom: 4.25rem;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Accesibilidad de movimiento.
+ * Reduced motion no significa "sin feedback": significa fundidos cortos
+ * en lugar de desplazamientos, escalas o rebotes. Por eso:
+ *   - las animaciones de entrada globales (sheet-in, rise-in) pasan a
+ *     ser fade-in de 160ms (se reasigna el token, no el keyframe);
+ *   - las transiciones solo pueden animar propiedades de fundido/color,
+ *     nunca transform/altura, y se acortan;
+ *   - el scroll suave se desactiva.
+ * Las animaciones de motion/react respetan la misma preferencia via
+ * <MotionConfig reducedMotion="user"> (Providers.tsx) y los helpers de
+ * src/lib/motion.ts (reducedAnimateOptions, reducedValueTransition).
+ * ------------------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 120ms;
+    --duration-base: 160ms;
+    --duration-slow: 200ms;
+    --animate-sheet-in: fade-in 160ms ease-out;
+    --animate-rise-in: fade-in 160ms ease-out;
+    --animate-fade-in: fade-in 160ms ease-out;
+    --ease-spring: ease-out;
+    --ease-exit: ease-in;
+    /*
+     * Animaciones en bucle de Tailwind: sin animacion. Con la regla
+     * global de abajo (160ms, 1 iteracion) un spinner daria un giro
+     * suelto y se congelaria; mejor estatico. El estado de carga sigue
+     * comunicandose por texto/aria del componente.
+     */
+    --animate-spin: none;
+    --animate-ping: none;
+    --animate-pulse: none;
+    --animate-bounce: none;
+  }
+
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: 160ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 120ms !important;
+    transition-property:
+      opacity, color, background-color, border-color, outline-color,
+      box-shadow, fill, stroke !important;
+    scroll-behavior: auto !important;
   }
 }

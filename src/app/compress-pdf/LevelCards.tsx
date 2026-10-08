@@ -30,7 +30,7 @@ export function LevelCards({
 }: LevelCardsProps) {
   return (
     <div role="radiogroup" aria-label={label}>
-      <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+      <span className="ui-label mb-2 block text-muted-foreground">
         {label}
       </span>
       <div className="space-y-2">

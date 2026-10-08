@@ -43,7 +43,7 @@ const es: TranslateStrings = {
     "Extrae el texto del PDF, lo traduce con un modelo que se ejecuta dentro de tu navegador y te devuelve un informe bilingüe en Markdown: página por página, el texto original y debajo su traducción.",
   notAPdfTitle: "No es un PDF traducido",
   notAPdfBody:
-    "El resultado es un informe de texto, NO tu PDF con la maquetación original y las palabras cambiadas. No se conservan el diseño, las imágenes, las tablas ni el formato. Traducir un PDF conservando la maquetación de forma fiable necesita un servidor y no lo hacemos: preferimos darte algo honesto a fingir que funciona.",
+    "El resultado es un informe de texto, no tu PDF con la maquetación original y las palabras cambiadas. No se conservan el diseño, las imágenes, las tablas ni el formato. Traducir un PDF conservando la maquetación de forma fiable necesita un servidor y no lo hacemos: preferimos darte algo honesto a fingir que funciona.",
   privacyNotice:
     "El texto de tu documento no sale del navegador: nunca se sube a ningún servidor. La traducción en sí solo genera una petición de red, la descarga del modelo desde Hugging Face, que ocurre después de que la autorices. Si activas el reconocimiento OCR para páginas escaneadas, esa función descarga aparte sus propios archivos de reconocimiento (también sin tu documento).",
   slowNotice:
@@ -81,7 +81,7 @@ const en: TranslateStrings = {
     "It extracts the text from the PDF, translates it with a model that runs inside your browser, and gives you back a bilingual Markdown report: page by page, the original text and its translation underneath.",
   notAPdfTitle: "This is not a translated PDF",
   notAPdfBody:
-    "The output is a text report, NOT your PDF with the original layout and the words swapped. Layout, images, tables and formatting are not preserved. Translating a PDF while reliably keeping its layout needs a server, and we do not do that: we would rather give you something honest than pretend it works.",
+    "The output is a text report, not your PDF with the original layout and the words swapped. Layout, images, tables and formatting are not preserved. Translating a PDF while reliably keeping its layout needs a server, and we do not do that: we would rather give you something honest than pretend it works.",
   privacyNotice:
     "Your document's text never leaves the browser: it is never uploaded anywhere. Translation itself only makes one network request, downloading the model from Hugging Face, after you authorise it. If you enable OCR for scanned pages, that feature separately downloads its own recognition files (also without your document).",
   slowNotice:

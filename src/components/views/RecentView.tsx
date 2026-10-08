@@ -25,7 +25,7 @@ export function RecentView() {
   return (
     <div className="mx-auto max-w-[800px] px-4 pt-10 pb-16 md:px-6 md:pt-16">
       <header className="mb-8">
-        <h1 className="text-4xl font-black tracking-[-0.025em] text-foreground md:text-5xl">
+        <h1 className="text-title-1 text-foreground">
           {t.recent.title}
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
@@ -67,7 +67,7 @@ export function RecentView() {
                       <p className="truncate text-sm font-medium text-foreground">
                         {entry.fileName}
                       </p>
-                      <p className="hud-label text-[10px] text-muted-foreground">
+                      <p className="text-caption text-muted-foreground">
                         {name} · {formatter.format(new Date(entry.date))}
                       </p>
                     </div>

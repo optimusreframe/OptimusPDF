@@ -144,7 +144,7 @@ function ProtectionNotice({
         className={cn("mt-0.5 size-5 shrink-0", iconClass)}
       />
       <div className="min-w-0">
-        <h3 className="hud-label text-[11px] text-foreground">{title}</h3>
+        <h3 className="text-headline text-foreground">{title}</h3>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           {body}
         </p>

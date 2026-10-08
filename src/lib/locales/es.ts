@@ -240,13 +240,13 @@ const categories: Record<
 
 export const es = {
   common: {
-    brandFirst: "OPTIMUS",
+    brandFirst: "Optimus",
     brandSecond: "PDF",
-    live: "LIVE",
-    soon: "PRÓXIMAMENTE",
-    localBadge: "100% LOCAL",
-    zeroUploads: "0 SUBIDAS",
-    localAndZeroUploads: "100% LOCAL · 0 SUBIDAS",
+    live: "Disponible",
+    soon: "Próximamente",
+    localBadge: "100% local",
+    zeroUploads: "0 subidas",
+    localAndZeroUploads: "100% local · 0 subidas",
     cancel: "Cancelar",
     close: "Cerrar",
     back: "Volver",
@@ -278,6 +278,13 @@ export const es = {
   },
   categories,
   home: {
+    title: "Herramientas",
+    searchPlaceholder: "Buscar herramienta",
+    clearSearch: "Borrar búsqueda",
+    resultOne: "resultado",
+    resultMany: "resultados",
+    searchEmptyTitle: "Nada coincide con tu búsqueda",
+    searchEmptyHint: "Prueba con lo que quieres hacer: unir, comprimir, firmar, convertir…",
     mostUsedTitle: "Más usadas",
     mostUsedSeeAll: "Ver historial",
     liveCount: "disponibles ahora",
@@ -312,9 +319,15 @@ export const es = {
     rotate: "Girar",
     page: "Página",
     localNotice: "Este archivo no se sube a ningún servidor.",
+    accepts: "Acepta",
+    upTo: "hasta",
+    dropActive: "Suelta para añadir",
+    skippedOne: "Se omitió {names}: formato no admitido.",
+    skippedMany: "Se omitieron {count} archivos ({names}): formato no admitido.",
     errors: {
       title: "No se pudo completar",
       invalidType: "Ese formato no sirve para esta herramienta.",
+      encryptedAction: "Abrir Desbloquear PDF",
       encrypted:
         "El PDF está protegido con contraseña. Quítala primero con Desbloquear PDF.",
       corrupt: "El archivo parece dañado y no se puede leer.",
@@ -354,7 +367,7 @@ export const es = {
     },
   },
   soon: {
-    badge: "PRÓXIMAMENTE",
+    badge: "Próximamente",
     title: "Todavía no está lista",
     body: "Esta herramienta necesita conversión en servidor para dar un resultado fiel, y OptimusPDF hoy procesa todo en tu dispositivo. Preferimos no fingir que funciona.",
     alternativesTitle: "Mientras tanto puedes usar",

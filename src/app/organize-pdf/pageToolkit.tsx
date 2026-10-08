@@ -185,7 +185,7 @@ export function PageTile({
         <span className="flex flex-col items-center gap-1.5 text-muted-foreground">
           <SquareDashed aria-hidden="true" className="size-6" />
           {blankLabel ? (
-            <span className="hud-label text-[9px]">{blankLabel}</span>
+            <span className="text-caption-2">{blankLabel}</span>
           ) : null}
         </span>
       ) : url ? (
@@ -254,11 +254,11 @@ export function PageTile({
       ) : null}
 
       <div className="mt-2 flex items-center justify-between gap-1">
-        <span className="hud-label text-[9px] text-muted-foreground">
+        <span className="text-caption text-muted-foreground tabular-nums">
           {number}
         </span>
         {note ? (
-          <span className="hud-label text-[9px] text-signal">{note}</span>
+          <span className="text-caption text-signal-text">{note}</span>
         ) : null}
       </div>
     </div>
@@ -301,7 +301,7 @@ export function TileButton({
         "flex items-center justify-center rounded-full transition-colors",
         compact ? "size-6" : "size-7",
         tone === "destructive"
-          ? "text-destructive hover:bg-destructive/20"
+          ? "text-destructive-text hover:bg-destructive/20"
           : "text-muted-foreground hover:bg-white/14 hover:text-foreground",
         "disabled:pointer-events-none disabled:opacity-30",
       )}
@@ -332,7 +332,7 @@ export function PageBoard({
     <section>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h3 className="hud-label text-[11px] text-muted-foreground">
+          <h3 className="ui-label text-muted-foreground">
             {title}
           </h3>
           {loading ? <Spinner className="size-4" /> : null}
@@ -364,7 +364,7 @@ export function PageBoard({
 
 const FIELD_CLASS =
   "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground " +
-  "placeholder:text-muted-foreground/70 transition-colors focus:border-signal/60 focus:outline-none";
+  "placeholder:text-muted-foreground/70 transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal";
 
 export function NumberField({
   label,
@@ -386,7 +386,7 @@ export function NumberField({
     <div className={cn("min-w-0 flex-1", className)}>
       <label
         htmlFor={id}
-        className="hud-label mb-2 block text-[10px] text-muted-foreground"
+        className="ui-label mb-2 block text-muted-foreground"
       >
         {label}
       </label>
@@ -429,7 +429,7 @@ export function TextField({
     <div>
       <label
         htmlFor={id}
-        className="hud-label mb-2 block text-[10px] text-muted-foreground"
+        className="ui-label mb-2 block text-muted-foreground"
       >
         {label}
       </label>

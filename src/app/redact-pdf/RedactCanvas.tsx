@@ -488,7 +488,7 @@ function RedactCanvasInner({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {strings.canvasTitle}
         </h3>
         <div className="flex items-center gap-2">
@@ -501,7 +501,7 @@ function RedactCanvasInner({
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
           </Button>
-          <span className="hud-label text-[10px] text-foreground tabular-nums">
+          <span className="text-footnote font-medium text-foreground tabular-nums">
             {strings.pageOf(pageIndex + 1, total)}
           </span>
           <Button
@@ -550,7 +550,7 @@ function RedactCanvasInner({
 
         {tool !== "eraser" && mode === "paint" ? (
           <label className="flex flex-col gap-2">
-            <span className="hud-label text-[10px] text-muted-foreground">
+            <span className="ui-label text-muted-foreground">
               {strings.paintColorLabel}
             </span>
             <input
@@ -745,7 +745,7 @@ function RedactCanvasInner({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="hud-label text-[10px] text-muted-foreground tabular-nums">
+        <p className="text-caption text-muted-foreground tabular-nums">
           {strings.boxesOnPage(pageElements.length)} ·{" "}
           {strings.totalBoxes(currentElements.length)}
         </p>
@@ -777,7 +777,7 @@ function RedactCanvasInner({
 
       {thumbs.length > 1 ? (
         <div className="mt-6">
-          <h4 className="hud-label mb-2 text-[10px] text-muted-foreground">
+          <h4 className="ui-label mb-2 text-muted-foreground">
             {strings.thumbsTitle}
           </h4>
           <ul className="flex gap-2 overflow-x-auto pb-2">
@@ -807,7 +807,7 @@ function RedactCanvasInner({
                       draggable={false}
                       className="block w-16 rounded-[8px]"
                     />
-                    <span className="hud-label absolute right-1 bottom-1 rounded-full bg-background/85 px-1.5 py-0.5 text-[9px] text-foreground tabular-nums">
+                    <span className="absolute right-1 bottom-1 rounded-full bg-background/85 px-1.5 py-0.5 text-caption-2 leading-tight font-semibold text-foreground tabular-nums">
                       {count > 0 ? `${index + 1} · ${count}` : index + 1}
                     </span>
                   </button>

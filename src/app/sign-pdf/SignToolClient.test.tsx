@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
-import { useCallback, useState } from "react";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useCallback, useEffect, useState, type MutableRefObject } from "react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import {
   MultiFlow,
@@ -9,7 +9,12 @@ import {
   type SignToolOptions,
 } from "@/app/sign-pdf/SignToolClient";
 import { documentContentKey } from "@/app/sign-pdf/documentKey";
-import { captureStamp, type CaptureMap } from "@/app/sign-pdf/SigningCeremony";
+import {
+  captureStamp,
+  pendingSigners,
+  validCapture,
+  type CaptureMap,
+} from "@/app/sign-pdf/SigningCeremony";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 import { fileKey } from "@/app/organize-pdf/pageToolkit";
@@ -235,15 +240,16 @@ describe("MultiFlow — src/app/sign-pdf/SignToolClient.tsx", () => {
 });
 
 /**
- * Documento "recien cargado" (huella sin coincidir todavia) sin ningun
- * hueco de firma: el efecto de reinicio de `MultiFlow` lo detecta como
- * nuevo y lanza la deteccion, igual que con un archivo de verdad. El
- * paso arranca en "signers" (lo fuerza el propio reinicio); las pruebas
- * navegan a "text" a mano, como haria una persona real.
+ * Documento "recien cargado" (huella sin sellar todavia) sin ningun hueco
+ * de firma: cuando llega la huella, `MultiFlow` solo la sella y lanza la
+ * deteccion, igual que con un archivo de verdad. Arranca en el paso
+ * "signers" (como `DEFAULT_OPTIONS`); las pruebas navegan a "text" a mano,
+ * como haria una persona real.
  */
 function freshTextOnlyOptions(): SignToolOptions {
   return {
     ...optionsFor(""),
+    step: "signers",
     fields: [],
     captures: {},
     signers: [],
@@ -1115,5 +1121,467 @@ describe("MultiFlow — deshacer al borrar un firmante (deferred #1)", () => {
 
     // Solo Marta (la ultima borrada) vuelve; Luis ya quedo en firme.
     expect(last.signers.map((s) => s.name)).toEqual(["Ana", "Marta"]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * La huella del archivo llega DESPUES del trabajo de la persona
+ * ------------------------------------------------------------------ *
+ * La huella (`useDocumentKey`) se calcula en segundo plano: con un PDF
+ * grande tarda, y una persona rapida ya ha creado firmante, hueco y campo
+ * cuando llega. Lo que cambia con el archivo (reinicio) es el ARCHIVO, no la
+ * llegada de su huella: esta solo SELLA el trabajo (W1-D).
+ *
+ * Para que la llegada sea determinista (sin temporizadores), `crypto.subtle.
+ * digest` espera una puerta por contenido hasta que la prueba la abre.
+ */
+describe("MultiFlow — la huella llega despues del trabajo de la persona", () => {
+  type Gate = { bytes: Uint8Array; open: () => void; opened: Promise<void> };
+  const gates: Gate[] = [];
+  let digestSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+  const viewOf = (data: BufferSource): Uint8Array =>
+    ArrayBuffer.isView(data)
+      ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      : new Uint8Array(data);
+  const sameBytes = (a: Uint8Array, b: Uint8Array): boolean =>
+    a.length === b.length && a.every((value, index) => value === b[index]);
+
+  beforeEach(() => {
+    const subtle = globalThis.crypto.subtle;
+    const original = subtle.digest.bind(subtle);
+    digestSpy = vi
+      .spyOn(subtle, "digest")
+      .mockImplementation((async (
+        algorithm: AlgorithmIdentifier,
+        data: BufferSource,
+      ) => {
+        const view = viewOf(data);
+        const gate = gates.find((candidate) => sameBytes(candidate.bytes, view));
+        if (gate) await gate.opened;
+        return original(algorithm, data);
+      }) as typeof subtle.digest);
+  });
+
+  afterEach(() => {
+    digestSpy?.mockRestore();
+    digestSpy = null;
+    gates.length = 0;
+  });
+
+  /** Archivo nuevo en cada prueba: la huella calculada se cachea por objeto `File`. */
+  function freshFile(name: string, seed: number): File {
+    return new File([new Uint8Array([seed, seed + 1, seed + 2, seed + 3])], name, {
+      type: "application/pdf",
+      lastModified: 1_700_000_000_000 + seed,
+    });
+  }
+
+  /** Cierra la puerta de la huella de `file`; devuelve su huella real y como abrirla. */
+  async function holdHash(file: File): Promise<{ key: string; release: () => void }> {
+    const key = await documentContentKey(file); // antes de registrar la puerta
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let open: () => void = () => {};
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    gates.push({ bytes, open, opened });
+    return { key, release: open };
+  }
+
+  /** Documento nuevo, sin sellar: lo que hay en `ToolShell` al cargar el primer archivo. */
+  function unsealedOptions(): SignToolOptions {
+    return {
+      ...optionsFor(""),
+      step: "signers",
+      signers: [],
+      fields: [],
+      captures: {},
+      activeSignerId: null,
+    };
+  }
+
+  /** Sellado con la huella de `key` y con trabajo hecho (firmante, hueco y trazo vigente). */
+  function sealedOptions(key: string, step: SignToolOptions["step"]): SignToolOptions {
+    return { ...optionsFor(key), step };
+  }
+
+  /** Como `Harness`, pero el padre puede cambiar archivo Y opciones a la vez (`ToolShell.loadWith`). */
+  function LoadHarness({
+    initialFile,
+    initialOptions,
+    loadRef,
+    onOptions,
+  }: {
+    initialFile: File;
+    initialOptions: SignToolOptions;
+    loadRef: MutableRefObject<
+      ((file: File, options: SignToolOptions) => void) | null
+    >;
+    onOptions: (options: SignToolOptions) => void;
+  }) {
+    const [file, setFile] = useState<File>(initialFile);
+    const [options, setOptions] = useState<SignToolOptions>(initialOptions);
+    onOptions(options);
+    useEffect(() => {
+      loadRef.current = (nextFile, nextOptions) => {
+        setFile(nextFile);
+        setOptions(nextOptions);
+      };
+      return () => {
+        loadRef.current = null;
+      };
+    }, [loadRef]);
+    const patchOptions = useCallback(
+      (patch: Partial<SignToolOptions>) =>
+        setOptions((previous) => ({ ...previous, ...patch })),
+      [],
+    );
+    return (
+      <MultiFlow
+        file={file}
+        options={options}
+        setOptions={patchOptions}
+        onFinish={() => {}}
+        strings={strings}
+      />
+    );
+  }
+
+  const stepButton = (n: number, label: string) =>
+    screen.getByRole("button", { name: `${n}. ${label}` });
+
+  it("conserva firmante, hueco y campo creados antes de que llegue la huella, y la sella al llegar", async () => {
+    const file = freshFile("contrato.pdf", 11);
+    const hold = await holdHash(file);
+    let last: SignToolOptions = unsealedOptions();
+    render(
+      <Harness
+        file={file}
+        initialOptions={unsealedOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+
+    // La persona avanza sin esperar: firmante -> hueco -> campo de texto.
+    fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
+    expect(last.signers).toHaveLength(1);
+    fireEvent.click(stepButton(2, strings.stepFields));
+    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+    expect(last.fields).toHaveLength(1);
+    fireEvent.click(textStepButton());
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+    await waitFor(() => expect(last.textFields).toHaveLength(1));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: strings.textFieldFallbackLabel(1) }),
+      { target: { value: "Ana Perez" } },
+    );
+    expect(last.signature).toBe(""); // la huella sigue sin llegar
+
+    hold.release();
+    await waitFor(() => expect(last.signature).toBe(hold.key));
+    // La deteccion (que arranca al sellar) tambien termina sin pisar lo hecho.
+    await waitFor(() => expect(last.textFieldsDetectedFor).toBe(hold.key));
+
+    expect(last.signers).toHaveLength(1);
+    expect(last.fields).toHaveLength(1);
+    expect(last.textFields).toHaveLength(1);
+    expect(Object.values(last.textValues)).toEqual(["Ana Perez"]);
+    expect(last.step).toBe("text");
+  });
+
+  it("sin huella la ronda de firma espera (no firma ni pierde el trabajo) y se abre al llegar", async () => {
+    const file = freshFile("contrato.pdf", 12);
+    const hold = await holdHash(file);
+    let last: SignToolOptions = unsealedOptions();
+    render(
+      <Harness
+        file={file}
+        initialOptions={unsealedOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
+    fireEvent.click(stepButton(2, strings.stepFields));
+    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+    expect(last.fields).toHaveLength(1);
+    fireEvent.click(stepButton(4, strings.stepSign));
+
+    // Estado de espera: ni turno de firma ni boton para empezar a firmar.
+    expect(screen.getByText(strings.checkingDocument)).toBeTruthy();
+    expect(
+      screen.queryAllByRole("button", { name: strings.handoffReady }),
+    ).toHaveLength(0);
+    expect(last.signature).toBe("");
+
+    hold.release();
+    await waitFor(() => expect(last.signature).toBe(hold.key));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: strings.handoffReady }).length,
+      ).toBeGreaterThan(0),
+    );
+    expect(last.fields).toHaveLength(1);
+    expect(last.step).toBe("sign");
+  });
+
+  it("sin sellar (\"\") ninguna captura vale, ni siquiera la de sello coherente: la ronda no se da por firmada", () => {
+    const captures = optionsFor("").captures; // sello calculado con la huella ""
+    expect(captures[ANA.id]?.stamp).toBe(captureStamp("", FIELDS, ANA.id));
+    expect(validCapture(captures, FIELDS, ANA.id, "").signature).toBeNull();
+    expect(pendingSigners([ANA], FIELDS, captures, "").map((s) => s.id)).toEqual([
+      ANA.id,
+    ]);
+    // Con la huella de verdad, la misma captura (sellada con ella) si vale.
+    const sealed = optionsFor(CLAVE_PRIMERO).captures;
+    expect(validCapture(sealed, FIELDS, ANA.id, CLAVE_PRIMERO).signature).not.toBeNull();
+    expect(pendingSigners([ANA], FIELDS, sealed, CLAVE_PRIMERO)).toEqual([]);
+  });
+
+  it("al cambiar de archivo limpia AL INSTANTE lo del anterior, conserva a los firmantes y respeta lo que se haga en el nuevo antes de que llegue su huella", async () => {
+    const fileA = freshFile("a.pdf", 21);
+    const fileB = freshFile("b.pdf", 31);
+    const keyA = await documentContentKey(fileA);
+    const holdB = await holdHash(fileB);
+
+    let last: SignToolOptions = sealedOptions(keyA, "fields");
+    const { rerender } = render(
+      <Harness
+        file={fileA}
+        initialOptions={sealedOptions(keyA, "fields")}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    expect(last.fields).toHaveLength(1);
+
+    rerender(
+      <Harness
+        file={fileB}
+        initialOptions={sealedOptions(keyA, "fields")}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+
+    // La huella de B sigue sin llegar y lo de A ya no esta (ni sellado):
+    // se limpia en el acto, sin esperar nada (ni siquiera un `waitFor`).
+    expect(last.fields).toEqual([]);
+    expect(last.signature).toBe("");
+    expect(last.captures).toEqual({});
+    expect(last.selectedFieldId).toBeNull();
+    expect(last.step).toBe("signers");
+    expect(last.signers.map((signer) => signer.id)).toEqual([ANA.id]);
+
+    // Trabajo en B antes de que llegue su huella...
+    fireEvent.click(stepButton(2, strings.stepFields));
+    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+    expect(last.fields).toHaveLength(1);
+    expect(last.signature).toBe("");
+
+    // ...se conserva al llegar: la huella solo sella.
+    holdB.release();
+    await waitFor(() => expect(last.signature).toBe(holdB.key));
+    await waitFor(() => expect(last.textFieldsDetectedFor).toBe(holdB.key));
+    expect(last.fields).toHaveLength(1);
+    expect(last.step).toBe("fields");
+    expect(last.signers.map((signer) => signer.id)).toEqual([ANA.id]);
+  });
+
+  it("un borrador restaurado (ya sellado con su huella) no se borra ni se reinicia al llegar la huella, y lo hecho mientras llegaba se conserva", async () => {
+    const file = freshFile("borrador.pdf", 41);
+    const hold = await holdHash(file);
+    let last: SignToolOptions = sealedOptions(hold.key, "sign");
+    render(
+      <Harness
+        file={file}
+        initialOptions={sealedOptions(hold.key, "sign")}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    expect(last.captures[ANA.id]?.signature).not.toBeNull();
+
+    // Mientras llega la huella la persona sigue trabajando sobre el borrador.
+    fireEvent.click(stepButton(1, strings.stepSigners));
+    fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
+    expect(last.signers).toHaveLength(2);
+
+    hold.release();
+    await waitFor(() => expect(last.textFieldsDetectedFor).toBe(hold.key));
+
+    expect(last.signature).toBe(hold.key);
+    expect(last.signers).toHaveLength(2);
+    expect(last.fields).toHaveLength(1);
+    expect(last.captures[ANA.id]?.signature).not.toBeNull();
+    expect(last.step).toBe("signers");
+  });
+
+  it("la deteccion que termina despues no pisa los campos de texto restaurados o anadidos a mano: se suman a ellos", async () => {
+    const detected: DetectedField = {
+      id: "d1",
+      pageIndex: 0,
+      rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+      label: "Nombre",
+      source: "acroform",
+      confidence: "high",
+    };
+    vi.mocked(detectFields).mockResolvedValue([detected]);
+    const manual: DetectedField = {
+      id: "m1",
+      pageIndex: 0,
+      rect: { x: 0.2, y: 0.5, width: 0.3, height: 0.05 },
+      label: "Anotacion",
+      source: "manual",
+      confidence: "high",
+    };
+
+    const file = freshFile("borrador-texto.pdf", 51);
+    const key = await documentContentKey(file);
+    // Borrador guardado ANTES de que terminara la deteccion: lleva su campo
+    // manual y `textFieldsDetectedFor` aun a null.
+    const restored: SignToolOptions = {
+      ...sealedOptions(key, "text"),
+      signers: [],
+      fields: [],
+      captures: {},
+      textFields: [manual],
+      textValues: { m1: "dato" },
+      textFieldsDetectedFor: null,
+    };
+    let last: SignToolOptions = restored;
+    render(
+      <Harness
+        file={file}
+        initialOptions={restored}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+
+    await waitFor(() => expect(last.textFieldsDetectedFor).toBe(key));
+    expect(last.textFields.map((field) => field.id).sort()).toEqual(["d1", "m1"]);
+    expect(last.textValues).toEqual({ m1: "dato" });
+  });
+
+  it("la deteccion arranca ya sellada: al volver a un archivo ya conocido no arrastra los campos del anterior", async () => {
+    const fileA = freshFile("a.pdf", 111);
+    const fileB = freshFile("b.pdf", 121);
+    const keyA = await documentContentKey(fileA);
+    const keyB = await documentContentKey(fileB);
+    const detectedA: DetectedField = {
+      id: "dA",
+      pageIndex: 0,
+      rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+      label: "Campo de A",
+      source: "acroform",
+      confidence: "high",
+    };
+    vi.mocked(detectFields).mockImplementation(async (target) =>
+      target === fileA ? [detectedA] : [],
+    );
+
+    let last: SignToolOptions = unsealedOptions();
+    const view = (file: File) => (
+      <Harness
+        file={file}
+        initialOptions={unsealedOptions()}
+        onOptions={(options) => (last = options)}
+      />
+    );
+    const { rerender } = render(view(fileA));
+    await waitFor(() => expect(last.textFieldsDetectedFor).toBe(keyA));
+    expect(last.textFields.map((field) => field.id)).toEqual(["dA"]);
+
+    // En B la persona anade un campo a mano.
+    rerender(view(fileB));
+    await waitFor(() => expect(last.textFieldsDetectedFor).toBe(keyB));
+    fireEvent.click(textStepButton());
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.addTextFieldHere }),
+    );
+    await waitFor(() => expect(last.textFields).toHaveLength(1));
+    const manualId = last.textFields[0].id;
+
+    // Vuelve a A: su huella ya esta calculada (llega en el mismo render).
+    rerender(view(fileA));
+    await waitFor(() => expect(last.textFieldsDetectedFor).toBe(keyA));
+    expect(last.textFields.map((field) => field.id)).toEqual(["dA"]);
+    expect(last.textFields.some((field) => field.id === manualId)).toBe(false);
+    expect(last.signature).toBe(keyA);
+  });
+
+  it("un cambio externo a OTRA huella no vacia sigue reiniciando la ronda (no se mezclan documentos)", async () => {
+    const file = freshFile("otro.pdf", 61);
+    const hold = await holdHash(file);
+    // El estado sellado pertenece a otro documento (CLAVE_SEGUNDO), p. ej. una
+    // configuracion o un borrador restaurado para otro archivo.
+    let last: SignToolOptions = sealedOptions(CLAVE_SEGUNDO, "sign");
+    render(
+      <Harness
+        file={file}
+        initialOptions={sealedOptions(CLAVE_SEGUNDO, "sign")}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+
+    hold.release();
+    await waitFor(() => expect(last.signature).toBe(hold.key));
+
+    expect(last.fields).toEqual([]);
+    expect(last.captures).toEqual({});
+    expect(last.step).toBe("signers");
+    expect(last.signers.map((signer) => signer.id)).toEqual([ANA.id]);
+  });
+
+  it("una carga externa que trae archivo Y opciones a la vez (reanudar un borrador con otro archivo abierto) conserva lo restaurado", async () => {
+    const fileA = freshFile("abierto.pdf", 71);
+    const fileB = freshFile("borrador-b.pdf", 81);
+    const keyA = await documentContentKey(fileA);
+    const holdB = await holdHash(fileB);
+
+    // Igual que `ToolShell.loadWith`: archivo y opciones cambian en el mismo render.
+    const loadRef: MutableRefObject<
+      ((file: File, options: SignToolOptions) => void) | null
+    > = { current: null };
+    let last: SignToolOptions = sealedOptions(keyA, "fields");
+
+    render(
+      <LoadHarness
+        initialFile={fileA}
+        initialOptions={sealedOptions(keyA, "fields")}
+        loadRef={loadRef}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    expect(last.fields).toHaveLength(1);
+
+    const luis: Signer = { id: "sg-luis", name: "Luis", color: "#0d4bff" };
+    const restored: SignToolOptions = {
+      ...sealedOptions(holdB.key, "sign"),
+      signers: [luis],
+      fields: [{ ...FIELDS[0], id: "f-luis", signerId: luis.id }],
+      captures: {},
+      textFieldsDetectedFor: holdB.key,
+    };
+    act(() => loadRef.current?.(fileB, restored));
+
+    // Nada se limpia: el estado restaurado describe el archivo nuevo.
+    expect(last.signers.map((signer) => signer.id)).toEqual(["sg-luis"]);
+    expect(last.fields.map((field) => field.id)).toEqual(["f-luis"]);
+    expect(last.signature).toBe(holdB.key);
+    expect(last.step).toBe("sign");
+    expect(screen.getByText(strings.checkingDocument)).toBeTruthy();
+
+    // Al llegar la huella de B la ronda se abre sobre lo restaurado.
+    holdB.release();
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: strings.handoffReady }).length,
+      ).toBeGreaterThan(0),
+    );
+    expect(last.signers.map((signer) => signer.id)).toEqual(["sg-luis"]);
+    expect(last.fields.map((field) => field.id)).toEqual(["f-luis"]);
+    expect(last.signature).toBe(holdB.key);
+    expect(last.step).toBe("sign");
   });
 });

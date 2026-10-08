@@ -13,7 +13,7 @@ export function AboutView() {
         <Badge variant="live" dot>
           {t.common.localAndZeroUploads}
         </Badge>
-        <h1 className="mt-5 text-4xl font-black tracking-[-0.025em] text-foreground md:text-5xl">
+        <h1 className="mt-5 text-title-1 text-foreground">
           {t.about.title}
         </h1>
         <p className="mt-3 text-base text-muted-foreground md:text-lg">
@@ -33,7 +33,7 @@ export function AboutView() {
       </div>
 
       <GlassCard className="mt-10 p-7">
-        <h2 className="hud-label text-[11px] text-foreground">
+        <h2 className="text-headline text-foreground">
           {t.about.stackTitle}
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
@@ -42,7 +42,7 @@ export function AboutView() {
       </GlassCard>
 
       <section className="mt-10">
-        <h2 className="hud-label mb-4 text-[11px] text-muted-foreground">
+        <h2 className="ui-label mb-4 text-muted-foreground">
           {t.about.valuesTitle}
         </h2>
         <div className="grid gap-3 md:grid-cols-3">

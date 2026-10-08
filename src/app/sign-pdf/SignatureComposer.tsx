@@ -871,7 +871,7 @@ export function SignatureComposer({
             <div>
               <label
                 htmlFor="signature-typed"
-                className="hud-label mb-1.5 block text-[10px] text-muted-foreground"
+                className="ui-label mb-1.5 block text-muted-foreground"
               >
                 {strings.typeLabel}
               </label>
@@ -884,11 +884,11 @@ export function SignatureComposer({
                   initials ? strings.initialsPlaceholder : strings.typePlaceholder
                 }
                 onChange={(event) => setTyped(event.target.value)}
-                className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60"
+                className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
               />
             </div>
             <div>
-              <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+              <span className="ui-label mb-2 block text-muted-foreground">
                 {strings.styleLabel}
               </span>
               <div role="radiogroup" className="grid gap-2">
@@ -961,7 +961,7 @@ export function SignatureComposer({
 
         {mode !== "upload" && !fillCanvas ? (
           <div>
-            <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+            <span className="ui-label mb-2 block text-muted-foreground">
               {strings.inkLabel}
             </span>
             <div role="radiogroup" className="flex gap-2">

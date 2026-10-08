@@ -196,7 +196,7 @@ function RotateBoard({
       toolbar={
         perPage ? (
           <>
-            <span className="hud-label text-[10px] text-muted-foreground">
+            <span className="text-caption text-muted-foreground">
               {strings.tapHint}
             </span>
             <Button variant="secondary" size="sm" onClick={rotateAll}>
@@ -205,7 +205,7 @@ function RotateBoard({
             </Button>
           </>
         ) : (
-          <span className="hud-label text-[10px] text-muted-foreground">
+          <span className="text-caption text-muted-foreground">
             {strings.allHint}
           </span>
         )

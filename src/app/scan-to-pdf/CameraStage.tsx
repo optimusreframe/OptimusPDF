@@ -54,11 +54,21 @@ const STABLE_FRAMES_TO_ARM = 9;
 /** Cuenta atras visible —y cancelable— antes de la captura automatica. */
 const AUTO_COUNTDOWN_MS = 1000;
 
+/*
+ * La pista va SOBRE el video (oscuro tambien con el tema claro): `on-media`
+ * fija la paleta del tema oscuro (texto claro) en ambos temas. Con el texto
+ * del tema claro eran 1.1:1 (foreground) y 3.1:1 (success) sobre el chip.
+ * Ningun tono lleva texto de color: un verde sobre un tinte verde del 20 %
+ * sobre un fotograma claro media ~2:1 y el gris atenuado de "unknown" 2.7:1
+ * sobre el fotograma (1.6:1 sobre una hoja blanca). El texto es siempre
+ * blanco sobre negro al 55-60 % (>= 4.7:1 incluso sobre blanco puro) y el
+ * verde de "ok" queda en el borde como refuerzo (W1-D).
+ */
 const HINT_TONE: Record<CaptureHint, string> = {
-  ok: "border-success/45 bg-success/20 text-success",
+  ok: "border-success/60 bg-black/60 text-foreground",
   hold_steady: "border-white/16 bg-black/55 text-foreground",
   too_dark: "border-white/16 bg-black/55 text-foreground",
-  unknown: "border-white/16 bg-black/55 text-muted-foreground",
+  unknown: "border-white/16 bg-black/55 text-foreground",
 };
 
 /**
@@ -374,7 +384,7 @@ export function CameraStage({
             className="mt-0.5 size-4 shrink-0 text-destructive"
           />
           <div>
-            <p className="hud-label text-[10px] text-destructive">
+            <p className="ui-label text-destructive-text">
               {s.cameraErrorTitle}
             </p>
             <p className="mt-1 text-sm text-foreground">
@@ -393,7 +403,7 @@ export function CameraStage({
           style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
         >
           <div className="min-w-0">
-            <p className="hud-label text-[10px] text-signal">{s.burstTitle}</p>
+            <p className="ui-label text-signal-text">{s.burstTitle}</p>
             <p aria-live="polite" className="mt-0.5 text-sm text-foreground">
               {s.burstCount.replace("{count}", String(burstCount))}
             </p>
@@ -424,7 +434,7 @@ export function CameraStage({
               <span
                 aria-live="polite"
                 className={cn(
-                  "hud-label rounded-full border px-3 py-1.5 text-[10px] backdrop-blur-md",
+                  "on-media rounded-full border px-3 py-1.5 text-caption font-semibold backdrop-blur-md",
                   HINT_TONE[hint],
                 )}
               >

@@ -774,7 +774,7 @@ function EditCanvasInner({
     <div>
       {/* Barra de herramientas */}
       <div className="mb-3">
-        <span className="hud-label mb-2 block text-[10px] text-muted-foreground">
+        <span className="ui-label mb-2 block text-muted-foreground">
           {strings.toolbarLabel}
         </span>
         <div
@@ -802,7 +802,7 @@ function EditCanvasInner({
                   }
                 }}
                 className={cn(
-                  "hud-label flex min-h-11 items-center gap-2 rounded-ios-sm border px-3 text-[10px] transition-all duration-200 ease-spring",
+                  "flex min-h-11 items-center gap-2 rounded-ios-sm border px-3 text-footnote font-semibold transition-all duration-200 ease-spring",
                   active
                     ? "border-signal/60 bg-signal/15 text-foreground"
                     : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/25 hover:bg-white/10 hover:text-foreground",
@@ -853,7 +853,7 @@ function EditCanvasInner({
 
       {/* Cabecera con navegacion de paginas */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+        <h3 className="ui-label text-muted-foreground">
           {strings.canvasTitle}
         </h3>
         <div className="flex items-center gap-2">
@@ -866,7 +866,7 @@ function EditCanvasInner({
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
           </Button>
-          <span className="hud-label text-[10px] text-foreground tabular-nums">
+          <span className="text-footnote font-medium text-foreground tabular-nums">
             {strings.pageOf(pageIndex + 1, total)}
           </span>
           <Button
@@ -992,7 +992,7 @@ function EditCanvasInner({
         <div className="glass rounded-ios mt-3 p-4">
           <label
             htmlFor="edit-pdf-text"
-            className="hud-label mb-2 block text-[10px] text-muted-foreground"
+            className="ui-label mb-2 block text-muted-foreground"
           >
             {strings.textEditorTitle}
           </label>
@@ -1008,7 +1008,7 @@ function EditCanvasInner({
                 text: event.target.value,
               })
             }
-            className="w-full resize-y rounded-ios-sm border border-white/14 bg-white/5 p-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60"
+            className="w-full resize-y rounded-ios-sm border border-white/14 bg-white/5 p-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
           />
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             {strings.textEditorHint}
@@ -1017,7 +1017,7 @@ function EditCanvasInner({
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="hud-label text-[10px] text-muted-foreground tabular-nums">
+        <p className="text-caption text-muted-foreground tabular-nums">
           {strings.elementsOnPage(pageElements.length)} ·{" "}
           {strings.totalElements(elements.length)}
         </p>
@@ -1067,7 +1067,7 @@ function EditCanvasInner({
 
       {thumbs.length > 1 ? (
         <div className="mt-6">
-          <h4 className="hud-label mb-2 text-[10px] text-muted-foreground">
+          <h4 className="ui-label mb-2 text-muted-foreground">
             {strings.thumbsTitle}
           </h4>
           <ul className="flex gap-2 overflow-x-auto pb-2">
@@ -1097,7 +1097,7 @@ function EditCanvasInner({
                       draggable={false}
                       className="block w-16 rounded-[8px]"
                     />
-                    <span className="hud-label absolute right-1 bottom-1 rounded-full bg-background/85 px-1.5 py-0.5 text-[9px] text-foreground tabular-nums">
+                    <span className="absolute right-1 bottom-1 rounded-full bg-background/85 px-1.5 py-0.5 text-caption-2 leading-tight font-semibold text-foreground tabular-nums">
                       {count > 0 ? `${index + 1} · ${count}` : index + 1}
                     </span>
                   </button>

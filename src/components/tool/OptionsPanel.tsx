@@ -17,8 +17,9 @@ export type OptionsPanelProps = {
 };
 
 /**
- * Desktop: barra lateral derecha pegajosa.
- * Movil: bottom sheet iOS con grabber.
+ * Escritorio: panel lateral derecho pegajoso sobre superficie solida (un
+ * panel no pasa por encima de nada: sin blur). Movil: bottom sheet con el
+ * tacto de iOS (`Sheet`, W1-B) con la accion primaria al pie.
  */
 export function OptionsPanel({
   open,
@@ -40,7 +41,7 @@ export function OptionsPanel({
         title={heading}
         closeLabel={t.common.close}
       >
-        <div className="space-y-5">{children}</div>
+        <div className="space-y-5 pt-2">{children}</div>
         {footer ? <div className="mt-6">{footer}</div> : null}
       </Sheet>
     );
@@ -48,14 +49,13 @@ export function OptionsPanel({
 
   return (
     <aside
+      aria-label={heading}
       className={cn(
-        "glass rounded-ios sticky top-24 hidden h-fit w-full shrink-0 p-5 md:block md:w-[320px]",
+        "surface-card sticky top-20 hidden h-fit w-full shrink-0 rounded-ios p-5 md:block md:w-[320px] lg:top-6",
         className,
       )}
     >
-      <h2 className="hud-label mb-4 text-[11px] text-muted-foreground">
-        {heading}
-      </h2>
+      <h2 className="mb-4 text-headline text-foreground">{heading}</h2>
       <div className="space-y-5">{children}</div>
       {footer ? <div className="mt-6">{footer}</div> : null}
     </aside>

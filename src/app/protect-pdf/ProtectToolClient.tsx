@@ -77,7 +77,7 @@ export function ProtectToolClient() {
               className="mt-0.5 size-5 shrink-0 text-accent-security"
             />
             <div className="min-w-0">
-              <h3 className="hud-label text-[11px] text-foreground">
+              <h3 className="text-headline text-foreground">
                 {s.infoTitle}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -174,7 +174,7 @@ export function ProtectToolClient() {
             </div>
 
             <div className="mt-2 border-t border-white/10 pt-4">
-              <h3 className="hud-label text-[11px] text-foreground">
+              <h3 className="text-subheadline font-semibold text-foreground">
                 {s.permissionsTitle}
               </h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

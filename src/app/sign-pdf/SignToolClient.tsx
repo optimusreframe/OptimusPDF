@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { PenLine } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
@@ -122,7 +129,12 @@ export type SignToolOptions = {
   rect: NormalizedRect;
 
   /* --- Varios firmantes --- */
-  /** Documento al que pertenecen los huecos y los trazos guardados. */
+  /**
+   * Huella del documento al que pertenecen los huecos y los trazos
+   * guardados. `""` = aun sin sellar: documento recien cargado (o recien
+   * cambiado) cuya huella todavia no ha llegado; lo que se haga mientras
+   * tanto se conserva y la huella solo lo sella al llegar.
+   */
   signature: string;
   step: MultiStep;
   signers: Signer[];
@@ -166,6 +178,25 @@ const DEFAULT_OPTIONS: SignToolOptions = {
   captures: {},
   activeSignerId: null,
   fieldType: "signature",
+  fieldPageIndex: 0,
+  selectedFieldId: null,
+  textFields: [],
+  textValues: {},
+  textFieldPageIndex: 0,
+  selectedTextFieldId: null,
+  editingTextFieldId: null,
+  textFieldsDetectedFor: null,
+};
+
+/**
+ * Lo que describe UN documento concreto: huecos, trazos y campos de texto.
+ * Se vuelve a este estado cuando el documento cambia; los firmantes, el
+ * modo y el tipo de hueco activo no dependen del documento y sobreviven.
+ */
+const CLEARED_DOCUMENT_STATE: Partial<SignToolOptions> = {
+  step: "signers",
+  fields: [],
+  captures: {},
   fieldPageIndex: 0,
   selectedFieldId: null,
   textFields: [],
@@ -815,7 +846,7 @@ export function SignToolClient() {
           </section>
         ) : (
           <section className="space-y-3">
-            <span className="hud-label block text-[10px] text-muted-foreground">
+            <span className="ui-label block text-muted-foreground">
               {strings.modeMulti}
             </span>
             <p className="text-sm text-foreground tabular-nums">
@@ -944,7 +975,7 @@ export function SignToolClient() {
                     maxLength={TEMPLATE_NAME_MAX}
                     placeholder={strings.saveTemplateNamePlaceholder}
                     onChange={(event) => setTemplateName(event.target.value)}
-                    className="mb-3 h-10 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60"
+                    className="mb-3 h-10 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
                   />
                   {templateFeedback ? (
                     <p role="status" className="pb-2 text-xs text-muted-foreground">
@@ -1016,7 +1047,7 @@ type SignAgainPromptProps = {
 function SignAgainPrompt({ onAccept, strings }: SignAgainPromptProps) {
   return (
     <div className="glass rounded-ios mt-6 flex flex-col items-center gap-3 p-5 text-center">
-      <h3 className="text-base font-black tracking-[-0.02em] text-foreground">
+      <h3 className="text-headline text-foreground">
         {strings.signAgainTitle}
       </h3>
       <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
@@ -1134,33 +1165,83 @@ export function MultiFlow({
   const detectedForRef = useRef<string | null>(options.textFieldsDetectedFor);
 
   /**
-   * Los huecos y los trazos describen un documento concreto. Al cambiar
-   * el archivo se empieza de cero: heredarlos colocaria firmas sobre
-   * paginas que nadie llego a ver. Los firmantes si sobreviven, porque no
-   * dependen del documento. Mientras no haya huella no se decide nada:
-   * las capturas ya cuentan como invalidas hasta que llegue.
+   * Opciones ya confirmadas en pantalla. La deteccion termina mucho
+   * despues de arrancar y tiene que mirar lo que la persona tiene AHORA
+   * (campos anadidos a mano mientras tanto), no lo de cuando salio. Se
+   * actualiza al confirmar cada render (layout), nunca durante el.
+   */
+  const latestOptionsRef = useRef(options);
+  useLayoutEffect(() => {
+    latestOptionsRef.current = options;
+  });
+
+  /**
+   * Cambio de ARCHIVO: es lo que reinicia el documento, no la llegada de
+   * su huella. Los huecos y los trazos describen un documento concreto;
+   * al cambiar el archivo se empieza de cero -- heredarlos colocaria
+   * firmas sobre paginas que nadie llego a ver. Los firmantes si
+   * sobreviven, porque no dependen del documento. Se limpia en el acto y
+   * se deja `signature` sin sellar (`""`): lo que la persona haga en el
+   * archivo nuevo mientras llega su huella se conserva, y la huella solo
+   * lo sella (efecto de mas abajo).
+   *
+   * Solo cuenta un cambio de un archivo a otro CON LAS MISMAS opciones.
+   * Si en el mismo render cambian el archivo Y las opciones, es una carga
+   * externa (reanudar un borrador, importar una configuracion) que trae
+   * su propio estado, ya coherente con el archivo nuevo: se respeta, y si
+   * su huella no coincide con la del archivo el efecto de sellado de mas
+   * abajo lo reinicia igualmente.
+   */
+  const seenRef = useRef<{ file: File | null; options: SignToolOptions }>({
+    file,
+    options,
+  });
+  useEffect(() => {
+    const previous = seenRef.current;
+    seenRef.current = { file: file ?? previous.file, options };
+    if (!file || !previous.file || previous.file === file) return;
+    if (previous.options !== options) return;
+    // En el acto, dentro del propio efecto: el render siguiente ya no ve
+    // lo del documento anterior (y cancela un reinicio por huella pendiente).
+    setOptions({ signature: "", ...CLEARED_DOCUMENT_STATE });
+    detectedForRef.current = null;
+    // `queueMicrotask` para no llamar a `setState` sincrono en el cuerpo
+    // del efecto (mismo patron que `FileList.tsx:FileThumbnail`).
+    queueMicrotask(() => {
+      setReuseMatches(null);
+      setDetectionFailed(false);
+      setDetecting(false);
+      setPendingSignerUndo(null);
+    });
+  }, [file, options, setOptions]);
+
+  /**
+   * Llega la huella del archivo cargado. Se SELLA, sin tocar el trabajo:
+   *  - `signature === ""` (nada sellado: primer documento, o archivo recien
+   *    cambiado): solo se sella. Lo hecho mientras llegaba -- con un PDF
+   *    grande la huella tarda y una persona rapida ya creo firmante,
+   *    huecos y campos -- se conserva.
+   *  - `signature` es la huella de OTRO documento (una carga externa para
+   *    otro archivo: borrador, plantilla, configuracion): se reinicia, para
+   *    no mezclar documentos.
+   * Mientras no hay huella (`null`) ninguna captura vale (`validCapture`),
+   * `SigningCeremony` espera y `multiReady` no da por lista una ronda con
+   * huecos: no se firma nada sin ella. El relleno de texto no depende de
+   * ella: `process()` recalcula la huella justo antes de escribir.
    */
   useEffect(() => {
     if (documentKey === null || options.signature === documentKey) return;
+    const unsealed = options.signature === "";
     // `queueMicrotask` para no llamar a `setState` sincrono en el cuerpo
     // del efecto (mismo patron que `FileList.tsx:FileThumbnail`).
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      setOptions({
-        signature: documentKey,
-        step: "signers",
-        fields: [],
-        captures: {},
-        fieldPageIndex: 0,
-        selectedFieldId: null,
-        textFields: [],
-        textValues: {},
-        textFieldPageIndex: 0,
-        selectedTextFieldId: null,
-        editingTextFieldId: null,
-        textFieldsDetectedFor: null,
-      });
+      if (unsealed) {
+        setOptions({ signature: documentKey });
+        return;
+      }
+      setOptions({ signature: documentKey, ...CLEARED_DOCUMENT_STATE });
       setReuseMatches(null);
       setDetectionFailed(false);
     });
@@ -1169,13 +1250,19 @@ export function MultiFlow({
     };
   }, [documentKey, options.signature, setOptions]);
 
+  /** La huella ya sella el estado de las opciones (o lo restaurado ya traia la suya). */
+  const sealedToDocument = documentKey !== null && options.signature === documentKey;
+
   /**
    * Deteccion de campos de texto (AcroForm + heuristica vectorial/raster)
-   * del documento nuevo. Depende solo de `documentKey`/`file` -nunca de
-   * `options.signature` ni de nada que la propia deteccion module- para
-   * no cancelarse a si misma a mitad. Un fallo nunca bloquea nada: el
-   * usuario siempre puede seguir anadiendo campos a mano
-   * (`detectionFailedHint`).
+   * del documento nuevo. Arranca cuando el estado ya esta sellado a su
+   * huella: asi nunca corre mientras un reinicio pendiente puede borrar lo
+   * que deje. Depende solo de `documentKey`/`file` y de ese sello -nunca
+   * de nada que la propia deteccion module- para no cancelarse a si
+   * misma a mitad: el sello solo pasa de falso a verdadero una vez y la
+   * deteccion no lo toca; si cambia el documento, cancelarla es lo
+   * correcto. Un fallo nunca bloquea nada: el usuario siempre puede seguir
+   * anadiendo campos a mano (`detectionFailedHint`).
    *
    * `detectedForRef` arranca sembrado con `options.textFieldsDetectedFor`
    * (ver el comentario junto a su declaracion): un borrador restaurado o
@@ -1184,9 +1271,13 @@ export function MultiFlow({
    * recien cargado y pisaria en silencio los campos restaurados,
    * incluidos los anadidos a mano que la deteccion nunca podria
    * reconstruir por si sola.
+   *
+   * Si al terminar ya hay campos (anadidos a mano mientras tanto, o de un
+   * borrador guardado antes de que acabara la deteccion), se conservan y
+   * los detectados se suman: la deteccion nunca pisa lo que hizo la persona.
    */
   useEffect(() => {
-    if (!file || documentKey === null) return;
+    if (!file || documentKey === null || !sealedToDocument) return;
     if (detectedForRef.current === documentKey) return;
     detectedForRef.current = documentKey;
 
@@ -1195,7 +1286,15 @@ export function MultiFlow({
     void detectFields(file)
       .then((detected) => {
         if (cancelled) return;
-        setOptions({ textFields: detected, textFieldsDetectedFor: documentKey });
+        const existing = latestOptionsRef.current.textFields;
+        const known = new Set(existing.map((field) => field.id));
+        setOptions({
+          textFields:
+            existing.length === 0
+              ? detected
+              : [...existing, ...detected.filter((field) => !known.has(field.id))],
+          textFieldsDetectedFor: documentKey,
+        });
         if (documentKey && hasDeclinedReuse(documentKey)) return;
         const matches = matchingStoredValues(detected);
         if (Object.keys(matches).length > 0) setReuseMatches(matches);
@@ -1209,7 +1308,7 @@ export function MultiFlow({
     return () => {
       cancelled = true;
     };
-  }, [documentKey, file, setOptions]);
+  }, [documentKey, file, sealedToDocument, setOptions]);
 
   /**
    * Cachea los bytes leidos del `File` actual: se necesitan en cada
@@ -1473,8 +1572,8 @@ export function MultiFlow({
               onClick={() => setOptions({ step })}
               className={
                 active
-                  ? "hud-label min-h-11 rounded-ios-sm border border-signal/60 bg-signal/15 px-3 text-[10px] text-foreground"
-                  : "hud-label min-h-11 rounded-ios-sm border border-white/10 bg-white/5 px-3 text-[10px] text-muted-foreground transition-colors enabled:hover:border-white/25 enabled:hover:text-foreground disabled:opacity-40"
+                  ? "min-h-11 rounded-ios-sm border border-signal/60 bg-signal/15 px-3 text-footnote font-semibold text-foreground"
+                  : "min-h-11 rounded-ios-sm border border-white/10 bg-white/5 px-3 text-footnote font-semibold text-muted-foreground transition-colors enabled:hover:border-white/25 enabled:hover:text-foreground disabled:opacity-40"
               }
             >
               {index + 1}. {stepLabels[step]}
@@ -1662,7 +1761,7 @@ export function MultiFlow({
        */}
       {options.step === "sign" && options.fields.length === 0 ? (
         <div className="glass rounded-ios p-5">
-          <h4 className="text-base font-black tracking-[-0.02em] text-foreground">
+          <h4 className="text-headline text-foreground">
             {strings.textOnlyReadyTitle}
           </h4>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">

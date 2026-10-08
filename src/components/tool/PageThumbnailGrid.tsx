@@ -44,6 +44,14 @@ export function PageThumbnailGrid(props: PageThumbnailGridProps) {
   return <PageThumbnailGridInner key={key} {...props} />;
 }
 
+/*
+ * Rejilla de paginas sobre superficie solida: numero de pagina como
+ * etiqueta sobre la miniatura, acciones debajo (40 px con puntero grueso:
+ * cuatro acciones no caben a 44 en una celda de 165 px a 375 px). La
+ * reordenacion sigue siendo HTML5 drag and drop (logica intacta) con las
+ * flechas como alternativa sin arrastre; la celda destino se marca con
+ * anillo y escala, la arrastrada se atenua.
+ */
 function PageThumbnailGridInner({
   files,
   selectable = false,
@@ -63,6 +71,11 @@ function PageThumbnailGridInner({
 
   const changeRef = useRef(onItemsChange);
   const errorRef = useRef(onError);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  /* Boton "Quitar" de cada pagina, por id (la lista se reordena). */
+  const removeButtonsRef = useRef(new Map<string, HTMLButtonElement>());
+  /* Posicion cuyo boton "Quitar" debe recibir el foco tras el proximo render. */
+  const pendingFocusRef = useRef<number | null>(null);
 
   useEffect(() => {
     changeRef.current = onItemsChange;
@@ -132,6 +145,21 @@ function PageThumbnailGridInner({
     changeRef.current?.(items);
   }, [items]);
 
+  // Tras quitar una pagina, el foco pasa al "Quitar" de la pagina que ocupa
+  // ahora esa posicion (o al de la ultima), como hace FileList con los
+  // archivos. Si no queda ninguna, la fila de acciones desaparece y el foco
+  // va al encabezado de la rejilla: nunca cae a <body>.
+  useEffect(() => {
+    const index = pendingFocusRef.current;
+    if (index === null) return;
+    pendingFocusRef.current = null;
+    const next = items[Math.min(index, items.length - 1)];
+    const target =
+      (next ? removeButtonsRef.current.get(next.id) : null) ??
+      headingRef.current;
+    target?.focus();
+  }, [items]);
+
   const update = useCallback(
     (id: string, patch: Partial<PageRef>) => {
       setItems((previous) =>
@@ -157,29 +185,42 @@ function PageThumbnailGridInner({
     [moveTo],
   );
 
-  const removeAt = useCallback((id: string) => {
+  const removeAt = useCallback((id: string, index: number) => {
+    pendingFocusRef.current = index;
     setItems((previous) => previous.filter((item) => item.id !== id));
   }, []);
 
   if (files.length === 0) return null;
 
+  const hasActions = reorderable || rotatable || removable;
+
   return (
     <div className={className}>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="hud-label text-[11px] text-muted-foreground">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3
+          ref={headingRef}
+          tabIndex={-1}
+          className="ui-label text-muted-foreground"
+        >
           {t.tool.pagesPreview}
         </h3>
-        {reorderable ? (
-          <span className="hud-label text-[10px] text-muted-foreground">
-            {t.tool.dragToReorder}
-          </span>
-        ) : null}
-        {loading ? <Spinner className="size-4" /> : null}
+        <div className="flex items-center gap-3">
+          {reorderable ? (
+            <span className="hidden text-caption text-muted-foreground sm:block">
+              {t.tool.dragToReorder}
+            </span>
+          ) : null}
+          {loading ? (
+            <Spinner className="size-4" label={t.common.loading} />
+          ) : null}
+        </div>
       </div>
 
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {items.map((item, index) => {
           const thumb = thumbs[item.id];
+          const isOver =
+            reorderable && overIndex === index && dragIndex !== index;
           return (
             <li
               key={item.id}
@@ -221,14 +262,13 @@ function PageThumbnailGridInner({
                   : undefined
               }
               className={cn(
-                "glass rounded-ios-sm group relative overflow-hidden p-2 transition-all duration-200 ease-spring",
+                "surface-card relative rounded-ios-sm p-2",
+                "transition-[opacity,scale,box-shadow,border-color] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
                 selectable && !item.selected && "opacity-40",
                 reorderable && "cursor-grab active:cursor-grabbing",
                 reorderable && dragIndex === index && "opacity-40",
-                reorderable &&
-                  overIndex === index &&
-                  dragIndex !== index &&
-                  "ring-signal/60 ring-2",
+                isOver &&
+                  "scale-[1.02] border-signal shadow-[0_0_0_2px_var(--color-signal),var(--shadow-elevation-2)]",
               )}
             >
               <button
@@ -237,8 +277,15 @@ function PageThumbnailGridInner({
                 onClick={() =>
                   selectable && update(item.id, { selected: !item.selected })
                 }
-                className="block w-full"
+                className={cn(
+                  "relative block w-full rounded-[10px]",
+                  selectable &&
+                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
+                )}
                 aria-pressed={selectable ? item.selected : undefined}
+                aria-label={
+                  selectable ? `${t.tool.page} ${index + 1}` : undefined
+                }
               >
                 <span className="flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">
                   {thumb ? (
@@ -246,20 +293,29 @@ function PageThumbnailGridInner({
                     <img
                       src={thumb}
                       alt={`${t.tool.page} ${index + 1}`}
-                      className="max-h-full max-w-full object-contain transition-transform duration-300 ease-spring"
+                      className="max-h-full max-w-full object-contain transition-transform duration-[var(--duration-slow)] ease-[var(--ease-spring)]"
                       style={{ transform: `rotate(${item.rotation}deg)` }}
                     />
                   ) : (
                     <Spinner className="size-4" />
                   )}
                 </span>
-              </button>
-
-              <div className="mt-2 flex items-center justify-between gap-1">
-                <span className="hud-label text-[9px] text-muted-foreground">
+                <span
+                  aria-hidden="true"
+                  className="absolute top-1.5 left-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-background/75 px-1.5 text-caption-2 leading-none font-semibold text-foreground tabular-nums"
+                >
                   {index + 1}
                 </span>
-                <div className="flex items-center gap-0.5">
+                {selectable && item.selected ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-1.5 right-1.5 size-3 rounded-full border-2 border-background bg-signal"
+                  />
+                ) : null}
+              </button>
+
+              {hasActions ? (
+                <div className="-mx-1 mt-1.5 flex items-center justify-end">
                   {reorderable ? (
                     <>
                       <MiniButton
@@ -267,14 +323,14 @@ function PageThumbnailGridInner({
                         disabled={index === 0}
                         onClick={() => move(index, -1)}
                       >
-                        <ArrowLeft aria-hidden="true" className="size-3" />
+                        <ArrowLeft aria-hidden="true" className="size-3.5" />
                       </MiniButton>
                       <MiniButton
                         label={t.tool.moveDown}
                         disabled={index === items.length - 1}
                         onClick={() => move(index, 1)}
                       >
-                        <ArrowRight aria-hidden="true" className="size-3" />
+                        <ArrowRight aria-hidden="true" className="size-3.5" />
                       </MiniButton>
                     </>
                   ) : null}
@@ -287,19 +343,23 @@ function PageThumbnailGridInner({
                         })
                       }
                     >
-                      <RotateCw aria-hidden="true" className="size-3" />
+                      <RotateCw aria-hidden="true" className="size-3.5" />
                     </MiniButton>
                   ) : null}
                   {removable ? (
                     <MiniButton
                       label={t.tool.remove}
-                      onClick={() => removeAt(item.id)}
+                      onClick={() => removeAt(item.id, index)}
+                      buttonRef={(element) => {
+                        if (element) removeButtonsRef.current.set(item.id, element);
+                        else removeButtonsRef.current.delete(item.id);
+                      }}
                     >
-                      <Trash2 aria-hidden="true" className="size-3" />
+                      <Trash2 aria-hidden="true" className="size-3.5" />
                     </MiniButton>
                   ) : null}
                 </div>
-              </div>
+              ) : null}
             </li>
           );
         })}
@@ -313,20 +373,29 @@ function MiniButton({
   disabled,
   onClick,
   children,
+  buttonRef,
 }: {
   label: string;
   disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  buttonRef?: (element: HTMLButtonElement | null) => void;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/12 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+      className={cn(
+        "flex size-8 items-center justify-center rounded-full text-muted-foreground pointer-coarse:size-10",
+        "transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
+        "hover:bg-white/10 hover:text-foreground active:scale-90 active:duration-[80ms]",
+        "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal",
+        "disabled:pointer-events-none disabled:opacity-30",
+      )}
     >
       {children}
     </button>

@@ -53,7 +53,7 @@ export function OcrToolClient() {
               className="mt-0.5 size-5 shrink-0 text-accent-optimize"
             />
             <div className="min-w-0">
-              <h3 className="hud-label text-[11px] text-foreground">
+              <h3 className="text-headline text-foreground">
                 {s.howItWorksTitle}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">

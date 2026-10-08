@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -8,9 +9,11 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { AlertTriangle, SlidersHorizontal } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { AlertTriangle, Info, SlidersHorizontal, X } from "lucide-react";
+import { useScrollEdge } from "@/components/layout/useScrollEdge";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { FileDropzone } from "@/components/tool/FileDropzone";
 import { FileList } from "@/components/tool/FileList";
 import { OptionsPanel } from "@/components/tool/OptionsPanel";
@@ -18,6 +21,7 @@ import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
 import { DownloadScreen } from "@/components/tool/DownloadScreen";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { springs, withCrossFadeOpacity } from "@/lib/motion";
 import { addRecentEntry } from "@/lib/recent";
 import {
   downloadBlob,
@@ -25,7 +29,12 @@ import {
   type PdfErrorCode,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { ACCENT_BG_SOFT, ACCENT_TEXT, type Tool } from "@/lib/tools-registry";
+import {
+  ACCENT_BG_SOFT,
+  ACCENT_TEXT,
+  toolHref,
+  type Tool,
+} from "@/lib/tools-registry";
 
 export type ProcessResult = {
   blob: Blob;
@@ -118,6 +127,31 @@ export type ToolShellProps<TOptions> = {
 
 type Phase = "idle" | "files" | "options" | "processing" | "done";
 
+/** A donde va el foco tras el proximo render (ver `focusPending`). */
+type FocusTarget = "run" | "download" | "dropzone";
+
+/** Un elemento se puede enfocar si esta pintado (fixed incluido) y no es inert. */
+function isFocusable(element: HTMLElement | null): element is HTMLElement {
+  return (
+    !!element &&
+    element.isConnected &&
+    element.getClientRects().length > 0 &&
+    !element.closest("[inert]")
+  );
+}
+
+function fillTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
+}
+
+/**
+ * Errores con una salida directa: el mensaje ya la nombra en lenguaje
+ * llano; aqui se convierte en un boton que lleva a ella.
+ */
+const ERROR_ACTIONS: Partial<Record<PdfErrorCode, { href: string; labelKey: "encryptedAction" }>> = {
+  encrypted: { href: toolHref("unlock-pdf"), labelKey: "encryptedAction" },
+};
+
 export function ToolShell<TOptions>({
   tool,
   defaultOptions,
@@ -135,6 +169,7 @@ export function ToolShell<TOptions>({
   const t = useT();
   const Icon = tool.icon;
   const copy = t.tools[tool.slug];
+  const belowHasContent = useScrollEdge("bottom");
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [files, setFiles] = useState<File[]>([]);
@@ -145,15 +180,43 @@ export function ToolShell<TOptions>({
   const runIdRef = useRef(0);
   /** Controlador de la ejecucion en curso; `cancel()` lo aborta. */
   const abortRef = useRef<AbortController | null>(null);
+  /** Archivos descartados por formato en la ultima carga (aviso no bloqueante). */
+  const [skipped, setSkipped] = useState<string[]>([]);
+
+  /*
+   * Foco por fase. Lo que tenia el foco antes de procesar se desmonta
+   * (el boton Procesar vive en el area de trabajo), asi que el overlay no
+   * puede "devolverlo": aqui se decide el destino segun lo que acaba de
+   * pasar y se aplica tras el render. Reintenta unos frames porque, al
+   * terminar, el overlay sigue saliendo (AnimatePresence) y hasta que
+   * retira `inert` del resto de la pagina el destino no es enfocable.
+   */
+  const pendingFocusRef = useRef<FocusTarget | null>(null);
+  const runDesktopRef = useRef<HTMLButtonElement>(null);
+  const runMobileRef = useRef<HTMLButtonElement>(null);
+  const downloadRef = useRef<HTMLButtonElement>(null);
+  const dropzoneButtonRef = useRef<HTMLButtonElement>(null);
 
   const setOptions = useCallback((patch: Partial<TOptions>) => {
     setOptionsState((previous) => ({ ...previous, ...patch }));
   }, []);
 
   const onFilesChange = useCallback((next: File[]) => {
-    setFiles(next);
+    setFiles((previous) => {
+      // Al quitar el ultimo archivo la lista se desmonta: el foco va a la
+      // zona de carga en vez de caer a <body>.
+      if (next.length === 0 && previous.length > 0) {
+        pendingFocusRef.current = "dropzone";
+      }
+      return next;
+    });
     setError(null);
+    setSkipped([]);
     setPhase(next.length === 0 ? "idle" : "files");
+  }, []);
+
+  const onSkipped = useCallback((files: File[]) => {
+    setSkipped(files.map((file) => file.name));
   }, []);
 
   /**
@@ -178,6 +241,8 @@ export function ToolShell<TOptions>({
       setResult(null);
       setProgress(0);
       setError(null);
+      setSkipped([]);
+      pendingFocusRef.current = "dropzone";
       setPhase("idle");
     },
     [defaultOptions],
@@ -201,6 +266,7 @@ export function ToolShell<TOptions>({
       setResult(null);
       setProgress(0);
       setError(null);
+      setSkipped([]);
       setPhase(nextFiles.length === 0 ? "idle" : "files");
     },
     [defaultOptions],
@@ -243,10 +309,12 @@ export function ToolShell<TOptions>({
       if (runIdRef.current !== runId) return;
       setResult(output);
       addRecentEntry(tool.slug, output.filename);
+      pendingFocusRef.current = "download";
       setPhase("done");
     } catch (caught) {
       if (runIdRef.current !== runId) return;
       setError(toPdfError(caught).code);
+      pendingFocusRef.current = "run";
       setPhase("files");
     }
   }, [canRunProp, files, minFiles, options, process, tool.slug]);
@@ -281,10 +349,43 @@ export function ToolShell<TOptions>({
     // que escuchan la senal dejan de gastar CPU en el acto.
     abortRef.current?.abort();
     abortRef.current = null;
+    pendingFocusRef.current = "run";
     setPhase("files");
     setProgress(0);
     setError("cancelled");
   }, []);
+
+  // Aplica el foco pendiente tras el render de la fase nueva.
+  useEffect(() => {
+    const target = pendingFocusRef.current;
+    if (!target) return;
+    pendingFocusRef.current = null;
+    const candidates = (): (HTMLButtonElement | null)[] => {
+      switch (target) {
+        case "run":
+          return [runDesktopRef.current, runMobileRef.current];
+        case "download":
+          return [downloadRef.current];
+        case "dropzone":
+          return [dropzoneButtonRef.current];
+      }
+    };
+    let attempts = 0;
+    let frame = 0;
+    const tryFocus = () => {
+      const element = candidates().find(isFocusable);
+      if (element) {
+        element.focus({ preventScroll: true });
+        if (document.activeElement === element) return;
+      }
+      attempts += 1;
+      if (attempts < 30) frame = window.requestAnimationFrame(tryFocus);
+    };
+    tryFocus();
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [phase, files]);
 
   const canRun =
     files.length >= minFiles &&
@@ -298,8 +399,30 @@ export function ToolShell<TOptions>({
     setError,
   };
 
+  // Barra de accion fija en movil: el final de la pagina reserva su alto
+  // (globals.css lee este atributo; se retira siempre al salir de la fase).
+  useEffect(() => {
+    if (!showWorkspace) return;
+    document.documentElement.setAttribute("data-action-bar", "");
+    return () => {
+      document.documentElement.removeAttribute("data-action-bar");
+    };
+  }, [showWorkspace]);
+
+  const skippedNotice =
+    skipped.length === 1
+      ? fillTemplate(t.tool.skippedOne, { names: skipped[0] })
+      : skipped.length > 1
+        ? fillTemplate(t.tool.skippedMany, {
+            count: String(skipped.length),
+            names: skipped.join(", "),
+          })
+        : null;
+
+  const errorAction = error ? ERROR_ACTIONS[error] : undefined;
+
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-4 pt-8 pb-40 md:px-6 md:pt-12 md:pb-16">
+    <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-40 md:px-6 md:pt-10 md:pb-16">
       <header className="mb-8 flex items-start gap-4">
         <span
           className={cn(
@@ -313,39 +436,106 @@ export function ToolShell<TOptions>({
           />
         </span>
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-black tracking-[-0.025em] text-foreground md:text-3xl">
-              {copy.name}
-            </h1>
-            <Badge variant={tool.status === "live" ? "live" : "soon"} dot>
-              {tool.status === "live" ? t.common.live : t.common.soon}
-            </Badge>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-title-1 text-foreground">{copy.name}</h1>
+            {tool.status === "soon" ? (
+              <Badge variant="soon">{t.common.soon}</Badge>
+            ) : null}
           </div>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          <p className="mt-1.5 max-w-2xl text-callout text-muted-foreground">
             {copy.description}
           </p>
         </div>
       </header>
 
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-ios mb-6 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4"
+      <AnimatePresence initial={false}>
+        {error ? (
+          <motion.div
+            key={error}
+            role="alert"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={withCrossFadeOpacity(springs.snappy)}
+            className="mb-6 flex items-start gap-3 rounded-ios border border-destructive/35 bg-destructive/10 p-4 pr-2"
+          >
+            <AlertTriangle
+              aria-hidden="true"
+              className="mt-0.5 size-5 shrink-0 text-destructive"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-subheadline font-semibold text-foreground">
+                {t.tool.errors.title}
+              </p>
+              <p className="mt-0.5 text-subheadline text-muted-foreground">
+                {t.tool.errors[error]}
+              </p>
+              {errorAction ? (
+                <Link
+                  href={errorAction.href}
+                  className={cn(buttonClasses("secondary", "sm"), "mt-3")}
+                >
+                  {t.tool.errors[errorAction.labelKey]}
+                </Link>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              aria-label={t.common.close}
+              className="group -mt-2 flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-6px] focus-visible:outline-signal"
+            >
+              <span className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-hover:bg-white/10 group-hover:text-foreground group-active:scale-90 group-active:duration-[80ms]">
+                <X className="size-4" />
+              </span>
+            </button>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      {/*
+        Region viva SIEMPRE montada: varios lectores de pantalla no anuncian
+        una region que nace ya con contenido, asi que mientras no hay aviso el
+        <p role="status"> existe vacio (sin caja ni margen) y lo unico que
+        cambia es su texto. La caja visible (icono + boton de cierre) solo
+        aparece con aviso; el boton queda fuera de la region para que no se
+        lea junto al mensaje.
+      */}
+      <div
+        className={
+          skippedNotice
+            ? "mb-6 flex items-start gap-3 rounded-ios border border-hairline bg-white/5 p-4 pr-2"
+            : undefined
+        }
+      >
+        {skippedNotice ? (
+          <Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+        ) : null}
+        <p
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={
+            skippedNotice
+              ? "min-w-0 flex-1 pt-0.5 text-subheadline text-foreground"
+              : undefined
+          }
         >
-          <AlertTriangle
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-destructive"
-          />
-          <div>
-            <p className="hud-label text-[10px] text-destructive">
-              {t.tool.errors.title}
-            </p>
-            <p className="mt-1 text-sm text-foreground">
-              {t.tool.errors[error]}
-            </p>
-          </div>
-        </div>
-      ) : null}
+          {skippedNotice}
+        </p>
+        {skippedNotice ? (
+          <button
+            type="button"
+            onClick={() => setSkipped([])}
+            aria-label={t.common.close}
+            className="group -mt-2 flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-6px] focus-visible:outline-signal"
+          >
+            <span className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-hover:bg-white/10 group-hover:text-foreground group-active:scale-90 group-active:duration-[80ms]">
+              <X className="size-4" />
+            </span>
+          </button>
+        ) : null}
+      </div>
 
       {phase === "idle" ? (
         <FileDropzone
@@ -353,15 +543,24 @@ export function ToolShell<TOptions>({
           files={files}
           onFilesChange={onFilesChange}
           onError={setError}
+          onSkipped={onSkipped}
+          buttonRef={dropzoneButtonRef}
         />
       ) : null}
 
       {showWorkspace ? (
-        <div className="flex flex-col gap-6 md:flex-row md:items-start">
+        <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-8">
           <div className="min-w-0 flex-1">
-            <h2 className="hud-label mb-3 text-[11px] text-muted-foreground">
-              {t.tool.filesTitle}
-            </h2>
+            <div className="mb-3 flex items-baseline justify-between gap-3">
+              <h2 className="ui-label text-muted-foreground">
+                {t.tool.filesTitle}
+              </h2>
+              {files.length > 1 ? (
+                <span className="text-caption text-muted-foreground tabular-nums">
+                  {files.length}
+                </span>
+              ) : null}
+            </div>
             <FileList
               files={files}
               onChange={onFilesChange}
@@ -374,15 +573,21 @@ export function ToolShell<TOptions>({
                 files={files}
                 onFilesChange={onFilesChange}
                 onError={setError}
+                onSkipped={onSkipped}
                 compact
-                className="mt-4"
+                className="mt-3"
               />
             ) : null}
 
             {renderMain ? <div className="mt-8">{renderMain(context)}</div> : null}
 
             <div className="mt-8 hidden md:block">
-              <Button size="lg" disabled={!canRun} onClick={() => void run()}>
+              <Button
+                ref={runDesktopRef}
+                size="lg"
+                disabled={!canRun}
+                onClick={() => void run()}
+              >
                 {t.tool.run}
               </Button>
             </div>
@@ -414,8 +619,12 @@ export function ToolShell<TOptions>({
 
       {showWorkspace ? (
         <div
-          className="glass-bar fixed inset-x-0 z-30 flex items-center gap-3 border-t border-white/10 px-4 py-3 md:hidden"
-          style={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom, 0px))" }}
+          data-scrolled={belowHasContent ? "true" : "false"}
+          className="material-thick scroll-edge-top fixed inset-x-0 z-30 flex items-center gap-2 px-4 py-3 md:hidden"
+          style={{
+            borderWidth: 0,
+            bottom: "calc(4.5rem + env(safe-area-inset-bottom, 0px))",
+          }}
         >
           {renderOptions ? (
             <Button
@@ -428,6 +637,7 @@ export function ToolShell<TOptions>({
             </Button>
           ) : null}
           <Button
+            ref={runMobileRef}
             size="md"
             fullWidth
             disabled={!canRun}
@@ -438,13 +648,16 @@ export function ToolShell<TOptions>({
         </div>
       ) : null}
 
-      {phase === "processing" ? (
-        <ProcessingOverlay
-          progress={progress}
-          message={progressMessage ?? copy.name}
-          onCancel={cancel}
-        />
-      ) : null}
+      <AnimatePresence>
+        {phase === "processing" ? (
+          <ProcessingOverlay
+            key="processing"
+            progress={progress}
+            message={progressMessage ?? copy.name}
+            onCancel={cancel}
+          />
+        ) : null}
+      </AnimatePresence>
 
       {phase === "done" && result ? (
         <>
@@ -454,6 +667,7 @@ export function ToolShell<TOptions>({
             size={result.blob.size}
             onDownload={() => downloadBlob(result.blob, result.filename)}
             onStartOver={reset}
+            downloadButtonRef={downloadRef}
           />
           {renderDone ? renderDone({ result, options }) : null}
         </>

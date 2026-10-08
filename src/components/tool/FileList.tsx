@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, FileText, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Reorder, useDragControls } from "motion/react";
+import { ArrowDown, ArrowUp, FileText, GripVertical, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { localeTag } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { springs } from "@/lib/motion";
 import {
   MAX_SAFE_FILE_SIZE,
   closePdfDocument,
@@ -22,6 +24,30 @@ export type FileListProps = {
   className?: string;
 };
 
+/*
+ * Identidad estable por objeto File: dos archivos con el mismo nombre,
+ * tamaño y fecha son entradas distintas de la lista (y `Reorder` necesita
+ * valores unicos).
+ */
+const ids = new WeakMap<File, number>();
+let nextId = 1;
+function fileId(file: File): number {
+  let id = ids.get(file);
+  if (id === undefined) {
+    id = nextId++;
+    ids.set(file, id);
+  }
+  return id;
+}
+
+/**
+ * Lista agrupada al estilo iOS: un contenedor con separadores hairline,
+ * miniatura, nombre y peso. Con `reorderable` cada fila se arrastra desde
+ * el asa (1:1, las demas se apartan con spring) y conserva los botones
+ * Subir/Bajar como alternativa sin arrastre (WCAG 2.5.7). El asa es la
+ * unica zona que captura el gesto, asi el dedo sigue haciendo scroll
+ * sobre el resto de la fila.
+ */
 export function FileList({
   files,
   onChange,
@@ -30,6 +56,22 @@ export function FileList({
 }: FileListProps) {
   const { t, language } = useI18n();
   const locale = localeTag(language);
+  const canReorder = reorderable && files.length > 1;
+  const removeButtonsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  /* Indice cuyo boton "Quitar" debe recibir el foco tras el proximo render. */
+  const pendingFocusRef = useRef<number | null>(null);
+
+  // Tras quitar un archivo, el foco pasa al "Quitar" del archivo que ocupa
+  // ahora esa posicion (o al ultimo). Si no queda ninguno, la lista se
+  // desmonta y ToolShell lleva el foco a la zona de carga.
+  useEffect(() => {
+    const index = pendingFocusRef.current;
+    if (index === null) return;
+    pendingFocusRef.current = null;
+    const target =
+      removeButtonsRef.current[Math.min(index, files.length - 1)] ?? null;
+    target?.focus();
+  }, [files]);
 
   const move = (from: number, to: number) => {
     if (to < 0 || to >= files.length) return;
@@ -40,63 +82,147 @@ export function FileList({
   };
 
   const remove = (index: number) => {
+    pendingFocusRef.current = index;
     onChange(files.filter((_, position) => position !== index));
   };
 
   return (
-    <ul className={cn("space-y-2", className)}>
-      {files.map((file, index) => {
-        const oversized = file.size > MAX_SAFE_FILE_SIZE;
-        return (
-          <li
-            key={`${file.name}-${file.lastModified}-${file.size}`}
-            className="glass rounded-ios flex items-center gap-3 p-3"
+    <Reorder.Group
+      as="ul"
+      axis="y"
+      values={files}
+      onReorder={onChange}
+      className={cn(
+        "surface-card divide-y divide-hairline overflow-hidden rounded-ios",
+        className,
+      )}
+    >
+      {files.map((file, index) => (
+        <FileRow
+          key={fileId(file)}
+          file={file}
+          index={index}
+          count={files.length}
+          locale={locale}
+          canReorder={canReorder}
+          labels={{
+            moveUp: t.tool.moveUp,
+            moveDown: t.tool.moveDown,
+            remove: t.tool.remove,
+            drag: t.tool.dragToReorder,
+            tooLarge: t.tool.errors.tooLarge,
+          }}
+          onMove={move}
+          onRemove={remove}
+          removeRef={(element) => {
+            removeButtonsRef.current[index] = element;
+          }}
+        />
+      ))}
+    </Reorder.Group>
+  );
+}
+
+function FileRow({
+  file,
+  index,
+  count,
+  locale,
+  canReorder,
+  labels,
+  onMove,
+  onRemove,
+  removeRef,
+}: {
+  file: File;
+  index: number;
+  count: number;
+  locale: string;
+  canReorder: boolean;
+  labels: {
+    moveUp: string;
+    moveDown: string;
+    remove: string;
+    drag: string;
+    tooLarge: string;
+  };
+  onMove: (from: number, to: number) => void;
+  onRemove: (index: number) => void;
+  removeRef: (element: HTMLButtonElement | null) => void;
+}) {
+  const controls = useDragControls();
+  const oversized = file.size > MAX_SAFE_FILE_SIZE;
+
+  return (
+    <Reorder.Item
+      as="li"
+      value={file}
+      drag={canReorder ? "y" : false}
+      dragListener={false}
+      dragControls={controls}
+      layout="position"
+      transition={springs.default}
+      whileDrag={{
+        scale: 1.02,
+        boxShadow: "var(--shadow-elevation-3)",
+        zIndex: 1,
+      }}
+      className="relative flex items-center gap-3 bg-surface py-2.5 pr-1.5 pl-3"
+    >
+      <span className="h-12 w-9 shrink-0 overflow-hidden rounded-[6px] bg-white/6">
+        <FileThumbnail file={file} />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-subheadline font-medium text-foreground">
+          {file.name}
+        </p>
+        <p
+          className={cn(
+            "text-footnote tabular-nums",
+            oversized ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {formatFileSize(file.size, locale)}
+          {oversized ? ` · ${labels.tooLarge}` : ""}
+        </p>
+      </div>
+
+      {canReorder ? (
+        <div className="flex shrink-0 items-center">
+          <IconButton
+            label={labels.moveUp}
+            disabled={index === 0}
+            onClick={() => onMove(index, index - 1)}
           >
-            <span className="h-11 w-9 shrink-0 overflow-hidden rounded-ios-sm bg-white/6">
-              <FileThumbnail file={file} />
-            </span>
+            <ArrowUp aria-hidden="true" className="size-4" />
+          </IconButton>
+          <IconButton
+            label={labels.moveDown}
+            disabled={index === count - 1}
+            onClick={() => onMove(index, index + 1)}
+          >
+            <ArrowDown aria-hidden="true" className="size-4" />
+          </IconButton>
+          <span
+            role="presentation"
+            title={labels.drag}
+            onPointerDown={(event) => controls.start(event)}
+            className="hidden size-11 cursor-grab touch-none items-center justify-center rounded-full text-muted-foreground active:cursor-grabbing sm:flex"
+          >
+            <GripVertical aria-hidden="true" className="size-4" />
+          </span>
+        </div>
+      ) : null}
 
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">
-                {file.name}
-              </p>
-              <p
-                className={cn(
-                  "hud-label text-[10px]",
-                  oversized ? "text-destructive" : "text-muted-foreground",
-                )}
-              >
-                {formatFileSize(file.size, locale)}
-                {oversized ? ` · ${t.tool.errors.tooLarge}` : ""}
-              </p>
-            </div>
-
-            {reorderable && files.length > 1 ? (
-              <div className="flex shrink-0 items-center gap-1">
-                <IconButton
-                  label={t.tool.moveUp}
-                  disabled={index === 0}
-                  onClick={() => move(index, index - 1)}
-                >
-                  <ArrowUp aria-hidden="true" className="size-4" />
-                </IconButton>
-                <IconButton
-                  label={t.tool.moveDown}
-                  disabled={index === files.length - 1}
-                  onClick={() => move(index, index + 1)}
-                >
-                  <ArrowDown aria-hidden="true" className="size-4" />
-                </IconButton>
-              </div>
-            ) : null}
-
-            <IconButton label={t.tool.remove} onClick={() => remove(index)}>
-              <X aria-hidden="true" className="size-4" />
-            </IconButton>
-          </li>
-        );
-      })}
-    </ul>
+      <IconButton
+        label={labels.remove}
+        onClick={() => onRemove(index)}
+        buttonRef={removeRef}
+      >
+        <X aria-hidden="true" className="size-4" />
+      </IconButton>
+    </Reorder.Item>
   );
 }
 
@@ -105,22 +231,27 @@ function IconButton({
   disabled,
   onClick,
   children,
+  buttonRef,
 }: {
   label: string;
   disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  buttonRef?: (element: HTMLButtonElement | null) => void;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+      className="group flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-6px] focus-visible:outline-signal disabled:pointer-events-none disabled:opacity-30"
     >
-      {children}
+      <span className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-hover:bg-white/10 group-hover:text-foreground group-active:scale-90 group-active:duration-[80ms]">
+        {children}
+      </span>
     </button>
   );
 }
