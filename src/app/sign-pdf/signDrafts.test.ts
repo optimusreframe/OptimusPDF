@@ -64,7 +64,7 @@ describe("saveDraft / listDrafts / loadDraft — src/app/sign-pdf/signDrafts.ts"
     await saveDraft(
       draftParams("doc-1", {
         fileBytes: new Uint8Array([1, 1, 1]),
-        step: "text",
+        step: "document",
       }),
     );
 
@@ -72,7 +72,7 @@ describe("saveDraft / listDrafts / loadDraft — src/app/sign-pdf/signDrafts.ts"
     // Los bytes son los del PRIMER guardado...
     expect(loaded!.bytes).toEqual(new Uint8Array([9, 9]));
     // ...pero los metadatos si se actualizan en cada guardado.
-    expect(loaded!.meta.step).toBe("text");
+    expect(loaded!.meta.step).toBe("document");
   });
 
   it("loadDraft de un id inexistente devuelve null", async () => {

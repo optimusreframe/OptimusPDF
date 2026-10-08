@@ -64,6 +64,31 @@ export const MOBILE_FULLSCREEN_QUERY =
 /** Movimiento minimo (px) antes de decidir que un toque es un arrastre. */
 const DRAG_HYSTERESIS = 8;
 
+/*
+ * Pila de hojas abiertas (W2-B). Las hojas se apilan (Opciones -> Plantillas
+ * -> confirmacion) y cada una escucha Escape en `window`: sin coordinacion, un
+ * solo Escape las cerraba TODAS. Cada hoja se registra al montarse y se retira
+ * al desmontarse; Escape lo atiende solo la superior que no este ya cerrandose
+ * (asi un segundo Escape, mientras la superior aun sale, ya cierra la
+ * siguiente). `handledEscapes` evita que, en el mismo evento, la hoja de
+ * debajo se vea a si misma como superior tras marcar la de arriba como
+ * cerrandose.
+ */
+type SheetEntry = { closing: boolean };
+const sheetStack: SheetEntry[] = [];
+const handledEscapes = new WeakSet<Event>();
+
+function topOpenSheet(): SheetEntry | undefined {
+  for (let index = sheetStack.length - 1; index >= 0; index -= 1) {
+    if (!sheetStack[index].closing) return sheetStack[index];
+  }
+  return undefined;
+}
+
+/* El scroll del fondo se bloquea una sola vez para toda la pila. */
+let scrollLocks = 0;
+let savedBodyOverflow = "";
+
 /**
  * Bottom sheet con el tacto de iOS.
  *
@@ -168,10 +193,23 @@ function SheetPanel({
     distanceRef.current = Math.max(1, window.innerHeight - top);
   }, [y]);
 
+  /* Registro en la pila de hojas (ver `sheetStack`). */
+  const entryRef = useRef<SheetEntry>({ closing: false });
+  useEffect(() => {
+    const entry = entryRef.current;
+    sheetStack.push(entry);
+    return () => {
+      const index = sheetStack.indexOf(entry);
+      if (index !== -1) sheetStack.splice(index, 1);
+    };
+  }, []);
+
   const stopAnimation = useCallback(() => {
     animationRef.current?.stop();
     animationRef.current = null;
     closeTokenRef.current += 1;
+    // Interrumpir (agarrar, volver a abrir) cancela cualquier cierre en curso.
+    entryRef.current.closing = false;
   }, []);
 
   /* ---------------------------------------------------------------- *
@@ -219,6 +257,7 @@ function SheetPanel({
       return;
     }
     stopAnimation();
+    entryRef.current.closing = true;
     const token = closeTokenRef.current;
     const done = () => {
       if (closeTokenRef.current === token) safeToRemove?.();
@@ -253,6 +292,7 @@ function SheetPanel({
     (velocity = 0) => {
       if (!isPresent || dismissedRef.current) return;
       stopAnimation();
+      entryRef.current.closing = true;
       const token = closeTokenRef.current;
       const finish = () => {
         if (closeTokenRef.current !== token) return;
@@ -286,20 +326,24 @@ function SheetPanel({
   useEffect(() => {
     if (!isPresent) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        requestClose();
-      }
+      if (event.key !== "Escape" || handledEscapes.has(event)) return;
+      // Solo la hoja superior (no cerrandose) atiende Escape.
+      if (topOpenSheet() !== entryRef.current) return;
+      handledEscapes.add(event);
+      event.preventDefault();
+      requestClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isPresent, requestClose]);
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
+    if (scrollLocks === 0) savedBodyOverflow = document.body.style.overflow;
+    scrollLocks += 1;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = previousOverflow;
+      scrollLocks -= 1;
+      if (scrollLocks === 0) document.body.style.overflow = savedBodyOverflow;
     };
   }, []);
 
@@ -379,6 +423,10 @@ function SheetPanel({
     if (event.pointerType === "mouse" && event.button !== 0) return;
     if (!isPresent || dragRef.current) return;
     const panel = event.currentTarget;
+    // Una hoja hija (Plantillas dentro de Opciones) va en un portal, pero sus
+    // eventos React burbujean hasta aqui: sin esto, arrastrar la hoja superior
+    // arrastraba tambien a la de debajo y un arrastre largo cerraba las dos.
+    if (!panel.contains(event.target as Node)) return;
     const target = event.target as Node;
     const fromHeader = headerRef.current?.contains(target) ?? false;
     const inScroller = scrollerRef.current?.contains(target) ?? false;

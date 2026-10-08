@@ -165,7 +165,7 @@ export type ImageSignPlacement = {
  * poliza...). A diferencia de la imagen, el valor es un string propio de
  * cada hueco: no encaja en `CaptureMap` (un trazo por firmante reusado en
  * todos sus huecos del mismo tipo), por eso vive en su propio mapa
- * `Record<fieldId, string>` en la interfaz (ver `FieldFormPanel.tsx`).
+ * `Record<fieldId, string>` en la interfaz (ver `DocumentCanvas.tsx`).
  */
 export type TextSignPlacement = {
   kind: "text";

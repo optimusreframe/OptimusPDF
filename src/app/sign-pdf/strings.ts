@@ -25,8 +25,6 @@ export type SignStrings = {
   rotateHint: string;
   save: string;
   emptyWarning: string;
-  placeTitle: string;
-  placeHint: string;
   noSignature: string;
   previousPage: string;
   nextPage: string;
@@ -52,11 +50,71 @@ export type SignStrings = {
 
   /* --- Pasos del flujo con varios firmantes --- */
   stepSigners: string;
-  stepFields: string;
-  stepText: string;
+  stepDocument: string;
   stepSign: string;
   back: string;
   next: string;
+
+  /* --- Paso "Documento": lienzo unico de huecos y campos (W2-A) --- */
+  documentTitle: string;
+  documentHint: string;
+  /** Sin firmantes solo se pueden colocar campos de texto. */
+  slotsNeedSigners: string;
+  canvasEmptyHint: string;
+  /** "En esta página: 1 hueco · 3 campos". */
+  canvasPageSummary: (slots: number, textFields: number) => string;
+  /** "En total: 2 huecos · 5 campos". */
+  canvasTotalSummary: (slots: number, textFields: number) => string;
+  /** Estado en el nombre accesible de cada elemento del lienzo ("Nombre, pendiente"). */
+  a11yPending: string;
+  a11yFilled: string;
+  a11ySlot: string;
+
+  /* --- Paleta de herramientas y barra flotante (W2-B) --- */
+  paletteLabel: string;
+  toolSelect: string;
+  /** Estado de la herramienta activa (region viva): "Herramienta: Firma. Toca o arrastra sobre la pagina." */
+  toolArmedStatus: (tool: string) => string;
+  toolSelectStatus: string;
+  /** "Se asignará a Ana" bajo la herramienta Firma/Iniciales. */
+  toolAssignedTo: (name: string) => string;
+  prevField: string;
+  nextField: string;
+  noMorePendingFields: string;
+  /** Anuncio al saltar de campo: "Nombre, campo 3 de 12". */
+  fieldNavAnnounce: (label: string, position: number, total: number) => string;
+  /** "Acciones de «Nombre, pendiente»": el grupo de la barra nombra el elemento al que afecta. */
+  selectionBarLabel: (target: string) => string;
+  /** "Duplicar «Nombre, pendiente»": nombre accesible de cada accion de la barra. */
+  elementAction: (action: string, target: string) => string;
+  duplicateElement: string;
+  elementDuplicated: string;
+  signerOfSlotLabel: string;
+  slotChangedTo: (name: string, type: string) => string;
+  fieldChangedTo: (type: string) => string;
+  clearPageAll: string;
+  clearAllAll: string;
+  confirmClearAllEverythingTitle: string;
+  confirmClearAllEverythingBody: string;
+
+  /* --- Modo "Solo yo" sobre el mismo lienzo (W2-C) --- */
+  /** Nombre de la firma propia colocada sobre la pagina. */
+  soloSignatureLabel: string;
+  /** Su rol en el nombre accesible ("Mi firma, firma colocada"). */
+  soloSignatureA11y: string;
+  soloRemoveSignature: string;
+  /** Alta sin puntero con la herramienta Firma armada. */
+  soloPlaceHere: string;
+  soloResizeSignature: string;
+  soloSignatureDeletedNotice: string;
+  /** Anuncio al colocar la firma por defecto tras crearla. */
+  soloSignaturePlaced: (page: number) => string;
+  soloDocumentHint: string;
+  soloCanvasEmptyHint: string;
+  /** "En esta página: 1 firma · 3 campos". */
+  soloPageSummary: (signatures: number, textFields: number) => string;
+  /** "En total: 1 firma · 5 campos". */
+  soloTotalSummary: (signatures: number, textFields: number) => string;
 
   /* --- Firmantes --- */
   signersTitle: string;
@@ -74,9 +132,7 @@ export type SignStrings = {
   signerDeletedNotice: string;
   undoRemoveSigner: string;
 
-  /* --- Campos --- */
-  fieldsTitle: string;
-  fieldsHint: string;
+  /* --- Huecos de firma / iniciales --- */
   fieldTypeLabel: string;
   fieldSignature: string;
   fieldInitials: string;
@@ -87,26 +143,31 @@ export type SignStrings = {
   /** Anuncio del snackbar tras borrar un hueco con "Deshacer" activo. */
   fieldDeletedNotice: string;
   undoRemoveField: string;
-  fieldsOnPage: (count: number) => string;
   totalFields: (count: number) => string;
   clearPageFields: string;
   clearAllFields: string;
   confirmClearAllFieldsTitle: string;
   confirmClearAllFieldsBody: string;
-  noFields: string;
   thumbsTitle: string;
   goToPage: (page: number) => string;
   needSigner: string;
 
   /* --- Campos de texto (deteccion + relleno) --- */
-  textFieldsTitle: string;
-  textFieldsHint: string;
   detectingFields: string;
   detectionFailedHint: string;
   detectedFieldsSummary: (count: number) => string;
   addTextFieldHere: string;
   /** Vuelve el lienzo a 1x tras un pellizco (Ajustes > Zoom con pellizco). */
   resetZoomButton: string;
+  zoomGroupLabel: string;
+  zoomIn: string;
+  zoomOut: string;
+  /** Selector de tipo compacto de la barra flotante (un solo boton que abre las opciones). */
+  changeFieldType: (current: string) => string;
+  closeTypePicker: string;
+  /** Aviso al cambiar de tipo cuando el valor tecleado no vale para el tipo nuevo y se borra. */
+  typeChangeClearedNotice: (type: string) => string;
+  undoTypeChange: string;
   textFieldFallbackLabel: (position: number) => string;
   textFieldPlaceholder: string;
   initialsFieldPlaceholder: string;
@@ -118,22 +179,16 @@ export type SignStrings = {
   fieldTypeInitials: string;
   removeTextField: string;
   resizeTextField: string;
-  textFieldsOnPage: (count: number) => string;
-  totalTextFields: (count: number) => string;
   clearPageTextFields: string;
   clearAllTextFields: string;
   confirmClearAllTextFieldsTitle: string;
   confirmClearAllTextFieldsBody: string;
-  noTextFields: string;
   lowConfidenceHint: string;
-  /** "12 de 31 campos rellenados" -- resumen de avance del panel de saltos. */
-  fieldsFilledSummary: (filled: number, total: number) => string;
   /** Aviso NO bloqueante antes de firmar/descargar si quedan campos vacios. */
   pendingTextFieldsWarning: (missing: number) => string;
   /** Anuncio del snackbar tras borrar un campo con "Deshacer" activo. */
   textFieldDeletedNotice: string;
   undoRemoveTextField: string;
-  pageGroupLabel: (page: number) => string;
   reuseValuesPrompt: string;
   reuseValuesAccept: string;
   reuseValuesDecline: string;
@@ -269,9 +324,6 @@ const es: SignStrings = {
   rotateHint: "Gira el teléfono para firmar con más espacio.",
   save: "Usar esta firma",
   emptyWarning: "Todavía no hay nada que guardar.",
-  placeTitle: "Coloca la firma",
-  placeHint:
-    "Arrastra la firma hasta su sitio y usa el tirador de la esquina para cambiar su tamaño.",
   noSignature: "Crea tu firma para poder colocarla sobre el documento.",
   previousPage: "Página anterior",
   nextPage: "Página siguiente",
@@ -292,17 +344,73 @@ const es: SignStrings = {
   modeLabel: "¿Quién firma?",
   modeSingle: "Solo yo",
   modeSingleHint:
-    "Creas tu firma, la colocas donde quieras y descargas. Es el camino rápido.",
+    "Creas tu firma, la colocas donde quieras y, si el documento tiene campos, los rellenas ahí mismo. Después descargas. Es el camino rápido.",
   modeMulti: "Varios firmantes",
   modeMultiHint:
     "Reserva un hueco para cada persona y firmad por turnos en este mismo dispositivo, pasándooslo de mano en mano.",
 
   stepSigners: "Firmantes",
-  stepFields: "Campos",
-  stepText: "Texto",
+  stepDocument: "Documento",
   stepSign: "Firmar",
   back: "Atrás",
   next: "Continuar",
+
+  documentTitle: "Prepara el documento",
+  documentHint:
+    "Elige una herramienta (firma, iniciales, texto, casilla o fecha) y toca la página para colocarla, o arrastra para dibujarla. Toca un campo para escribir ahí mismo; con Seleccionar puedes moverlos y ajustarlos.",
+  slotsNeedSigners:
+    "Para reservar huecos de firma, añade antes a alguien en el paso 1. Mientras tanto puedes colocar campos de texto.",
+  canvasEmptyHint:
+    "Todavía no hay nada sobre el documento: elige una herramienta y toca la página. Los campos de texto son opcionales; para firmar hace falta al menos un hueco de firma o un campo relleno.",
+  canvasPageSummary: (slots, textFields) =>
+    `En esta página: ${slots} hueco${slots === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
+  canvasTotalSummary: (slots, textFields) =>
+    `En total: ${slots} hueco${slots === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
+  a11yPending: "pendiente",
+  a11yFilled: "rellenado",
+  a11ySlot: "hueco de firma",
+
+  paletteLabel: "Herramientas del documento",
+  toolSelect: "Seleccionar",
+  toolArmedStatus: (tool) =>
+    `Herramienta activa: ${tool}. Toca la página para colocar uno o arrastra para dibujarlo. Escape vuelve a Seleccionar.`,
+  toolSelectStatus:
+    "Seleccionar: toca un elemento para moverlo o editarlo. Elige otra herramienta para añadir.",
+  toolAssignedTo: (name) => `Se asignará a ${name}`,
+  prevField: "Campo anterior",
+  nextField: "Campo siguiente",
+  noMorePendingFields: "No quedan más campos pendientes.",
+  fieldNavAnnounce: (label, position, total) =>
+    `${label}, campo ${position} de ${total}`,
+  selectionBarLabel: (target) => `Acciones de «${target}»`,
+  elementAction: (action, target) => `${action} «${target}»`,
+  duplicateElement: "Duplicar",
+  elementDuplicated: "Elemento duplicado.",
+  signerOfSlotLabel: "Firmante del hueco",
+  slotChangedTo: (name, type) => `Hueco de ${name}: ${type}.`,
+  fieldChangedTo: (type) => `Tipo de campo: ${type}.`,
+  clearPageAll: "Quitar todo de esta página",
+  clearAllAll: "Borrar todo el documento",
+  confirmClearAllEverythingTitle: "¿Borrar huecos y campos?",
+  confirmClearAllEverythingBody:
+    "Se van a quitar todos los huecos de firma y todos los campos del documento, en todas las páginas, junto con lo que hayas escrito en ellos. Esta acción no se puede deshacer.",
+
+  soloSignatureLabel: "Mi firma",
+  soloSignatureA11y: "firma colocada",
+  soloRemoveSignature: "Quitar la firma",
+  soloPlaceHere: "Colocar mi firma en esta página",
+  soloResizeSignature: "Cambiar el tamaño de la firma",
+  soloSignatureDeletedNotice: "Firma quitada del documento.",
+  soloSignaturePlaced: (page) =>
+    `Firma colocada en la página ${page}. Arrástrala para moverla.`,
+  soloDocumentHint:
+    "Coloca tu firma y rellena los campos del documento ahí mismo. Elige una herramienta (firma, texto, casilla o fecha) y toca la página, o arrastra para dibujarla. Toca un campo para escribir en él; con Seleccionar puedes moverlos y ajustarlos.",
+  soloCanvasEmptyHint:
+    "Todavía no hay nada sobre el documento. Crea tu firma y se colocará en la página; también puedes añadir campos de texto, casillas o fechas con la paleta.",
+  soloPageSummary: (signatures, textFields) =>
+    `En esta página: ${signatures} firma${signatures === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
+  soloTotalSummary: (signatures, textFields) =>
+    `En total: ${signatures} firma${signatures === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
 
   signersTitle: "¿Quién tiene que firmar?",
   signersHint:
@@ -321,9 +429,6 @@ const es: SignStrings = {
   signerDeletedNotice: "Firmante eliminado, junto con sus huecos y su firma.",
   undoRemoveSigner: "Deshacer",
 
-  fieldsTitle: "Reserva los huecos",
-  fieldsHint:
-    "Arrastra sobre la página para dibujar un hueco, o toca para colocar uno del tamaño habitual. Muévelos y ajústalos como quieras.",
   fieldTypeLabel: "Tipo de hueco",
   fieldSignature: "Firma",
   fieldInitials: "Iniciales",
@@ -333,8 +438,6 @@ const es: SignStrings = {
   fieldDeletedNotice: "Hueco eliminado.",
   undoRemoveField: "Deshacer",
   resizeField: "Cambiar el tamaño del hueco",
-  fieldsOnPage: (count) =>
-    count === 1 ? "1 hueco en esta página" : `${count} huecos en esta página`,
   totalFields: (count) =>
     count === 1 ? "1 hueco en total" : `${count} huecos en total`,
   clearPageFields: "Quitar los huecos de esta página",
@@ -342,14 +445,10 @@ const es: SignStrings = {
   confirmClearAllFieldsTitle: "¿Borrar todos los huecos?",
   confirmClearAllFieldsBody:
     "Se van a quitar todos los huecos de firma/iniciales reservados en el documento, en todas las páginas. Esta acción no se puede deshacer.",
-  noFields: "Reserva al menos un hueco para poder firmar.",
   thumbsTitle: "Páginas",
   goToPage: (page) => `Ir a la página ${page}`,
-  needSigner: "Elige antes a quién pertenece el hueco.",
+  needSigner: "Elige antes a quién pertenece el hueco",
 
-  textFieldsTitle: "Rellena el documento",
-  textFieldsHint:
-    "Toca un campo sobre la página para escribir ahí mismo. Arrastra sobre la página para añadir uno nuevo donde falte; el resumen de abajo sirve para saltar directo a cualquier campo.",
   detectingFields: "Buscando campos rellenables en el documento",
   detectionFailedHint:
     "No se pudieron detectar campos automáticamente, pero puedes añadirlos a mano arrastrando sobre la página.",
@@ -359,6 +458,14 @@ const es: SignStrings = {
       : `Se detectaron ${count} campos. Revísalos antes de firmar.`,
   addTextFieldHere: "Añadir campo en esta página",
   resetZoomButton: "Restablecer zoom",
+  zoomGroupLabel: "Zoom del documento",
+  zoomIn: "Acercar",
+  zoomOut: "Alejar",
+  changeFieldType: (current) => `Cambiar el tipo de campo (ahora: ${current})`,
+  closeTypePicker: "Volver a las acciones",
+  typeChangeClearedNotice: (type) =>
+    `Se borró el valor porque no vale como «${type}».`,
+  undoTypeChange: "Deshacer",
   textFieldFallbackLabel: (position) => `Campo ${position}`,
   textFieldPlaceholder: "Escribe el valor",
   initialsFieldPlaceholder: "Iniciales",
@@ -369,26 +476,17 @@ const es: SignStrings = {
   fieldTypeInitials: "Inicial",
   removeTextField: "Quitar el campo",
   resizeTextField: "Cambiar el tamaño del campo",
-  textFieldsOnPage: (count) =>
-    count === 1 ? "1 campo en esta página" : `${count} campos en esta página`,
-  totalTextFields: (count) =>
-    count === 1 ? "1 campo en total" : `${count} campos en total`,
   clearPageTextFields: "Quitar los campos de esta página",
   clearAllTextFields: "Borrar todos los campos del documento",
   confirmClearAllTextFieldsTitle: "¿Borrar todos los campos?",
   confirmClearAllTextFieldsBody:
     "Se van a quitar todos los campos de texto detectados o añadidos a mano, en todas las páginas, junto con lo que hayas escrito en ellos. Esta acción no se puede deshacer.",
-  noTextFields:
-    "Todavía no hay ningún campo de texto. Es opcional: puedes seguir sin rellenar nada.",
   lowConfidenceHint:
     "Contorno discontinuo = detección experimental sobre una imagen escaneada. Revísala antes de firmar; si no es un campo real, bórrala.",
-  fieldsFilledSummary: (filled, total) =>
-    `${filled} de ${total} campo${total === 1 ? "" : "s"} rellenado${total === 1 ? "" : "s"}`,
   pendingTextFieldsWarning: (missing) =>
     `Queda${missing === 1 ? "" : "n"} ${missing} campo${missing === 1 ? "" : "s"} de texto sin rellenar. Puedes continuar igual.`,
   textFieldDeletedNotice: "Campo eliminado.",
   undoRemoveTextField: "Deshacer",
-  pageGroupLabel: (page) => `Página ${page}`,
   reuseValuesPrompt: "¿Usar los mismos datos que en tu último documento?",
   reuseValuesAccept: "Sí, rellenar",
   reuseValuesDecline: "No, empezar en blanco",
@@ -533,9 +631,6 @@ const en: SignStrings = {
   rotateHint: "Turn your phone sideways to sign with more room.",
   save: "Use this signature",
   emptyWarning: "There is nothing to save yet.",
-  placeTitle: "Place the signature",
-  placeHint:
-    "Drag the signature where you want it and use the corner handle to resize.",
   noSignature: "Create your signature to place it on the document.",
   previousPage: "Previous page",
   nextPage: "Next page",
@@ -556,17 +651,73 @@ const en: SignStrings = {
   modeLabel: "Who is signing?",
   modeSingle: "Just me",
   modeSingleHint:
-    "Create your signature, place it wherever you want and download. The quick path.",
+    "Create your signature, place it wherever you want and, if the document has fields, fill them in right there. Then download. The quick path.",
   modeMulti: "Several signers",
   modeMultiHint:
     "Reserve a slot for each person and sign in turns on this same device, passing it around.",
 
   stepSigners: "Signers",
-  stepFields: "Slots",
-  stepText: "Text",
+  stepDocument: "Document",
   stepSign: "Sign",
   back: "Back",
   next: "Continue",
+
+  documentTitle: "Prepare the document",
+  documentHint:
+    "Pick a tool (signature, initials, text, checkbox or date) and tap the page to place it, or drag to draw it. Tap a field to type right there; with Select you can move and resize them.",
+  slotsNeedSigners:
+    "To reserve signature slots, add someone in step 1 first. In the meantime you can place text fields.",
+  canvasEmptyHint:
+    "Nothing on the document yet: pick a tool and tap the page. Text fields are optional; to sign you need at least one signature slot or one filled field.",
+  canvasPageSummary: (slots, textFields) =>
+    `This page: ${slots} slot${slots === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
+  canvasTotalSummary: (slots, textFields) =>
+    `In total: ${slots} slot${slots === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
+  a11yPending: "pending",
+  a11yFilled: "filled in",
+  a11ySlot: "signature slot",
+
+  paletteLabel: "Document tools",
+  toolSelect: "Select",
+  toolArmedStatus: (tool) =>
+    `Active tool: ${tool}. Tap the page to place one, or drag to draw it. Escape goes back to Select.`,
+  toolSelectStatus:
+    "Select: tap an element to move or edit it. Pick another tool to add something.",
+  toolAssignedTo: (name) => `Will be assigned to ${name}`,
+  prevField: "Previous field",
+  nextField: "Next field",
+  noMorePendingFields: "No more pending fields.",
+  fieldNavAnnounce: (label, position, total) =>
+    `${label}, field ${position} of ${total}`,
+  selectionBarLabel: (target) => `Actions for “${target}”`,
+  elementAction: (action, target) => `${action} “${target}”`,
+  duplicateElement: "Duplicate",
+  elementDuplicated: "Element duplicated.",
+  signerOfSlotLabel: "Slot signer",
+  slotChangedTo: (name, type) => `${name}'s slot: ${type}.`,
+  fieldChangedTo: (type) => `Field type: ${type}.`,
+  clearPageAll: "Remove everything on this page",
+  clearAllAll: "Delete everything in the document",
+  confirmClearAllEverythingTitle: "Delete slots and fields?",
+  confirmClearAllEverythingBody:
+    "This removes every signature slot and every field in the document, on all pages, along with anything you typed in them. This cannot be undone.",
+
+  soloSignatureLabel: "My signature",
+  soloSignatureA11y: "placed signature",
+  soloRemoveSignature: "Remove the signature",
+  soloPlaceHere: "Place my signature on this page",
+  soloResizeSignature: "Resize the signature",
+  soloSignatureDeletedNotice: "Signature removed from the document.",
+  soloSignaturePlaced: (page) =>
+    `Signature placed on page ${page}. Drag it to move it.`,
+  soloDocumentHint:
+    "Place your signature and fill in the document's fields right there. Pick a tool (signature, text, checkbox or date) and tap the page, or drag to draw it. Tap a field to type in it; with Select you can move and adjust them.",
+  soloCanvasEmptyHint:
+    "There is nothing on the document yet. Create your signature and it will be placed on the page; you can also add text fields, checkboxes or dates with the palette.",
+  soloPageSummary: (signatures, textFields) =>
+    `On this page: ${signatures} signature${signatures === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
+  soloTotalSummary: (signatures, textFields) =>
+    `In total: ${signatures} signature${signatures === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
 
   signersTitle: "Who has to sign?",
   signersHint:
@@ -584,9 +735,6 @@ const en: SignStrings = {
   signerDeletedNotice: "Signer deleted, along with their slots and signature.",
   undoRemoveSigner: "Undo",
 
-  fieldsTitle: "Reserve the slots",
-  fieldsHint:
-    "Drag on the page to draw a slot, or tap to drop one at the usual size. Move and resize them freely.",
   fieldTypeLabel: "Slot type",
   fieldSignature: "Signature",
   fieldInitials: "Initials",
@@ -596,8 +744,6 @@ const en: SignStrings = {
   fieldDeletedNotice: "Slot deleted.",
   undoRemoveField: "Undo",
   resizeField: "Resize the slot",
-  fieldsOnPage: (count) =>
-    count === 1 ? "1 slot on this page" : `${count} slots on this page`,
   totalFields: (count) =>
     count === 1 ? "1 slot in total" : `${count} slots in total`,
   clearPageFields: "Remove slots on this page",
@@ -605,14 +751,10 @@ const en: SignStrings = {
   confirmClearAllFieldsTitle: "Delete all slots?",
   confirmClearAllFieldsBody:
     "This removes every signature/initials slot reserved in the document, on every page. This cannot be undone.",
-  noFields: "Reserve at least one slot so there is something to sign.",
   thumbsTitle: "Pages",
   goToPage: (page) => `Go to page ${page}`,
-  needSigner: "Pick who the slot belongs to first.",
+  needSigner: "Pick who the slot belongs to first",
 
-  textFieldsTitle: "Fill in the document",
-  textFieldsHint:
-    "Tap a field on the page to type right there. Drag on the page to add a new one wherever one is missing; the summary below jumps straight to any field.",
   detectingFields: "Looking for fillable fields in the document",
   detectionFailedHint:
     "Fields couldn't be detected automatically, but you can still add them by hand by dragging on the page.",
@@ -622,6 +764,14 @@ const en: SignStrings = {
       : `${count} fields were detected. Review them before signing.`,
   addTextFieldHere: "Add a field on this page",
   resetZoomButton: "Reset zoom",
+  zoomGroupLabel: "Document zoom",
+  zoomIn: "Zoom in",
+  zoomOut: "Zoom out",
+  changeFieldType: (current) => `Change field type (now: ${current})`,
+  closeTypePicker: "Back to actions",
+  typeChangeClearedNotice: (type) =>
+    `The value was cleared because it is not valid as “${type}”.`,
+  undoTypeChange: "Undo",
   textFieldFallbackLabel: (position) => `Field ${position}`,
   textFieldPlaceholder: "Type the value",
   initialsFieldPlaceholder: "Initials",
@@ -632,26 +782,17 @@ const en: SignStrings = {
   fieldTypeInitials: "Initials",
   removeTextField: "Remove the field",
   resizeTextField: "Resize the field",
-  textFieldsOnPage: (count) =>
-    count === 1 ? "1 field on this page" : `${count} fields on this page`,
-  totalTextFields: (count) =>
-    count === 1 ? "1 field in total" : `${count} fields in total`,
   clearPageTextFields: "Remove fields on this page",
   clearAllTextFields: "Delete all fields in this document",
   confirmClearAllTextFieldsTitle: "Delete all fields?",
   confirmClearAllTextFieldsBody:
     "This removes every text field, detected or added by hand, on every page, along with whatever you typed into them. This cannot be undone.",
-  noTextFields:
-    "There are no text fields yet. This is optional: you can continue without filling anything in.",
   lowConfidenceHint:
     "Dashed outline = experimental detection on a scanned image. Review it before signing; delete it if it isn't a real field.",
-  fieldsFilledSummary: (filled, total) =>
-    `${filled} of ${total} field${total === 1 ? "" : "s"} filled in`,
   pendingTextFieldsWarning: (missing) =>
     `${missing} text field${missing === 1 ? "" : "s"} still empty. You can continue anyway.`,
   textFieldDeletedNotice: "Field deleted.",
   undoRemoveTextField: "Undo",
-  pageGroupLabel: (page) => `Page ${page}`,
   reuseValuesPrompt: "Use the same data as your last document?",
   reuseValuesAccept: "Yes, fill it in",
   reuseValuesDecline: "No, start blank",

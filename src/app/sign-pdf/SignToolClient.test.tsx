@@ -6,6 +6,7 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import {
   MultiFlow,
   SignToolClient,
+  migrateStep,
   type SignToolOptions,
 } from "@/app/sign-pdf/SignToolClient";
 import { documentContentKey } from "@/app/sign-pdf/documentKey";
@@ -50,6 +51,27 @@ vi.mock("@/lib/pdf/detectFields", async (importOriginal) => {
 });
 
 const strings = SIGN_STRINGS.es;
+
+/**
+ * Paleta del paso Documento (W2-B): la herramienta por defecto es Seleccionar
+ * y cada una es de un solo uso, asi que se arma antes de cada alta.
+ */
+function armTool(name: string) {
+  fireEvent.click(
+    within(screen.getByRole("toolbar", { name: strings.paletteLabel })).getByRole(
+      "button",
+      { name },
+    ),
+  );
+}
+function addTextFieldHere() {
+  armTool(strings.fieldTypeText);
+  fireEvent.click(screen.getByRole("button", { name: strings.addTextFieldHere }));
+}
+function addSlotHere() {
+  armTool(strings.fieldSignature);
+  fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+}
 
 const ANA: Signer = { id: "sg-1", name: "Ana", color: "#0d4bff" };
 
@@ -125,12 +147,11 @@ function optionsFor(documentKey: string): SignToolOptions {
       } satisfies CaptureMap[string],
     },
     activeSignerId: ANA.id,
-    fieldType: "signature",
     fieldPageIndex: 0,
     selectedFieldId: null,
+    placementTool: "select",
     textFields: [],
     textValues: {},
-    textFieldPageIndex: 0,
     selectedTextFieldId: null,
     editingTextFieldId: null,
     textFieldsDetectedFor: null,
@@ -243,8 +264,9 @@ describe("MultiFlow — src/app/sign-pdf/SignToolClient.tsx", () => {
  * Documento "recien cargado" (huella sin sellar todavia) sin ningun hueco
  * de firma: cuando llega la huella, `MultiFlow` solo la sella y lanza la
  * deteccion, igual que con un archivo de verdad. Arranca en el paso
- * "signers" (como `DEFAULT_OPTIONS`); las pruebas navegan a "text" a mano,
- * como haria una persona real.
+ * "signers" (como `DEFAULT_OPTIONS`); las pruebas navegan a "document" a
+ * mano, como haria una persona real. Sin firmantes, el lienzo solo ofrece
+ * la herramienta de campos de texto.
  */
 function freshTextOnlyOptions(): SignToolOptions {
   return {
@@ -256,14 +278,15 @@ function freshTextOnlyOptions(): SignToolOptions {
   };
 }
 
+/** Paso "Documento" (W2-A): el antiguo paso de texto y el de huecos, fusionados. */
 const textStepButton = () =>
-  screen.getByRole("button", { name: `3. ${strings.stepText}` });
+  screen.getByRole("button", { name: `2. ${strings.stepDocument}` });
 const signStepButton = () =>
   screen.getByRole("button", {
-    name: `4. ${strings.stepSign}`,
+    name: `3. ${strings.stepSign}`,
   }) as HTMLButtonElement;
 
-describe("MultiFlow — paso de texto (src/app/sign-pdf/SignToolClient.tsx)", () => {
+describe("MultiFlow — paso Documento, campos de texto (src/app/sign-pdf/SignToolClient.tsx)", () => {
   it("detecta campos al cargar el documento y los deja en `textFields`", async () => {
     const detected: DetectedField[] = [
       {
@@ -290,16 +313,17 @@ describe("MultiFlow — paso de texto (src/app/sign-pdf/SignToolClient.tsx)", ()
 
     fireEvent.click(textStepButton());
     expect(last.textFields[0].label).toBe("Nombre");
-    // Detectado, no tocado todavia: aparece como enlace de salto en el
-    // resumen, pero no se abre ningun editor (eso solo pasa al tocarlo
-    // en el lienzo). El label tambien aparece sobre el propio campo en
-    // el lienzo (rotulo siempre visible), asi que se busca el enlace por
-    // su rol de boton, no por texto (ambiguo entre los dos).
-    expect(screen.getByRole("button", { name: "Nombre" })).toBeTruthy();
+    // Detectado, no tocado todavia: esta sobre el lienzo (con su estado
+    // en el nombre accesible), pero no se abre ningun editor (eso solo
+    // pasa al tocarlo). Ya no hay ningun indice ni formulario aparte.
+    expect(
+      screen.getByRole("group", { name: `Nombre, ${strings.a11yPending}` }),
+    ).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Nombre" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Nombre" })).toBeNull();
   });
 
-  it("el paso de texto siempre es alcanzable, y firmar se habilita en cuanto un campo tiene valor", async () => {
+  it("el paso Documento siempre es alcanzable, y firmar se habilita en cuanto un campo tiene valor", async () => {
     let last: SignToolOptions = freshTextOnlyOptions();
     render(
       <Harness
@@ -310,15 +334,13 @@ describe("MultiFlow — paso de texto (src/app/sign-pdf/SignToolClient.tsx)", ()
     );
     await settled();
 
-    // Sin firmantes, "Campos" (huecos de firma) esta bloqueado, pero
-    // "Texto" no depende de ellos: siempre se puede entrar.
+    // Sin firmantes no hay a quien asignar un hueco, pero "Documento" no
+    // depende de ellos (campos de texto): siempre se puede entrar.
     expect((textStepButton() as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(textStepButton());
-    expect(last.step).toBe("text");
+    expect(last.step).toBe("document");
 
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    addTextFieldHere();
     await waitFor(() => expect(last.textFields).toHaveLength(1));
 
     // Sin ningun valor todavia, "Firmar" no es alcanzable: no hay huecos
@@ -429,9 +451,7 @@ describe("MultiFlow — aviso de campos pendientes (Recomendacion #2)", () => {
     await settled();
     fireEvent.click(textStepButton());
 
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    addTextFieldHere();
     await waitFor(() => expect(last.textFields).toHaveLength(1));
 
     // Rellenar el primero MIENTRAS sigue en edicion: el siguiente click
@@ -442,9 +462,7 @@ describe("MultiFlow — aviso de campos pendientes (Recomendacion #2)", () => {
       target: { value: "Ana" },
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    addTextFieldHere();
     await waitFor(() => expect(last.textFields).toHaveLength(2));
 
     await waitFor(() =>
@@ -472,9 +490,7 @@ describe("MultiFlow — aviso de campos pendientes (Recomendacion #2)", () => {
     await settled();
     fireEvent.click(textStepButton());
 
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    addTextFieldHere();
     await waitFor(() => expect(last.textFields).toHaveLength(1));
 
     const label = strings.textFieldFallbackLabel(1);
@@ -498,9 +514,7 @@ describe("MultiFlow — aviso de campos pendientes (Recomendacion #2)", () => {
     await settled();
     fireEvent.click(textStepButton());
 
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    addTextFieldHere();
     await waitFor(() => expect(last.textFields).toHaveLength(1));
 
     const firstLabel = strings.textFieldFallbackLabel(1);
@@ -508,9 +522,7 @@ describe("MultiFlow — aviso de campos pendientes (Recomendacion #2)", () => {
       target: { value: "Ana" },
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    addTextFieldHere();
     await waitFor(() => expect(last.textFields).toHaveLength(2));
 
     expect(screen.queryByText(strings.pendingTextFieldsWarning(1))).toBeNull();
@@ -561,20 +573,19 @@ describe("SignToolClient — flujo completo (firmar -> prompt -> aceptar)", () =
       await screen.findByRole("tab", { name: strings.modeMulti }),
     );
 
-    // 2. Anadir un firmante y pasar al paso de texto (sin huecos de
+    // 2. Anadir un firmante y pasar al paso Documento (sin huecos de
     // imagen: el paso de firma usa el panel simple "Aplicar y descargar").
     fireEvent.click(
       screen.getByRole("button", { name: strings.addSigner }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: `3. ${strings.stepText}` }),
+      screen.getByRole("button", { name: `2. ${strings.stepDocument}` }),
     );
 
-    // 3. Anadir un campo de texto (se abre editando de inmediato, ver
-    // `addField` en FieldPlacer.tsx) y escribir un valor.
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    // 3. Con firmantes la herramienta por defecto es "hueco": cambiar a
+    // campo de texto, anadir uno (se abre editando de inmediato, ver
+    // `addTextField` en DocumentCanvas.tsx) y escribir un valor.
+    addTextFieldHere();
     const textInput = await screen.findByRole("textbox", {
       name: strings.textFieldFallbackLabel(1),
     });
@@ -583,7 +594,7 @@ describe("SignToolClient — flujo completo (firmar -> prompt -> aceptar)", () =
 
     // 4. Pasar al paso de firma y descargar (sin huecos de imagen).
     fireEvent.click(
-      screen.getByRole("button", { name: `4. ${strings.stepSign}` }),
+      screen.getByRole("button", { name: `3. ${strings.stepSign}` }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: strings.finishAndDownload }),
@@ -930,6 +941,12 @@ describe("SignToolClient — plantillas de disposicion (Recomendacion #4)", () =
     await waitFor(() =>
       expect(screen.queryByText(strings.templatesTitle)).toBeNull(),
     );
+    // W2-A: aplicar una plantilla deja al usuario en el paso unico "Documento".
+    expect(
+      screen
+        .getByRole("button", { name: `2. ${strings.stepDocument}` })
+        .getAttribute("aria-current"),
+    ).toBe("step");
   });
 
   it("con la funcion apagada en Ajustes, no aparecen los botones de plantillas", async () => {
@@ -1263,16 +1280,14 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
       />,
     );
 
-    // La persona avanza sin esperar: firmante -> hueco -> campo de texto.
+    // La persona avanza sin esperar: firmante -> hueco -> campo de texto
+    // (ambos sobre el mismo lienzo del paso Documento).
     fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
     expect(last.signers).toHaveLength(1);
-    fireEvent.click(stepButton(2, strings.stepFields));
-    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+    fireEvent.click(stepButton(2, strings.stepDocument));
+    addSlotHere();
     expect(last.fields).toHaveLength(1);
-    fireEvent.click(textStepButton());
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    addTextFieldHere();
     await waitFor(() => expect(last.textFields).toHaveLength(1));
     fireEvent.change(
       screen.getByRole("textbox", { name: strings.textFieldFallbackLabel(1) }),
@@ -1289,7 +1304,7 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     expect(last.fields).toHaveLength(1);
     expect(last.textFields).toHaveLength(1);
     expect(Object.values(last.textValues)).toEqual(["Ana Perez"]);
-    expect(last.step).toBe("text");
+    expect(last.step).toBe("document");
   });
 
   it("sin huella la ronda de firma espera (no firma ni pierde el trabajo) y se abre al llegar", async () => {
@@ -1305,10 +1320,10 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     );
 
     fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
-    fireEvent.click(stepButton(2, strings.stepFields));
-    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+    fireEvent.click(stepButton(2, strings.stepDocument));
+    addSlotHere();
     expect(last.fields).toHaveLength(1);
-    fireEvent.click(stepButton(4, strings.stepSign));
+    fireEvent.click(stepButton(3, strings.stepSign));
 
     // Estado de espera: ni turno de firma ni boton para empezar a firmar.
     expect(screen.getByText(strings.checkingDocument)).toBeTruthy();
@@ -1347,11 +1362,11 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     const keyA = await documentContentKey(fileA);
     const holdB = await holdHash(fileB);
 
-    let last: SignToolOptions = sealedOptions(keyA, "fields");
+    let last: SignToolOptions = sealedOptions(keyA, "document");
     const { rerender } = render(
       <Harness
         file={fileA}
-        initialOptions={sealedOptions(keyA, "fields")}
+        initialOptions={sealedOptions(keyA, "document")}
         onOptions={(options) => (last = options)}
       />,
     );
@@ -1360,7 +1375,7 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     rerender(
       <Harness
         file={fileB}
-        initialOptions={sealedOptions(keyA, "fields")}
+        initialOptions={sealedOptions(keyA, "document")}
         onOptions={(options) => (last = options)}
       />,
     );
@@ -1375,8 +1390,8 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     expect(last.signers.map((signer) => signer.id)).toEqual([ANA.id]);
 
     // Trabajo en B antes de que llegue su huella...
-    fireEvent.click(stepButton(2, strings.stepFields));
-    fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+    fireEvent.click(stepButton(2, strings.stepDocument));
+    addSlotHere();
     expect(last.fields).toHaveLength(1);
     expect(last.signature).toBe("");
 
@@ -1385,7 +1400,7 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     await waitFor(() => expect(last.signature).toBe(holdB.key));
     await waitFor(() => expect(last.textFieldsDetectedFor).toBe(holdB.key));
     expect(last.fields).toHaveLength(1);
-    expect(last.step).toBe("fields");
+    expect(last.step).toBe("document");
     expect(last.signers.map((signer) => signer.id)).toEqual([ANA.id]);
   });
 
@@ -1441,7 +1456,7 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     // Borrador guardado ANTES de que terminara la deteccion: lleva su campo
     // manual y `textFieldsDetectedFor` aun a null.
     const restored: SignToolOptions = {
-      ...sealedOptions(key, "text"),
+      ...sealedOptions(key, "document"),
       signers: [],
       fields: [],
       captures: {},
@@ -1496,9 +1511,7 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     rerender(view(fileB));
     await waitFor(() => expect(last.textFieldsDetectedFor).toBe(keyB));
     fireEvent.click(textStepButton());
-    fireEvent.click(
-      screen.getByRole("button", { name: strings.addTextFieldHere }),
-    );
+    addTextFieldHere();
     await waitFor(() => expect(last.textFields).toHaveLength(1));
     const manualId = last.textFields[0].id;
 
@@ -1543,12 +1556,12 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     const loadRef: MutableRefObject<
       ((file: File, options: SignToolOptions) => void) | null
     > = { current: null };
-    let last: SignToolOptions = sealedOptions(keyA, "fields");
+    let last: SignToolOptions = sealedOptions(keyA, "document");
 
     render(
       <LoadHarness
         initialFile={fileA}
-        initialOptions={sealedOptions(keyA, "fields")}
+        initialOptions={sealedOptions(keyA, "document")}
         loadRef={loadRef}
         onOptions={(options) => (last = options)}
       />,
@@ -1583,5 +1596,293 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
     expect(last.fields.map((field) => field.id)).toEqual(["f-luis"]);
     expect(last.signature).toBe(holdB.key);
     expect(last.step).toBe("sign");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * W2-A: migracion de pasos ("fields"/"text" -> "document") y paso
+ * Documento con lienzo unificado, sin formulario inferior.
+ * ------------------------------------------------------------------ */
+describe("SignToolClient — migracion de pasos a 'document' (W2-A)", () => {
+  async function pdfFile(name: string): Promise<File> {
+    const document = await PDFDocument.create();
+    // Tamano propio (ver el resto de describes): la huella es el contenido.
+    document.addPage([320, 320]);
+    const bytes = await document.save({ useObjectStreams: true });
+    return new File([bytes as unknown as BlobPart], name, {
+      type: "application/pdf",
+    });
+  }
+
+  function pdfInput(container: HTMLElement): HTMLInputElement {
+    const input = container.querySelector('input[type="file"][accept*="pdf"]');
+    if (!input) throw new Error("no se encontro el input de archivo PDF");
+    return input as HTMLInputElement;
+  }
+
+  /**
+   * Escribe un borrador tal como lo dejaba la version ANTERIOR a W2-A
+   * (paso "fields" o "text"), directamente en IndexedDB -- `saveDraft`
+   * ya no admite esos pasos, y lo que se prueba es justo leer lo viejo.
+   */
+  async function writeLegacyDraft(
+    id: string,
+    file: File,
+    meta: Record<string, unknown>,
+  ): Promise<void> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("optimuspdf-sign-drafts", 1);
+      request.onupgradeneeded = () => {
+        const upgraded = request.result;
+        if (!upgraded.objectStoreNames.contains("draftFiles")) {
+          upgraded.createObjectStore("draftFiles", { keyPath: "id" });
+        }
+        if (!upgraded.objectStoreNames.contains("draftMeta")) {
+          upgraded.createObjectStore("draftMeta", { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(["draftFiles", "draftMeta"], "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.objectStore("draftFiles").put({ id, bytes });
+      tx.objectStore("draftMeta").put({
+        id,
+        fileName: file.name,
+        fileSize: bytes.byteLength,
+        savedAt: new Date().toISOString(),
+        mode: "multi",
+        captures: {},
+        textFieldsDetectedFor: id,
+        ...meta,
+      });
+    });
+    db.close();
+  }
+
+  const documentStep = () =>
+    screen.getByRole("button", { name: `2. ${strings.stepDocument}` });
+
+  beforeEach(async () => {
+    await clearAllDrafts();
+  });
+
+  it("migrateStep: los pasos antiguos caen en 'document', los vigentes no cambian y lo desconocido vuelve al principio", () => {
+    expect(migrateStep("fields")).toBe("document");
+    expect(migrateStep("text")).toBe("document");
+    expect(migrateStep("signers")).toBe("signers");
+    expect(migrateStep("document")).toBe("document");
+    expect(migrateStep("sign")).toBe("sign");
+    expect(migrateStep("algo-raro")).toBe("signers");
+    expect(migrateStep(undefined)).toBe("signers");
+  });
+
+  it(
+    "un borrador guardado con step 'text' (version anterior) se reanuda en 'Documento' con sus campos y valores intactos",
+    async () => {
+      const file = await pdfFile("legado-texto.pdf");
+      const id = await documentContentKey(file);
+      await writeLegacyDraft(id, file, {
+        step: "text",
+        signers: [],
+        fields: [],
+        textFields: [
+          {
+            id: "txt-legacy-1",
+            pageIndex: 0,
+            rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+            label: "Nombre",
+            source: "manual",
+            confidence: "high",
+          },
+        ],
+        textValues: { "txt-legacy-1": "Ana Perez" },
+      });
+
+      render(
+        <LanguageProvider>
+          <SignToolClient />
+        </LanguageProvider>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: strings.draftsButton }));
+      fireEvent.click(await screen.findByRole("button", { name: strings.draftsResume }));
+
+      // Aterriza en el paso Documento (ya no existe "Texto")...
+      await waitFor(() =>
+        expect(documentStep().getAttribute("aria-current")).toBe("step"),
+      );
+      // ...con el campo restaurado sobre el lienzo, relleno con su valor.
+      expect(
+        screen.getByRole("group", { name: `Nombre, ${strings.a11yFilled}` }),
+      ).toBeTruthy();
+      expect(screen.getByText("Ana Perez")).toBeTruthy();
+      // Y sin ningun formulario ni lista de campos fuera del lienzo.
+      expect(screen.queryByRole("button", { name: "Nombre" })).toBeNull();
+      expect(document.querySelector("form")).toBeNull();
+    },
+    10_000,
+  );
+
+  it(
+    "un borrador guardado con step 'fields' (version anterior) se reanuda en 'Documento' con su firmante y su hueco",
+    async () => {
+      const file = await pdfFile("legado-huecos.pdf");
+      const id = await documentContentKey(file);
+      await writeLegacyDraft(id, file, {
+        step: "fields",
+        signers: [{ id: "sg-legacy-1", name: "Luis", color: signerColorAt(0) }],
+        fields: [
+          {
+            id: "fld-legacy-1",
+            signerId: "sg-legacy-1",
+            pageIndex: 0,
+            type: "signature",
+            rect: { x: 0.2, y: 0.6, width: 0.3, height: 0.1 },
+          },
+        ],
+        textFields: [],
+        textValues: {},
+      });
+
+      render(
+        <LanguageProvider>
+          <SignToolClient />
+        </LanguageProvider>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: strings.draftsButton }));
+      fireEvent.click(await screen.findByRole("button", { name: strings.draftsResume }));
+
+      await waitFor(() =>
+        expect(documentStep().getAttribute("aria-current")).toBe("step"),
+      );
+      expect(
+        screen.getByRole("group", {
+          name: `${strings.fieldOwnerLabel("Luis", strings.fieldSignature)}, ${strings.a11ySlot}`,
+        }),
+      ).toBeTruthy();
+      // Con firmantes, la herramienta por defecto es Seleccionar (W2-B).
+      expect(
+        within(screen.getByRole("toolbar", { name: strings.paletteLabel }))
+          .getByRole("button", { name: strings.toolSelect })
+          .getAttribute("aria-pressed"),
+      ).toBe("true");
+    },
+    10_000,
+  );
+
+  it(
+    "el autoguardado persiste el paso nuevo ('document'), nunca los antiguos",
+    async () => {
+      const file = await pdfFile("autoguardado-w2a.pdf");
+      const id = await documentContentKey(file);
+      const { container } = render(
+        <LanguageProvider>
+          <SignToolClient />
+        </LanguageProvider>,
+      );
+
+      fireEvent.change(pdfInput(container), { target: { files: [file] } });
+      fireEvent.click(await screen.findByRole("tab", { name: strings.modeMulti }));
+      fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
+      fireEvent.click(documentStep());
+
+      await waitFor(
+        async () => {
+          const saved = (await listDrafts()).find((draft) => draft.id === id);
+          expect(saved?.step).toBe("document");
+        },
+        { timeout: 3000, interval: 100 },
+      );
+    },
+    10_000,
+  );
+
+  it("una configuracion importada muestra sus campos y valores en el lienzo del paso Documento", async () => {
+    const originalFile = await pdfFile("importada.pdf");
+    const manifest = {
+      mode: "multi" as const,
+      signers: [{ id: "sg-imp-w2a", name: "Luis", color: "#0d4bff" }],
+      fields: [
+        {
+          id: "fld-imp-w2a",
+          signerId: "sg-imp-w2a",
+          pageIndex: 0,
+          type: "signature" as const,
+          rect: { x: 0.2, y: 0.6, width: 0.3, height: 0.1 },
+        },
+      ],
+      textFields: [
+        {
+          id: "txt-imp-w2a",
+          pageIndex: 0,
+          rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.05 },
+          label: "Nombre",
+          source: "manual" as const,
+          confidence: "high" as const,
+        },
+      ],
+      textValues: { "txt-imp-w2a": "Luis Gomez" },
+    };
+    const zipBlob = await exportSignConfig(originalFile, manifest);
+    const zipFile = new File([zipBlob], "importada-config.zip", { type: "application/zip" });
+
+    const { container } = render(
+      <LanguageProvider>
+        <SignToolClient />
+      </LanguageProvider>,
+    );
+    const importInput = container.querySelector('input[type="file"][accept*="zip"]');
+    if (!importInput) throw new Error("no se encontro el input de importar");
+    fireEvent.change(importInput, { target: { files: [zipFile] } });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: strings.removeSigner("Luis") })).toBeTruthy(),
+    );
+
+    fireEvent.click(documentStep());
+    expect(
+      screen.getByRole("group", { name: `Nombre, ${strings.a11yFilled}` }),
+    ).toBeTruthy();
+    expect(screen.getByText("Luis Gomez")).toBeTruthy();
+    expect(
+      screen.getByRole("group", {
+        name: `${strings.fieldOwnerLabel("Luis", strings.fieldSignature)}, ${strings.a11ySlot}`,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("el aviso de campos pendientes vive en linea en el paso Documento, no en un panel inferior", async () => {
+    let last: SignToolOptions = freshTextOnlyOptions();
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={freshTextOnlyOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    await settled();
+    fireEvent.click(textStepButton());
+    // La region de estado ya esta montada ANTES de que aparezca el aviso
+    // (un `role="status"` que nace con su texto no se anuncia de forma fiable).
+    const regionsBefore = screen.getAllByRole("status");
+    addTextFieldHere();
+    await waitFor(() => expect(last.textFields).toHaveLength(1));
+    fireEvent.blur(screen.getByRole("textbox", { name: strings.textFieldFallbackLabel(1) }));
+
+    // Un campo anadido a mano no es "detectado": el resumen de deteccion no lo cuenta.
+    expect(screen.queryByText(strings.detectedFieldsSummary(1))).toBeNull();
+
+    const notice = screen.getByText(strings.pendingTextFieldsWarning(1));
+    const region = notice.closest('[role="status"]');
+    expect(region).not.toBeNull();
+    expect(regionsBefore).toContain(region);
+    // Ni lista de campos ni formulario: el unico contenido sobre campos es el lienzo.
+    expect(document.querySelector("form")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: strings.textFieldFallbackLabel(1) }),
+    ).toBeNull();
   });
 });

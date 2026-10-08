@@ -21,7 +21,7 @@ import {
  * bloquea a los demas si falla (un widget roto, una pagina que no se
  * puede analizar): lo peor que puede pasar es que aporte menos campos,
  * nunca que tire abajo la deteccion entera. La colocacion, edicion y
- * borrado manual del usuario (`FieldPlacer`/`FieldFormPanel`) siempre
+ * borrado manual del usuario (`DocumentCanvas`) siempre
  * esta disponible, tenga o no exito esta deteccion.
  */
 
@@ -552,7 +552,7 @@ async function detectRasterFieldsOnPage(
  * Ejecuta los tres detectores y devuelve una unica lista. Un fallo en
  * una pagina o un detector concreto nunca tira abajo a los demas: en el
  * peor caso, esa pagina aporta cero campos y el usuario los coloca a
- * mano (`FieldPlacer`/`FieldFormPanel`, siempre disponibles).
+ * mano (`DocumentCanvas`, siempre disponibles).
  */
 export async function detectFields(file: File): Promise<DetectedField[]> {
   let pdfLibDocument: PDFDocument;

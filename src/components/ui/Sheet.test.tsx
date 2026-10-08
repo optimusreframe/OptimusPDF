@@ -1,4 +1,4 @@
-import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetReducedMotionPrefCache } from "@/hooks/useReducedMotionPref";
@@ -394,3 +394,233 @@ describe("Sheet: pointercancel", () => {
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
 });
+
+/*
+ * Hojas apiladas (W2-B): Opciones -> Plantillas -> confirmacion. Un solo
+ * Escape cerraba TODAS porque cada hoja escuchaba Escape en `window` sin
+ * saber de las demas. Debe cerrar solo la superior; el scrim de cada nivel
+ * y el foco restaurado van por nivel.
+ */
+describe("Sheet: hojas apiladas y Escape", () => {
+  function Stack({
+    nested = false,
+    onClose = {},
+  }: {
+    /** `true`: cada hoja hija es hijo React de la anterior (como una confirmacion dentro de Plantillas). */
+    nested?: boolean;
+    onClose?: Partial<Record<"a" | "b" | "c", () => void>>;
+  }) {
+    const [a, setA] = useState(false);
+    const [b, setB] = useState(false);
+    const [c, setC] = useState(false);
+    const sheetC = (
+      <Sheet
+        open={c}
+        onClose={() => {
+          onClose.c?.();
+          setC(false);
+        }}
+        title="Confirmar"
+        closeLabel="Cerrar confirmar"
+      >
+        <button type="button">Dentro de C</button>
+      </Sheet>
+    );
+    const sheetB = (
+      <Sheet
+        open={b}
+        onClose={() => {
+          onClose.b?.();
+          setB(false);
+        }}
+        title="Plantillas"
+        closeLabel="Cerrar plantillas"
+      >
+        <button type="button" onClick={() => setC(true)}>
+          Abrir confirmar
+        </button>
+        {nested ? sheetC : null}
+      </Sheet>
+    );
+    return (
+      <div>
+        <button type="button" onClick={() => setA(true)}>
+          Abrir opciones
+        </button>
+        <Sheet
+          open={a}
+          onClose={() => {
+            onClose.a?.();
+            setA(false);
+          }}
+          title="Opciones"
+          closeLabel="Cerrar opciones"
+        >
+          <button type="button" onClick={() => setB(true)}>
+            Abrir plantillas
+          </button>
+          {nested ? sheetB : null}
+        </Sheet>
+        {nested ? null : sheetB}
+        {nested ? null : sheetC}
+      </div>
+    );
+  }
+
+  const dialogNames = () =>
+    screen.queryAllByRole("dialog").map((d) => d.getAttribute("aria-label"));
+
+  /** Como un clic real: el boton recibe el foco (jsdom no lo hace solo) y luego el clic. */
+  const press = (button: HTMLElement) => {
+    button.focus();
+    fireEvent.click(button);
+  };
+
+  /** Deja pasar mas que la salida de un spring: lo que sobreviva a esto de verdad sigue abierto. */
+  const settleExit = () =>
+    act(() => new Promise<void>((resolve) => setTimeout(resolve, 900)));
+
+  async function openThree() {
+    press(screen.getByRole("button", { name: "Abrir opciones" }));
+    press(await screen.findByRole("button", { name: "Abrir plantillas" }));
+    press(await screen.findByRole("button", { name: "Abrir confirmar" }));
+    await waitFor(() =>
+      expect(dialogNames()).toEqual(["Opciones", "Plantillas", "Confirmar"]),
+    );
+  }
+
+  for (const nested of [false, true]) {
+    it(`un Escape cierra solo la hoja superior, tres veces para tres hojas (${nested ? "anidadas" : "hermanas"})`, async () => {
+      const closed: string[] = [];
+      render(
+        <Stack
+          nested={nested}
+          onClose={{
+            a: () => closed.push("a"),
+            b: () => closed.push("b"),
+            c: () => closed.push("c"),
+          }}
+        />,
+      );
+      await openThree();
+      expect(scrimCount()).toBe(3);
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(dialogNames()).toEqual(["Opciones", "Plantillas"]), {
+        timeout: 3000,
+      });
+      await settleExit();
+      expect(dialogNames()).toEqual(["Opciones", "Plantillas"]);
+      expect(closed).toEqual(["c"]);
+      // El foco vuelve al disparador del nivel cerrado (dentro de la hoja de debajo).
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Abrir confirmar" }),
+      );
+      expect(scrimCount()).toBe(2);
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(dialogNames()).toEqual(["Opciones"]), {
+        timeout: 3000,
+      });
+      await settleExit();
+      expect(dialogNames()).toEqual(["Opciones"]);
+      expect(closed).toEqual(["c", "b"]);
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Abrir plantillas" }),
+      );
+      expect(document.body.style.overflow).toBe("hidden");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(dialogNames()).toEqual([]), { timeout: 3000 });
+      expect(closed).toEqual(["c", "b", "a"]);
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Abrir opciones" }),
+      );
+      expect(document.body.style.overflow).not.toBe("hidden");
+    });
+  }
+
+  it("un segundo Escape mientras la superior aun sale ya cierra la siguiente (no se pierde ni se duplica)", async () => {
+    const closed: string[] = [];
+    render(
+      <Stack
+        onClose={{
+          a: () => closed.push("a"),
+          b: () => closed.push("b"),
+          c: () => closed.push("c"),
+        }}
+      />,
+    );
+    await openThree();
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(dialogNames()).toEqual(["Opciones"]), {
+      timeout: 3000,
+    });
+    await settleExit();
+    expect(dialogNames()).toEqual(["Opciones"]);
+    expect(closed.sort()).toEqual(["b", "c"]);
+  });
+
+  it("arrastrar con el dedo la hoja superior (hija React de la de abajo) no arrastra tambien a la de debajo", async () => {
+    render(<Stack nested />);
+    await openThree();
+    const dialogOf = (name: string) =>
+      screen.getAllByRole("dialog").find((d) => d.getAttribute("aria-label") === name)!;
+    const top = dialogOf("Confirmar");
+    await waitFor(() => expect(translateY(top)).toBeCloseTo(0, 0), { timeout: 3000 });
+    const header = within(top).getByRole("heading", { name: "Confirmar" }).parentElement!;
+    pointer("pointerDown", header, { pointerId: 9, pointerType: "touch", button: 0, clientY: 100 }, 1000);
+    pointer("pointerMove", top, { pointerId: 9, pointerType: "touch", clientY: 120 }, 1016);
+    pointer("pointerMove", top, { pointerId: 9, pointerType: "touch", clientY: 180 }, 1032);
+    await frames();
+    expect(translateY(top) ?? 0).toBeGreaterThan(30);
+    expect(translateY(dialogOf("Plantillas")) ?? 0).toBeCloseTo(0, 0);
+    expect(translateY(dialogOf("Opciones")) ?? 0).toBeCloseTo(0, 0);
+  });
+
+  it("un arrastre largo de la hoja superior cierra SOLO la superior", async () => {
+    const closed: string[] = [];
+    render(
+      <Stack
+        nested
+        onClose={{
+          a: () => closed.push("a"),
+          b: () => closed.push("b"),
+          c: () => closed.push("c"),
+        }}
+      />,
+    );
+    await openThree();
+    const top = screen.getAllByRole("dialog").find((d) => d.getAttribute("aria-label") === "Confirmar")!;
+    await waitFor(() => expect(translateY(top)).toBeCloseTo(0, 0), { timeout: 3000 });
+    const header = within(top).getByRole("heading", { name: "Confirmar" }).parentElement!;
+    pointer("pointerDown", header, { pointerId: 9, pointerType: "touch", button: 0, clientY: 100 }, 1000);
+    pointer("pointerMove", top, { pointerId: 9, pointerType: "touch", clientY: 300 }, 1016);
+    pointer("pointerMove", top, { pointerId: 9, pointerType: "touch", clientY: 700 }, 1032);
+    pointer("pointerUp", top, { pointerId: 9, pointerType: "touch", clientY: 700 }, 1048);
+    await waitFor(() => expect(dialogNames()).toEqual(["Opciones", "Plantillas"]), { timeout: 3000 });
+    await settleExit();
+    expect(dialogNames()).toEqual(["Opciones", "Plantillas"]);
+    expect(closed).toEqual(["c"]);
+  });
+
+  it("el scroll del fondo sigue bloqueado si se cierra la hoja de abajo antes que la de arriba", async () => {
+    render(<Stack />);
+    await openThree();
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar opciones" }));
+    await waitFor(() => expect(dialogNames()).toEqual(["Plantillas", "Confirmar"]), {
+      timeout: 3000,
+    });
+    expect(document.body.style.overflow).toBe("hidden");
+  });
+
+  it("un Escape que ya atendio otro escuchador sin cerrar nada no rompe la pila: con una sola hoja sigue cerrandola", async () => {
+    const onClose = vi.fn();
+    render(<Harness onClose={onClose} />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), { timeout: 3000 });
+  });
+});
+
+const scrimCount = () => document.querySelectorAll("[data-sheet-scrim]").length;

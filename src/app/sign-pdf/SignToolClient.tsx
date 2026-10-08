@@ -4,14 +4,13 @@ import {
   Fragment,
   useCallback,
   useEffect,
-  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { PenLine } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
-import { Spinner } from "@/components/ui/Spinner";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Sheet } from "@/components/ui/Sheet";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
@@ -19,7 +18,6 @@ import {
   SignatureComposer,
   type SignatureDraft,
 } from "@/app/sign-pdf/SignatureComposer";
-import { SignaturePlacer } from "@/app/sign-pdf/SignaturePlacer";
 import {
   SignerManager,
   nextSignerId,
@@ -27,14 +25,13 @@ import {
   reserveSignerIds,
 } from "@/app/sign-pdf/SignerManager";
 import {
-  FieldPlacer,
-  TextFieldPlacer,
+  DocumentCanvas,
   nextFieldId,
   nextTextFieldId,
   reserveFieldIds,
   reserveTextFieldIds,
-} from "@/app/sign-pdf/FieldPlacer";
-import { FieldFormPanel } from "@/app/sign-pdf/FieldFormPanel";
+  type PlacementTool,
+} from "@/app/sign-pdf/DocumentCanvas";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
 import { DraftsSheet } from "@/app/sign-pdf/DraftsSheet";
 import { TemplatesSheet } from "@/app/sign-pdf/TemplatesSheet";
@@ -50,10 +47,26 @@ import {
   validCapture,
   type CaptureMap,
 } from "@/app/sign-pdf/SigningCeremony";
+import { documentContentKey } from "@/app/sign-pdf/documentKey";
 import {
-  documentContentKey,
-  useDocumentKey,
-} from "@/app/sign-pdf/documentKey";
+  DetectionStatus,
+  PendingFieldsNotice,
+  ReuseValuesPrompt,
+} from "@/app/sign-pdf/DocumentSessionParts";
+import {
+  useDocumentSession,
+  type SeenDocument,
+  type SeenStore,
+} from "@/app/sign-pdf/useDocumentSession";
+import {
+  UNPLACED_RECT,
+  buildSoloPlacements,
+  buildTextPlacements,
+  hasFilledField,
+  soloPlacementFromSlots,
+  soloReady,
+  soloSlotsFrom,
+} from "@/app/sign-pdf/soloSignature";
 import {
   exportSignConfig,
   importSignConfig,
@@ -80,42 +93,50 @@ import {
   type PdfErrorCode,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import {
-  detectFields,
-  embeddedValueFor,
-  fieldTypeOf,
-  isFieldFilled,
-  type DetectedField,
-} from "@/lib/pdf/detectFields";
+import { type DetectedField } from "@/lib/pdf/detectFields";
 import {
   SIGNER_COLORS,
   buildSignerFilenamePrefix,
   dataUrlToBytes,
   normalizeFieldLabel,
-  signPdf,
   signPdfMulti,
   type SignPlacement,
   type SignatureField,
-  type SignatureFieldType,
   type Signer,
 } from "@/lib/pdf/sign";
 import type { NormalizedRect } from "@/lib/pdf/watermark";
 import { getTool } from "@/lib/tools-registry";
-import { bestMatchForKey, recordValue } from "@/lib/valueHistory";
+import { recordValue } from "@/lib/valueHistory";
 
 const TOOL = getTool("sign-pdf");
 
 /** "Solo yo" es el camino rapido de siempre; "varios" abre la ronda por turnos. */
 export type SignMode = "single" | "multi";
 
-export type MultiStep = "signers" | "fields" | "text" | "sign";
+/**
+ * Pasos del flujo con varios firmantes: Firmantes -> Documento -> Firmar.
+ * "document" (W2-A) es el lienzo unico donde conviven los huecos de
+ * firma/iniciales y los campos de texto; sustituye a los antiguos
+ * "fields" (huecos) y "text" (campos + formulario inferior).
+ */
+export type MultiStep = "signers" | "document" | "sign";
 
-const MULTI_STEPS: readonly MultiStep[] = [
-  "signers",
-  "fields",
-  "text",
-  "sign",
-] as const;
+/**
+ * Lo que puede venir PERSISTIDO (borradores en IndexedDB guardados antes
+ * de W2-A): ademas de los pasos vigentes, los dos que se fusionaron. Se
+ * lee tal cual y se normaliza con `migrateStep` al restaurar; nunca se
+ * vuelve a escribir.
+ */
+export type LegacyMultiStep = MultiStep | "fields" | "text";
+
+/** Normaliza un paso persistido (posiblemente anterior a W2-A) al modelo vigente, sin perder nada. */
+export function migrateStep(step: LegacyMultiStep | string | undefined): MultiStep {
+  if (step === "signers" || step === "document" || step === "sign") return step;
+  if (step === "fields" || step === "text") return "document";
+  return "signers";
+}
+
+const MULTI_STEPS: readonly MultiStep[] = ["signers", "document", "sign"] as const;
 
 export type SignToolOptions = {
   mode: SignMode;
@@ -141,15 +162,22 @@ export type SignToolOptions = {
   fields: SignatureField[];
   captures: CaptureMap;
   activeSignerId: string | null;
-  fieldType: SignatureFieldType;
+  /** Pagina visible del lienzo del paso "Documento" (huecos y campos de texto comparten lienzo). */
   fieldPageIndex: number;
+  /**
+   * Hueco seleccionado. Mutuamente exclusivo con `selectedTextFieldId`:
+   * el lienzo tiene UNA seleccion (`CanvasSelection`), que `MultiFlow`
+   * traduce a estos dos campos para no cambiar el modelo persistido.
+   */
   selectedFieldId: string | null;
+  /** Herramienta de la paleta (Seleccionar por defecto): decide que crea el proximo gesto. No se persiste. */
+  placementTool: PlacementTool;
 
   /* --- Campos de texto: detectados o anadidos a mano --- */
   textFields: DetectedField[];
   /** Valor de cada campo de texto, indexado por `id`. Vacio = no se empotra. */
   textValues: Record<string, string>;
-  textFieldPageIndex: number;
+  /** Campo de texto seleccionado (ver `selectedFieldId`). */
   selectedTextFieldId: string | null;
   /** Campo con el input en linea abierto (distinto de "seleccionado"). */
   editingTextFieldId: string | null;
@@ -177,12 +205,11 @@ const DEFAULT_OPTIONS: SignToolOptions = {
   fields: [],
   captures: {},
   activeSignerId: null,
-  fieldType: "signature",
   fieldPageIndex: 0,
   selectedFieldId: null,
+  placementTool: "select",
   textFields: [],
   textValues: {},
-  textFieldPageIndex: 0,
   selectedTextFieldId: null,
   editingTextFieldId: null,
   textFieldsDetectedFor: null,
@@ -194,6 +221,10 @@ const DEFAULT_OPTIONS: SignToolOptions = {
  * modo y el tipo de hueco activo no dependen del documento y sobreviven.
  */
 const CLEARED_DOCUMENT_STATE: Partial<SignToolOptions> = {
+  // "Solo yo": la firma colocada tambien describe un documento concreto
+  // (la firma creada no: sobrevive y se vuelve a colocar en el nuevo).
+  rect: UNPLACED_RECT,
+  pageIndex: 0,
   step: "signers",
   fields: [],
   captures: {},
@@ -201,7 +232,6 @@ const CLEARED_DOCUMENT_STATE: Partial<SignToolOptions> = {
   selectedFieldId: null,
   textFields: [],
   textValues: {},
-  textFieldPageIndex: 0,
   selectedTextFieldId: null,
   editingTextFieldId: null,
   textFieldsDetectedFor: null,
@@ -224,61 +254,12 @@ function recordFilledValues(
   }
 }
 
-/**
- * Documentos para los que el usuario ya dijo "no, empezar en blanco" en
- * esta pestaña. `sessionStorage` (no `localStorage`, y no un `ref`): a
- * diferencia del historial de valores, esto es un dato de interfaz (que
- * no volver a preguntar), no PII, y tiene que sobrevivir a que `MultiFlow`
- * se desmonte y remonte (ej. alternar "Solo yo" <-> "Varios firmantes"),
- * que un `ref` de componente no sobrevive.
- */
-const DECLINED_REUSE_KEY = "optimuspdf:sign-fill:declinedReuse";
-
-function hasDeclinedReuse(documentKey: string): boolean {
-  try {
-    const raw = window.sessionStorage.getItem(DECLINED_REUSE_KEY);
-    if (!raw) return false;
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.includes(documentKey);
-  } catch {
-    return false;
-  }
-}
-
-function markDeclinedReuse(documentKey: string): void {
-  try {
-    const raw = window.sessionStorage.getItem(DECLINED_REUSE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    const list = Array.isArray(parsed)
-      ? parsed.filter((value): value is string => typeof value === "string")
-      : [];
-    if (!list.includes(documentKey)) list.push(documentKey);
-    window.sessionStorage.setItem(DECLINED_REUSE_KEY, JSON.stringify(list));
-  } catch {
-    // Sin sessionStorage disponible no hay nada que recordar: el banner
-    // podria reaparecer, pero nunca es motivo para romper el flujo.
-  }
-}
-
-/** Campos cuya etiqueta coincide con un valor ya guardado de otro documento. */
-function matchingStoredValues(
-  fields: readonly DetectedField[],
-): Record<string, string> {
-  const matches: Record<string, string> = {};
-  for (const field of fields) {
-    if (!field.label) continue;
-    const value = bestMatchForKey(normalizeFieldLabel(field.label));
-    if (value) matches[field.id] = value;
-  }
-  return matches;
-}
-
 /** Al menos un campo de texto tiene algo que empotrar. */
 function hasFilledTextValue(
   fields: readonly DetectedField[],
   values: Record<string, string>,
 ): boolean {
-  return fields.some((field) => isFieldFilled(field, values[field.id]));
+  return hasFilledField(fields, values);
 }
 
 /**
@@ -320,18 +301,9 @@ function buildPlacements(
   // firmantes: uno vacio simplemente no se empotra (nunca "firma en
   // blanco" ni estropea el documento), asi que aqui se descartan sin
   // avisar en vez de exigir que esten todos rellenos.
-  for (const field of options.textFields) {
-    const raw = options.textValues[field.id] ?? "";
-    const value = embeddedValueFor(field, raw, language);
-    if (!value) continue;
-    placements.push({
-      kind: "text",
-      value,
-      pageIndex: field.pageIndex,
-      rect: field.rect,
-      align: fieldTypeOf(field) === "checkbox" ? "center" : "left",
-    });
-  }
+  placements.push(
+    ...buildTextPlacements(options.textFields, options.textValues, language),
+  );
 
   return placements;
 }
@@ -369,7 +341,24 @@ export function SignToolClient() {
     "completionCertificate",
   );
   const [composerOpen, setComposerOpen] = useState(false);
-  const [pageCount, setPageCount] = useState(0);
+  /**
+   * Ultimo archivo visto por los flujos y sus opciones: vive AQUI, fuera de
+   * ellos, porque quitar el archivo desmonta el flujo. Asi cargar otro
+   * reinicia lo del documento anterior sin esperar a su huella.
+   */
+  const seenDocumentRef = useRef<SeenDocument<SignToolOptions>>({
+    file: null,
+    options: DEFAULT_OPTIONS,
+  });
+  const seenDocument = useMemo<SeenStore<SignToolOptions>>(
+    () => ({
+      read: () => seenDocumentRef.current,
+      write: (value) => {
+        seenDocumentRef.current = value;
+      },
+    }),
+    [],
+  );
   /** Lo rellena `ToolShell`: remata la ronda con el mismo procesado de siempre. */
   const runRef = useRef<(() => void) | null>(null);
   /** Lo rellena `ToolShell`: reinicia el flujo con un patch parcial de opciones. */
@@ -467,7 +456,9 @@ export function SignToolClient() {
       loadRef.current?.([file], {
         mode: loaded.meta.mode,
         signature: loaded.meta.id,
-        step: loaded.meta.step,
+        // Un borrador anterior a W2-A puede traer "fields" o "text": ambos
+        // viven ahora en "document", con sus huecos y campos intactos.
+        step: migrateStep(loaded.meta.step),
         signers: loaded.meta.signers,
         fields: loaded.meta.fields,
         captures: loaded.meta.captures,
@@ -534,9 +525,7 @@ export function SignToolClient() {
   /**
    * Guarda la disposicion ACTUAL (firmantes + huecos + campos de texto,
    * sin valores) como plantilla con nombre, reutilizable en otro
-   * documento. `pageCount` se resuelve del propio archivo en vez de
-   * confiar en el `pageCount` de estado del componente: ese solo lo
-   * alimenta `SignaturePlacer` (modo "solo yo"), nunca el flujo multi.
+   * documento. `pageCount` se resuelve del propio archivo.
    */
   const handleSaveTemplate = useCallback(
     async (file: File, options: SignToolOptions, name: string) => {
@@ -604,7 +593,7 @@ export function SignToolClient() {
           selectedTextFieldId: null,
           editingTextFieldId: null,
           textFieldsDetectedFor: documentKey,
-          step: "fields",
+          step: "document",
         });
         setTemplateFeedback(
           instantiated.dropped > 0
@@ -631,14 +620,13 @@ export function SignToolClient() {
       const baseFilename = withSuffix(file.name, strings.filenameSuffix);
 
       if (options.mode === "single") {
-        const blob = await signPdf(
-          file,
-          {
-            signaturePng: options.signaturePng,
-            placement: { pageIndex: options.pageIndex, rect: options.rect },
-          },
-          onProgress,
-        );
+        // La firma colocada (si hay) y los campos con valor: sola la firma es
+        // exactamente la colocacion de siempre. Sin certificado ni prefijo de
+        // firmantes: son de la ronda por turnos.
+        const placements = buildSoloPlacements(options, language);
+        if (placements.length === 0) throw new PdfError("empty");
+        const blob = await signPdfMulti(file, { placements }, onProgress);
+        recordFilledValues(options.textFields, options.textValues);
         return { blob, filename: baseFilename };
       }
 
@@ -744,13 +732,15 @@ export function SignToolClient() {
           />
         ) : null
       }
-      // "Solo yo" conserva la puerta de siempre (solo el minimo de
-      // archivos); la ronda por turnos si exige tenerlo todo firmado.
+      // "Solo yo" necesita algo que aplicar: su firma colocada o algun campo
+      // relleno; la ronda por turnos exige tenerlo todo firmado.
       // `options.signature` es la huella del documento sobre el que se
       // reservaron los huecos; que siga siendo la del archivo cargado lo
       // vuelve a comprobar `process()` antes de escribir nada.
       canRun={(_files, options) =>
-        options.mode === "single" ? true : multiReady(options, options.signature)
+        options.mode === "single"
+          ? soloReady(options)
+          : multiReady(options, options.signature)
       }
       renderMain={({ files, options, setOptions }) => (
         <div className="space-y-6">
@@ -773,29 +763,22 @@ export function SignToolClient() {
 
           {options.mode === "single" ? (
             <>
-              <SignaturePlacer
+              <SoloFlow
                 file={files[0] ?? null}
-                signature={options.signaturePng || null}
-                ratio={options.ratio}
-                rect={options.rect}
-                onRectChange={(rect) => setOptions({ rect })}
-                pageIndex={options.pageIndex}
-                onPageIndexChange={(pageIndex) => setOptions({ pageIndex })}
-                pageCount={pageCount}
-                onPageCount={setPageCount}
+                options={options}
+                setOptions={setOptions}
+                onCreateSignature={() => setComposerOpen(true)}
                 strings={strings}
+                seen={seenDocument}
               />
               <SignatureComposer
                 open={composerOpen}
                 onClose={() => setComposerOpen(false)}
                 strings={strings}
+                // La firma nueva se coloca sola en el lienzo (o, si ya habia una
+                // colocada, se ajusta a su proporcion): ver `DocumentCanvas`.
                 onSave={(draft: SignatureDraft) =>
-                  setOptions({
-                    signaturePng: draft.dataUrl,
-                    ratio: draft.ratio,
-                    // Fuerza el recálculo de la colocación por defecto.
-                    rect: { x: 0, y: 0, width: 0, height: 0 },
-                  })
+                  setOptions({ signaturePng: draft.dataUrl, ratio: draft.ratio })
                 }
               />
             </>
@@ -806,6 +789,7 @@ export function SignToolClient() {
               setOptions={setOptions}
               onFinish={() => requestFinish(options.signers)}
               strings={strings}
+              seen={seenDocument}
             />
           )}
         </div>
@@ -1066,6 +1050,8 @@ export type MultiFlowProps = {
   setOptions: (patch: Partial<SignToolOptions>) => void;
   onFinish: () => void;
   strings: SignStrings;
+  /** Ultimo archivo visto, compartido entre flujos (ver `useDocumentSession`). */
+  seen?: SeenStore<SignToolOptions>;
 };
 
 export function MultiFlow({
@@ -1074,6 +1060,7 @@ export function MultiFlow({
   setOptions,
   onFinish,
   strings,
+  seen,
 }: MultiFlowProps) {
   const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
   const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
@@ -1086,7 +1073,7 @@ export function MultiFlow({
   /**
    * "Deshacer" al borrar un firmante: unico y propio (nunca comparte
    * hueco con el de un campo de texto/hueco de imagen -- `SignerManager`
-   * y `FieldPlacer`/`TextFieldPlacer` nunca estan montados a la vez, asi
+   * y `DocumentCanvas` nunca estan montados a la vez, asi
    * que no hace falta coordinarlos). Restaura no solo al firmante sino
    * tambien sus huecos y su captura -- borrarlo hoy se los lleva a los
    * tres en silencio, sin ningun aviso.
@@ -1139,176 +1126,34 @@ export function MultiFlow({
     setPendingSignerUndo(null);
   };
 
-  /** Huella del contenido del archivo; `null` mientras se calcula. */
-  const documentKey = useDocumentKey(file);
-  const [detecting, setDetecting] = useState(false);
-  const [detectionFailed, setDetectionFailed] = useState(false);
-  const [reuseMatches, setReuseMatches] = useState<Record<string, string> | null>(
-    null,
-  );
   /**
-   * Huella para la que ya se lanzo (o esta en marcha) la deteccion. Vive
-   * en un ref, no en `options`, a proposito: si estuviera en las
-   * dependencias del efecto de deteccion, el propio `setOptions({
-   * textFields: ... })` con el que termina la deteccion volveria a
-   * disparar ese mismo efecto y cancelaria su propia peticion en marcha
-   * antes de que resolviera (esto se detecto de verdad reordenando los
-   * tests, no es hipotetico).
-   *
-   * Sembrado con `options.textFieldsDetectedFor` (solo el valor del
-   * PRIMER render, `useRef` no lo vuelve a leer): un borrador restaurado
-   * o una configuracion importada ya trae ese campo resuelto, y sin este
-   * sembrado la deteccion real correria igual sobre el documento recien
-   * cargado en cuanto `documentKey` confirme la huella, pisando en
-   * silencio los campos ya restaurados.
+   * La sesion del documento (huella, reinicio al cambiar de archivo,
+   * deteccion de campos, valores a reutilizar y el puente con el lienzo) es
+   * la misma que usa "Solo yo": ver `useDocumentSession`.
    */
-  const detectedForRef = useRef<string | null>(options.textFieldsDetectedFor);
-
-  /**
-   * Opciones ya confirmadas en pantalla. La deteccion termina mucho
-   * despues de arrancar y tiene que mirar lo que la persona tiene AHORA
-   * (campos anadidos a mano mientras tanto), no lo de cuando salio. Se
-   * actualiza al confirmar cada render (layout), nunca durante el.
-   */
-  const latestOptionsRef = useRef(options);
-  useLayoutEffect(() => {
-    latestOptionsRef.current = options;
-  });
-
-  /**
-   * Cambio de ARCHIVO: es lo que reinicia el documento, no la llegada de
-   * su huella. Los huecos y los trazos describen un documento concreto;
-   * al cambiar el archivo se empieza de cero -- heredarlos colocaria
-   * firmas sobre paginas que nadie llego a ver. Los firmantes si
-   * sobreviven, porque no dependen del documento. Se limpia en el acto y
-   * se deja `signature` sin sellar (`""`): lo que la persona haga en el
-   * archivo nuevo mientras llega su huella se conserva, y la huella solo
-   * lo sella (efecto de mas abajo).
-   *
-   * Solo cuenta un cambio de un archivo a otro CON LAS MISMAS opciones.
-   * Si en el mismo render cambian el archivo Y las opciones, es una carga
-   * externa (reanudar un borrador, importar una configuracion) que trae
-   * su propio estado, ya coherente con el archivo nuevo: se respeta, y si
-   * su huella no coincide con la del archivo el efecto de sellado de mas
-   * abajo lo reinicia igualmente.
-   */
-  const seenRef = useRef<{ file: File | null; options: SignToolOptions }>({
+  const session = useDocumentSession({
     file,
     options,
+    setOptions,
+    clearedState: CLEARED_DOCUMENT_STATE,
+    // El "Deshacer" de un firmante borrado describe el documento anterior.
+    onDocumentChange: () => setPendingSignerUndo(null),
+    seen,
   });
-  useEffect(() => {
-    const previous = seenRef.current;
-    seenRef.current = { file: file ?? previous.file, options };
-    if (!file || !previous.file || previous.file === file) return;
-    if (previous.options !== options) return;
-    // En el acto, dentro del propio efecto: el render siguiente ya no ve
-    // lo del documento anterior (y cancela un reinicio por huella pendiente).
-    setOptions({ signature: "", ...CLEARED_DOCUMENT_STATE });
-    detectedForRef.current = null;
-    // `queueMicrotask` para no llamar a `setState` sincrono en el cuerpo
-    // del efecto (mismo patron que `FileList.tsx:FileThumbnail`).
-    queueMicrotask(() => {
-      setReuseMatches(null);
-      setDetectionFailed(false);
-      setDetecting(false);
-      setPendingSignerUndo(null);
-    });
-  }, [file, options, setOptions]);
-
-  /**
-   * Llega la huella del archivo cargado. Se SELLA, sin tocar el trabajo:
-   *  - `signature === ""` (nada sellado: primer documento, o archivo recien
-   *    cambiado): solo se sella. Lo hecho mientras llegaba -- con un PDF
-   *    grande la huella tarda y una persona rapida ya creo firmante,
-   *    huecos y campos -- se conserva.
-   *  - `signature` es la huella de OTRO documento (una carga externa para
-   *    otro archivo: borrador, plantilla, configuracion): se reinicia, para
-   *    no mezclar documentos.
-   * Mientras no hay huella (`null`) ninguna captura vale (`validCapture`),
-   * `SigningCeremony` espera y `multiReady` no da por lista una ronda con
-   * huecos: no se firma nada sin ella. El relleno de texto no depende de
-   * ella: `process()` recalcula la huella justo antes de escribir.
-   */
-  useEffect(() => {
-    if (documentKey === null || options.signature === documentKey) return;
-    const unsealed = options.signature === "";
-    // `queueMicrotask` para no llamar a `setState` sincrono en el cuerpo
-    // del efecto (mismo patron que `FileList.tsx:FileThumbnail`).
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      if (unsealed) {
-        setOptions({ signature: documentKey });
-        return;
-      }
-      setOptions({ signature: documentKey, ...CLEARED_DOCUMENT_STATE });
-      setReuseMatches(null);
-      setDetectionFailed(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [documentKey, options.signature, setOptions]);
-
-  /** La huella ya sella el estado de las opciones (o lo restaurado ya traia la suya). */
-  const sealedToDocument = documentKey !== null && options.signature === documentKey;
-
-  /**
-   * Deteccion de campos de texto (AcroForm + heuristica vectorial/raster)
-   * del documento nuevo. Arranca cuando el estado ya esta sellado a su
-   * huella: asi nunca corre mientras un reinicio pendiente puede borrar lo
-   * que deje. Depende solo de `documentKey`/`file` y de ese sello -nunca
-   * de nada que la propia deteccion module- para no cancelarse a si
-   * misma a mitad: el sello solo pasa de falso a verdadero una vez y la
-   * deteccion no lo toca; si cambia el documento, cancelarla es lo
-   * correcto. Un fallo nunca bloquea nada: el usuario siempre puede seguir
-   * anadiendo campos a mano (`detectionFailedHint`).
-   *
-   * `detectedForRef` arranca sembrado con `options.textFieldsDetectedFor`
-   * (ver el comentario junto a su declaracion): un borrador restaurado o
-   * una configuracion importada ya trae `textFields` resuelto, y sin ese
-   * sembrado la deteccion real correria de todos modos sobre el documento
-   * recien cargado y pisaria en silencio los campos restaurados,
-   * incluidos los anadidos a mano que la deteccion nunca podria
-   * reconstruir por si sola.
-   *
-   * Si al terminar ya hay campos (anadidos a mano mientras tanto, o de un
-   * borrador guardado antes de que acabara la deteccion), se conservan y
-   * los detectados se suman: la deteccion nunca pisa lo que hizo la persona.
-   */
-  useEffect(() => {
-    if (!file || documentKey === null || !sealedToDocument) return;
-    if (detectedForRef.current === documentKey) return;
-    detectedForRef.current = documentKey;
-
-    let cancelled = false;
-    setDetecting(true);
-    void detectFields(file)
-      .then((detected) => {
-        if (cancelled) return;
-        const existing = latestOptionsRef.current.textFields;
-        const known = new Set(existing.map((field) => field.id));
-        setOptions({
-          textFields:
-            existing.length === 0
-              ? detected
-              : [...existing, ...detected.filter((field) => !known.has(field.id))],
-          textFieldsDetectedFor: documentKey,
-        });
-        if (documentKey && hasDeclinedReuse(documentKey)) return;
-        const matches = matchingStoredValues(detected);
-        if (Object.keys(matches).length > 0) setReuseMatches(matches);
-      })
-      .catch(() => {
-        if (!cancelled) setDetectionFailed(true);
-      })
-      .finally(() => {
-        if (!cancelled) setDetecting(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [documentKey, file, sealedToDocument, setOptions]);
+  const {
+    documentKey,
+    detecting,
+    detectionFailed,
+    reuseMatches,
+    acceptReuse,
+    declineReuse,
+    canvasSelection,
+    onCanvasSelectionChange,
+    onTextFieldsChange,
+    onTextValueChange,
+    textFieldsMissing,
+    detectedFieldsCount,
+  } = session;
 
   /**
    * Cachea los bytes leidos del `File` actual: se necesitan en cada
@@ -1454,50 +1299,23 @@ export function MultiFlow({
 
   const stepLabels: Record<MultiStep, string> = {
     signers: strings.stepSigners,
-    fields: strings.stepFields,
-    text: strings.stepText,
+    document: strings.stepDocument,
     sign: strings.stepSign,
   };
 
   /**
    * Un paso solo se abre cuando el anterior ya tiene lo que necesita. El
-   * paso de texto no depende de los firmantes (un campo de texto no
-   * tiene dueño), asi que siempre esta abierto; el de firmar se abre con
-   * huecos de imagen listos O con algun campo de texto relleno.
+   * paso "Documento" no depende de los firmantes (un campo de texto no
+   * tiene dueño; sin firmantes el lienzo solo ofrece campos de texto),
+   * asi que siempre esta abierto; el de firmar se abre con huecos de
+   * imagen listos O con algun campo de texto relleno.
    */
   const reachable = (step: MultiStep): boolean => {
-    if (step === "signers") return true;
-    if (step === "fields") return options.signers.length > 0;
-    if (step === "text") return true;
+    if (step === "signers" || step === "document") return true;
     return (
       options.fields.length > 0 ||
       hasFilledTextValue(options.textFields, options.textValues)
     );
-  };
-
-  /** Quita del mapa de valores lo que ya no describe ningun campo vivo. */
-  const onTextFieldsChange = (fields: DetectedField[]) => {
-    const alive = new Set(fields.map((field) => field.id));
-    const values: Record<string, string> = {};
-    for (const [id, value] of Object.entries(options.textValues)) {
-      if (alive.has(id)) values[id] = value;
-    }
-    setOptions({ textFields: fields, textValues: values });
-  };
-
-  const onTextValueChange = (id: string, value: string) => {
-    setOptions({ textValues: { ...options.textValues, [id]: value } });
-  };
-
-  const acceptReuse = () => {
-    if (!reuseMatches) return;
-    setOptions({ textValues: { ...options.textValues, ...reuseMatches } });
-    setReuseMatches(null);
-  };
-
-  const declineReuse = () => {
-    if (documentKey) markDeclinedReuse(documentKey);
-    setReuseMatches(null);
   };
 
   const position = MULTI_STEPS.indexOf(options.step);
@@ -1505,17 +1323,14 @@ export function MultiFlow({
   const previousStep = MULTI_STEPS[position - 1];
 
   /**
-   * Aviso NO bloqueante (Recomendacion #2): se calcula aqui, no solo en
-   * `FieldFormPanel`, porque tiene que sobrevivir a salir del paso
-   * "text" -- es el ultimo momento antes de firmar o descargar en que
-   * el usuario puede verlo.
+   * Aviso NO bloqueante (Recomendacion #2): se muestra en linea en el paso
+   * "Documento" (bajo el lienzo) y de nuevo en el panel de descarga del
+   * paso "Firmar" cuando no hay huecos, el ultimo momento antes de
+   * descargar en que la persona puede verlo.
    */
-  const textFieldsMissing = options.textFields.filter(
-    (field) => !isFieldFilled(field, options.textValues[field.id]),
-  ).length;
   const showPendingTextFieldsNotice =
     fieldsCompleteNoticeEnabled &&
-    options.step === "text" &&
+    options.step === "document" &&
     textFieldsMissing > 0;
 
   const fieldCounts: Record<string, number> = {};
@@ -1617,103 +1432,44 @@ export function MultiFlow({
         </>
       ) : null}
 
-      {options.step === "fields" ? (
-        <FieldPlacer
-          file={file}
-          signers={options.signers}
-          activeSignerId={options.activeSignerId}
-          onActiveSignerIdChange={(activeSignerId) =>
-            setOptions({ activeSignerId })
-          }
-          fields={options.fields}
-          onFieldsChange={(fields) => setOptions({ fields })}
-          activeType={options.fieldType}
-          onActiveTypeChange={(fieldType) => setOptions({ fieldType })}
-          pageIndex={options.fieldPageIndex}
-          onPageIndexChange={(fieldPageIndex) => setOptions({ fieldPageIndex })}
-          selectedId={options.selectedFieldId}
-          onSelectedIdChange={(selectedFieldId) =>
-            setOptions({ selectedFieldId })
-          }
-          strings={strings}
-          undoDeleteEnabled={undoDeleteEnabled}
-        />
-      ) : null}
-
-      {options.step === "text" ? (
-        <section className="space-y-5">
-          {detecting ? (
-            <div className="glass rounded-ios flex items-center gap-3 p-5">
-              <Spinner />
-              <p className="text-sm text-muted-foreground">
-                {strings.detectingFields}
-              </p>
-            </div>
-          ) : null}
-
-          {!detecting && detectionFailed ? (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {strings.detectionFailedHint}
-            </p>
-          ) : null}
-
-          {!detecting && !detectionFailed && options.textFields.length > 0 ? (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {strings.detectedFieldsSummary(options.textFields.length)}
-            </p>
-          ) : null}
+      {options.step === "document" ? (
+        <section className="flex flex-col gap-4">
+          <DetectionStatus
+            detecting={detecting}
+            failed={detectionFailed}
+            detectedCount={detectedFieldsCount}
+            strings={strings}
+          />
 
           {reuseMatches ? (
-            <div className="glass rounded-ios flex flex-col gap-3 p-4">
-              <p className="text-sm text-foreground">{strings.reuseValuesPrompt}</p>
-              {/*
-               * El valor se muestra explicitamente antes de aceptar: el
-               * historial ahora vive en localStorage (no se olvida al
-               * cerrar la pestaña), asi que aceptar "a ciegas" arriesga
-               * traer el dato de OTRO cliente si dos documentos usan la
-               * misma etiqueta de campo (ej. "Nombre completo").
-               */}
-              <ul className="space-y-1">
-                {Object.entries(reuseMatches).map(([fieldId, value]) => {
-                  const field = options.textFields.find(
-                    (candidate) => candidate.id === fieldId,
-                  );
-                  return (
-                    <li
-                      key={fieldId}
-                      className="flex items-baseline gap-2 text-xs text-muted-foreground"
-                    >
-                      <span className="shrink-0">{field?.label ?? fieldId}:</span>
-                      <span className="truncate text-foreground">{value}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={acceptReuse}>
-                  {strings.reuseValuesAccept}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={declineReuse}>
-                  {strings.reuseValuesDecline}
-                </Button>
-              </div>
-            </div>
+            <ReuseValuesPrompt
+              matches={reuseMatches}
+              textFields={options.textFields}
+              onAccept={acceptReuse}
+              onDecline={declineReuse}
+              strings={strings}
+            />
           ) : null}
 
-          <TextFieldPlacer
+          <DocumentCanvas
             file={file}
-            fields={options.textFields}
-            onFieldsChange={onTextFieldsChange}
+            signers={options.signers}
+            activeSignerId={options.activeSignerId}
+            onActiveSignerIdChange={(activeSignerId) =>
+              setOptions({ activeSignerId })
+            }
+            tool={options.placementTool}
+            onToolChange={(placementTool) => setOptions({ placementTool })}
+            slots={options.fields}
+            onSlotsChange={(fields) => setOptions({ fields })}
+            textFields={options.textFields}
+            onTextFieldsChange={onTextFieldsChange}
             values={options.textValues}
             onValueChange={onTextValueChange}
-            pageIndex={options.textFieldPageIndex}
-            onPageIndexChange={(textFieldPageIndex) =>
-              setOptions({ textFieldPageIndex })
-            }
-            selectedId={options.selectedTextFieldId}
-            onSelectedIdChange={(selectedTextFieldId) =>
-              setOptions({ selectedTextFieldId })
-            }
+            pageIndex={options.fieldPageIndex}
+            onPageIndexChange={(fieldPageIndex) => setOptions({ fieldPageIndex })}
+            selection={canvasSelection}
+            onSelectionChange={onCanvasSelectionChange}
             editingId={options.editingTextFieldId}
             onEditingIdChange={(editingTextFieldId) =>
               setOptions({ editingTextFieldId })
@@ -1725,16 +1481,8 @@ export function MultiFlow({
             pinchZoomEnabled={pinchZoomEnabled}
           />
 
-          <FieldFormPanel
-            fields={options.textFields}
-            values={options.textValues}
-            onJumpToField={(field) =>
-              setOptions({
-                selectedTextFieldId: field.id,
-                textFieldPageIndex: field.pageIndex,
-                editingTextFieldId: field.id,
-              })
-            }
+          <PendingFieldsNotice
+            missing={showPendingTextFieldsNotice ? textFieldsMissing : 0}
             strings={strings}
           />
         </section>
@@ -1770,8 +1518,12 @@ export function MultiFlow({
           {fieldsCompleteNoticeEnabled && textFieldsMissing > 0 ? (
             <p
               role="status"
-              className="mt-2 text-xs leading-relaxed text-amber-400"
+              className="mt-2 flex items-start gap-2 text-footnote leading-relaxed text-foreground"
             >
+              <span
+                aria-hidden="true"
+                className="mt-[0.45em] size-2 shrink-0 rounded-full bg-amber-400"
+              />
               {strings.pendingTextFieldsWarning(textFieldsMissing)}
             </p>
           ) : null}
@@ -1785,12 +1537,6 @@ export function MultiFlow({
             </Button>
           </div>
         </div>
-      ) : null}
-
-      {showPendingTextFieldsNotice ? (
-        <p role="status" className="text-xs leading-relaxed text-amber-400">
-          {strings.pendingTextFieldsWarning(textFieldsMissing)}
-        </p>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
@@ -1814,5 +1560,124 @@ export function MultiFlow({
         ) : null}
       </div>
     </div>
+  );
+}
+
+export type SoloFlowProps = {
+  file: File | null;
+  options: SignToolOptions;
+  setOptions: (patch: Partial<SignToolOptions>) => void;
+  /** Abre el compositor de la firma. */
+  onCreateSignature: () => void;
+  strings: SignStrings;
+  /** Ultimo archivo visto, compartido entre flujos (ver `useDocumentSession`). */
+  seen?: SeenStore<SignToolOptions>;
+};
+
+/**
+ * Modo "Solo yo" sobre el MISMO lienzo que el paso "Documento" (W2-C): la
+ * firma propia es un elemento mas (se coloca con la herramienta Firma, se
+ * mueve, se redimensiona, se quita con "Deshacer") y, ademas, se rellenan en
+ * linea los campos del documento (detectados o añadidos a mano) con la
+ * paleta, la barra flotante, el teclado y el toque. No hay formulario ni
+ * lista de campos aparte. El flujo rapido sigue siendo: crear la firma -> ya
+ * esta colocada -> descargar.
+ *
+ * Sin firmantes, sin huecos por turnos, sin certificado ni autoguardado de
+ * borrador (como antes): el estado vive en las opciones de la herramienta.
+ */
+export function SoloFlow({
+  file,
+  options,
+  setOptions,
+  onCreateSignature,
+  strings,
+  seen,
+}: SoloFlowProps) {
+  const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
+  const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
+    "fieldsCompleteNotice",
+  );
+  const undoDeleteEnabled = useSignPdfFeatureFlag("undoDelete");
+  const richFieldTypesEnabled = useSignPdfFeatureFlag("richFieldTypes");
+  const pinchZoomEnabled = useSignPdfFeatureFlag("pinchZoom");
+
+  const {
+    detecting,
+    detectionFailed,
+    reuseMatches,
+    acceptReuse,
+    declineReuse,
+    canvasSelection,
+    onCanvasSelectionChange,
+    onTextFieldsChange,
+    onTextValueChange,
+    textFieldsMissing,
+    detectedFieldsCount,
+  } = useDocumentSession({
+    file,
+    options,
+    setOptions,
+    clearedState: CLEARED_DOCUMENT_STATE,
+    seen,
+  });
+
+  return (
+    <section className="flex flex-col gap-4">
+      <DetectionStatus
+        detecting={detecting}
+        failed={detectionFailed}
+        detectedCount={detectedFieldsCount}
+        strings={strings}
+      />
+
+      {reuseMatches ? (
+        <ReuseValuesPrompt
+          matches={reuseMatches}
+          textFields={options.textFields}
+          onAccept={acceptReuse}
+          onDecline={declineReuse}
+          strings={strings}
+        />
+      ) : null}
+
+      <DocumentCanvas
+        file={file}
+        solo={{
+          signaturePng: options.signaturePng,
+          ratio: options.ratio,
+          onCreateSignature,
+        }}
+        signers={[]}
+        activeSignerId={null}
+        onActiveSignerIdChange={() => {}}
+        tool={options.placementTool}
+        onToolChange={(placementTool) => setOptions({ placementTool })}
+        slots={soloSlotsFrom(options)}
+        onSlotsChange={(slots) => setOptions(soloPlacementFromSlots(slots))}
+        textFields={options.textFields}
+        onTextFieldsChange={onTextFieldsChange}
+        values={options.textValues}
+        onValueChange={onTextValueChange}
+        pageIndex={options.fieldPageIndex}
+        onPageIndexChange={(fieldPageIndex) => setOptions({ fieldPageIndex })}
+        selection={canvasSelection}
+        onSelectionChange={onCanvasSelectionChange}
+        editingId={options.editingTextFieldId}
+        onEditingIdChange={(editingTextFieldId) =>
+          setOptions({ editingTextFieldId })
+        }
+        strings={strings}
+        keyboardNavEnabled={keyboardNavEnabled}
+        undoDeleteEnabled={undoDeleteEnabled}
+        richFieldTypesEnabled={richFieldTypesEnabled}
+        pinchZoomEnabled={pinchZoomEnabled}
+      />
+
+      <PendingFieldsNotice
+        missing={fieldsCompleteNoticeEnabled ? textFieldsMissing : 0}
+        strings={strings}
+      />
+    </section>
   );
 }

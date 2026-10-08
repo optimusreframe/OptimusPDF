@@ -21,14 +21,14 @@ export type SignerManagerProps = {
   strings: SignStrings;
 };
 
-/** Identificadores estables sin depender de `crypto.randomUUID`. Exportado por el mismo motivo que `nextFieldId` en `FieldPlacer.tsx`. */
+/** Identificadores estables sin depender de `crypto.randomUUID`. Exportado por el mismo motivo que `nextFieldId` en `DocumentCanvas.tsx`. */
 let signerCounter = 0;
 export function nextSignerId(): string {
   signerCounter += 1;
   return `sg-${signerCounter}`;
 }
 
-/** Mismo motivo que `reserveFieldIds` en `FieldPlacer.tsx`, para firmantes (`sg-N`). */
+/** Mismo motivo que `reserveFieldIds` en `DocumentCanvas.tsx`, para firmantes (`sg-N`). */
 export function reserveSignerIds(ids: readonly string[]): void {
   for (const id of ids) {
     const match = /^sg-(\d+)$/.exec(id);

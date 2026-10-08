@@ -59,7 +59,8 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          className="flex items-center gap-1.5 text-footnote font-medium text-muted-foreground transition-colors hover:text-foreground"
+          // Zona de toque de 44 px de alto bajo puntero grueso, sin cambiar el aspecto de escritorio.
+          className="relative flex items-center gap-1.5 text-footnote font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal pointer-coarse:before:absolute pointer-coarse:before:-inset-x-2 pointer-coarse:before:-inset-y-3 pointer-coarse:before:content-['']"
         >
           <Info aria-hidden="true" className="size-3.5" />
           {strings.privacyNoticeToggle}
@@ -91,7 +92,8 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
             type="button"
             aria-label={strings.confirmClose}
             onClick={dismiss}
-            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+            // 16 px visibles; zona de toque de 44x44 px bajo puntero grueso (caja fija de 16 px, el `::before` aporta el resto).
+            className="relative flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-['']"
           >
             <X aria-hidden="true" className="size-4" />
           </button>

@@ -323,7 +323,7 @@ export type InstantiatedTemplate = {
  * Puro y sincrono: no toca `localStorage`. Ids siempre nuevos (nunca los
  * guardados en la plantilla, que pueden colisionar con los del
  * documento actual) via los acuñadores inyectados -- este modulo no
- * importa `FieldPlacer.tsx`/`SignerManager.tsx` a proposito, para no
+ * importa `DocumentCanvas.tsx`/`SignerManager.tsx` a proposito, para no
  * arrastrar su arbol de React/pdf.js a un modulo que solo maneja datos.
  *
  * Paginas fuera de rango del documento actual: se descartan (nunca se

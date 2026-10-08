@@ -1,5 +1,9 @@
 import type { CaptureMap } from "@/app/sign-pdf/SigningCeremony";
-import type { MultiStep, SignMode } from "@/app/sign-pdf/SignToolClient";
+import type {
+  LegacyMultiStep,
+  MultiStep,
+  SignMode,
+} from "@/app/sign-pdf/SignToolClient";
 import type { SignConfigManifest } from "@/app/sign-pdf/signConfig";
 import type { DetectedField } from "@/lib/pdf/detectFields";
 import type { Signer, SignatureField } from "@/lib/pdf/sign";
@@ -30,7 +34,14 @@ export type DraftMeta = {
   fields: SignatureField[];
   textFields: DetectedField[];
   textValues: Record<string, string>;
-  step: MultiStep;
+  /**
+   * Paso en el que se dejo el borrador. Al LEER puede venir un valor
+   * anterior a W2-A ("fields"/"text"): se normaliza con `migrateStep`
+   * en `SignToolClient` al reanudar; al escribir siempre va un paso
+   * vigente (`SaveDraftParams.step`). Los datos (huecos, campos, valores)
+   * no cambian de formato.
+   */
+  step: LegacyMultiStep;
   captures: CaptureMap;
   /** Espejo de `SignToolOptions.textFieldsDetectedFor` -- ver ese campo. */
   textFieldsDetectedFor: string | null;
