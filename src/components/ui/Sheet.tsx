@@ -428,6 +428,11 @@ function SheetPanel({
     // arrastraba tambien a la de debajo y un arrastre largo cerraba las dos.
     if (!panel.contains(event.target as Node)) return;
     const target = event.target as Node;
+    // Zonas que gestionan su propio gesto (el lienzo de firma): un trazo con
+    // excursion vertical no debe arrastrar la hoja ni cerrarla al soltar.
+    if (event.target instanceof Element && event.target.closest("[data-sheet-no-drag]")) {
+      return;
+    }
     const fromHeader = headerRef.current?.contains(target) ?? false;
     const inScroller = scrollerRef.current?.contains(target) ?? false;
     // Con raton, el contenido se selecciona y se hace scroll: solo se

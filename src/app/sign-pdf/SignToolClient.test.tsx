@@ -52,6 +52,9 @@ vi.mock("@/lib/pdf/detectFields", async (importOriginal) => {
 
 const strings = SIGN_STRINGS.es;
 
+/** Plazo para que una `Sheet` termine su animacion de salida (muelle de tiempo real) incluso con la maquina saturada. */
+const SHEET_EXIT_TIMEOUT_MS = 8000;
+
 /**
  * Paleta del paso Documento (W2-B): la herramienta por defecto es Seleccionar
  * y cada una es de un solo uso, asi que se arma antes de cada alta.
@@ -937,16 +940,27 @@ describe("SignToolClient — plantillas de disposicion (Recomendacion #4)", () =
       within(dialog).getByRole("button", { name: strings.applyTemplateConfirm }),
     );
 
-    // El sheet de plantillas se cierra tras aplicar con exito.
-    await waitFor(() =>
-      expect(screen.queryByText(strings.templatesTitle)).toBeNull(),
-    );
     // W2-A: aplicar una plantilla deja al usuario en el paso unico "Documento".
-    expect(
-      screen
-        .getByRole("button", { name: `2. ${strings.stepDocument}` })
-        .getAttribute("aria-current"),
-    ).toBe("step");
+    // Se espera a ESTE efecto, que solo depende de promesas (loadPdf + huella,
+    // ~2 ms medidos): es la senal determinista de que la aplicacion termino. Antes
+    // se esperaba al desmontaje de la hoja, que no es eso (ver abajo).
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: `2. ${strings.stepDocument}` })
+          .getAttribute("aria-current"),
+      ).toBe("step"),
+    );
+    // El sheet de plantillas se cierra tras aplicar con exito. La hoja sale con
+    // un muelle de tiempo real (`springs.gentle`, ~0,5-0,8 s) y se desmonta en su
+    // `onComplete`: con los 1000 ms por defecto de `waitFor` el margen era de
+    // centesimas y bajo carga (suite completa + CPU saturada) los fotogramas se
+    // retrasan y no llega. El plazo es el de la animacion mas holgura, no una
+    // espera a ciegas por el trabajo de `loadPdf`.
+    await waitFor(
+      () => expect(screen.queryByText(strings.templatesTitle)).toBeNull(),
+      { timeout: SHEET_EXIT_TIMEOUT_MS },
+    );
   });
 
   it("con la funcion apagada en Ajustes, no aparecen los botones de plantillas", async () => {
@@ -1138,6 +1152,29 @@ describe("MultiFlow — deshacer al borrar un firmante (deferred #1)", () => {
 
     // Solo Marta (la ultima borrada) vuelve; Luis ya quedo en firme.
     expect(last.signers.map((s) => s.name)).toEqual(["Ana", "Marta"]);
+  });
+
+  it("si tras borrar se da de alta OTRO firmante, 'Deshacer' ya no cabe (MAX_SIGNERS): no deja 3 y lo dice con amabilidad", async () => {
+    let last: SignToolOptions = twoSignerOptions();
+    render(
+      <Harness
+        file={PRIMERO}
+        initialOptions={twoSignerOptions()}
+        onOptions={(options) => (last = options)}
+      />,
+    );
+    await settled();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.removeSigner("Luis") }));
+    expect(screen.getByRole("button", { name: strings.undoRemoveSigner })).toBeTruthy();
+
+    // Se da de alta otro firmante: la ronda vuelve a tener 2.
+    fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
+    expect(last.signers).toHaveLength(2);
+
+    expect(screen.queryByRole("button", { name: strings.undoRemoveSigner })).toBeNull();
+    expect(screen.getByText(strings.undoRemoveSignerUnavailable)).toBeTruthy();
+    expect(last.signers).toHaveLength(2);
   });
 });
 
@@ -1632,7 +1669,9 @@ describe("SignToolClient — migracion de pasos a 'document' (W2-A)", () => {
   ): Promise<void> {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("optimuspdf-sign-drafts", 1);
+      // Sin numero de version: la base ya esta en v2 (la abrio `clearAllDrafts`) y
+      // pedir la 1 daria VersionError; las filas v1 viven en los mismos almacenes.
+      const request = indexedDB.open("optimuspdf-sign-drafts");
       request.onupgradeneeded = () => {
         const upgraded = request.result;
         if (!upgraded.objectStoreNames.contains("draftFiles")) {

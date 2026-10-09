@@ -8,12 +8,16 @@ import {
   useRef,
   useState,
 } from "react";
-import { PenLine } from "lucide-react";
+import { Bookmark, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Sheet } from "@/components/ui/Sheet";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
+import {
+  FileAdmissionContext,
+  type FileAdmission,
+} from "@/components/tool/fileAdmission";
 import {
   SignatureComposer,
   type SignatureDraft,
@@ -32,11 +36,26 @@ import {
   reserveTextFieldIds,
   type PlacementTool,
 } from "@/app/sign-pdf/DocumentCanvas";
+import { useCanvasSequence } from "@/app/sign-pdf/DocumentSequence";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
+import { SignatureVaultSheet } from "@/app/sign-pdf/SignatureVaultSheet";
+import { VaultNoticeLine } from "@/app/sign-pdf/VaultNoticeLine";
+import { useSignatureVault } from "@/app/sign-pdf/useSignatureVault";
+import {
+  touchVaultEntry,
+  vaultImageToDataUrl,
+} from "@/app/sign-pdf/signVault";
+import { rememberDrafts, type VaultNotice } from "@/app/sign-pdf/vaultMessages";
 import { DraftsSheet } from "@/app/sign-pdf/DraftsSheet";
+import { draftStatusLine } from "@/app/sign-pdf/draftStatus";
+import { flushOnPageHide } from "@/app/sign-pdf/flushOnPageHide";
+import { SessionDraftAutosave } from "@/app/sign-pdf/SessionDraftAutosave";
+import { restoreSession, type SessionIdentity } from "@/app/sign-pdf/sessionDraft";
+import { sessionFromConfigSet } from "@/app/sign-pdf/configSession";
 import { TemplatesSheet } from "@/app/sign-pdf/TemplatesSheet";
 import {
   instantiateTemplate,
+  instantiateTemplateForAll,
   saveTemplate,
   TEMPLATE_NAME_MAX,
   type SignTemplate,
@@ -55,9 +74,63 @@ import {
 } from "@/app/sign-pdf/DocumentSessionParts";
 import {
   useDocumentSession,
-  type SeenDocument,
   type SeenStore,
 } from "@/app/sign-pdf/useDocumentSession";
+import {
+  DocumentSessionHost,
+} from "@/app/sign-pdf/DocumentSessionHost";
+import { useSessionBridge } from "@/app/sign-pdf/useSessionBridge";
+import {
+  DEFAULT_SESSION,
+  activeDocOf,
+  sessionFromView,
+  viewOf,
+  type SignSession,
+} from "@/app/sign-pdf/signSession";
+import {
+  coverageIssues,
+  docIdOf,
+  docIdsOf,
+  docStateOf,
+  ensureBlocks,
+  liveFields,
+  switchMode,
+  type DocId,
+  type SignMode as BlockSignMode,
+  type SignerBlock,
+} from "@/app/sign-pdf/docSet";
+import { BlockCeremony } from "@/app/sign-pdf/BlockCeremony";
+import {
+  CoverageNotices,
+  SignModeControl,
+  type SignerBlocksApi,
+} from "@/app/sign-pdf/SignerBlocks";
+import {
+  addBlock,
+  blockNumber,
+  changeBlockScope,
+  removeBlock,
+  scopeMoveAnnouncement,
+  signerBlocks,
+  signerLabel,
+  type DocRef,
+} from "@/app/sign-pdf/blockModel";
+import {
+  blockerMessages,
+  deliveryBlockers,
+  signersForDoc,
+  type DeliveryBlocker,
+} from "@/app/sign-pdf/multiDelivery";
+import type { SessionBridge } from "@/app/sign-pdf/useSessionBridge";
+import {
+  MAX_SIGNERS,
+  fitDocumentPrefix,
+  MAX_DOCUMENTS,
+  MAX_DOCUMENT_BYTES,
+  MAX_TOTAL_BYTES,
+  admitDocuments,
+  type RejectReason,
+} from "@/app/sign-pdf/signLimits";
 import {
   UNPLACED_RECT,
   buildSoloPlacements,
@@ -68,15 +141,18 @@ import {
   soloSlotsFrom,
 } from "@/app/sign-pdf/soloSignature";
 import {
-  exportSignConfig,
-  importSignConfig,
+  exportSignConfigSet,
+  importSignConfigSet,
   signConfigFilename,
-  type SignConfigManifest,
+  signConfigSetFilename,
 } from "@/app/sign-pdf/signConfig";
+import { migrateStep } from "@/app/sign-pdf/signSteps";
 import {
   deleteDraft,
   loadDraft,
+  loadSessionDraft,
   saveDraft,
+  type DraftEntry,
   type SaveDraftParams,
 } from "@/app/sign-pdf/signDrafts";
 import { SIGN_STRINGS, type SignStrings } from "@/app/sign-pdf/strings";
@@ -100,11 +176,13 @@ import {
   dataUrlToBytes,
   normalizeFieldLabel,
   signPdfMulti,
+  type SignMultiOptions,
   type SignPlacement,
   type SignatureField,
   type Signer,
 } from "@/lib/pdf/sign";
 import type { NormalizedRect } from "@/lib/pdf/watermark";
+import { signBatch } from "@/lib/pdf/signBatch";
 import { getTool } from "@/lib/tools-registry";
 import { recordValue } from "@/lib/valueHistory";
 
@@ -129,12 +207,7 @@ export type MultiStep = "signers" | "document" | "sign";
  */
 export type LegacyMultiStep = MultiStep | "fields" | "text";
 
-/** Normaliza un paso persistido (posiblemente anterior a W2-A) al modelo vigente, sin perder nada. */
-export function migrateStep(step: LegacyMultiStep | string | undefined): MultiStep {
-  if (step === "signers" || step === "document" || step === "sign") return step;
-  if (step === "fields" || step === "text") return "document";
-  return "signers";
-}
+export { migrateStep };
 
 const MULTI_STEPS: readonly MultiStep[] = ["signers", "document", "sign"] as const;
 
@@ -191,28 +264,6 @@ export type SignToolOptions = {
    * deteccion real nunca podria reconstruir).
    */
   textFieldsDetectedFor: string | null;
-};
-
-const DEFAULT_OPTIONS: SignToolOptions = {
-  mode: "single",
-  signaturePng: "",
-  ratio: 0,
-  pageIndex: 0,
-  rect: { x: 0, y: 0, width: 0, height: 0 },
-  signature: "",
-  step: "signers",
-  signers: [],
-  fields: [],
-  captures: {},
-  activeSignerId: null,
-  fieldPageIndex: 0,
-  selectedFieldId: null,
-  placementTool: "select",
-  textFields: [],
-  textValues: {},
-  selectedTextFieldId: null,
-  editingTextFieldId: null,
-  textFieldsDetectedFor: null,
 };
 
 /**
@@ -334,42 +385,280 @@ function multiReady(
   return hasFilledTextValue(options.textFields, options.textValues);
 }
 
+/**
+ * La entrega de VARIOS documentos (ZIP, un PDF por documento) y la ceremonia
+ * por bloques estan conectadas. Apagarlo desactiva la descarga conjunta
+ * (`canRun`) y `process()` lanza una excepcion controlada.
+ */
+export const BATCH_DELIVERY_READY = true;
+
+export type DocumentJobContext = {
+  language: Language;
+  strings: SignStrings;
+  certificateEnabled: boolean;
+  /**
+   * Firmantes del certificado de ESTE documento. Con varios documentos son
+   * solo los que firman ese documento (`signersForDoc`), no todos los de la
+   * sesion; ausente = todos (un documento, como siempre).
+   */
+  signerNames?: readonly string[];
+};
+
+/** Lo necesario para empotrar UN documento. */
+export type DocumentJob = {
+  docId: DocId;
+  /** Lo que recibe `signPdfMulti`: colocaciones y, en la ronda por turnos, el certificado. */
+  params: SignMultiOptions;
+  /** A llamar tras un empotrado con exito (historial de valores reutilizables). */
+  commit: () => void;
+};
+
+/**
+ * Prepara el trabajo de UN documento a partir de la sesion: su vista plana
+ * (`viewOf`), las colocaciones y el certificado. Es la pieza reutilizable por
+ * la entrega de varios documentos (U2): se llama una vez por `docId`, cada uno
+ * con SUS huecos, SUS campos y los trazos que le corresponden.
+ *
+ * Misma comprobacion definitiva de siempre en la ronda por turnos: se vuelve a
+ * calcular la huella justo antes de escribir, para que el archivo que se firma
+ * sea el que vieron los firmantes aunque lo hayan cambiado por otro de igual
+ * nombre, tamano y fecha.
+ */
+export async function prepareDocumentJob(
+  docId: DocId,
+  file: File,
+  session: SignSession,
+  { language, strings, certificateEnabled, signerNames }: DocumentJobContext,
+): Promise<DocumentJob> {
+  const options = viewOf(session, docId);
+
+  if (options.mode === "single") {
+    // La firma colocada (si hay) y los campos con valor: sola la firma es
+    // exactamente la colocacion de siempre. Sin certificado ni prefijo de
+    // firmantes: son de la ronda por turnos.
+    const placements = buildSoloPlacements(options, language);
+    if (placements.length === 0) throw new PdfError("empty");
+    return {
+      docId,
+      params: { placements },
+      commit: () => recordFilledValues(options.textFields, options.textValues),
+    };
+  }
+
+  const hasText = hasFilledTextValue(options.textFields, options.textValues);
+  if (options.fields.length === 0 && !hasText) {
+    throw new PdfError("nothingSelected", "sign:noFields");
+  }
+  const documentKey = await documentContentKey(file).catch(() => null);
+  if (!documentKey) {
+    throw new PdfError("inspectionIncomplete", "sign:documentKey");
+  }
+  return {
+    docId,
+    params: {
+      placements: buildPlacements(options, documentKey, language),
+      certificate: certificateEnabled
+        ? {
+            signerNames: signerNames ?? options.signers.map((signer) => signer.name),
+            labels: {
+              title: strings.certificateTitle,
+              hashLabel: strings.certificateHashLabel,
+              timestampLabel: strings.certificateTimestampLabel,
+              signersLabel: strings.certificateSignersLabel,
+              noSignerName: strings.certificateNoSignerName,
+              disclaimer: strings.certificateDisclaimer,
+            },
+          }
+        : undefined,
+    },
+    // Solo se guarda tras un empotrado con exito.
+    commit: () => recordFilledValues(options.textFields, options.textValues),
+  };
+}
+
+/**
+ * VARIOS documentos -> un ZIP con un PDF firmado por documento (`signBatch`:
+ * secuencial, progreso, cancelacion entre documentos y fallo parcial). Cada
+ * documento se prepara con SU vista derivada (`prepareDocumentJob`: sus
+ * huecos, sus campos, los trazos de sus bloques y la huella recalculada justo
+ * antes de firmar). En «Varios firmantes» los firmantes del certificado y del
+ * nombre son SOLO los que firman ESE documento (`signersForDoc`) y es la
+ * misma lista para ambos; en «Solo yo» no hay firmantes y el nombre es
+ * `<documento>-firmado.pdf`. Sin pregunta de prefijo: en varios documentos el
+ * nombre siempre es automatico.
+ */
+export async function signDocumentsBatch({
+  files,
+  session,
+  onProgress,
+  signal,
+  context,
+}: {
+  files: File[];
+  session: SignSession;
+  onProgress: ProgressCallback;
+  signal?: AbortSignal;
+  context: DocumentJobContext;
+}): Promise<ProcessResult> {
+  const result = await signBatch({
+    documents: files.map((file) => ({
+      id: docIdOf(file),
+      file,
+      name: file.name,
+    })),
+    lang: context.language,
+    signal,
+    onProgress,
+    limits: { maxDocuments: MAX_DOCUMENTS, maxTotalBytes: MAX_TOTAL_BYTES },
+    sign: async (document, progress) => {
+      const signerNames =
+        session.mode === "multi"
+          ? signersForDoc(session, document.id).map((signer) => signer.name)
+          : [];
+      const job = await prepareDocumentJob(document.id, document.file, session, {
+        ...context,
+        signerNames,
+      });
+      const blob = await signPdfMulti(document.file, job.params, progress.onProgress);
+      job.commit();
+      return {
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        signerNames,
+      };
+    },
+  });
+  return { blob: result.blob, filename: result.filename, report: result.report };
+}
+
+/** Documento activo REAL de la sesion, con su archivo y su vista plana. */
+function activeViewOf(
+  session: SignSession,
+  files: readonly File[],
+): { docId: DocId; file: File | null; view: SignToolOptions } {
+  const docId = activeDocOf(session, docIdsOf(files)) ?? "";
+  const file = files.find((candidate) => docIdOf(candidate) === docId) ?? null;
+  return { docId, file, view: viewOf(session, docId) };
+}
+
+/** Avisos amables de lo que no cupo en la ronda, agrupados por motivo. */
+function describeRejections(
+  rejected: readonly { file: File; reason: RejectReason }[],
+  strings: SignStrings,
+): string | null {
+  if (rejected.length === 0) return null;
+  const names = (reason: RejectReason) =>
+    rejected.filter((item) => item.reason === reason).map((item) => item.file.name);
+  const mb = (bytes: number) => Math.round(bytes / (1024 * 1024));
+  const messages: string[] = [];
+  const size = names("size");
+  const count = names("count");
+  const total = names("total");
+  if (size.length > 0) messages.push(strings.docLimitSize(mb(MAX_DOCUMENT_BYTES), size));
+  if (count.length > 0) messages.push(strings.docLimitCount(MAX_DOCUMENTS, count));
+  if (total.length > 0) messages.push(strings.docLimitTotal(mb(MAX_TOTAL_BYTES), total));
+  return messages.join(" ");
+}
+
 export function SignToolClient() {
   const { language, t } = useI18n();
   const strings = SIGN_STRINGS[language];
   const completionCertificateEnabled = useSignPdfFeatureFlag(
     "completionCertificate",
   );
+  /**
+   * Varios documentos a la vez. Apagado, la herramienta es la de siempre: un
+   * solo archivo (`multiple: false`). El registro no cambia; solo la copia
+   * que se le da al shell.
+   */
+  const multiDocumentEnabled = useSignPdfFeatureFlag("multiDocument");
+  const tool = useMemo(
+    () => ({ ...TOOL, multiple: multiDocumentEnabled }),
+    [multiDocumentEnabled],
+  );
   const [composerOpen, setComposerOpen] = useState(false);
   /**
-   * Ultimo archivo visto por los flujos y sus opciones: vive AQUI, fuera de
-   * ellos, porque quitar el archivo desmonta el flujo. Asi cargar otro
-   * reinicia lo del documento anterior sin esperar a su huella.
+   * Baul de firmas (W3), "Solo yo": estado PROPIO, fuera de `SignToolOptions`
+   * (`CLEARED_DOCUMENT_STATE` lo limpiaria al cambiar de archivo y una firma
+   * guardada no describe un documento). Con el flag apagado no se abre la base.
    */
-  const seenDocumentRef = useRef<SeenDocument<SignToolOptions>>({
-    file: null,
-    options: DEFAULT_OPTIONS,
-  });
-  const seenDocument = useMemo<SeenStore<SignToolOptions>>(
-    () => ({
-      read: () => seenDocumentRef.current,
-      write: (value) => {
-        seenDocumentRef.current = value;
-      },
-    }),
-    [],
-  );
+  const vaultEnabled = useSignPdfFeatureFlag("signatureVault");
+  const vault = useSignatureVault(vaultEnabled);
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [vaultNotice, setVaultNotice] = useState<VaultNotice | null>(null);
+  /**
+   * Puente con la sesion canonica que guarda `ToolShell`: escribe contra el
+   * estado mas reciente y descarta lo que llega de un documento ya retirado
+   * (ver `useSessionBridge`). Sustituye a la memoria del "ultimo archivo
+   * visto": ahora el estado de cada documento cuelga de su `DocId`, asi que
+   * cargar otro archivo nunca hereda lo del anterior.
+   */
+  const bridge = useSessionBridge();
   /** Lo rellena `ToolShell`: remata la ronda con el mismo procesado de siempre. */
   const runRef = useRef<(() => void) | null>(null);
   /** Lo rellena `ToolShell`: reinicia el flujo con un patch parcial de opciones. */
-  const resetRef = useRef<
-    ((patch?: Partial<SignToolOptions>) => void) | null
-  >(null);
+  const resetRef = useRef<((patch?: Partial<SignSession>) => void) | null>(
+    null,
+  );
   /** Lo rellena `ToolShell`: carga un archivo (borrador/importacion) sin pasar por el dropzone. */
   const loadRef = useRef<
-    ((files: File[], patch?: Partial<SignToolOptions>) => void) | null
+    ((files: File[], patch?: Partial<SignSession>) => void) | null
   >(null);
+
+  /** Reinicia el flujo conservando solo lo que el patch nombra (y el puente lo sigue). */
+  const resetSession = useCallback(
+    (patch?: Partial<SignSession>) => {
+      bridge.replace([], patch);
+      resetRef.current?.(patch);
+    },
+    [bridge],
+  );
+
+  /** Carga UN documento ya preparado (borrador, configuracion importada) sin pasar por el dropzone. */
+  const loadDocument = useCallback(
+    (file: File, view: Partial<SignToolOptions>) => {
+      const patch = sessionFromView(docIdOf(file), view);
+      bridge.replace([file], patch);
+      loadRef.current?.([file], patch);
+    },
+    [bridge],
+  );
+
+  /** Carga VARIOS documentos ya preparados (sesion retomada, configuracion con varios) sin pasar por el dropzone. */
+  const loadSession = useCallback(
+    (files: File[], patch: Partial<SignSession>) => {
+      bridge.replace(files, patch);
+      loadRef.current?.(files, patch);
+    },
+    [bridge],
+  );
+
+  /**
+   * Topes de la ronda (documentos, peso por documento y total): los consulta
+   * `FileDropzone` antes de aceptar archivos. El aviso se pinta junto a los
+   * demas de la barra superior.
+   */
+  const [admissionNotice, setAdmissionNotice] = useState<string | null>(null);
+  const admission = useMemo<FileAdmission>(
+    () => ({
+      admit: (current, incoming) => {
+        const { accepted, rejected } = admitDocuments(current, incoming);
+        return { accepted, notice: describeRejections(rejected, strings) };
+      },
+      onNotice: setAdmissionNotice,
+    }),
+    [strings],
+  );
   const [draftsOpen, setDraftsOpen] = useState(false);
+  /**
+   * Identidad del borrador de SESION (varios documentos) que se esta
+   * guardando: la fija `SessionDraftAutosave` al guardar y quien retoma una
+   * sesion. Vive aqui porque `ToolShell` desmonta el espacio de trabajo
+   * mientras procesa y debe sobrevivir a eso.
+   */
+  const sessionIdentityRef = useRef<SessionIdentity | null>(null);
+  /** Aviso de los borradores de sesion (tope de tamano, ajustes al retomar). */
+  const [draftNotice, setDraftNotice] = useState<string | null>(null);
+  const [sessionTooBig, setSessionTooBig] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const reusableTemplatesEnabled = useSignPdfFeatureFlag("reusableTemplates");
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -382,6 +671,8 @@ export function SignToolClient() {
   /** Plantilla elegida en el sheet, esperando confirmacion porque ya hay disposicion cargada que se perderia. */
   const [pendingApplyTemplate, setPendingApplyTemplate] =
     useState<SignTemplate | null>(null);
+  /** «Aplicar a todos los documentos»: plantilla elegida, esperando confirmacion (reemplaza TODA la ronda). */
+  const [pendingApplyAll, setPendingApplyAll] = useState<SignTemplate | null>(null);
 
   /**
    * Respuesta del prompt de prefijo de firmantes (ver `requestFinish`),
@@ -453,7 +744,9 @@ export function SignToolClient() {
       reserveFieldIds(loaded.meta.fields.map((field) => field.id));
       reserveTextFieldIds(loaded.meta.textFields.map((field) => field.id));
 
-      loadRef.current?.([file], {
+      // Un documento suelto: el borrador de siempre (formato v1), sin sesion.
+      sessionIdentityRef.current = null;
+      loadDocument(file, {
         mode: loaded.meta.mode,
         signature: loaded.meta.id,
         // Un borrador anterior a W2-A puede traer "fields" o "text": ambos
@@ -467,53 +760,139 @@ export function SignToolClient() {
         textFieldsDetectedFor: loaded.meta.textFieldsDetectedFor,
       });
       setLoadError(null);
+      setDraftNotice(null);
       setDraftsOpen(false);
     },
-    [validateLoadedFile],
+    [loadDocument, validateLoadedFile],
+  );
+
+  /** Retoma un borrador de SESION: todos sus documentos, firmantes, bloques y firmas, sellados de nuevo con la huella recalculada. */
+  const handleResumeSession = useCallback(
+    async (id: string) => {
+      try {
+        const loaded = await loadSessionDraft(id);
+        if (!loaded) {
+          setLoadError("unknown");
+          return;
+        }
+        const files = loaded.files.map(
+          (item) =>
+            new File([item.bytes as BlobPart], item.fileName, {
+              type: "application/pdf",
+            }),
+        );
+        if (files.length === 0 || !files.every(validateLoadedFile)) return;
+        // Con «varios documentos» apagado la herramienta es de UN archivo: no se
+        // carga una ronda de varios (y no se toca el borrador, que sigue ahi).
+        if (!multiDocumentEnabled && files.length > 1) {
+          setDraftNotice(strings.multiDocOffNotice);
+          setDraftsOpen(false);
+          return;
+        }
+        // Topes de la ronda: se restauran los primeros documentos que quepan.
+        const fits = fitDocumentPrefix(files);
+        if (fits === 0) {
+          setLoadError("tooLarge");
+          return;
+        }
+        const trimmed = fits < files.length;
+        if (trimmed) files.length = fits;
+        const keys = await Promise.all(files.map((file) => documentContentKey(file)));
+
+        const meta = trimmed
+          ? { ...loaded.meta, documents: loaded.meta.documents.slice(0, fits) }
+          : loaded.meta;
+        reserveSignerIds(meta.signers.map((signer) => signer.id));
+        for (const state of Object.values(meta.docStates)) {
+          reserveFieldIds((state.fields ?? []).map((field) => field.id));
+          reserveTextFieldIds((state.textFields ?? []).map((field) => field.id));
+        }
+
+        const restored = restoreSession(meta, files, keys);
+        sessionIdentityRef.current = restored.identity;
+        loadSession(files, restored.patch);
+        setLoadError(null);
+        setDraftsOpen(false);
+        const notices = [
+          trimmed ? strings.draftsResumeTrimmed(fits, loaded.meta.documents.length) : null,
+          restored.staleDocs > 0 ? strings.draftsResumeStale(restored.staleDocs) : null,
+          restored.normalized > 0 ? strings.draftsResumeNormalized(restored.normalized) : null,
+        ].filter((notice): notice is string => notice !== null);
+        setDraftNotice(notices.length > 0 ? notices.join(" ") : null);
+      } catch (caught) {
+        setLoadError(toPdfError(caught).code);
+      }
+    },
+    [loadSession, multiDocumentEnabled, strings, validateLoadedFile],
+  );
+
+  const handleResumeEntry = useCallback(
+    (entry: DraftEntry) => {
+      if (entry.kind === "session") void handleResumeSession(entry.meta.id);
+      else void handleResumeDraft(entry.meta.id);
+    },
+    [handleResumeDraft, handleResumeSession],
   );
 
   const handleImportConfig = useCallback(
     async (zipFile: File) => {
       try {
-        const { file, manifest } = await importSignConfig(zipFile);
-        if (!validateLoadedFile(file)) return;
-        const documentKey = await documentContentKey(file);
+        // v1 (un documento) o v2 (varios): la misma validacion estricta.
+        const set = await importSignConfigSet(zipFile);
+        const files = set.documents.map((doc) => doc.file);
+        if (!files.every(validateLoadedFile)) return;
+        // Misma regla que al retomar una sesion: sin «varios documentos» no se carga una ronda de varios.
+        if (!multiDocumentEnabled && files.length > 1) {
+          setDraftNotice(strings.multiDocOffNotice);
+          return;
+        }
+        const keys = await Promise.all(files.map((file) => documentContentKey(file)));
 
-        reserveSignerIds(manifest.signers.map((signer) => signer.id));
-        reserveFieldIds(manifest.fields.map((field) => field.id));
-        reserveTextFieldIds(manifest.textFields.map((field) => field.id));
+        reserveSignerIds(set.signers.map((signer) => signer.id));
+        for (const doc of set.documents) {
+          reserveFieldIds(doc.fields.map((field) => field.id));
+          reserveTextFieldIds(doc.textFields.map((field) => field.id));
+        }
 
-        loadRef.current?.([file], {
-          mode: manifest.mode,
-          signature: documentKey,
-          step: "signers",
-          signers: manifest.signers,
-          fields: manifest.fields,
-          captures: {},
-          textFields: manifest.textFields,
-          textValues: manifest.textValues,
-          textFieldsDetectedFor: documentKey,
-        });
+        sessionIdentityRef.current = null;
+        loadSession(files, sessionFromConfigSet(set, files, keys));
         setLoadError(null);
+        setDraftNotice(null);
       } catch (caught) {
         setLoadError(toPdfError(caught).code);
       }
     },
-    [validateLoadedFile],
+    [loadSession, multiDocumentEnabled, strings, validateLoadedFile],
   );
 
+  /** Exporta la configuracion de TODA la ronda: con un documento, el .zip v1 de siempre; con varios, el v2. */
   const handleExportConfig = useCallback(
-    async (file: File, options: SignToolOptions) => {
+    async (files: File[], session: SignSession) => {
       try {
-        const manifest: Omit<SignConfigManifest, "version"> = {
-          mode: options.mode,
-          signers: options.signers,
-          fields: options.fields,
-          textFields: options.textFields,
-          textValues: options.textValues,
-        };
-        const blob = await exportSignConfig(file, manifest);
-        downloadBlob(blob, signConfigFilename(file.name));
+        if (files.length === 0) return;
+        const documents = files.map((item) => {
+          const id = docIdOf(item);
+          const state = docStateOf(session.docs, id);
+          return {
+            id,
+            file: item,
+            fields: liveFields(state, session.signers),
+            textFields: state.textFields,
+            textValues: state.textValues,
+          };
+        });
+        const blob = await exportSignConfigSet(documents, {
+          mode: session.mode,
+          signMode: session.signMode,
+          signers: session.signers,
+          blocks: session.blocks,
+        });
+        downloadBlob(
+          blob,
+          files.length > 1
+            ? signConfigSetFilename(files.length)
+            : signConfigFilename(files[0].name),
+        );
         setLoadError(null);
       } catch (caught) {
         setLoadError(toPdfError(caught).code);
@@ -610,68 +989,155 @@ export function SignToolClient() {
     [strings],
   );
 
+  /**
+   * «Aplicar a todos los documentos»: los firmantes de la plantilla se fijan UNA
+   * vez (son los mismos para toda la ronda) y los huecos/campos se repiten en
+   * cada documento con ids propios; lo que cae en una pagina que un documento
+   * no tiene se descarta y se cuenta. Reemplaza la disposicion de TODOS los
+   * documentos y borra las firmas ya hechas (los firmantes son nuevos). Se
+   * escribe en una sola operacion contra el estado mas reciente de la sesion.
+   */
+  const performApplyTemplateToAll = useCallback(
+    async (template: SignTemplate, files: File[]) => {
+      try {
+        const docs = await Promise.all(
+          files.map(async (file) => ({
+            id: docIdOf(file),
+            pageCount: (await loadPdf(file)).getPageCount(),
+            key: await documentContentKey(file),
+          })),
+        );
+        const instantiated = instantiateTemplateForAll(
+          template,
+          docs.map(({ id, pageCount }) => ({ id, pageCount })),
+          {
+            mintSignerId: nextSignerId,
+            mintFieldId: nextFieldId,
+            mintTextFieldId: nextTextFieldId,
+          },
+        );
+        if (!instantiated) {
+          setTemplateFeedback(strings.applyTemplateNothingFits);
+          setPendingApplyAll(null);
+          return;
+        }
+        bridge.commit((current, currentFiles) => {
+          const order = docIdsOf(currentFiles);
+          const live = new Set(order);
+          let nextDocs = current.docs;
+          for (const doc of docs) {
+            const layout = instantiated.perDoc[doc.id];
+            if (!layout || !live.has(doc.id)) continue;
+            nextDocs = {
+              ...nextDocs,
+              [doc.id]: {
+                ...docStateOf(nextDocs, doc.id),
+                fields: layout.fields,
+                textFields: layout.textFields,
+                textValues: {},
+                // Sin esto la deteccion de `MultiFlow` pisaria los campos recien aplicados.
+                textFieldsDetectedFor: doc.key,
+              },
+            };
+          }
+          return {
+            signers: instantiated.signers,
+            docs: nextDocs,
+            // Firmantes nuevos: los bloques (y sus firmas) de los anteriores ya no valen.
+            blocks: ensureBlocks(instantiated.signers, order, current.signMode, []),
+            activeSignerId: instantiated.signers[0]?.id ?? null,
+            selectedFieldId: null,
+            selectedTextFieldId: null,
+            editingTextFieldId: null,
+            step: "document",
+          };
+        });
+        setTemplateFeedback(
+          strings.applyTemplateAllDone(files.length, instantiated.dropped),
+        );
+        setTemplatesOpen(false);
+        setPendingApplyAll(null);
+      } catch (caught) {
+        setPendingApplyAll(null);
+        setLoadError(toPdfError(caught).code);
+      }
+    },
+    [bridge, strings],
+  );
+
+  /**
+   * UN documento de la sesion -> su archivo firmado. Reutilizable por la
+   * entrega de varios (U2): recibe el `docId` y trabaja con su vista derivada.
+   */
+  const processDocument = useCallback(
+    async (
+      docId: DocId,
+      file: File,
+      session: SignSession,
+      onProgress: ProgressCallback,
+    ): Promise<ProcessResult> => {
+      const baseFilename = withSuffix(file.name, strings.filenameSuffix);
+      const job = await prepareDocumentJob(docId, file, session, {
+        language,
+        strings,
+        certificateEnabled: completionCertificateEnabled,
+      });
+      const blob = await signPdfMulti(file, job.params, onProgress);
+      job.commit();
+
+      if (session.mode === "single") return { blob, filename: baseFilename };
+
+      const prefix = signerPrefixRef.current
+        ? buildSignerFilenamePrefix(session.signers.map((signer) => signer.name))
+        : null;
+      return {
+        blob,
+        filename: prefix ? `${prefix}_${baseFilename}` : baseFilename,
+      };
+    },
+    [strings, language, completionCertificateEnabled],
+  );
+
+  const processBatch = useCallback(
+    (
+      files: File[],
+      session: SignSession,
+      onProgress: ProgressCallback,
+      signal: AbortSignal,
+    ): Promise<ProcessResult> =>
+      signDocumentsBatch({
+        files,
+        session,
+        onProgress,
+        signal,
+        context: { language, strings, certificateEnabled: completionCertificateEnabled },
+      }),
+    [language, strings, completionCertificateEnabled],
+  );
+
+  /**
+   * Remata la ronda. Con UN documento: el mismo procesado de siempre
+   * (`processDocument`). Con varios: la entrega conjunta (`processBatch`).
+   */
   const process = useCallback(
     async (
       files: File[],
-      options: SignToolOptions,
+      session: SignSession,
       onProgress: ProgressCallback,
+      signal: AbortSignal,
     ): Promise<ProcessResult> => {
-      const file = files[0];
-      const baseFilename = withSuffix(file.name, strings.filenameSuffix);
-
-      if (options.mode === "single") {
-        // La firma colocada (si hay) y los campos con valor: sola la firma es
-        // exactamente la colocacion de siempre. Sin certificado ni prefijo de
-        // firmantes: son de la ronda por turnos.
-        const placements = buildSoloPlacements(options, language);
-        if (placements.length === 0) throw new PdfError("empty");
-        const blob = await signPdfMulti(file, { placements }, onProgress);
-        recordFilledValues(options.textFields, options.textValues);
-        return { blob, filename: baseFilename };
+      if (files.length > 1) {
+        if (!BATCH_DELIVERY_READY) {
+          throw new PdfError("unknown", "sign:batchNotConnected");
+        }
+        return processBatch(files, session, onProgress, signal);
       }
 
-      const hasText = hasFilledTextValue(options.textFields, options.textValues);
-      if (options.fields.length === 0 && !hasText) {
-        throw new PdfError("nothingSelected", "sign:noFields");
-      }
-      // Comprobacion definitiva justo antes de escribir: el archivo que
-      // se firma tiene que ser el mismo que vieron los firmantes, aunque
-      // lo hayan cambiado por otro de igual nombre, tamaño y fecha.
-      const documentKey = await documentContentKey(file).catch(() => null);
-      if (!documentKey) {
-        throw new PdfError("inspectionIncomplete", "sign:documentKey");
-      }
-      const blob = await signPdfMulti(
-        file,
-        {
-          placements: buildPlacements(options, documentKey, language),
-          certificate: completionCertificateEnabled
-            ? {
-                signerNames: options.signers.map((signer) => signer.name),
-                labels: {
-                  title: strings.certificateTitle,
-                  hashLabel: strings.certificateHashLabel,
-                  timestampLabel: strings.certificateTimestampLabel,
-                  signersLabel: strings.certificateSignersLabel,
-                  noSignerName: strings.certificateNoSignerName,
-                  disclaimer: strings.certificateDisclaimer,
-                },
-              }
-            : undefined,
-        },
-        onProgress,
-      );
-      // Solo se guarda tras un empotrado con exito: si `signPdfMulti`
-      // lanza, la linea de arriba corta antes de llegar aqui.
-      recordFilledValues(options.textFields, options.textValues);
-
-      const prefix = signerPrefixRef.current
-        ? buildSignerFilenamePrefix(options.signers.map((signer) => signer.name))
-        : null;
-      const filename = prefix ? `${prefix}_${baseFilename}` : baseFilename;
-      return { blob, filename };
+      const { docId, file } = activeViewOf(session, files);
+      if (!file) throw new PdfError("empty");
+      return processDocument(docId, file, session, onProgress);
     },
-    [strings, language, completionCertificateEnabled],
+    [processBatch, processDocument],
   );
 
   return (
@@ -703,16 +1169,47 @@ export function SignToolClient() {
           {t.tool.errors[loadError]}
         </p>
       ) : null}
+      {/* Region viva siempre montada: lo que no cupo en la ronda (documentos, peso). */}
+      <p
+        role="status"
+        aria-live="polite"
+        className={admissionNotice ? "text-xs text-muted-foreground" : "sr-only"}
+      >
+        {admissionNotice}
+      </p>
+      {admissionNotice ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setAdmissionNotice(null)}
+          aria-label={t.common.close}
+        >
+          {t.common.close}
+        </Button>
+      ) : null}
+      {/* Region viva siempre montada: borrador de sesion (tope de tamano, ajustes al retomar). */}
+      <p
+        role="status"
+        aria-live="polite"
+        className={
+          sessionTooBig || draftNotice
+            ? "basis-full text-xs text-muted-foreground"
+            : "sr-only"
+        }
+      >
+        {draftStatusLine(sessionTooBig, strings.draftsTooBig, draftNotice)}
+      </p>
     </div>
     <DraftsSheet
       open={draftsOpen}
       onClose={() => setDraftsOpen(false)}
-      onResume={(id) => void handleResumeDraft(id)}
+      onResume={handleResumeEntry}
       strings={strings}
     />
-    <ToolShell<SignToolOptions>
-      tool={TOOL}
-      defaultOptions={DEFAULT_OPTIONS}
+    <FileAdmissionContext.Provider value={admission}>
+    <ToolShell<SignSession>
+      tool={tool}
+      defaultOptions={DEFAULT_SESSION}
       process={process}
       progressMessage={strings.progressMessage}
       runRef={runRef}
@@ -722,7 +1219,7 @@ export function SignToolClient() {
         options.mode === "multi" && options.signers.length > 0 ? (
           <SignAgainPrompt
             onAccept={() =>
-              resetRef.current?.({
+              resetSession({
                 mode: "multi",
                 signers: options.signers,
                 step: "signers",
@@ -737,13 +1234,41 @@ export function SignToolClient() {
       // `options.signature` es la huella del documento sobre el que se
       // reservaron los huecos; que siga siendo la del archivo cargado lo
       // vuelve a comprobar `process()` antes de escribir nada.
-      canRun={(_files, options) =>
-        options.mode === "single"
+      canRun={(files, session) => {
+        // Varios documentos: la entrega conjunta exige que TODOS esten listos.
+        if (files.length > 1) {
+          return (
+            BATCH_DELIVERY_READY &&
+            deliveryBlockers(session, docIdsOf(files)).length === 0
+          );
+        }
+        const { view: options } = activeViewOf(session, files);
+        return options.mode === "single"
           ? soloReady(options)
-          : multiReady(options, options.signature)
-      }
-      renderMain={({ files, options, setOptions }) => (
-        <div className="space-y-6">
+          : multiReady(options, options.signature);
+      }}
+      renderMain={({ files, options: session, setOptions: setShellOptions }) => (
+        <DocumentSessionHost
+          files={files}
+          session={session}
+          setShellOptions={setShellOptions}
+          bridge={bridge}
+          strings={strings}
+          holdMessage={
+            null
+          }
+        >
+          {({
+            docId,
+            file,
+            view: options,
+            setView: setOptions,
+            nav,
+            keys: docKeys,
+            session: hostSession,
+            withSequence,
+          }) => (
+        <>
           <section>
             <SegmentedControl<SignMode>
               label={strings.modeLabel}
@@ -761,15 +1286,38 @@ export function SignToolClient() {
             </p>
           </section>
 
-          {options.mode === "single" ? (
+          {nav}
+
+          <SessionDraftAutosave
+            files={files}
+            session={hostSession}
+            identityRef={sessionIdentityRef}
+            onTooBig={setSessionTooBig}
+          />
+
+          {withSequence(options.mode === "single" ? (
             <>
+              <VaultNoticeLine notice={vaultNotice} />
               <SoloFlow
-                file={files[0] ?? null}
+                key={docId}
+                file={file}
                 options={options}
                 setOptions={setOptions}
                 onCreateSignature={() => setComposerOpen(true)}
+                onOpenSaved={
+                  vaultEnabled
+                    ? () => {
+                        setVaultNotice(null);
+                        setVaultOpen(true);
+                      }
+                    : undefined
+                }
+                hasSaved={
+                  vaultEnabled &&
+                  vault.status === "ready" &&
+                  vault.entries.some((entry) => entry.signature !== null)
+                }
                 strings={strings}
-                seen={seenDocument}
               />
               <SignatureComposer
                 open={composerOpen}
@@ -780,22 +1328,75 @@ export function SignToolClient() {
                 onSave={(draft: SignatureDraft) =>
                   setOptions({ signaturePng: draft.dataUrl, ratio: draft.ratio })
                 }
+                onRemember={
+                  vaultEnabled
+                    ? (draft, who) => {
+                        void rememberDrafts(strings, {
+                          signerName: who.signerName,
+                          sourceDocument: file.name,
+                          signature: draft,
+                          initials: null,
+                        }).then(setVaultNotice);
+                      }
+                    : undefined
+                }
               />
+              {vaultEnabled ? (
+                <SignatureVaultSheet
+                  open={vaultOpen}
+                  onClose={() => setVaultOpen(false)}
+                  strings={strings}
+                  need="signature"
+                  onCreateNew={() => {
+                    setVaultOpen(false);
+                    setComposerOpen(true);
+                  }}
+                  // Misma ruta que `onSave` del compositor: la firma elegida se
+                  // coloca sola en el lienzo (autocolocado de `DocumentCanvas`).
+                  onUse={(entry) => {
+                    if (!entry.signature) return;
+                    setOptions({
+                      signaturePng: vaultImageToDataUrl(entry.signature),
+                      ratio: entry.signature.ratio,
+                    });
+                    void touchVaultEntry(entry.id);
+                    setVaultOpen(false);
+                    setVaultNotice({
+                      text: strings.vaultApplied(entry.signerName),
+                      tone: "success",
+                    });
+                  }}
+                />
+              ) : null}
             </>
           ) : (
             <MultiFlow
-              file={files[0] ?? null}
+              key={docId}
+              file={file}
               options={options}
               setOptions={setOptions}
-              onFinish={() => requestFinish(options.signers)}
+              // Varios documentos: sin pregunta de prefijo (el nombre es automatico).
+              onFinish={() =>
+                files.length > 1 ? runRef.current?.() : requestFinish(options.signers)
+              }
               strings={strings}
-              seen={seenDocument}
+              multi={
+                files.length > 1
+                  ? { files, session: hostSession, keys: docKeys, bridge }
+                  : undefined
+              }
             />
+          ))}
+        </>
           )}
-        </div>
+        </DocumentSessionHost>
       )}
-      renderOptions={({ files, options, setOptions }) =>
-        options.mode === "single" ? (
+      renderOptions={({ files, options: session }) => {
+        // El panel no esta atado a un flujo: trabaja con el documento activo.
+        const active = activeViewOf(session, files);
+        const options = active.view;
+        const activeFile = active.file;
+        return options.mode === "single" ? (
           <section className="space-y-4">
             <Button
               variant={options.signaturePng ? "secondary" : "primary"}
@@ -808,6 +1409,21 @@ export function SignToolClient() {
                 ? strings.changeSignature
                 : strings.createSignature}
             </Button>
+
+            {vaultEnabled ? (
+              <Button
+                variant="secondary"
+                size="md"
+                fullWidth
+                onClick={() => {
+                  setVaultNotice(null);
+                  setVaultOpen(true);
+                }}
+              >
+                <Bookmark aria-hidden="true" className="size-4" />
+                {strings.vaultButton}
+              </Button>
+            ) : null}
 
             {options.signaturePng ? (
               <div className="rounded-ios-sm flex items-center justify-center border border-white/10 bg-white p-3">
@@ -824,6 +1440,10 @@ export function SignToolClient() {
               </p>
             )}
 
+            {files.length > 1 ? (
+              <BatchStatus files={files} session={session} strings={strings} />
+            ) : null}
+
             <p className="text-xs leading-relaxed text-muted-foreground">
               {strings.legalNote}
             </p>
@@ -833,40 +1453,51 @@ export function SignToolClient() {
             <span className="ui-label block text-muted-foreground">
               {strings.modeMulti}
             </span>
-            <p className="text-sm text-foreground tabular-nums">
-              {strings.totalFields(options.fields.length)}
-            </p>
-            {options.fields.length === 0 &&
-            !hasFilledTextValue(options.textFields, options.textValues) ? (
-              <p className="text-xs leading-relaxed text-destructive">
-                {strings.noFieldsError}
-              </p>
-            ) : multiReady(options, options.signature) ? (
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {strings.allSignedBody}
-              </p>
+            {files.length > 1 ? (
+              <BatchStatus files={files} session={session} strings={strings} />
             ) : (
-              <p className="text-xs leading-relaxed text-destructive">
-                {strings.notAllSignedError}{" "}
-                {strings.pendingBody(
-                  pendingSigners(
-                    options.signers,
-                    options.fields,
-                    options.captures,
-                    options.signature,
-                  ).length,
+              <>
+                <p className="text-sm text-foreground tabular-nums">
+                  {strings.totalFields(options.fields.length)}
+                </p>
+                {options.fields.length === 0 &&
+                !hasFilledTextValue(options.textFields, options.textValues) ? (
+                  <p className="text-xs leading-relaxed text-destructive">
+                    {strings.noFieldsError}
+                  </p>
+                ) : multiReady(options, options.signature) ? (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {strings.allSignedBody}
+                  </p>
+                ) : (
+                  <p className="text-xs leading-relaxed text-destructive">
+                    {strings.notAllSignedError}{" "}
+                    {strings.pendingBody(
+                      pendingSigners(
+                        options.signers,
+                        options.fields,
+                        options.captures,
+                        options.signature,
+                      ).length,
+                    )}
+                  </p>
                 )}
-              </p>
+              </>
             )}
-            {files[0] ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                fullWidth
-                onClick={() => void handleExportConfig(files[0], options)}
-              >
-                {strings.exportConfigButton}
-              </Button>
+            {activeFile ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  onClick={() => void handleExportConfig(files, session)}
+                >
+                  {strings.exportConfigButton}
+                </Button>
+                <p className="text-footnote leading-relaxed text-muted-foreground">
+                  {strings.exportConfigNote}
+                </p>
+              </>
             ) : null}
 
             {reusableTemplatesEnabled ? (
@@ -882,7 +1513,7 @@ export function SignToolClient() {
                 >
                   {strings.templatesButton}
                 </Button>
-                {files[0] &&
+                {activeFile &&
                 (options.signers.length > 0 ||
                   options.fields.length > 0 ||
                   options.textFields.length > 0) ? (
@@ -908,25 +1539,65 @@ export function SignToolClient() {
                       options.signers.length > 0 ||
                       options.fields.length > 0 ||
                       options.textFields.length > 0;
-                    if (!files[0]) return;
+                    if (!activeFile) return;
                     if (hasExisting) {
                       setPendingApplyTemplate(template);
                     } else {
-                      void performApplyTemplate(template, files[0], setOptions);
+                      void performApplyTemplate(template, activeFile, (patch) =>
+                        bridge.setView(active.docId, patch),
+                      );
                     }
                   }}
+                  onApplyAll={
+                    files.length > 1
+                      ? (template) => {
+                          const hasExisting =
+                            session.signers.length > 0 ||
+                            files.some((item) => {
+                              const state = docStateOf(session.docs, docIdOf(item));
+                              return (
+                                liveFields(state, session.signers).length > 0 ||
+                                state.textFields.length > 0
+                              );
+                            });
+                          if (hasExisting) setPendingApplyAll(template);
+                          else void performApplyTemplateToAll(template, files);
+                        }
+                      : undefined
+                  }
                   strings={strings}
                 />
+
+                <ConfirmSheet
+                  open={pendingApplyAll !== null}
+                  onClose={() => setPendingApplyAll(null)}
+                  onConfirm={() => {
+                    if (pendingApplyAll) {
+                      void performApplyTemplateToAll(pendingApplyAll, files);
+                    }
+                  }}
+                  title={strings.applyTemplateConfirmTitle}
+                  body={strings.applyTemplateAllConfirmBody}
+                  confirmLabel={strings.templatesApplyAll}
+                  cancelLabel={strings.confirmCancel}
+                  closeLabel={strings.confirmClose}
+                />
+
+                {templateFeedback && !saveTemplateOpen ? (
+                  <p role="status" className="text-footnote leading-relaxed text-muted-foreground">
+                    {templateFeedback}
+                  </p>
+                ) : null}
 
                 <ConfirmSheet
                   open={pendingApplyTemplate !== null}
                   onClose={() => setPendingApplyTemplate(null)}
                   onConfirm={() => {
-                    if (pendingApplyTemplate && files[0]) {
+                    if (pendingApplyTemplate && activeFile) {
                       void performApplyTemplate(
                         pendingApplyTemplate,
-                        files[0],
-                        setOptions,
+                        activeFile,
+                        (patch) => bridge.setView(active.docId, patch),
                       );
                     }
                   }}
@@ -971,8 +1642,8 @@ export function SignToolClient() {
                     fullWidth
                     disabled={templateName.trim().length === 0}
                     onClick={() => {
-                      if (!files[0]) return;
-                      void handleSaveTemplate(files[0], options, templateName);
+                      if (!activeFile) return;
+                      void handleSaveTemplate(activeFile, options, templateName);
                     }}
                   >
                     {strings.saveTemplateConfirm}
@@ -985,9 +1656,10 @@ export function SignToolClient() {
               {strings.legalNote}
             </p>
           </section>
-        )
-      }
+        );
+      }}
     />
+    </FileAdmissionContext.Provider>
     <Sheet
       open={prefixPromptOpen}
       onClose={() => setPrefixPromptOpen(false)}
@@ -1012,6 +1684,60 @@ export function SignToolClient() {
       </div>
     </Sheet>
     </Fragment>
+  );
+}
+
+type BatchStatusProps = {
+  files: File[];
+  session: SignSession;
+  strings: SignStrings;
+};
+
+/**
+ * Panel de opciones con VARIOS documentos: cuantos son, cuantos huecos hay y
+ * que falta para poder descargar (cobertura, bloques por firmar, documentos
+ * sin nada que aplicar...). La region viva esta siempre montada.
+ */
+function BatchStatus({ files, session, strings }: BatchStatusProps) {
+  const docIds = docIdsOf(files);
+  const blockers = deliveryBlockers(session, docIds);
+  const messages = blockerMessages(
+    blockers,
+    {
+      signers: session.signers,
+      docs: files.map((item) => ({ id: docIdOf(item), name: item.name })),
+    },
+    strings,
+  );
+  const slots = docIds.reduce(
+    (sum, id) =>
+      sum + liveFields(docStateOf(session.docs, id), session.signers).length,
+    0,
+  );
+  return (
+    <div role="status" aria-live="polite" className="space-y-2">
+      <p className="text-sm text-foreground tabular-nums">
+        {session.mode === "multi"
+          ? strings.batchSummary(files.length, slots)
+          : strings.batchDocsCount(files.length)}
+      </p>
+      {messages.length > 0 ? (
+        <>
+          <p className="text-xs font-semibold text-foreground">
+            {strings.deliveryBlockedTitle}
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed text-destructive-text">
+            {messages.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {strings.batchReadyBody(files.length)}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -1044,6 +1770,17 @@ function SignAgainPrompt({ onAccept, strings }: SignAgainPromptProps) {
   );
 }
 
+/** Lo que `MultiFlow` necesita de la ronda cuando hay MAS de un documento (bloques, huellas de todos, puente de escritura). */
+export type MultiDocs = {
+  /** Cola de documentos. */
+  files: File[];
+  /** La sesion canonica ya puesta al dia con los archivos. */
+  session: SignSession;
+  /** Huella de cada documento (`null` = aun calculandose). */
+  keys: Record<DocId, string | null>;
+  bridge: SessionBridge;
+};
+
 export type MultiFlowProps = {
   file: File | null;
   options: SignToolOptions;
@@ -1052,6 +1789,8 @@ export type MultiFlowProps = {
   strings: SignStrings;
   /** Ultimo archivo visto, compartido entre flujos (ver `useDocumentSession`). */
   seen?: SeenStore<SignToolOptions>;
+  /** Varios documentos: control mismas/distintas, bloques por firmante y ceremonia por bloques. Ausente = un documento, la interfaz de siempre. */
+  multi?: MultiDocs;
 };
 
 export function MultiFlow({
@@ -1061,6 +1800,7 @@ export function MultiFlow({
   onFinish,
   strings,
   seen,
+  multi,
 }: MultiFlowProps) {
   const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
   const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
@@ -1069,6 +1809,7 @@ export function MultiFlow({
   const undoDeleteEnabled = useSignPdfFeatureFlag("undoDelete");
   const richFieldTypesEnabled = useSignPdfFeatureFlag("richFieldTypes");
   const pinchZoomEnabled = useSignPdfFeatureFlag("pinchZoom");
+  const sequence = useCanvasSequence();
 
   /**
    * "Deshacer" al borrar un firmante: unico y propio (nunca comparte
@@ -1085,6 +1826,8 @@ export function MultiFlow({
     capture: CaptureMap[string] | undefined;
     wasActive: boolean;
     documentKey: string;
+    /** Varios documentos: los bloques del firmante (alcance, trazos y sellos), para devolverlos tal cual. */
+    blocks: SignerBlock[];
   } | null>(null);
 
   useEffect(() => {
@@ -1092,6 +1835,27 @@ export function MultiFlow({
     const timer = window.setTimeout(() => setPendingSignerUndo(null), 6000);
     return () => window.clearTimeout(timer);
   }, [pendingSignerUndo]);
+
+  /**
+   * Varios documentos: «Deshacer» el paso de «distintas» a «mismas» (que
+   * fusiona los bloques y puede descartar trazos). Mismo patron y misma
+   * ventana de 6 s que el de borrar un firmante. Solo vale mientras los
+   * bloques sean EXACTAMENTE los que dejo el cambio (`after`): si despues se
+   * edita algo, deshacer pisaria ese trabajo.
+   */
+  const [modeUndo, setModeUndo] = useState<{
+    before: SignerBlock[];
+    beforeMode: BlockSignMode;
+    after: SignerBlock[];
+    discarded: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!modeUndo) return;
+    const timer = window.setTimeout(() => setModeUndo(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [modeUndo]);
+  /** Anuncio (region viva siempre montada) del ultimo cambio de modo, alcance o bloque. */
+  const [announcement, setAnnouncement] = useState("");
 
   /**
    * Derivado en render, no limpiado con un `setState` dentro de un
@@ -1102,13 +1866,19 @@ export function MultiFlow({
    * estado de abajo puede seguir "vivo" un rato de mas -- no importa,
    * nunca se lee ni se muestra fuera de esta variable derivada.
    */
-  const visiblePendingSignerUndo =
+  const liveSignerUndo =
     pendingSignerUndo &&
     pendingSignerUndo.documentKey === options.signature &&
-    options.step === "signers" &&
-    options.signers.length < SIGNER_COLORS.length
+    options.step === "signers"
       ? pendingSignerUndo
       : null;
+  // El deshacer nunca supera MAX_SIGNERS (el limite de producto, no la paleta):
+  // si entretanto se dio de alta otro firmante, ya no cabe y se dice con amabilidad.
+  const signerUndoFits =
+    options.signers.length < MAX_SIGNERS &&
+    options.signers.length < SIGNER_COLORS.length;
+  const visiblePendingSignerUndo = liveSignerUndo && signerUndoFits ? liveSignerUndo : null;
+  const signerUndoUnavailable = liveSignerUndo !== null && !signerUndoFits;
 
   const restorePendingSignerUndo = () => {
     if (!visiblePendingSignerUndo) return;
@@ -1123,6 +1893,21 @@ export function MultiFlow({
         : options.captures,
       ...(snap.wasActive ? { activeSignerId: snap.signer.id } : {}),
     });
+    if (multi && snap.blocks.length > 0) {
+      // Sus bloques vuelven tal cual (alcance, trazos y sellos) en vez del
+      // bloque vacio que se crea al volver a la lista.
+      multi.bridge.commit((current, currentFiles) => ({
+        blocks: ensureBlocks(
+          current.signers,
+          docIdsOf(currentFiles),
+          current.signMode,
+          [
+            ...current.blocks.filter((block) => block.signerId !== snap.signer.id),
+            ...snap.blocks,
+          ],
+        ),
+      }));
+    }
     setPendingSignerUndo(null);
   };
 
@@ -1190,6 +1975,8 @@ export function MultiFlow({
    * el estado correcto.
    */
   const autosaveGenerationRef = useRef(0);
+  /** Varios documentos: el borrador lo guarda `SessionDraftAutosave`, no este flujo. */
+  const inSession = multi !== undefined;
 
   /**
    * Documentos para los que este componente ya escribio (o esta a punto
@@ -1228,11 +2015,16 @@ export function MultiFlow({
     if (!file || !documentKey) return;
     autosaveGenerationRef.current += 1;
     const myGeneration = autosaveGenerationRef.current;
+    // Con VARIOS documentos el borrador es uno por SESION (`SessionDraftAutosave`):
+    // este autoguardado de un solo documento no escribe nada y, si ya habia
+    // guardado un borrador suyo (la ronda tenia un solo documento y se sumaron
+    // mas), lo borra por el mismo mecanismo de "sin progreso".
     const hasProgress =
-      options.signers.length > 0 ||
-      options.fields.length > 0 ||
-      options.textFields.length > 0 ||
-      Object.keys(options.textValues).length > 0;
+      !inSession &&
+      (options.signers.length > 0 ||
+        options.fields.length > 0 ||
+        options.textFields.length > 0 ||
+        Object.keys(options.textValues).length > 0);
 
     const targetId = documentKey;
     if (!hasProgress && !hasSavedDraftRef.current.has(targetId)) return;
@@ -1265,8 +2057,10 @@ export function MultiFlow({
     const targetFile = file;
 
     let fired = false;
+    let stopHide = () => {};
     const flush = () => {
       fired = true;
+      stopHide();
       if (snapshot) {
         void getFileBytes(targetFile).then((fileBytes) => {
           if (autosaveGenerationRef.current !== myGeneration) return;
@@ -1280,13 +2074,20 @@ export function MultiFlow({
       }
     };
     const timer = setTimeout(flush, 800);
+    // Al irse de la pagina (recargar, cerrar, pestana oculta) no se espera al
+    // debounce; `flush` respeta la generacion (`autosaveGenerationRef`).
+    stopHide = flushOnPageHide(() => {
+      if (!fired) flush();
+    });
     return () => {
       clearTimeout(timer);
+      stopHide();
       if (!fired) flush();
     };
   }, [
     file,
     documentKey,
+    inSession,
     options.mode,
     options.signers,
     options.fields,
@@ -1312,10 +2113,7 @@ export function MultiFlow({
    */
   const reachable = (step: MultiStep): boolean => {
     if (step === "signers" || step === "document") return true;
-    return (
-      options.fields.length > 0 ||
-      hasFilledTextValue(options.textFields, options.textValues)
-    );
+    return anySlots || anyFilledText;
   };
 
   const position = MULTI_STEPS.indexOf(options.step);
@@ -1333,10 +2131,40 @@ export function MultiFlow({
     options.step === "document" &&
     textFieldsMissing > 0;
 
+  /* --- Varios documentos --- */
+  const docRefs: DocRef[] = multi
+    ? multi.files.map((item) => ({ id: docIdOf(item), name: item.name }))
+    : [];
+  const docIds = docRefs.map((doc) => doc.id);
+  const multiDocs = multi ? multi.session.docs : null;
+  /** Huecos vivos de cada documento (con un documento: solo el activo, como siempre). */
+  const slotsByDoc = (docId: DocId): SignatureField[] =>
+    multiDocs ? liveFields(docStateOf(multiDocs, docId), options.signers) : options.fields;
+  const multiBlockers: DeliveryBlocker[] = multi ? deliveryBlockers(multi.session, docIds) : [];
+  const blocksNow: SignerBlock[] = multi ? multi.session.blocks : [];
+  const issues = multi
+    ? coverageIssues(
+        options.signers,
+        docIds,
+        Object.fromEntries(docIds.map((id) => [id, { fields: slotsByDoc(id) }])),
+        blocksNow,
+      )
+    : [];
+
   const fieldCounts: Record<string, number> = {};
-  for (const field of options.fields) {
-    fieldCounts[field.signerId] = (fieldCounts[field.signerId] ?? 0) + 1;
+  for (const docFields of multi ? docIds.map(slotsByDoc) : [options.fields]) {
+    for (const field of docFields) {
+      fieldCounts[field.signerId] = (fieldCounts[field.signerId] ?? 0) + 1;
+    }
   }
+
+  const anySlots = multi ? docIds.some((id) => slotsByDoc(id).length > 0) : options.fields.length > 0;
+  const anyFilledText = multi
+    ? docIds.some((id) => {
+        const doc = docStateOf(multi.session.docs, id);
+        return hasFilledTextValue(doc.textFields, doc.textValues);
+      })
+    : hasFilledTextValue(options.textFields, options.textValues);
 
   /**
    * Al quitar a un firmante desaparecen tambien sus huecos y su trazo:
@@ -1365,6 +2193,7 @@ export function MultiFlow({
           capture: options.captures[removedId],
           wasActive: options.activeSignerId === removedId,
           documentKey: options.signature,
+          blocks: multi ? signerBlocks(multi.session.blocks, removedId) : [],
         });
       }
     }
@@ -1372,9 +2201,172 @@ export function MultiFlow({
     setOptions({ signers, fields, captures });
   };
 
+  /* --- Varios documentos: modo global y bloques --- */
+
+  const refsOf = (currentFiles: readonly File[]): DocRef[] =>
+    currentFiles.map((item) => ({ id: docIdOf(item), name: item.name }));
+
+  /** «Mismas» <-> «distintas». Distintas -> Mismas puede descartar trazos: se ofrece «Deshacer» 6 s. */
+  const changeSignMode = (to: BlockSignMode) => {
+    if (!multi) return;
+    multi.bridge.commit((current, currentFiles) => {
+      if (current.signMode === to) return {};
+      const switched = switchMode(
+        current.blocks,
+        current.signers,
+        docIdsOf(currentFiles),
+        to,
+      );
+      setAnnouncement(
+        to === "same" ? strings.signModeChangedSame : strings.signModeChangedIndependent,
+      );
+      setModeUndo(
+        switched.discarded.length > 0
+          ? {
+              before: current.blocks,
+              beforeMode: current.signMode,
+              after: switched.blocks,
+              discarded: switched.discarded.length,
+            }
+          : null,
+      );
+      return { signMode: to, blocks: switched.blocks };
+    });
+  };
+
+  const visibleModeUndo =
+    modeUndo &&
+    multi &&
+    multi.session.blocks === modeUndo.after &&
+    multi.session.signMode === "same" &&
+    options.step === "signers"
+      ? modeUndo
+      : null;
+
+  const modeControlRef = useRef<HTMLElement>(null);
+  const restoreSignMode = () => {
+    if (!visibleModeUndo || !multi) return;
+    const snap = visibleModeUndo;
+    multi.bridge.commit((current) =>
+      current.blocks === snap.after
+        ? { signMode: snap.beforeMode, blocks: snap.before }
+        : {},
+    );
+    setModeUndo(null);
+    setAnnouncement(strings.signModeRestored);
+    // El boton «Deshacer» se desmonta: el foco vuelve al segmento del modo recuperado.
+    modeControlRef.current
+      ?.querySelectorAll<HTMLElement>('[role="tab"]')
+      [snap.beforeMode === "same" ? 0 : 1]?.focus({ preventScroll: true });
+  };
+
+  /**
+   * Foco tras «Anadir bloque para X» (cobertura): el boton pulsado se
+   * desmonta al resolverse el aviso, asi que el foco va al «Cambiar» del
+   * bloque recien creado en cuanto aparece.
+   */
+  const focusNewBlockRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = focusNewBlockRef.current;
+    if (!id) return;
+    const target = document.querySelector<HTMLElement>(`[data-block-scope="${id}"]`);
+    if (!target) return;
+    focusNewBlockRef.current = null;
+    target.focus({ preventScroll: true });
+  }, [multi?.session.blocks]);
+
+  /** Anade un bloque al firmante; con `docId`, el bloque que cubre ESE documento (cobertura). */
+  const addBlockTo = (signerId: string, docId?: DocId) => {
+    if (!multi) return;
+    multi.bridge.commit((current, currentFiles) => {
+      const added = addBlock(current.blocks, signerId, docIdsOf(currentFiles), docId);
+      if (added.addedBlockId === null) return {};
+      const moves = scopeMoveAnnouncement(
+        added,
+        current.blocks,
+        added.blocks,
+        refsOf(currentFiles),
+        strings,
+      );
+      setAnnouncement(
+        [
+          strings.blockAdded(
+            signerLabel(current.signers, signerId, strings),
+            blockNumber(added.blocks, added.addedBlockId),
+          ),
+          moves,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      focusNewBlockRef.current = added.addedBlockId;
+      return { blocks: added.blocks };
+    });
+  };
+
+  const blocksApi: SignerBlocksApi | undefined = multi
+    ? {
+        docs: docRefs,
+        blocks: blocksNow,
+        onChangeScope: (blockId, scope) => {
+          multi.bridge.commit((current, currentFiles) => {
+            const edit = changeBlockScope(
+              current.blocks,
+              blockId,
+              scope,
+              refsOf(currentFiles),
+              strings,
+            );
+            if (edit.blocks === current.blocks) return {};
+            setAnnouncement(edit.message);
+            return { blocks: edit.blocks };
+          });
+        },
+        issues,
+        onAddBlock: (signerId, docId) => addBlockTo(signerId, docId),
+        onRemoveBlock: (blockId) => {
+          multi.bridge.commit((current, currentFiles) => {
+            const removed = removeBlock(current.blocks, blockId, docIdsOf(currentFiles));
+            if (removed.receiverId === null) return {};
+            setAnnouncement(strings.blockRemoved(blockNumber(removed.blocks, removed.receiverId)));
+            return { blocks: removed.blocks };
+          });
+        },
+      }
+    : undefined;
+
+  /**
+   * Al cambiar de paso con los botones «Atrás» / «Continuar», el que se acaba
+   * de pulsar puede desaparecer (no hay «Atrás» en el primer paso ni «Continuar»
+   * en el ultimo) y el foco caeria a `<body>`. Solo en ese caso se lleva al
+   * paso actual de la barra; si el foco sigue en un boton vivo, no se toca.
+   * No actua al montar.
+   */
+  const stepNavRef = useRef<HTMLElement>(null);
+  const lastStepRef = useRef(options.step);
+  useEffect(() => {
+    if (lastStepRef.current === options.step) return;
+    lastStepRef.current = options.step;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    stepNavRef.current
+      ?.querySelector<HTMLElement>('[aria-current="step"]')
+      ?.focus({ preventScroll: true });
+  }, [options.step]);
+
   return (
     <div className="space-y-5">
-      <nav aria-label={strings.ceremonyTitle} className="flex flex-wrap gap-1.5">
+      {/* Region viva siempre montada (varios documentos): modo, alcance y bloques. */}
+      {multi ? (
+        <p role="status" aria-live="polite" className="sr-only">
+          {announcement}
+        </p>
+      ) : null}
+      <nav
+        ref={stepNavRef}
+        aria-label={strings.ceremonyTitle}
+        className="flex flex-wrap gap-1.5"
+      >
         {MULTI_STEPS.map((step, index) => {
           const active = step === options.step;
           const open = reachable(step);
@@ -1401,6 +2393,14 @@ export function MultiFlow({
 
       {options.step === "signers" ? (
         <>
+          {multi ? (
+            <SignModeControl
+              containerRef={modeControlRef}
+              value={multi.session.signMode}
+              onChange={changeSignMode}
+              strings={strings}
+            />
+          ) : null}
           <SignerManager
             signers={options.signers}
             onSignersChange={onSignersChange}
@@ -1410,7 +2410,40 @@ export function MultiFlow({
             }
             fieldCounts={fieldCounts}
             strings={strings}
+            blocks={blocksApi}
           />
+          {multi ? (
+            <CoverageNotices
+              issues={issues}
+              signers={options.signers}
+              docs={docRefs}
+              onAddBlock={addBlockTo}
+              strings={strings}
+            />
+          ) : null}
+          {visibleModeUndo ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-3 flex items-center justify-between gap-3 rounded-ios-sm border border-white/14 bg-elevated px-3.5 py-2.5"
+            >
+              <span className="text-xs text-muted-foreground">
+                {strings.signModeMergedNotice(visibleModeUndo.discarded)}
+              </span>
+              <Button variant="ghost" size="sm" onClick={restoreSignMode}>
+                {strings.undoSignMode}
+              </Button>
+            </div>
+          ) : null}
+          {signerUndoUnavailable ? (
+            <p
+              role="status"
+              aria-live="polite"
+              className="mt-3 text-xs text-muted-foreground"
+            >
+              {strings.undoRemoveSignerUnavailable}
+            </p>
+          ) : null}
           {visiblePendingSignerUndo ? (
             <div
               role="status"
@@ -1479,6 +2512,7 @@ export function MultiFlow({
             undoDeleteEnabled={undoDeleteEnabled}
             richFieldTypesEnabled={richFieldTypesEnabled}
             pinchZoomEnabled={pinchZoomEnabled}
+            sequence={sequence}
           />
 
           <PendingFieldsNotice
@@ -1488,16 +2522,39 @@ export function MultiFlow({
         </section>
       ) : null}
 
-      {options.step === "sign" && options.fields.length > 0 ? (
-        <SigningCeremony
-          signers={options.signers}
-          fields={options.fields}
-          captures={options.captures}
-          onCapturesChange={(captures) => setOptions({ captures })}
-          documentKey={documentKey}
-          onFinish={onFinish}
-          strings={strings}
-        />
+      {options.step === "sign" && anySlots ? (
+        multi ? (
+          <BlockCeremony
+            signers={options.signers}
+            docs={docRefs}
+            docStates={multi.session.docs}
+            keys={multi.keys}
+            blocks={blocksNow}
+            onBlocksChange={(blocks) => multi.bridge.commit(() => ({ blocks }))}
+            blockerMessages={blockerMessages(
+              // Los pendientes y la cobertura ya tienen su propio sitio en la ceremonia.
+              multiBlockers.filter(
+                (blocker) => blocker.kind !== "pending" && blocker.kind !== "coverage",
+              ),
+              { signers: options.signers, docs: docRefs },
+              strings,
+            )}
+            blocked={multiBlockers.length > 0}
+            onFinish={onFinish}
+            strings={strings}
+          />
+        ) : (
+          <SigningCeremony
+            signers={options.signers}
+            fields={options.fields}
+            captures={options.captures}
+            onCapturesChange={(captures) => setOptions({ captures })}
+            documentKey={documentKey}
+            documentName={file?.name}
+            onFinish={onFinish}
+            strings={strings}
+          />
+        )
       ) : null}
 
       {/*
@@ -1507,7 +2564,7 @@ export function MultiFlow({
        * este listo (rellenar-y-descargar). Se muestra en su lugar un
        * panel minimo con el mismo `onFinish`.
        */}
-      {options.step === "sign" && options.fields.length === 0 ? (
+      {options.step === "sign" && !anySlots ? (
         <div className="glass rounded-ios p-5">
           <h4 className="text-headline text-foreground">
             {strings.textOnlyReadyTitle}
@@ -1530,7 +2587,11 @@ export function MultiFlow({
           <div className="mt-4">
             <Button
               size="lg"
-              disabled={!hasFilledTextValue(options.textFields, options.textValues)}
+              disabled={
+                multi
+                  ? multiBlockers.length > 0
+                  : !hasFilledTextValue(options.textFields, options.textValues)
+              }
               onClick={onFinish}
             >
               {strings.finishAndDownload}
@@ -1569,6 +2630,10 @@ export type SoloFlowProps = {
   setOptions: (patch: Partial<SignToolOptions>) => void;
   /** Abre el compositor de la firma. */
   onCreateSignature: () => void;
+  /** Abre las firmas guardadas (W3); ausente = baul apagado. */
+  onOpenSaved?: () => void;
+  /** Hay alguna firma guardada que ofrecer. */
+  hasSaved?: boolean;
   strings: SignStrings;
   /** Ultimo archivo visto, compartido entre flujos (ver `useDocumentSession`). */
   seen?: SeenStore<SignToolOptions>;
@@ -1591,6 +2656,8 @@ export function SoloFlow({
   options,
   setOptions,
   onCreateSignature,
+  onOpenSaved,
+  hasSaved,
   strings,
   seen,
 }: SoloFlowProps) {
@@ -1601,6 +2668,7 @@ export function SoloFlow({
   const undoDeleteEnabled = useSignPdfFeatureFlag("undoDelete");
   const richFieldTypesEnabled = useSignPdfFeatureFlag("richFieldTypes");
   const pinchZoomEnabled = useSignPdfFeatureFlag("pinchZoom");
+  const sequence = useCanvasSequence();
 
   const {
     detecting,
@@ -1647,6 +2715,8 @@ export function SoloFlow({
           signaturePng: options.signaturePng,
           ratio: options.ratio,
           onCreateSignature,
+          onOpenSaved,
+          hasSaved,
         }}
         signers={[]}
         activeSignerId={null}
@@ -1672,6 +2742,7 @@ export function SoloFlow({
         undoDeleteEnabled={undoDeleteEnabled}
         richFieldTypesEnabled={richFieldTypesEnabled}
         pinchZoomEnabled={pinchZoomEnabled}
+        sequence={sequence}
       />
 
       <PendingFieldsNotice

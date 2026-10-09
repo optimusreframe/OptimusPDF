@@ -19,6 +19,7 @@ import { FileList } from "@/components/tool/FileList";
 import { OptionsPanel } from "@/components/tool/OptionsPanel";
 import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
 import { DownloadScreen } from "@/components/tool/DownloadScreen";
+import type { BatchReport } from "@/lib/pdf/batchReport";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { springs, withCrossFadeOpacity } from "@/lib/motion";
@@ -39,6 +40,12 @@ import {
 export type ProcessResult = {
   blob: Blob;
   filename: string;
+  /**
+   * Solo para procesados por lotes (p. ej. firmar varios documentos): que
+   * documentos entraron en el archivo y cuales fallaron. `DownloadScreen`
+   * avisa de los fallos; sin este campo todo se comporta como siempre.
+   */
+  report?: BatchReport;
 };
 
 export type ToolRenderContext<TOptions> = {
@@ -668,6 +675,7 @@ export function ToolShell<TOptions>({
             onDownload={() => downloadBlob(result.blob, result.filename)}
             onStartOver={reset}
             downloadButtonRef={downloadRef}
+            report={result.report}
           />
           {renderDone ? renderDone({ result, options }) : null}
         </>

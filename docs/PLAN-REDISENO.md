@@ -438,3 +438,71 @@ Solo lo señalado; todo lo demas de W2-C se conserva. Evidencia en el scratchpad
 - Menores de W2-B: «Siguiente campo» abre el editor y a 375 px sale el teclado; radiogrupo «Firmante activo» sin flechas; la barra flotante tapa vecinos en formularios densos; orden de huecos al deshacer el borrado de un firmante; un pellizco centrado sobre un elemento lo mueve.
 - `Button size="sm"` `secondary` da 42 px de zona tactil; `signTemplates.listTemplates` solo se usa en tests.
 
+
+## Despliegue de la Wave 2 (2026-10-08)
+
+- Commit `701dbed` en `main`, desplegado en Vercel (`optimus-otbzh8jk9-optimus-reframe.vercel.app`, estado Ready, alias `optimuspdf.kpwr.dev`).
+- Smoke test headless en producción: `/`, `/sign-pdf`, `/merge-pdf`, `/compress-pdf` responden 200, sin desborde horizontal a 1280 y 375 px, 0 errores de consola.
+- Siguiente: Wave 3 (baúl de firmas), en descubrimiento.
+
+## Wave 3 · Baúl de firmas (2026-10-08, construida y verificada; sin commit/deploy)
+
+**Alcance.** Guardado local opt-in de firmas e iniciales con datos del firmante (IndexedDB `optimuspdf-signature-vault`), selector en «Solo yo» y «Varios», exportar/importar `.zip` (`Firma-<Firmante>-<Documento>.zip`, cifrado AES-GCM + PBKDF2 opcional), flag `signatureVault` (activo por defecto), «Borrar datos» vacía baúl y plantillas.
+
+**Unidades.** U1 `signVault.ts` · U2 `signVaultFile.ts` · U3 `SignatureVaultSheet.tsx`, `useSignatureVault.ts`, entradas en Solo/Varios, casilla «Recordar» · U4 privacidad (`PrivacyNotice`, `SettingsView`, `clearLocalSignData.ts`, textos es/en).
+
+**Verificación.** Ronda 1 REFUTED (nombre de archivo sin documento por defecto; «Datos borrados» tras un borrado fallido). Ronda 2 VERIFIED (11/11 correcciones; funcionalidad 9, robustez 9, a11y 7, UX 8, regresión 9, pruebas 8). Tres menores de la ronda 2 (foco tras contraseña errónea, copy con flag apagado, objetivo táctil 44px) cerrados por el constructor con tests y comprobación headless, sin segunda verificación independiente. Estado final: tsc y eslint limpios, 1590 tests pasan (3 omitidos), build 48/48.
+
+**Decisiones.** Exportar `SaveCheck`, importar `FileUp` (sin texto «guardar firmas»); casilla «Recordar» desactivada por defecto; casilla «incluir documento en el nombre» marcada por defecto con aviso; borrar una firma sin confirmación; no se amplió `Signer`.
+
+**Backlog (no bloquea).** Foco en `<body>` en el traspaso de `SigningCeremony` (pre-existente, entra en W4); nombres no latinos caen al slug «firmante» en el nombre del archivo; `iterations` manipuladas dan `invalid`; sin verificar en Safari/Firefox reales, modo privado real ni PBKDF2 en móvil lento; «Varios» solo recorrido en Chromium headless.
+
+## Wave 4 · Firmar varios documentos a la vez (plan, 2026-10-08)
+
+Commit/push/deploy de W3+W4 juntos, solo al cerrar W4 con éxito (orden del usuario).
+
+### Requisitos del usuario
+- Cargar varios PDF; elegir «mismas firmas para todos» o «firmas distintas por documento».
+- **Máximo 2 firmantes.** Cada firmante puede tener X **bloques** de firma+iniciales; en cada bloque se elige a qué documentos aplica (solo si hay >1 documento).
+- «Mismas»: las mismas firmas valen para cada documento con la huella (sello) propia de cada uno.
+- Los documentos entran en cola; en la app se ven como UN solo PDF continuo, pero son PDF individuales. El ZIP lleva cada PDF por separado, nombrado «<nombres de los firmantes que aplican a ESE documento> - <documento>-firmado.pdf» («cliente» = nombres de los firmantes; no hay campo «Cliente»).
+
+### Hallazgos del descubrimiento (solo lectura)
+- `DocumentCanvas` pinta UNA página a la vez (paginador + tira de miniaturas), 3176 líneas y 157 tests en un `Harness`; se remonta con `key=nombre:tamaño:fecha`. Sign PDF hoy es `multiple:false` y usa `files[0]`; nada del estado está indexado por documento (`fields`, `textFields` solo llevan `pageIndex`; `captures` por `signerId`).
+- No existe `MAX_SIGNERS`; el límite real es `SIGNER_COLORS.length` (6). `SOLO_COLOR = SIGNER_COLORS[4]`: no acortar la paleta; añadir `MAX_SIGNERS = 2` aparte. Rompe `SignerManager.test.tsx:109-115` y la cadena `signerLimit`.
+- Carreras a4/a5 (documentKey) nacen de que el estado vive «en el archivo actual»; con `docId` estable (≠ huella) por construcción desaparecen.
+- Foco a `<body>` en `SigningCeremony` (`setStage` en «Estoy listo», «Continuar», `goToTurn`; sin `useRef/useEffect`) es pre-existente: entra aquí.
+
+### Arquitectura (una)
+Estado canónico por `docId` + **vista derivada** del documento activo para los flujos existentes (`key={docId}`) + `DocumentSequence` sobre UN `DocumentCanvas` (paginador y miniaturas globales fuera del `key`, etiqueta «Contrato B · p. 2/3», props opcionales `sequence?`) + **bloques** `SignerBlock {id, signerId, appliesTo: docId[], signature, initials, stamps: Record<docId,string>}` + generación secuencial a ZIP.
+- Invariante: un documento pertenece a como máximo UN bloque por firmante (marcarlo en otro bloque lo quita del anterior, con anuncio). 0 bloques con huecos ⇒ error bloqueante «Falta el bloque de {S} para {D}» con «Añadir bloque»; >1 (borrador corrupto) ⇒ se normaliza (gana el primero) y se avisa.
+- Modo global (visible solo con >1 documento, `SegmentedControl` sobre el paso Firmantes): «Mismas» = 1 bloque por firmante con `appliesTo` = todos (documentos nuevos se añaden solos mientras el bloque siga en automático); «Distintas» = 1 bloque por (firmante, documento). El alcance de cualquier bloque se edita en ambos modos. Mismas→Distintas conserva trazos (sellos por documento); Distintas→Mismas fusiona con «Deshacer» de 6 s.
+- Compatibilidad: `projectCaptures(blocks, docId)` produce el `CaptureMap` de siempre; `captureStamp`, `validCapture`, `pendingSigners`, `isSignerComplete` conservan firmas. 1 documento ⇒ UI idéntica a la actual.
+- Baúl W3: una entrada llena firma e iniciales de UN bloque; casilla «Aplicar a todos mis bloques» (solo vacíos); `touchVaultEntry` una vez por aplicación; sello calculado en el clic.
+- Nombres: unión 1 → «Ana»; 2 → «Ana y Luis» («and» en en); >2 heredados → «Ana, Luis +1»; separador « - »; NO usar `slugify` (destruye acentos/mayúsculas); `safeFilenamePart` nueva (NFC, quita controles y `\ / : * ? " < > |`, colapsa espacios, sin puntos/espacios en extremos, evita reservados de Windows); firmantes ≤50 caracteres, documento ≤80, total ≤120 caracteres y ≤200 bytes UTF-8; colisiones comparadas en minúsculas NFC y desambiguadas `Nombre (2).pdf` con `uniqueZipName` (exportarlo). Documento sin firmantes con huecos ⇒ `Doc-firmado.pdf`. «Solo yo» sin firmantes ⇒ `Doc-firmado.pdf`. En multi el prefijo de firmantes es siempre automático, sin prompt. ZIP: `Firmados - N documentos.zip`.
+- Entrega: `signBatch.ts` secuencial, progreso `scaleProgress`, 5 % final para `generateAsync`, cancelación entre documentos, fallo parcial (los buenos van en el ZIP, `ProcessResult.report {ok, failed}` opcional + `renderDone`/`DownloadScreen` lo muestran), todos fallan ⇒ error del primero; 1 documento ⇒ PDF único como hoy; certificado por documento con SOLO sus firmantes. Límites: 10 documentos, 100 MB c/u, ≤200 MB total.
+- Huella: `useDocumentKeys(docs)` con cola de concurrencia 1-2, descarta resultados de `docId` retirados; duplicados idénticos aceptados (aviso informativo no bloqueante).
+- Borradores: un borrador POR SESIÓN (IndexedDB `DB_VERSION=2`, store `sessionMeta`, bytes `sessionId/docId`, cuenta como un borrador, tope 150 MB para guardar); v1 se sigue leyendo; con 1 documento se guarda el formato actual. `signConfig` v2 (`documents[]`, `signers`, `blocks` sin trazos, `signMode`; v1 se sigue leyendo; 1 documento exporta v1). Plantillas: aplicar al activo; opcional «Aplicar a todos».
+- Datos heredados con >2 firmantes: se cargan intactos; solo se limita el ALTA. Plantillas: se truncan a 2 con el contador `dropped`.
+- Flag `multiDocument` (por defecto activo); apagado ⇒ `multiple:false`, comportamiento actual.
+- Accesibilidad: región viva «Documento 2 de 3: Contrato B, página 2 de 3»; cambio de documento con `Alt+PageUp/PageDown` (no chocar con V F I T C D); lista de documentos con `aria-current`; casillas nativas en la `Sheet` de alcance; objetivos ≥44px.
+
+### Unidades
+- **U1 Núcleo**: `docSet.ts` (docId, `docs`, `blocks`, `ensureBlocks`, `resolveBlock`, `projectCaptures`, `migrateCaptures`), `MAX_SIGNERS`, `useDocumentKeys`, flag, `multiple` condicionado, sesión que sincroniza `files`.
+- **U2 Entrega** (módulos puros): `signBatch.ts`, `safeFilenamePart`/nombres, `uniqueZipName` exportado, `ProcessResult.report`.
+- **U3 Bloques y ceremonia**: `SignerManager` (máx. 2), mismas/distintas, `Sheet` de alcance, `BlockCeremony`, baúl, validación de cobertura, foco de la ceremonia.
+- **U4 Vista continua y «Solo yo» multi**: `DocumentSequence`, props del lienzo.
+- **U5 Persistencia y cierre**: borrador de sesión, `signConfig` v2, plantillas, privacidad, E2E, verificación independiente.
+
+### Riesgos mayores
+Vista derivada vs. `useDocumentSession` al cambiar de documento; memoria con N documentos (sin medir); sellos de bloque al cambiar un documento; migración `DB_VERSION=2` con otra pestaña en v1; foco al remontar el lienzo; extractores de ZIP con acentos (sin verificar).
+
+## Cierre de la Wave 4 (2026-10-09)
+
+**Construida** por unidades U1 (núcleo `docSet`/sesión/huellas), U2 (nombres + `signBatch` + informe de fallo parcial), U3 (bloques, ceremonia, entrega ZIP), U4 (`DocumentSequence`, «Solo yo» multi), U5 (borrador por sesión DB v2, `signConfig` v2, plantillas «a todos», privacidad).
+
+**Verificación independiente (Sonnet, contexto limpio).** Ronda 1: A (lógica/datos/entrega/persistencia) VERIFIED, 8 menores; B (interfaz/navegador) VERIFIED con reservas, 1 mayor preexistente de W3 (el trazo táctil del compositor arrastraba y cerraba la `Sheet`) + 8 menores. Ronda 2 (tras correcciones): VERIFIED con reservas (funcionalidad 9, robustez 8, a11y 9, UX 8, regresión 9, pruebas 8); mayor corregido y reproducido con toque real; defectos nuevos N1-N6. N1-N4 y N6 cerrados por los constructores con tests y mediciones en navegador, SIN tercera verificación independiente (ronda corta); medición final del orquestador con la máquina libre: tsc y eslint limpios, 2407 tests pasan ×3 (3 omitidos), `next build` 48/48, E2E 9 pasan (`sign-multi` 3/3) y 2 fallos preexistentes de `compress.spec.ts:25` y `:49`.
+
+**Hechos relevantes.** Autoguardado de sesión: una escritura a IndexedDB lanzada desde `pagehide`/`visibilitychange` no sobrevive a una recarga (0/10 medido); sí desde `beforeunload` (10/10). Restauración tras recargar a 50-400 ms: 0/10 → 10/10. Límite físico restante: cierre forzado o pestaña descartada no emiten evento. Test intermitente de plantillas: causa raíz = espera de 1000 ms a un muelle de ~1030-1100 ms; arreglo con señal determinista y plazo explícito. Tests con temporizadores reales fallan por turnos si varios agentes cargan la máquina; sin carga son estables (3 corridas).
+
+**Backlog.** «Ver borradores» e «Importar configuración» (36 px táctil) y «Crear mi firma» (36 px, fijado por un test de W3); hueco desplazado bajo la paleta flotante en móvil (z-20, desde W2); `normalizeBlocks` con ids de bloque repetidos rompe el invariante (solo datos corruptos); aviso de PDF cifrado antes de firmar y mensaje «No se pudo completar» al cancelar (afecta a otras herramientas); el salto de campo pendiente cuenta casillas sin marcar; sin verificar en Safari/Firefox reales, dispositivos táctiles reales, PDFs pesados reales, Windows Explorer/7-Zip con acentos en el ZIP (`unzip` de Apple muestra mojibake por su locale).

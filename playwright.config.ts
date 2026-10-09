@@ -1,6 +1,8 @@
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
+/** Puerto del servidor de pruebas (`PW_PORT=3197 npx playwright test ...`). Por defecto, el de siempre. */
+const PORT = Number(process.env.PW_PORT ?? 3000);
 const FAKE_CAMERA_Y4M = path.resolve(__dirname, "e2e/fixtures/fake-camera.y4m");
 
 /**
@@ -27,13 +29,13 @@ export default defineConfig({
     // los logs del webServer ("Blocked cross-origin request to Next.js
     // dev resource"). "localhost" es ademas el origen que ya se usa en el
     // resto de la verificacion manual de este proyecto.
-    baseURL: "http://localhost:3000",
+    baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
+    command: `npm run dev -- -p ${PORT}`,
+    url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

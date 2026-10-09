@@ -13,6 +13,7 @@
 
 import { useSyncExternalStore } from "react";
 import { isValidRect } from "@/app/sign-pdf/signConfig";
+import { MAX_SIGNERS } from "@/app/sign-pdf/signLimits";
 import type { NormalizedRect } from "@/lib/pdf/core";
 import { signerColorAt, type Signer, type SignatureField, type SignatureFieldType } from "@/lib/pdf/sign";
 import {
@@ -319,6 +320,80 @@ export type InstantiatedTemplate = {
   dropped: number;
 };
 
+/** Lo de la plantilla que cabe en un documento de `pageCount` paginas. */
+type TemplateFit = {
+  fields: SignTemplateField[];
+  textFields: SignTemplateTextField[];
+  /** Huecos y campos que no caben por pagina. */
+  droppedByPage: number;
+  /** `true` si la plantilla traia algo pero NADA cabe. */
+  nothingFits: boolean;
+};
+
+function fitTemplate(template: SignTemplate, pageCount: number): TemplateFit {
+  const totalSource = template.fields.length + template.textFields.length;
+  const fields = template.fields.filter((field) => field.pageIndex < pageCount);
+  const textFields = template.textFields.filter(
+    (field) => field.pageIndex < pageCount,
+  );
+  return {
+    fields,
+    textFields,
+    droppedByPage: totalSource - (fields.length + textFields.length),
+    nothingFits: totalSource > 0 && fields.length === 0 && textFields.length === 0,
+  };
+}
+
+/**
+ * Los firmantes de la plantilla, con ids y colores nuevos. Plantillas
+ * guardadas con mas de MAX_SIGNERS firmantes (de antes del limite): se
+ * truncan; lo que colgaba de los que sobran se cuenta como descartado al
+ * construir la disposicion (`buildLayout`), igual que lo que no cabe por
+ * paginas.
+ */
+function mintTemplateSigners(
+  template: SignTemplate,
+  mintSignerId: () => string,
+): Signer[] {
+  return template.signers.slice(0, MAX_SIGNERS).map((signer, index) => ({
+    id: mintSignerId(),
+    name: signer.name,
+    color: signerColorAt(index),
+  }));
+}
+
+/** Huecos y campos de texto de UN documento, ligados a los `signers` ya acuñados. */
+function buildLayout(
+  fit: TemplateFit,
+  signers: readonly Signer[],
+  mintFieldId: () => string,
+  mintTextFieldId: () => string,
+): { fields: SignatureField[]; textFields: DetectedField[]; dropped: number } {
+  const fieldsOfKeptSigners = fit.fields.filter(
+    (field) => field.signerIndex < signers.length,
+  );
+  const droppedBySigners = fit.fields.length - fieldsOfKeptSigners.length;
+  const fields: SignatureField[] = fieldsOfKeptSigners.map((field) => ({
+    id: mintFieldId(),
+    signerId: signers[field.signerIndex].id,
+    pageIndex: field.pageIndex,
+    type: field.type,
+    rect: field.rect,
+  }));
+
+  const textFields: DetectedField[] = fit.textFields.map((field) => ({
+    id: mintTextFieldId(),
+    pageIndex: field.pageIndex,
+    rect: field.rect,
+    label: field.label,
+    type: field.type,
+    source: "manual",
+    confidence: "high",
+  }));
+
+  return { fields, textFields, dropped: fit.droppedByPage + droppedBySigners };
+}
+
 /**
  * Puro y sincrono: no toca `localStorage`. Ids siempre nuevos (nunca los
  * guardados en la plantilla, que pueden colisionar con los del
@@ -337,52 +412,62 @@ export function instantiateTemplate(
   template: SignTemplate,
   deps: InstantiateTemplateDeps,
 ): InstantiatedTemplate | null {
-  const totalSource = template.fields.length + template.textFields.length;
+  const fit = fitTemplate(template, deps.pageCount);
+  if (fit.nothingFits) return null;
 
-  const fittingFields = template.fields.filter(
-    (field) => field.pageIndex < deps.pageCount,
-  );
-  const fittingTextFields = template.textFields.filter(
-    (field) => field.pageIndex < deps.pageCount,
-  );
-  const dropped =
-    totalSource - (fittingFields.length + fittingTextFields.length);
+  const signers = mintTemplateSigners(template, deps.mintSignerId);
+  return {
+    signers,
+    ...buildLayout(fit, signers, deps.mintFieldId, deps.mintTextFieldId),
+  };
+}
 
-  if (
-    totalSource > 0 &&
-    fittingFields.length === 0 &&
-    fittingTextFields.length === 0
-  ) {
-    return null;
-  }
+export type InstantiateTemplateForAllDeps = {
+  mintSignerId: () => string;
+  mintFieldId: () => string;
+  mintTextFieldId: () => string;
+};
 
-  const signers: Signer[] = template.signers.map((signer, index) => ({
-    id: deps.mintSignerId(),
-    name: signer.name,
-    color: signerColorAt(index),
-  }));
+export type InstantiatedTemplateSet = {
+  /** Los firmantes se fijan UNA vez: son los mismos para todos los documentos. */
+  signers: Signer[];
+  /** Huecos y campos de cada documento, con ids propios (nada se comparte entre documentos). */
+  perDoc: Record<string, Omit<InstantiatedTemplate, "signers">>;
+  /** Total descartado en todos los documentos (paginas que no existen, firmantes sobrantes). */
+  dropped: number;
+};
 
-  const fields: SignatureField[] = fittingFields
-    .filter((field) => field.signerIndex < signers.length)
-    .map((field) => ({
-      id: deps.mintFieldId(),
-      signerId: signers[field.signerIndex].id,
-      pageIndex: field.pageIndex,
-      type: field.type,
-      rect: field.rect,
-    }));
+/**
+ * «Aplicar a todos los documentos»: los firmantes de la plantilla se acuñan
+ * UNA sola vez y la disposicion (huecos y campos) se repite en cada documento
+ * con ids propios. Cada documento descarta lo que cae en paginas que no
+ * tiene, y todo se suma en `dropped`. Un documento donde no cabe nada queda
+ * sin huecos (se cuenta como descartado); si no cabe nada en NINGUNO no se
+ * aplica nada (`null`), por la misma razon que en `instantiateTemplate`.
+ */
+export function instantiateTemplateForAll(
+  template: SignTemplate,
+  docs: readonly { id: string; pageCount: number }[],
+  deps: InstantiateTemplateForAllDeps,
+): InstantiatedTemplateSet | null {
+  if (docs.length === 0) return null;
+  const fits = docs.map((doc) => fitTemplate(template, doc.pageCount));
+  if (fits.every((fit) => fit.nothingFits)) return null;
 
-  const textFields: DetectedField[] = fittingTextFields.map((field) => ({
-    id: deps.mintTextFieldId(),
-    pageIndex: field.pageIndex,
-    rect: field.rect,
-    label: field.label,
-    type: field.type,
-    source: "manual",
-    confidence: "high",
-  }));
-
-  return { signers, fields, textFields, dropped };
+  const signers = mintTemplateSigners(template, deps.mintSignerId);
+  const perDoc: InstantiatedTemplateSet["perDoc"] = {};
+  let dropped = 0;
+  docs.forEach((doc, index) => {
+    const layout = buildLayout(
+      fits[index],
+      signers,
+      deps.mintFieldId,
+      deps.mintTextFieldId,
+    );
+    perDoc[doc.id] = layout;
+    dropped += layout.dropped;
+  });
+  return { signers, perDoc, dropped };
 }
 
 /** Solo para tests: fuerza a releer `localStorage` en el siguiente acceso. */

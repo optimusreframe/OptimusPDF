@@ -10,9 +10,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDown,
   ArrowUp,
+  Bookmark,
   CalendarDays,
   CaseUpper,
   Check,
@@ -64,6 +66,7 @@ import {
   defaultSoloRect,
   refitSoloRect,
 } from "@/app/sign-pdf/soloSignature";
+import { pageAspectOf } from "@/app/sign-pdf/pageAspect";
 import { ValueSuggestions } from "@/app/sign-pdf/ValueSuggestions";
 import {
   BarButton,
@@ -268,6 +271,52 @@ export type SoloConfig = {
   ratio: number;
   /** Abre el compositor de la firma. */
   onCreateSignature: () => void;
+  /**
+   * Baul de firmas (W3), opcional: abre la hoja de firmas guardadas. Ausente
+   * = baul apagado o no disponible, y el lienzo se comporta como siempre.
+   */
+  onOpenSaved?: () => void;
+  /** Hay firmas guardadas: la herramienta Firma, sin firma creada, las ofrece antes de abrir el compositor. */
+  hasSaved?: boolean;
+};
+
+/**
+ * Acciones que el lienzo expone a la vista continua (`DocumentSequence`): ir a
+ * una pagina de ESTE documento con los mismos efectos que el paginador de
+ * siempre (aborta un gesto a medias y cierra el editor).
+ */
+export type CanvasHandle = {
+  goToPage: (index: number) => void;
+};
+
+/**
+ * Vista continua (W4-U4): varios PDF que se ven como uno. El envoltorio
+ * (`DocumentSequence`) vive FUERA del `key` del lienzo y pinta el paginador
+ * global y la tira de miniaturas, para que el foco no caiga a `<body>` al
+ * cruzar de un documento a otro (el lienzo se remonta por documento). Con
+ * `sequence` ausente (un solo documento) el lienzo se comporta exactamente
+ * como siempre.
+ */
+export type CanvasSequence = {
+  /** El paginador lo pinta el envoltorio. */
+  hidePager: boolean;
+  /** La tira de miniaturas la pinta el envoltorio. */
+  hideThumbs: boolean;
+  /** Donde va el zoom (en la barra pegajosa del envoltorio); `null` = aun no esta. */
+  zoomSlot: HTMLElement | null;
+  /** Nodo del lienzo donde el envoltorio pinta la tira de miniaturas. */
+  setThumbsSlot: (element: HTMLElement | null) => void;
+  /** Alta y baja del lienzo montado (devuelve la baja). */
+  register: (handle: CanvasHandle) => () => void;
+  /** Paginas del documento recien abierto: ahorra una apertura al envoltorio. */
+  onPageCount: (count: number) => void;
+  /**
+   * No queda un campo pendiente mas alla de aqui en esta direccion: busca en los
+   * demas documentos. `true` = ya se salto a otro documento.
+   */
+  onNoPendingHere: (direction: 1 | -1) => boolean;
+  /** Hay campos pendientes en otros documentos (activa «siguiente/anterior campo»). */
+  othersPending: boolean;
 };
 
 export type DocumentCanvasProps = {
@@ -304,6 +353,8 @@ export type DocumentCanvasProps = {
   pinchZoomEnabled?: boolean;
   /** Presente = modo "Solo yo" (ver `SoloConfig`). */
   solo?: SoloConfig;
+  /** Presente = parte de una vista continua de varios documentos (ver `CanvasSequence`). */
+  sequence?: CanvasSequence;
 };
 
 /* ------------------------------------------------------------------ *
@@ -357,27 +408,6 @@ function clamp01(value: number): number {
 
 function percent(value: number): string {
   return `${(value * 100).toFixed(3)}%`;
-}
-
-/**
- * Proporcion ancho/alto de una pagina concreta del PDF (la que se ve en pantalla,
- * con su rotacion), o `null` si no se puede leer. Solo hace falta para las paginas
- * que NO estan en pantalla.
- */
-async function pageAspectOf(file: File, index: number): Promise<number | null> {
-  try {
-    const document = await openPdfDocument(file);
-    try {
-      const page = await document.getPage(index + 1);
-      const viewport = page.getViewport?.({ scale: 1 });
-      page.cleanup();
-      return viewport && viewport.height > 0 ? viewport.width / viewport.height : null;
-    } finally {
-      void closePdfDocument(document);
-    }
-  } catch {
-    return null;
-  }
 }
 
 /** Orden de lectura: pagina, luego de arriba abajo y de izquierda a derecha. */
@@ -435,9 +465,18 @@ function DocumentCanvasInner({
   richFieldTypesEnabled = false,
   pinchZoomEnabled = false,
   solo,
+  sequence,
 }: DocumentCanvasProps) {
   const [pageCount, setPageCount] = useState(0);
   const [preview, setPreview] = useState<string | null>(null);
+  /**
+   * Proporcion ancho/alto de la pagina que se ve, leida del propio PDF (con su
+   * rotacion), o `null` si no se pudo leer. Es la fuente fiable para colocar la
+   * firma al montar: la caja medida (`hostSize`) todavia es la del marcador de
+   * posicion 3:4 cuando llega la vista previa, y una firma colocada con esa
+   * proporcion sale deformada en las paginas que no son 3:4.
+   */
+  const [previewAspect, setPreviewAspect] = useState<number | null>(null);
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [hostSize, setHostSize] = useState({ width: 0, height: 0 });
@@ -567,9 +606,26 @@ function DocumentCanvasInner({
     errorRef.current = onError;
   });
 
+  /**
+   * Vista continua: el envoltorio (fuera del `key` del lienzo) lleva el
+   * paginador, la tira de miniaturas y el recuento de paginas. Se lee por
+   * `ref` (las funciones cambian en cada render del padre) salvo lo que decide
+   * si este lienzo hace o no el trabajo.
+   */
+  const sequenceRef = useRef(sequence);
+  useEffect(() => {
+    sequenceRef.current = sequence;
+  });
+  const thumbsInSequence = Boolean(sequence?.hideThumbs);
+  const registerSequence = sequence?.register;
+  /** Hueco de la tira de miniaturas global: el nodo se entrega al envoltorio (estable entre renders). */
+  const attachThumbsSlot = useCallback((element: HTMLDivElement | null) => {
+    sequenceRef.current?.setThumbsSlot(element);
+  }, []);
+
   /* Miniaturas de navegacion: una pasada secuencial por el documento. */
   useEffect(() => {
-    if (!file) return;
+    if (!file || thumbsInSequence) return;
     let cancelled = false;
 
     void (async () => {
@@ -599,7 +655,7 @@ function DocumentCanvasInner({
     return () => {
       cancelled = true;
     };
-  }, [file]);
+  }, [file, thumbsInSequence]);
 
   /* Vista grande de la pagina activa. */
   useEffect(() => {
@@ -615,15 +671,22 @@ function DocumentCanvasInner({
           return;
         }
         setPageCount(document.numPages);
+        sequenceRef.current?.onPageCount(document.numPages);
         const number = Math.min(
           Math.max(1, pageIndex + 1),
           Math.max(1, document.numPages),
         );
         const page = await document.getPage(number);
+        const viewport = page.getViewport?.({ scale: 1 });
         const url = await renderPageToDataUrl(page, { maxWidth: PREVIEW_WIDTH });
         page.cleanup();
         void closePdfDocument(document);
-        if (!cancelled) setPreview(url);
+        if (!cancelled) {
+          setPreview(url);
+          setPreviewAspect(
+            viewport && viewport.height > 0 ? viewport.width / viewport.height : null,
+          );
+        }
       } catch (error) {
         if (!cancelled) errorRef.current?.(toPdfError(error).code);
       } finally {
@@ -767,7 +830,9 @@ function DocumentCanvasInner({
     (next: PlacementTool) => {
       // "Solo yo" sin firma creada: la herramienta Firma no coloca nada, abre el compositor.
       if (next === "signature" && solo && !solo.signaturePng) {
-        solo.onCreateSignature();
+        // Con firmas guardadas se ofrecen (la hoja trae «Crear una firma nueva»); sin ellas, como siempre.
+        if (solo.hasSaved && solo.onOpenSaved) solo.onOpenSaved();
+        else solo.onCreateSignature();
         return;
       }
       if (next !== "select") select(null);
@@ -1056,6 +1121,22 @@ function DocumentCanvasInner({
     setDraft(null);
   }, []);
 
+  const goToPage = (index: number) => {
+    cancelGesture();
+    onEditingIdChange(null);
+    onPageIndexChange(index);
+  };
+
+  /* Vista continua: el paginador global (fuera de este lienzo) pide paginas de ESTE documento por aqui. */
+  const goToPageRef = useRef(goToPage);
+  useEffect(() => {
+    goToPageRef.current = goToPage;
+  });
+  useEffect(() => {
+    if (!registerSequence) return;
+    return registerSequence({ goToPage: (index) => goToPageRef.current(index) });
+  }, [registerSequence]);
+
   /**
    * Salta al campo pendiente siguiente (`direction` 1) o anterior (-1) en
    * orden de documento, con vuelta al otro extremo, y abre su editor.
@@ -1064,8 +1145,8 @@ function DocumentCanvasInner({
    * seleccion, de uno de los extremos. Devuelve `false` si no hay ningun
    * otro campo pendiente (no toca nada).
    */
-  const stepToPendingField = useCallback(
-    (direction: 1 | -1, fromId?: string): boolean => {
+  const stepWithinDocument = useCallback(
+    (direction: 1 | -1, fromId?: string, wrap = true): boolean => {
       const ordered = [...textFields].sort(byDocumentOrder);
       const total = ordered.length;
       if (total === 0) return false;
@@ -1095,10 +1176,10 @@ function DocumentCanvasInner({
         before = total - 1;
       }
       for (let step = 0; step < total; step += 1) {
-        const index =
-          direction === 1
-            ? (after + step) % total
-            : (((before - step) % total) + total) % total;
+        const raw = direction === 1 ? after + step : before - step;
+        // Vista continua: sin dar la vuelta, para poder seguir en el documento vecino.
+        if (!wrap && (raw < 0 || raw >= total)) break;
+        const index = ((raw % total) + total) % total;
         const candidate = ordered[index];
         if (candidate.id === startId || !isPendingForNav(candidate)) continue;
         if (fieldTypeOf(candidate) === "checkbox") markCheckboxTouched(candidate.id);
@@ -1127,6 +1208,23 @@ function DocumentCanvasInner({
       cancelGesture,
       strings,
     ],
+  );
+
+  /**
+   * Vista continua: el documento es una parte de un PDF mayor, asi que «mas
+   * alla del ultimo pendiente» es el primero del documento siguiente, no la
+   * vuelta al principio de este. Solo si ningun otro documento tiene pendientes
+   * se da la vuelta aqui (como siempre).
+   */
+  const stepToPendingField = useCallback(
+    (direction: 1 | -1, fromId?: string): boolean => {
+      const link = sequenceRef.current;
+      if (!link) return stepWithinDocument(direction, fromId);
+      if (stepWithinDocument(direction, fromId, false)) return true;
+      if (link.onNoPendingHere(direction)) return true;
+      return stepWithinDocument(direction, fromId, true);
+    },
+    [stepWithinDocument],
   );
 
   /** Tab/Enter (hacia delante) y Mayus+Tab (hacia atras) dentro de un campo. */
@@ -1158,11 +1256,13 @@ function DocumentCanvasInner({
   const zoomOut = () =>
     setZoomLevel([...ZOOM_STEPS].reverse().find((step) => step < zoom - 0.01) ?? 1);
 
-  const hasOtherPendingField = textFields.some(
-    (field) =>
-      !(selection?.kind === "text" && selection.id === field.id) &&
-      isPendingForNav(field),
-  );
+  const hasOtherPendingField =
+    Boolean(sequence?.othersPending) ||
+    textFields.some(
+      (field) =>
+        !(selection?.kind === "text" && selection.id === field.id) &&
+        isPendingForNav(field),
+    );
 
   const toggleCheckbox = (field: DetectedField) => {
     markCheckboxTouched(field.id);
@@ -1715,7 +1815,7 @@ function DocumentCanvasInner({
     if (!preview || hostSize.width === 0 || hostSize.height === 0) return;
     if (soloHandledPngRef.current === solo.signaturePng) return;
     soloHandledPngRef.current = solo.signaturePng;
-    const aspect = hostSize.width / hostSize.height;
+    const aspect = previewAspect ?? hostSize.width / hostSize.height;
     const existing = slots.find((field) => field.id === SOLO_SLOT_ID);
     if (existing) {
       // El alto sigue a la proporcion de la pagina DONDE ESTA la firma, no de la
@@ -1755,7 +1855,7 @@ function DocumentCanvasInner({
     queueMicrotask(() => setAnnouncement(strings.soloSignaturePlaced(pageIndex + 1)));
     // Solo cuando llega una firma nueva o la vista previa: el resto se lee con los valores de ese instante.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [solo?.signaturePng, solo?.ratio, preview, hostSize.width, hostSize.height]);
+  }, [solo?.signaturePng, solo?.ratio, preview, previewAspect, hostSize.width, hostSize.height]);
 
   /*
    * La paleta movil es FIJA (sobre la barra de accion de ToolShell): mientras
@@ -1807,11 +1907,6 @@ function DocumentCanvasInner({
       TINY_ELEMENT_PX;
 
   const total = Math.max(1, pageCount);
-  const goToPage = (index: number) => {
-    cancelGesture();
-    onEditingIdChange(null);
-    onPageIndexChange(index);
-  };
 
   const clearPageDisabled =
     clearScope === "slot"
@@ -1947,6 +2042,49 @@ function DocumentCanvasInner({
     return true;
   };
 
+  /** Botones de zoom (en la vista continua van a la barra pegajosa del envoltorio). */
+  const zoomGroup = (
+    <div
+      role="group"
+      aria-label={strings.zoomGroupLabel}
+      className="flex items-center gap-0.5"
+    >
+      <Button
+        variant="ghost"
+        size="sm"
+        className={COARSE_TALL}
+        aria-label={strings.zoomOut}
+        title={strings.zoomOut}
+        disabled={zoom <= 1.01}
+        onClick={zoomOut}
+      >
+        <ZoomOut aria-hidden="true" className="size-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label={strings.resetZoomButton}
+        title={strings.resetZoomButton}
+        disabled={zoom === 1}
+        onClick={() => setZoomLevel(1)}
+        className={cn("min-w-12 px-1.5! tabular-nums", COARSE_TALL)}
+      >
+        {Math.round(zoom * 100)} %
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={COARSE_TALL}
+        aria-label={strings.zoomIn}
+        title={strings.zoomIn}
+        disabled={zoom >= MAX_ZOOM - 0.01}
+        onClick={zoomIn}
+      >
+        <ZoomIn aria-hidden="true" className="size-4" />
+      </Button>
+    </div>
+  );
+
   const pendingNote =
     creates?.kind === "slot" && !solo
       ? activeSigner
@@ -1987,15 +2125,28 @@ function DocumentCanvasInner({
                 {strings.noSignature}
               </p>
             )}
-            <Button
-              variant={solo.signaturePng ? "secondary" : "primary"}
-              size="sm"
-              className={COARSE_TALL}
-              onClick={solo.onCreateSignature}
-            >
-              <PenLine aria-hidden="true" className="size-4" />
-              {solo.signaturePng ? strings.changeSignature : strings.createSignature}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={solo.signaturePng ? "secondary" : "primary"}
+                size="sm"
+                className={COARSE_TALL}
+                onClick={solo.onCreateSignature}
+              >
+                <PenLine aria-hidden="true" className="size-4" />
+                {solo.signaturePng ? strings.changeSignature : strings.createSignature}
+              </Button>
+              {solo.onOpenSaved ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className={COARSE_TALL}
+                  onClick={solo.onOpenSaved}
+                >
+                  <Bookmark aria-hidden="true" className="size-4" />
+                  {strings.vaultButton}
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : signers.length > 0 ? (
           /* Dueño del proximo hueco: se cambia aqui mismo, sin volver al paso 1. */
@@ -2071,83 +2222,46 @@ function DocumentCanvasInner({
         con la hoja ampliada o desplazada (en movil la hoja ocupa la pantalla y
         el zoom quedaba arriba, fuera de la vista). Con puntero grueso miden 44 px.
       */}
-      <div
-        data-canvas-sticky=""
-        className="material-thick shadow-elevation-2 rounded-ios sticky top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] z-30 mb-3 flex flex-wrap items-center justify-between gap-x-1 gap-y-1 p-1 md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3"
-      >
-        {pinchZoomEnabled ? (
-          <div
-            role="group"
-            aria-label={strings.zoomGroupLabel}
-            className="flex items-center gap-0.5"
-          >
+      {sequence?.hidePager ? (
+        /* Vista continua: el paginador global lo pinta `DocumentSequence`; aqui solo el zoom, en su barra. */
+        pinchZoomEnabled && sequence.zoomSlot ? createPortal(zoomGroup, sequence.zoomSlot) : null
+      ) : (
+        <div
+          data-canvas-sticky=""
+          className="material-thick shadow-elevation-2 rounded-ios sticky top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] z-30 mb-3 flex flex-wrap items-center justify-between gap-x-1 gap-y-1 p-1 md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3"
+        >
+          {pinchZoomEnabled ? zoomGroup : <span />}
+          <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
               className={COARSE_TALL}
-              aria-label={strings.zoomOut}
-              title={strings.zoomOut}
-              disabled={zoom <= 1.01}
-              onClick={zoomOut}
+              aria-label={strings.previousPage}
+              disabled={pageIndex === 0}
+              onClick={() => goToPage(Math.max(0, pageIndex - 1))}
             >
-              <ZoomOut aria-hidden="true" className="size-4" />
+              <ChevronLeft aria-hidden="true" className="size-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={strings.resetZoomButton}
-              title={strings.resetZoomButton}
-              disabled={zoom === 1}
-              onClick={() => setZoomLevel(1)}
-              className={cn("min-w-12 px-1.5! tabular-nums", COARSE_TALL)}
-            >
-              {Math.round(zoom * 100)} %
-            </Button>
+            <span className="text-footnote font-medium text-foreground tabular-nums">
+              {/* En pantallas estrechas se pinta "2 / 40" y el texto completo queda para lectores de pantalla: la barra cabe en una fila. */}
+              <span aria-hidden="true" className="hidden max-[420px]:inline">
+                {pageIndex + 1} / {total}
+              </span>
+              <span className="max-[420px]:sr-only">{strings.pageOf(pageIndex + 1, total)}</span>
+            </span>
             <Button
               variant="ghost"
               size="sm"
               className={COARSE_TALL}
-              aria-label={strings.zoomIn}
-              title={strings.zoomIn}
-              disabled={zoom >= MAX_ZOOM - 0.01}
-              onClick={zoomIn}
+              aria-label={strings.nextPage}
+              disabled={pageCount === 0 || pageIndex >= pageCount - 1}
+              onClick={() => goToPage(Math.min(pageCount - 1, pageIndex + 1))}
             >
-              <ZoomIn aria-hidden="true" className="size-4" />
+              <ChevronRight aria-hidden="true" className="size-4" />
             </Button>
           </div>
-        ) : (
-          <span />
-        )}
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className={COARSE_TALL}
-            aria-label={strings.previousPage}
-            disabled={pageIndex === 0}
-            onClick={() => goToPage(Math.max(0, pageIndex - 1))}
-          >
-            <ChevronLeft aria-hidden="true" className="size-4" />
-          </Button>
-          <span className="text-footnote font-medium text-foreground tabular-nums">
-            {/* En pantallas estrechas se pinta "2 / 40" y el texto completo queda para lectores de pantalla: la barra cabe en una fila. */}
-            <span aria-hidden="true" className="hidden max-[420px]:inline">
-              {pageIndex + 1} / {total}
-            </span>
-            <span className="max-[420px]:sr-only">{strings.pageOf(pageIndex + 1, total)}</span>
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={COARSE_TALL}
-            aria-label={strings.nextPage}
-            disabled={pageCount === 0 || pageIndex >= pageCount - 1}
-            onClick={() => goToPage(Math.min(pageCount - 1, pageIndex + 1))}
-          >
-            <ChevronRight aria-hidden="true" className="size-4" />
-          </Button>
         </div>
-      </div>
+      )}
 
       {/*
        * Estado y acciones destructivas, encima del lienzo: en movil se
@@ -2530,7 +2644,10 @@ function DocumentCanvasInner({
         ) : null}
       </div>
 
-      {thumbs.length > 1 ? (
+      {sequence?.hideThumbs ? (
+        /* Vista continua: la tira de miniaturas de TODOS los documentos la pinta `DocumentSequence` en este hueco. */
+        <div ref={attachThumbsSlot} data-sequence-thumbs-slot="" />
+      ) : thumbs.length > 1 ? (
         <div className="mt-5">
           <h4 className="ui-label mb-2 text-muted-foreground">{strings.thumbsTitle}</h4>
           <ul className="flex gap-2 overflow-x-auto pb-2">

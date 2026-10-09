@@ -324,6 +324,10 @@ export const es = {
     dropActive: "Suelta para añadir",
     skippedOne: "Se omitió {names}: formato no admitido.",
     skippedMany: "Se omitieron {count} archivos ({names}): formato no admitido.",
+    // Entrega por lotes con fallos parciales (`ProcessResult.report`).
+    partialReportTitle: "{ok} de {total} documentos firmados",
+    partialReportIntro: "No se pudo firmar:",
+    partialReportItem: "{name} ({reason})",
     errors: {
       title: "No se pudo completar",
       invalidType: "Ese formato no sirve para esta herramienta.",
@@ -390,7 +394,7 @@ export const es = {
     languageBody: "Cambia el idioma de toda la interfaz.",
     dataTitle: "Datos locales",
     dataBody:
-      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (PDF completo y capturas de firma).",
+      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y firmas; PDF completo y capturas de firma). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña.",
     clearData: "Borrar datos locales",
     cleared: "Datos locales borrados.",
     aboutTitle: "Sobre la aplicación",
@@ -425,6 +429,14 @@ export const es = {
       pinchZoom: {
         label: "Zoom con pellizco",
         hint: "Permite acercar el lienzo con dos dedos en formularios con campos pequeños y juntos.",
+      },
+      signatureVault: {
+        label: "Firmas guardadas",
+        hint: "Permite recordar tus firmas e iniciales en este dispositivo para reutilizarlas en otros documentos. Es opcional: solo se guarda lo que tú marques, y nunca sale del navegador.",
+      },
+      multiDocument: {
+        label: "Varios documentos a la vez",
+        hint: "Permite cargar varios PDF en Firmar PDF y firmarlos en una sola ronda. Apagado, la herramienta trabaja con un único documento, como antes.",
       },
     },
   },

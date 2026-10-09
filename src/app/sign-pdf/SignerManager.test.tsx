@@ -1,15 +1,22 @@
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { SignerManager } from "@/app/sign-pdf/SignerManager";
+import { MAX_SIGNERS, SignerManager } from "@/app/sign-pdf/SignerManager";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { SIGNER_COLORS, type Signer } from "@/lib/pdf/sign";
 
 const strings = SIGN_STRINGS.es;
 
 /** Envoltura controlada: el componente no guarda la lista, la publica. */
-function Harness({ onChange }: { onChange: (signers: Signer[]) => void }) {
-  const [signers, setSigners] = useState<Signer[]>([]);
+function Harness({
+  onChange,
+  initial = [],
+}: {
+  onChange: (signers: Signer[]) => void;
+  /** Lista heredada (borrador, configuracion): se muestra tal cual, sin pasar por el alta. */
+  initial?: Signer[];
+}) {
+  const [signers, setSigners] = useState<Signer[]>(initial);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   return (
@@ -55,21 +62,23 @@ describe("SignerManager — src/app/sign-pdf/SignerManager.tsx", () => {
 
     addSigner();
     addSigner();
-    addSigner();
 
-    expect(last).toHaveLength(3);
-    expect(new Set(last.map((signer) => signer.id)).size).toBe(3);
-    expect(new Set(last.map((signer) => signer.color)).size).toBe(3);
-    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(last).toHaveLength(MAX_SIGNERS);
+    expect(new Set(last.map((signer) => signer.id)).size).toBe(MAX_SIGNERS);
+    expect(new Set(last.map((signer) => signer.color)).size).toBe(MAX_SIGNERS);
+    expect(screen.getAllByRole("radio")).toHaveLength(MAX_SIGNERS);
   });
 
   it("borrar un firmante lo saca de la lista y recoloca los colores", () => {
-    let last: Signer[] = [];
-    render(<Harness onChange={(signers) => (last = signers)} />);
+    // Con el limite de altas en 2, la lista de tres llega como dato heredado.
+    const legacy: Signer[] = [0, 1, 2].map((index) => ({
+      id: `sg-${index + 1}`,
+      name: "",
+      color: SIGNER_COLORS[index],
+    }));
+    let last: Signer[] = legacy;
+    render(<Harness initial={legacy} onChange={(signers) => (last = signers)} />);
 
-    addSigner();
-    addSigner();
-    addSigner();
     const second = last[1];
     const third = last[2];
 
@@ -103,15 +112,56 @@ describe("SignerManager — src/app/sign-pdf/SignerManager.tsx", () => {
     expect(last[1].name).toBe("");
   });
 
-  it("no deja pasar del tamaño de la paleta", () => {
+  it("no deja pasar del maximo de firmantes", () => {
     render(<Harness onChange={() => {}} />);
 
-    for (let index = 0; index < SIGNER_COLORS.length; index += 1) addSigner();
+    for (let index = 0; index < MAX_SIGNERS; index += 1) addSigner();
 
     const button = screen.getByRole("button", {
       name: strings.addSigner,
     }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByText(strings.signerLimit)).toBeTruthy();
+  });
+
+  it("una lista heredada con mas firmantes que el maximo se conserva intacta", () => {
+    const legacy: Signer[] = [0, 1, 2, 3].map((index) => ({
+      id: `sg-${index + 1}`,
+      name: `Persona ${index + 1}`,
+      color: SIGNER_COLORS[index],
+    }));
+    render(<Harness initial={legacy} onChange={() => {}} />);
+
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
+    const button = screen.getByRole("button", {
+      name: strings.addSigner,
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText(strings.signerLimit)).toBeTruthy();
+  });
+
+  it("MAX_SIGNERS es 2 y la paleta conserva sus colores (SOLO_COLOR usa el indice 4)", () => {
+    expect(MAX_SIGNERS).toBe(2);
+    expect(SIGNER_COLORS.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("el aviso del limite nombra el numero y existe en espanol e ingles", () => {
+    expect(SIGN_STRINGS.es.signerLimit).toContain("2");
+    expect(SIGN_STRINGS.en.signerLimit).toContain("2");
+  });
+
+  it("quitar uno de dos reabre el alta", () => {
+    render(<Harness onChange={() => {}} />);
+    addSigner();
+    addSigner();
+    const button = () =>
+      screen.getByRole("button", { name: strings.addSigner }) as HTMLButtonElement;
+    expect(button().disabled).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: strings.removeSigner(strings.defaultSignerName(1)),
+      }),
+    );
+    expect(button().disabled).toBe(false);
   });
 });

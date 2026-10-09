@@ -63,7 +63,7 @@ export type SignStrings = {
   canvasEmptyHint: string;
   /** "En esta página: 1 hueco · 3 campos". */
   canvasPageSummary: (slots: number, textFields: number) => string;
-  /** "En total: 2 huecos · 5 campos". */
+  /** "En este documento: 2 huecos · 5 campos". */
   canvasTotalSummary: (slots: number, textFields: number) => string;
   /** Estado en el nombre accesible de cada elemento del lienzo ("Nombre, pendiente"). */
   a11yPending: string;
@@ -113,7 +113,7 @@ export type SignStrings = {
   soloCanvasEmptyHint: string;
   /** "En esta página: 1 firma · 3 campos". */
   soloPageSummary: (signatures: number, textFields: number) => string;
-  /** "En total: 1 firma · 5 campos". */
+  /** "En este documento: 1 firma · 5 campos". */
   soloTotalSummary: (signatures: number, textFields: number) => string;
 
   /* --- Firmantes --- */
@@ -131,6 +131,8 @@ export type SignStrings = {
   /** Anuncio del snackbar tras borrar un firmante con "Deshacer" activo. */
   signerDeletedNotice: string;
   undoRemoveSigner: string;
+  /** El deshacer ya no cabe: se dio de alta otro firmante y la ronda esta en el maximo. */
+  undoRemoveSignerUnavailable: string;
 
   /* --- Huecos de firma / iniciales --- */
   fieldTypeLabel: string;
@@ -245,6 +247,8 @@ export type SignStrings = {
   /* --- Privacidad del historial de valores (localStorage) --- */
   privacyNoticeToggle: string;
   privacyNoticeBody: string;
+  /** Solo se muestra con el baul de firmas encendido: habla de una casilla que, apagado, no existe. */
+  privacyNoticeVaultNote: string;
   privacyClearData: string;
   privacyClearDataTitle: string;
   privacyClearDataBody: string;
@@ -264,10 +268,25 @@ export type SignStrings = {
   draftsSavedAt: (date: string) => string;
   draftsConfirmDeleteTitle: string;
   draftsConfirmDeleteBody: string;
+  /** Una sesion (varias documentos) se muestra como UNA fila. */
+  draftsDocuments: (count: number) => string;
+  draftsConfirmDeleteSessionBody: (count: number) => string;
+  /** La ronda pesa demasiado para guardarse como borrador (tope por sesion). */
+  draftsTooBig: string;
+  /** Al retomar: bloques que reclamaban un mismo documento y se normalizaron. */
+  draftsResumeNormalized: (count: number) => string;
+  /** Al retomar: documentos cuyo contenido ya no coincide con el guardado. */
+  draftsResumeStale: (count: number) => string;
+  /** Al retomar una sesion mas grande de lo que admite una ronda: solo los primeros que caben. */
+  draftsResumeTrimmed: (kept: number, total: number) => string;
+  /** Con «varios documentos» apagado en Ajustes no se carga una ronda de varios. */
+  multiDocOffNotice: string;
 
   /* --- Exportar/importar configuracion --- */
   exportConfigButton: string;
   importConfigButton: string;
+  /** Aviso bajo el boton de exportar: el .zip contiene los documentos. */
+  exportConfigNote: string;
 
   /* --- Plantillas de disposicion reutilizables (localStorage) --- */
   templatesButton: string;
@@ -298,8 +317,208 @@ export type SignStrings = {
   applyTemplateConfirm: string;
   /** Se aplico, pero algunos campos no encajaban en el documento actual. */
   applyTemplateDropped: (dropped: number) => string;
+  /** «Aplicar a todos los documentos» (varios documentos). */
+  templatesApplyAll: string;
+  applyTemplateAllConfirmBody: string;
+  applyTemplateAllDone: (documents: number, dropped: number) => string;
   applyTemplateNothingFits: string;
+
+  /* --- Baul de firmas guardadas (IndexedDB, W3) --- */
+  vaultButton: string;
+  vaultTitle: string;
+  vaultIntro: string;
+  vaultLoading: string;
+  vaultEmpty: string;
+  vaultUnavailable: string;
+  vaultCreateNew: string;
+  vaultUse: string;
+  vaultUseFor: (name: string) => string;
+  vaultUseSaved: string;
+  vaultUseSavedFor: (typeLabel: string) => string;
+  vaultMatchesSigner: string;
+  vaultLacksSignature: string;
+  vaultLacksInitials: string;
+  vaultSignatureAlt: (name: string) => string;
+  vaultInitialsAlt: (name: string) => string;
+  vaultUsedIn: (document: string) => string;
+  vaultLastUsed: (date: string) => string;
+  vaultEditLabel: (name: string) => string;
+  vaultEditNameLabel: string;
+  vaultEditRoleLabel: string;
+  vaultEditSave: string;
+  vaultEditCancel: string;
+  vaultEditInvalid: string;
+  vaultEdited: string;
+  vaultDeleteLabel: (name: string) => string;
+  vaultDeleted: string;
+  vaultDeleteAll: string;
+  vaultDeleteAllTitle: string;
+  vaultDeleteAllBody: string;
+  vaultDeletedAll: string;
+  vaultOpFailed: string;
+  vaultExport: string;
+  vaultExportFor: (name: string) => string;
+  vaultImport: string;
+  vaultExportTitle: string;
+  vaultExportBody: string;
+  vaultExportPasswordLabel: string;
+  vaultExportPasswordConfirmLabel: string;
+  vaultExportPasswordHint: string;
+  vaultExportPasswordUnavailable: string;
+  vaultExportPasswordMismatch: string;
+  vaultExportIncludeDocument: string;
+  vaultExportIncludeDocumentHint: string;
+  vaultExportPlainWarning: string;
+  vaultExportConfirm: string;
+  vaultExportWorking: string;
+  vaultExportDone: (filename: string, encrypted: boolean) => string;
+  vaultExportFailed: string;
+  vaultImportWorking: string;
+  vaultImportPasswordTitle: string;
+  vaultImportPasswordBody: string;
+  vaultImportPasswordLabel: string;
+  vaultImportPasswordConfirm: string;
+  vaultImportWrongPassword: string;
+  vaultImported: (name: string) => string;
+  vaultImportedDuplicate: (name: string) => string;
+  vaultImportInvalid: string;
+  vaultImportTooLarge: string;
+  vaultImportUnsupportedVersion: string;
+  vaultImportNoEncryption: string;
+  vaultSaveLimit: string;
+  vaultSaveTooLarge: string;
+  vaultSaveUnavailable: string;
+  vaultSaveInvalid: string;
+  vaultSaved: string;
+  vaultSavedDuplicate: string;
+  vaultSavedInitials: string;
+  vaultSavedDuplicateInitials: string;
+  vaultRemember: string;
+  vaultRememberHint: string;
+  vaultRememberFor: (name: string) => string;
+  vaultRememberNameLabel: string;
+  vaultRememberNamePlaceholder: string;
+  vaultRememberNeedsName: string;
+  vaultApplied: (name: string) => string;
+  vaultAppliedPartial: (
+    name: string,
+    missing: readonly ("signature" | "initials")[],
+  ) => string;
+  vaultClearFailed: (stores: readonly ("vault" | "drafts")[]) => string;
+
+  /* --- Varios documentos (W4-U1) --- */
+  documentsLabel: string;
+  /** Texto del selector de documentos: «2. Contrato B». */
+  documentTab: (index: number, name: string) => string;
+  /** Region viva al cambiar de documento: «Documento 2 de 3: Contrato B». */
+  documentLive: (index: number, count: number, name: string) => string;
+  documentSwitchHint: string;
+  /* --- Vista continua y «Solo yo» con varios documentos (W4-U4) --- */
+  /** Nombre del grupo del paginador global (`role=group`). */
+  sequenceBarLabel: string;
+  /** Etiqueta discreta del documento visible: «Contrato B · p. 2/3». */
+  sequenceDocPage: (name: string, local: number, total: number | null) => string;
+  /** Region viva al cambiar de documento: «Documento 2 de 3: Contrato B, página 2 de 3». */
+  sequenceLive: (
+    docIndex: number,
+    docCount: number,
+    name: string,
+    local: number,
+    total: number | null,
+  ) => string;
+  /** Tira de miniaturas de todos los documentos. */
+  sequenceThumbsTitle: string;
+  sequenceThumbsHint: string;
+  /** Un grupo de la tira: «2. Contrato B (3 páginas)». */
+  sequenceDocGroup: (index: number, name: string, pages: number | null) => string;
+  sequenceGoToPage: (page: number, name: string) => string;
+  /** Indicador por documento en «Solo yo». */
+  docBadgePlaced: string;
+  docBadgePending: string;
+  /** «Aplicar a todos los documentos» (firma de «Solo yo»). */
+  soloAllTitle: string;
+  soloAllSummary: (placed: number, total: number) => string;
+  soloApplyAll: string;
+  soloApplyAllBusy: string;
+  soloApplyAllDone: (count: number) => string;
+  soloApplyAllFailed: string;
+  soloApplyAllUndo: string;
+  soloApplyAllUndone: string;
+  soloApplyAllHint: string;
+  /** Copias identicas en la cola: informativo, no bloquea. */
+  duplicateDocsNotice: (names: readonly string[]) => string;
+  /** Con varios documentos la descarga conjunta aun no esta conectada: motivo visible del boton desactivado. */
+  docLimitCount: (max: number, names: readonly string[]) => string;
+  docLimitSize: (maxMb: number, names: readonly string[]) => string;
+  docLimitTotal: (maxMb: number, names: readonly string[]) => string;
+
+  /* --- Bloques por firmante, ceremonia y entrega (W4-U3) --- */
+  /** Control global «mismas firmas / firmas distintas por documento». */
+  signModeLabel: string;
+  signModeSame: string;
+  signModeIndependent: string;
+  signModeSameHint: string;
+  signModeIndependentHint: string;
+  /** Anuncio del cambio de modo (region viva). */
+  signModeChangedSame: string;
+  signModeChangedIndependent: string;
+  /** Distintas -> Mismas descarto trazos de N bloques: ofrece deshacer. */
+  signModeMergedNotice: (discarded: number) => string;
+  undoSignMode: string;
+  signModeRestored: string;
+  /** Bloques de un firmante. */
+  signerBlocksLabel: (name: string) => string;
+  blockName: (position: number) => string;
+  blockScopeAll: (count: number) => string;
+  /** Nombres de documento; `more` = cuantos mas no se nombran. */
+  blockScopeSome: (names: readonly string[], more: number) => string;
+  blockAppliesTo: (summary: string) => string;
+  blockChangeScope: string;
+  blockChangeScopeFor: (block: string, signer: string) => string;
+  blockAdd: string;
+  blockAddFor: (signer: string) => string;
+  blockAddFull: string;
+  blockRemove: string;
+  blockRemoveFor: (block: string, signer: string) => string;
+  blockAdded: (signer: string, position: number) => string;
+  blockRemoved: (position: number) => string;
+  blockScopeMoved: (doc: string, from: number, to: number) => string;
+  blockScopeUpdated: (block: string, summary: string) => string;
+  /** Hoja de alcance. */
+  scopeSheetTitle: (block: string, signer: string) => string;
+  scopeSheetIntro: string;
+  scopeDocsLabel: string;
+  scopeAllLabel: string;
+  scopeEmpty: string;
+  scopeMovePreview: (doc: string, fromBlock: number) => string;
+  scopeApply: string;
+  /** Cobertura: un firmante con huecos en un documento sin bloque que lo cubra. */
+  coverageMissing: (signer: string, doc: string) => string;
+  coverageAddBlock: (doc: string) => string;
+  /** Ceremonia por bloques. */
+  blockCaptureBody: string;
+  blockReviewBody: (blocks: number, documents: number) => string;
+  vaultApplyAll: string;
+  vaultApplyAllHint: string;
+  vaultAppliedAll: (name: string, others: number) => string;
+  vaultSourceMany: (count: number) => string;
+  /** Entrega conjunta. */
+  deliveryBlockedTitle: string;
+  batchSoloUnplaced: (doc: string) => string;
+  batchPendingBlocks: (signer: string, count: number) => string;
+  batchDocEmpty: (doc: string) => string;
+  batchReadyBody: (documents: number) => string;
+  batchSummary: (documents: number, slots: number) => string;
+  batchDocsCount: (documents: number) => string;
 };
+
+/** «Contrato» · «Contrato y 2 más»: nombres de archivo para los avisos de limite. */
+function quotedNames(names: readonly string[], and: string, more: (n: number) => string): string {
+  if (names.length === 0) return "";
+  const first = `«${names[0]}»`;
+  if (names.length === 1) return first;
+  return `${first} ${and} ${more(names.length - 1)}`;
+}
 
 const es: SignStrings = {
   createTitle: "Tu firma",
@@ -365,7 +584,7 @@ const es: SignStrings = {
   canvasPageSummary: (slots, textFields) =>
     `En esta página: ${slots} hueco${slots === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
   canvasTotalSummary: (slots, textFields) =>
-    `En total: ${slots} hueco${slots === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
+    `En este documento: ${slots} hueco${slots === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
   a11yPending: "pendiente",
   a11yFilled: "rellenado",
   a11ySlot: "hueco de firma",
@@ -410,7 +629,7 @@ const es: SignStrings = {
   soloPageSummary: (signatures, textFields) =>
     `En esta página: ${signatures} firma${signatures === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
   soloTotalSummary: (signatures, textFields) =>
-    `En total: ${signatures} firma${signatures === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
+    `En este documento: ${signatures} firma${signatures === 1 ? "" : "s"} · ${textFields} campo${textFields === 1 ? "" : "s"}`,
 
   signersTitle: "¿Quién tiene que firmar?",
   signersHint:
@@ -419,7 +638,7 @@ const es: SignStrings = {
   signerNameLabel: (position) => `Nombre del firmante ${position}`,
   defaultSignerName: (position) => `Firmante ${position}`,
   removeSigner: (name) => `Quitar a ${name}`,
-  signerLimit: "Ya no caben más firmantes distinguibles por color.",
+  signerLimit: "Puedes añadir hasta 2 firmantes.",
   noSigners: "Añade al menos un firmante para continuar.",
   signerFieldCount: (count) =>
     count === 1 ? "1 hueco" : `${count} huecos`,
@@ -428,6 +647,8 @@ const es: SignStrings = {
     "Los huecos nuevos se asignan al firmante activo. Cámbialo antes de marcar los suyos.",
   signerDeletedNotice: "Firmante eliminado, junto con sus huecos y su firma.",
   undoRemoveSigner: "Deshacer",
+  undoRemoveSignerUnavailable:
+    "Ya no se puede deshacer: la ronda ya tiene el máximo de firmantes.",
 
   fieldTypeLabel: "Tipo de hueco",
   fieldSignature: "Firma",
@@ -549,11 +770,13 @@ const es: SignStrings = {
 
   privacyNoticeToggle: "Cómo usamos tus datos",
   privacyNoticeBody:
-    "OptimusPDF no guarda datos en la nube ni en un servidor. Los datos únicamente existen y se manejan en su dispositivo y tu navegador. Si deseas eliminar completamente los datos, solo cierra la pestaña, borra los datos de navegación de tu navegador o haz clic en el botón 'Borrar datos'. Los datos que se guardan en tu navegador solo sirven para usarlos en otros documentos que abras en tu navegador, puedes borrarlos cuando lo desees.",
+    "OptimusPDF no guarda datos en la nube ni en un servidor. Los datos únicamente existen y se manejan en su dispositivo y tu navegador. Si deseas eliminar completamente los datos, solo cierra la pestaña, borra los datos de navegación de tu navegador o haz clic en el botón 'Borrar datos'. Los datos que se guardan en tu navegador solo sirven para usarlos en otros documentos que abras en tu navegador, puedes borrarlos cuando lo desees. Mientras trabajas con varios firmantes, el borrador guarda la sesión completa en este dispositivo (los documentos, los firmantes y las firmas ya hechas) para que puedas retomarla, y si exportas la configuración, el archivo .zip contiene tus documentos. El borrador se guarda unas décimas de segundo después de cada cambio; si el navegador se cierra a la fuerza (o la pestaña se descarta) justo después de un cambio, lo último podría no guardarse. Todo se elimina con «Borrar datos» (o «Borrar datos locales» en Ajustes).",
+  privacyNoticeVaultNote:
+    "Las firmas e iniciales solo se guardan en este dispositivo si marcas «Recordar en este dispositivo»; nunca se suben. Si exportas una firma, el archivo contiene la firma en claro a menos que le pongas contraseña.",
   privacyClearData: "Borrar datos",
   privacyClearDataTitle: "¿Borrar los datos guardados?",
   privacyClearDataBody:
-    "Se van a borrar todos los valores de campos que se recordaron para sugerirlos en otros documentos (nombres, direcciones, números y demás texto que hayas escrito), además de las plantillas de disposición guardadas. Esta acción no se puede deshacer.",
+    "Se van a borrar todos los valores de campos que se recordaron para sugerirlos en otros documentos (nombres, direcciones, números y demás texto que hayas escrito), además de los borradores (con todos los documentos, firmantes y firmas de cada sesión guardada), las plantillas de disposición y las firmas e iniciales guardadas en este dispositivo. Esta acción no se puede deshacer.",
   privacyDataCleared: "Datos borrados.",
 
   signAgainTitle: "¿Firmar otro documento?",
@@ -570,9 +793,24 @@ const es: SignStrings = {
   draftsConfirmDeleteTitle: "¿Borrar este borrador?",
   draftsConfirmDeleteBody:
     "Se va a borrar el documento y todo lo configurado en él. Esta acción no se puede deshacer.",
+  draftsDocuments: (count) => `${count} documento${count === 1 ? "" : "s"}`,
+  draftsConfirmDeleteSessionBody: (count) =>
+    `Se van a borrar los ${count} documentos de esta ronda, sus firmantes y las firmas ya hechas. Esta acción no se puede deshacer.`,
+  draftsTooBig:
+    "Esta ronda pesa demasiado para guardarse como borrador (máximo 150 MB entre todos los documentos). Puedes seguir firmando con normalidad, pero no se podrá retomar si cierras la pestaña.",
+  draftsResumeNormalized: (count) =>
+    `Se ajustaron ${count} bloque${count === 1 ? "" : "s"} que reclamaban un mismo documento a la vez: se conservó el primero.`,
+  draftsResumeStale: (count) =>
+    `El contenido de ${count} documento${count === 1 ? "" : "s"} no coincide con lo guardado: se descartaron sus firmas ya hechas y habrá que volver a firmarlos.`,
 
+  draftsResumeTrimmed: (kept, total) =>
+    `Se restauraron los primeros ${kept} de ${total} documentos: el resto no cabe en una ronda (máximo 10 documentos y 200 MB en total).`,
+  multiDocOffNotice:
+    "Esta ronda tiene varios documentos, pero «Varios documentos a la vez» está desactivado en Ajustes. Actívalo para cargarla; no se ha borrado nada.",
   exportConfigButton: "Exportar configuración",
   importConfigButton: "Importar configuración",
+  exportConfigNote:
+    "El .zip incluye tus documentos, los firmantes y los huecos, pero no las firmas dibujadas. Quien lo reciba tendrá los documentos.",
 
   templatesButton: "Plantillas",
   templatesTitle: "Plantillas de disposición",
@@ -603,9 +841,240 @@ const es: SignStrings = {
     "Reemplaza los firmantes, huecos y campos de texto actuales por los de la plantilla. Lo que ya hayas escrito o firmado en este documento se pierde.",
   applyTemplateConfirm: "Sí, aplicar plantilla",
   applyTemplateDropped: (dropped) =>
-    `Aplicada. ${dropped} campo${dropped === 1 ? "" : "s"} de la plantilla no encajaba${dropped === 1 ? "" : "n"} en este documento (menos páginas) y se descartó${dropped === 1 ? "" : "aron"}.`,
+    `Aplicada. ${dropped} campo${dropped === 1 ? "" : "s"} de la plantilla no ${dropped === 1 ? "se pudo" : "se pudieron"} aplicar (su página no existe en este documento, o su firmante sobraba por el máximo de 2) y ${dropped === 1 ? "se descartó" : "se descartaron"}.`,
+  templatesApplyAll: "Aplicar a todos los documentos",
+  applyTemplateAllConfirmBody:
+    "Se reemplazarán los firmantes, los huecos y los campos de TODOS los documentos de la ronda por los de la plantilla, y se perderán las firmas ya hechas. Esta acción no se puede deshacer.",
+  applyTemplateAllDone: (documents, dropped) =>
+    `Plantilla aplicada a ${documents} documentos.${dropped > 0 ? ` ${dropped} hueco${dropped === 1 ? "" : "s"} o campo${dropped === 1 ? "" : "s"} no ${dropped === 1 ? "se pudo" : "se pudieron"} aplicar (su página no existe en ese documento, o su firmante sobraba por el máximo de 2) y ${dropped === 1 ? "se descartó" : "se descartaron"}.` : ""}`,
   applyTemplateNothingFits:
     "Esta plantilla no encaja en este documento: todos sus campos caen en páginas que este documento no tiene.",
+
+  vaultButton: "Firmas guardadas",
+  vaultTitle: "Firmas guardadas",
+  vaultIntro:
+    "Firmas e iniciales que decidiste recordar en este dispositivo. Nunca se suben a ningún servidor.",
+  vaultLoading: "Cargando las firmas guardadas",
+  vaultEmpty:
+    "Todavía no hay ninguna firma guardada. Al crear una, marca «Recordar en este dispositivo» y aparecerá aquí.",
+  vaultUnavailable:
+    "Este navegador no permite guardar firmas ahora mismo (por ejemplo, en una ventana privada o con el almacenamiento bloqueado). Puedes seguir firmando con normalidad. En un navegador que sí lo permita, exportar e importar sirve de respaldo.",
+  vaultCreateNew: "Crear una firma nueva",
+  vaultUse: "Usar",
+  vaultUseFor: (name) => `Usar la firma de ${name}`,
+  vaultUseSaved: "Usar una guardada",
+  vaultUseSavedFor: (typeLabel) => `Usar una guardada para: ${typeLabel}`,
+  vaultMatchesSigner: "Coincide con el firmante",
+  vaultLacksSignature: "Solo tiene iniciales: no sirve para una firma.",
+  vaultLacksInitials: "Solo tiene firma: no sirve para unas iniciales.",
+  vaultSignatureAlt: (name) => `Firma de ${name}`,
+  vaultInitialsAlt: (name) => `Iniciales de ${name}`,
+  vaultUsedIn: (document) => `Documento: ${document}`,
+  vaultLastUsed: (date) => `Último uso: ${date}`,
+  vaultEditLabel: (name) => `Editar los datos de ${name}`,
+  vaultEditNameLabel: "Nombre del firmante",
+  vaultEditRoleLabel: "Cargo (opcional)",
+  vaultEditSave: "Guardar cambios",
+  vaultEditCancel: "Cancelar",
+  vaultEditInvalid: "El nombre no puede quedar vacío ni pasar de 200 caracteres.",
+  vaultEdited: "Cambios guardados.",
+  vaultDeleteLabel: (name) => `Borrar la firma de ${name}`,
+  vaultDeleted: "Firma borrada.",
+  vaultDeleteAll: "Borrar todas",
+  vaultDeleteAllTitle: "¿Borrar todas las firmas guardadas?",
+  vaultDeleteAllBody:
+    "Se van a borrar de este dispositivo todas las firmas e iniciales guardadas. Los archivos que ya hayas exportado no se ven afectados. Esta acción no se puede deshacer.",
+  vaultDeletedAll: "Todas las firmas guardadas se han borrado.",
+  vaultOpFailed: "No se pudo completar la operación en este navegador.",
+  vaultExport: "Exportar",
+  vaultExportFor: (name) => `Exportar ${name}`,
+  vaultImport: "Importar",
+  vaultExportTitle: "Exportar un archivo",
+  vaultExportBody:
+    "Se descargará un archivo .zip con esta firma para llevarla a otro dispositivo o tenerla de respaldo.",
+  vaultExportPasswordLabel: "Contraseña (opcional)",
+  vaultExportPasswordConfirmLabel: "Repite la contraseña",
+  vaultExportPasswordHint:
+    "Con contraseña el archivo se cifra y solo se abre con ella. Si la olvidas, no se puede recuperar.",
+  vaultExportPasswordUnavailable:
+    "Este navegador no puede cifrar el archivo (hace falta una conexión segura, https). Solo se puede exportar sin contraseña.",
+  vaultExportPasswordMismatch: "Las dos contraseñas no coinciden.",
+  vaultExportIncludeDocument:
+    "Incluir el nombre del documento en el nombre del archivo",
+  vaultExportIncludeDocumentHint:
+    "El nombre del archivo es visible para cualquiera, aunque el contenido vaya cifrado.",
+  vaultExportPlainWarning:
+    "Sin contraseña, el archivo contiene la firma en claro: cualquiera que lo tenga puede usarla.",
+  vaultExportConfirm: "Exportar",
+  vaultExportWorking: "Preparando el archivo. Con contraseña puede tardar unos segundos.",
+  vaultExportDone: (filename, encrypted) =>
+    `Descargado «${filename}»${encrypted ? " (cifrado con contraseña)" : " (sin cifrar)"}.`,
+  vaultExportFailed: "No se pudo crear el archivo. Inténtalo de nuevo.",
+  vaultImportWorking: "Leyendo el archivo",
+  vaultImportPasswordTitle: "Archivo con contraseña",
+  vaultImportPasswordBody:
+    "Este archivo está cifrado. Escribe la contraseña para abrirlo.",
+  vaultImportPasswordLabel: "Contraseña",
+  vaultImportPasswordConfirm: "Abrir archivo",
+  vaultImportWrongPassword:
+    "La contraseña no es correcta, o el archivo está dañado.",
+  vaultImported: (name) => `Importada la firma de ${name}.`,
+  vaultImportedDuplicate: (name) =>
+    `La firma de ${name} ya estaba guardada en este dispositivo.`,
+  vaultImportInvalid: "El archivo no es válido o está dañado.",
+  vaultImportTooLarge: "El archivo es demasiado grande para ser uno de firmas.",
+  vaultImportUnsupportedVersion:
+    "Este archivo es de una versión que esta aplicación no entiende. Prueba a actualizar la página.",
+  vaultImportNoEncryption:
+    "Este navegador no puede abrir archivos cifrados (hace falta una conexión segura, https).",
+  vaultSaveLimit:
+    "No cabe una firma más en este dispositivo (hay un máximo de 30 o se llenó el espacio). Borra alguna guardada e inténtalo de nuevo.",
+  vaultSaveTooLarge: "La imagen es demasiado grande para guardarla.",
+  vaultSaveUnavailable:
+    "Este navegador no permite guardar firmas ahora mismo. La firma sí se ha usado en el documento.",
+  vaultSaveInvalid: "No se pudo guardar: faltan datos de la firma.",
+  vaultSaved: "Firma guardada en este dispositivo.",
+  vaultSavedDuplicate: "Esa firma ya estaba guardada en este dispositivo.",
+  vaultSavedInitials: "Iniciales guardadas en este dispositivo.",
+  vaultSavedDuplicateInitials:
+    "Esas iniciales ya estaban guardadas en este dispositivo.",
+  vaultRemember: "Recordar en este dispositivo",
+  vaultRememberHint:
+    "Se guarda solo en este navegador y nunca se sube. Puedes borrarla cuando quieras.",
+  vaultRememberFor: (name) => `Se recordará a nombre de ${name}.`,
+  vaultRememberNameLabel: "Nombre del firmante",
+  vaultRememberNamePlaceholder: "Ej. Ana Pérez",
+  vaultRememberNeedsName:
+    "Escribe el nombre del firmante para recordar esta firma, o desmarca la casilla.",
+  vaultApplied: (name) => `Aplicada la firma guardada de ${name}.`,
+  vaultAppliedPartial: (name, missing) => {
+    const both = missing.length > 1;
+    const initialsOnly = !both && missing[0] === "initials";
+    const what = both
+      ? "la firma ni las iniciales"
+      : initialsOnly
+        ? "las iniciales"
+        : "la firma";
+    const create = both || initialsOnly ? "créalas" : "créala";
+    return `Aplicado lo guardado de ${name}. No incluye ${what}: ${create} aparte.`;
+  },
+  vaultClearFailed: (stores) =>
+    `No se pudo borrar todo (${stores
+      .map((store) => (store === "vault" ? "firmas guardadas" : "borradores"))
+      .join(" y ")}). Cierra las demás pestañas de OptimusPDF e inténtalo de nuevo.`,
+
+  documentsLabel: "Documentos",
+  documentTab: (index, name) => `${index}. ${name}`,
+  documentLive: (index, count, name) => `Documento ${index} de ${count}: ${name}`,
+  documentSwitchHint: "Cambia de documento con Alt + Re Pág / Av Pág.",
+  sequenceBarLabel: "Páginas de todos los documentos",
+  sequenceDocPage: (name, local, total) =>
+    `${name} · p. ${local}${total === null ? "" : `/${total}`}`,
+  sequenceLive: (docIndex, docCount, name, local, total) =>
+    `Documento ${docIndex} de ${docCount}: ${name}, página ${local}${total === null ? "" : ` de ${total}`}`,
+  sequenceThumbsTitle: "Páginas de todos los documentos",
+  sequenceThumbsHint:
+    "Recorre las páginas con las flechas; Inicio y Fin van a la primera y la última.",
+  sequenceDocGroup: (index, name, pages) =>
+    pages === null
+      ? `${index}. ${name}`
+      : `${index}. ${name} (${pages} ${pages === 1 ? "página" : "páginas"})`,
+  sequenceGoToPage: (page, name) => `Ir a la página ${page} de ${name}`,
+  docBadgePlaced: "Colocada",
+  docBadgePending: "Pendiente",
+  soloAllTitle: "Tu firma en cada documento",
+  soloAllSummary: (placed, total) =>
+    `Firma colocada en ${placed} de ${total} documentos.`,
+  soloApplyAll: "Aplicar a todos los documentos",
+  soloApplyAllBusy: "Colocando la firma…",
+  soloApplyAllDone: (count) => `Firma colocada en ${count} documentos.`,
+  soloApplyAllFailed:
+    "No se pudo leer alguna página: la firma se colocó con el tamaño por defecto.",
+  soloApplyAllUndo: "Deshacer",
+  soloApplyAllUndone: "Se restauró la colocación anterior.",
+  soloApplyAllHint:
+    "Usa la posición de la firma de este documento en todos los demás; después puedes ajustarla en cada uno.",
+  duplicateDocsNotice: (names) =>
+    `${quotedNames(names, "y", (n) => `${n} más`)} tienen exactamente el mismo contenido. Se firmarán todos igualmente.`,
+  docLimitCount: (max, names) =>
+    `En cada ronda caben hasta ${max} documentos: ${quotedNames(names, "y", (n) => `${n} más`)} se ha quedado fuera.`,
+  docLimitSize: (maxMb, names) =>
+    `${quotedNames(names, "y", (n) => `${n} más`)} pesa${names.length > 1 ? "n" : ""} más de ${maxMb} MB y no se ha añadido.`,
+  docLimitTotal: (maxMb, names) =>
+    `Con ${quotedNames(names, "y", (n) => `${n} más`)} se superarían los ${maxMb} MB en total, así que se ha dejado fuera.`,
+
+  signModeLabel: "Firmas en cada documento",
+  signModeSame: "Mismas firmas",
+  signModeIndependent: "Firmas distintas por documento",
+  signModeSameHint:
+    "Cada firmante firma una vez y su firma vale para todos los documentos. Cada documento lleva su propio sello.",
+  signModeIndependentHint:
+    "Cada firmante firma por separado en cada documento. Puedes agrupar documentos en un mismo bloque cuando quieras.",
+  signModeChangedSame: "Modo cambiado: mismas firmas para todos los documentos.",
+  signModeChangedIndependent: "Modo cambiado: firmas distintas por documento.",
+  signModeMergedNotice: (discarded) =>
+    discarded === 1
+      ? "Se han unido las firmas. Se ha descartado 1 bloque con un trazo distinto."
+      : `Se han unido las firmas. Se han descartado ${discarded} bloques con trazos distintos.`,
+  undoSignMode: "Deshacer",
+  signModeRestored: "Se han recuperado las firmas por documento.",
+  signerBlocksLabel: (name) => `Bloques de ${name}`,
+  blockName: (position) => `Bloque ${position}`,
+  blockScopeAll: (count) => `Todos (${count})`,
+  blockScopeSome: (names, more) =>
+    `${names.join(", ")}${more > 0 ? ` +${more}` : ""}`,
+  blockAppliesTo: (summary) => `Aplica a: ${summary}`,
+  blockChangeScope: "Cambiar",
+  blockChangeScopeFor: (block, signer) =>
+    `Cambiar los documentos del ${block.toLowerCase()} de ${signer}`,
+  blockAdd: "Añadir bloque",
+  blockAddFor: (signer) => `Añadir bloque a ${signer}`,
+  blockAddFull: "Cada documento ya tiene su propio bloque.",
+  blockRemove: "Quitar bloque",
+  blockRemoveFor: (block, signer) =>
+    `Quitar el ${block.toLowerCase()} de ${signer}`,
+  blockAdded: (signer, position) =>
+    `Bloque ${position} añadido a ${signer}.`,
+  blockRemoved: (position) =>
+    `Bloque quitado. Sus documentos pasan al bloque ${position}.`,
+  blockScopeMoved: (doc, from, to) =>
+    `${doc} pasa del bloque ${from} al bloque ${to}.`,
+  blockScopeUpdated: (block, summary) => `${block}: aplica a ${summary}.`,
+  scopeSheetTitle: (block, signer) => `${block} de ${signer}`,
+  scopeSheetIntro:
+    "Elige a qué documentos aplica este bloque. Un documento solo puede estar en un bloque de cada firmante: si lo marcas aquí, sale del otro.",
+  scopeDocsLabel: "Documentos del bloque",
+  scopeAllLabel: "Todos los documentos",
+  scopeEmpty: "Marca al menos un documento.",
+  scopeMovePreview: (doc, fromBlock) =>
+    `${doc} saldrá del bloque ${fromBlock}.`,
+  scopeApply: "Aplicar",
+  coverageMissing: (signer, doc) => `Falta el bloque de ${signer} para ${doc}.`,
+  coverageAddBlock: (doc) => `Añadir bloque para ${doc}`,
+  blockCaptureBody:
+    "Crea la firma y las iniciales de cada bloque. Puedes usar una guardada y, con «Aplicar a todos mis bloques», rellenar de una vez los que aún están vacíos.",
+  blockReviewBody: (blocks, documents) =>
+    `Estas firmas se aplicarán en ${blocks} bloque${blocks === 1 ? "" : "s"} y ${documents} documento${documents === 1 ? "" : "s"}.`,
+  vaultApplyAll: "Aplicar a todos mis bloques",
+  vaultApplyAllHint: "Rellena solo los bloques que aún están vacíos.",
+  vaultAppliedAll: (name, others) =>
+    others === 0
+      ? `Aplicada la firma guardada de ${name}. No había más bloques vacíos.`
+      : `Aplicada la firma guardada de ${name} a este bloque y a ${others} más.`,
+  vaultSourceMany: (count) => `${count} documentos`,
+  deliveryBlockedTitle: "Antes de descargar",
+  batchSoloUnplaced: (doc) => `Falta colocar tu firma en ${doc}.`,
+  batchPendingBlocks: (signer, count) =>
+    count === 1
+      ? `A ${signer} le queda 1 bloque por firmar.`
+      : `A ${signer} le quedan ${count} bloques por firmar.`,
+  batchDocEmpty: (doc) =>
+    `${doc} no tiene huecos de firma ni campos rellenos.`,
+  batchReadyBody: (documents) =>
+    `Todo listo: se descargará un .zip con ${documents} documentos firmados.`,
+  batchSummary: (documents, slots) =>
+    `${documents} documentos · ${slots} hueco${slots === 1 ? "" : "s"} de firma`,
+  batchDocsCount: (documents) => `${documents} documentos`,
 };
 
 const en: SignStrings = {
@@ -672,7 +1141,7 @@ const en: SignStrings = {
   canvasPageSummary: (slots, textFields) =>
     `This page: ${slots} slot${slots === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
   canvasTotalSummary: (slots, textFields) =>
-    `In total: ${slots} slot${slots === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
+    `In this document: ${slots} slot${slots === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
   a11yPending: "pending",
   a11yFilled: "filled in",
   a11ySlot: "signature slot",
@@ -717,7 +1186,7 @@ const en: SignStrings = {
   soloPageSummary: (signatures, textFields) =>
     `On this page: ${signatures} signature${signatures === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
   soloTotalSummary: (signatures, textFields) =>
-    `In total: ${signatures} signature${signatures === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
+    `In this document: ${signatures} signature${signatures === 1 ? "" : "s"} · ${textFields} field${textFields === 1 ? "" : "s"}`,
 
   signersTitle: "Who has to sign?",
   signersHint:
@@ -726,7 +1195,7 @@ const en: SignStrings = {
   signerNameLabel: (position) => `Name of signer ${position}`,
   defaultSignerName: (position) => `Signer ${position}`,
   removeSigner: (name) => `Remove ${name}`,
-  signerLimit: "No more signers can be told apart by colour.",
+  signerLimit: "You can add up to 2 signers.",
   noSigners: "Add at least one signer to continue.",
   signerFieldCount: (count) => (count === 1 ? "1 slot" : `${count} slots`),
   activeSignerLabel: "Active signer",
@@ -734,6 +1203,8 @@ const en: SignStrings = {
     "New slots go to the active signer. Switch first, then mark their slots.",
   signerDeletedNotice: "Signer deleted, along with their slots and signature.",
   undoRemoveSigner: "Undo",
+  undoRemoveSignerUnavailable:
+    "This can no longer be undone: the round already has the maximum number of signers.",
 
   fieldTypeLabel: "Slot type",
   fieldSignature: "Signature",
@@ -854,11 +1325,13 @@ const en: SignStrings = {
 
   privacyNoticeToggle: "How we use your data",
   privacyNoticeBody:
-    "OptimusPDF does not store data in the cloud or on a server. Data only exists and is handled on your own device and browser. If you want to fully remove it, just close the tab, clear your browser's browsing data, or click the 'Clear data' button. Whatever is stored in your browser is only used to fill in other documents you open in this browser, and you can clear it whenever you want.",
+    "OptimusPDF does not store data in the cloud or on a server. Data only exists and is handled on your own device and browser. If you want to fully remove it, just close the tab, clear your browser's browsing data, or click the 'Clear data' button. Whatever is stored in your browser is only used to fill in other documents you open in this browser, and you can clear it whenever you want. While you work with several signers, the draft saves the whole session on this device (the documents, the signers and the signatures already made) so you can pick it up again, and if you export the configuration, the .zip file contains your documents. The draft is saved a fraction of a second after each change; if the browser is force-closed (or the tab is discarded) right after a change, the latest edit may not be saved. Everything is removed with 'Clear data' (or 'Clear local data' in Settings).",
+  privacyNoticeVaultNote:
+    "Signatures and initials are only stored on this device if you tick \"Remember on this device\"; they are never uploaded. If you export a signature, the file contains the signature in the clear unless you add a password.",
   privacyClearData: "Clear data",
   privacyClearDataTitle: "Clear the stored data?",
   privacyClearDataBody:
-    "This deletes every field value remembered to suggest it in other documents (names, addresses, numbers and any other text you typed), plus any saved layout templates. This cannot be undone.",
+    "This deletes every field value remembered to suggest it in other documents (names, addresses, numbers and any other text you typed), plus saved drafts (with all the documents, signers and signatures of each saved session), layout templates, and the signatures and initials saved on this device. This cannot be undone.",
   privacyDataCleared: "Data cleared.",
 
   signAgainTitle: "Sign another document?",
@@ -875,9 +1348,24 @@ const en: SignStrings = {
   draftsConfirmDeleteTitle: "Delete this draft?",
   draftsConfirmDeleteBody:
     "This deletes the document and everything configured in it. This cannot be undone.",
+  draftsDocuments: (count) => `${count} document${count === 1 ? "" : "s"}`,
+  draftsConfirmDeleteSessionBody: (count) =>
+    `This deletes the ${count} documents of this round, its signers and the signatures already made. This cannot be undone.`,
+  draftsTooBig:
+    "This round is too large to be saved as a draft (150 MB maximum across all documents). You can keep signing as usual, but it will not be resumable if you close the tab.",
+  draftsResumeNormalized: (count) =>
+    `${count} block${count === 1 ? "" : "s"} claimed the same document at once and ${count === 1 ? "was" : "were"} adjusted: the first one was kept.`,
+  draftsResumeStale: (count) =>
+    `The content of ${count} document${count === 1 ? "" : "s"} no longer matches what was saved: the signatures already made on ${count === 1 ? "it were" : "them were"} discarded and will need to be signed again.`,
 
+  draftsResumeTrimmed: (kept, total) =>
+    `The first ${kept} of ${total} documents were restored: the rest do not fit in one round (maximum 10 documents and 200 MB in total).`,
+  multiDocOffNotice:
+    "This round has several documents, but \"Several documents at once\" is turned off in Settings. Turn it on to load it; nothing has been deleted.",
   exportConfigButton: "Export configuration",
   importConfigButton: "Import configuration",
+  exportConfigNote:
+    "The .zip includes your documents, the signers and the slots, but not the drawn signatures. Whoever receives it will have the documents.",
 
   templatesButton: "Templates",
   templatesTitle: "Layout templates",
@@ -906,9 +1394,234 @@ const en: SignStrings = {
     "Replaces the current signers, fields and text fields with the ones from the template. Anything you already typed or signed on this document is lost.",
   applyTemplateConfirm: "Yes, apply template",
   applyTemplateDropped: (dropped) =>
-    `Applied. ${dropped} field${dropped === 1 ? "" : "s"} from the template didn't fit this document (fewer pages) and ${dropped === 1 ? "was" : "were"} dropped.`,
+    `Applied. ${dropped} field${dropped === 1 ? "" : "s"} from the template could not be applied (its page does not exist in this document, or its signer was beyond the maximum of 2) and ${dropped === 1 ? "was" : "were"} dropped.`,
+  templatesApplyAll: "Apply to all documents",
+  applyTemplateAllConfirmBody:
+    "This replaces the signers, slots and fields of ALL the documents in the round with the template's, and the signatures already made are lost. This cannot be undone.",
+  applyTemplateAllDone: (documents, dropped) =>
+    `Template applied to ${documents} documents.${dropped > 0 ? ` ${dropped} slot${dropped === 1 ? "" : "s"} or field${dropped === 1 ? "" : "s"} could not be applied (the page does not exist in that document, or the signer was beyond the maximum of 2) and ${dropped === 1 ? "was" : "were"} dropped.` : ""}`,
   applyTemplateNothingFits:
     "This template doesn't fit this document: all of its fields fall on pages this document doesn't have.",
+
+  vaultButton: "Saved signatures",
+  vaultTitle: "Saved signatures",
+  vaultIntro:
+    "Signatures and initials you chose to remember on this device. They are never uploaded to any server.",
+  vaultLoading: "Loading saved signatures",
+  vaultEmpty:
+    "No signatures saved yet. When you create one, tick \"Remember on this device\" and it will show up here.",
+  vaultUnavailable:
+    "This browser doesn't let us save signatures right now (for example in a private window, or with storage blocked). You can keep signing as usual. In a browser that does allow it, exporting and importing works as a backup.",
+  vaultCreateNew: "Create a new signature",
+  vaultUse: "Use",
+  vaultUseFor: (name) => `Use the signature of ${name}`,
+  vaultUseSaved: "Use a saved one",
+  vaultUseSavedFor: (typeLabel) => `Use a saved one for: ${typeLabel}`,
+  vaultMatchesSigner: "Matches the signer",
+  vaultLacksSignature: "Initials only: it can't be used as a signature.",
+  vaultLacksInitials: "Signature only: it can't be used as initials.",
+  vaultSignatureAlt: (name) => `Signature of ${name}`,
+  vaultInitialsAlt: (name) => `Initials of ${name}`,
+  vaultUsedIn: (document) => `Document: ${document}`,
+  vaultLastUsed: (date) => `Last used: ${date}`,
+  vaultEditLabel: (name) => `Edit the details of ${name}`,
+  vaultEditNameLabel: "Signer name",
+  vaultEditRoleLabel: "Job title (optional)",
+  vaultEditSave: "Save changes",
+  vaultEditCancel: "Cancel",
+  vaultEditInvalid: "The name can't be empty or longer than 200 characters.",
+  vaultEdited: "Changes saved.",
+  vaultDeleteLabel: (name) => `Delete the signature of ${name}`,
+  vaultDeleted: "Signature deleted.",
+  vaultDeleteAll: "Delete all",
+  vaultDeleteAllTitle: "Delete all saved signatures?",
+  vaultDeleteAllBody:
+    "Every saved signature and set of initials will be deleted from this device. Files you already exported are not affected. This cannot be undone.",
+  vaultDeletedAll: "All saved signatures have been deleted.",
+  vaultOpFailed: "The operation couldn't be completed in this browser.",
+  vaultExport: "Export",
+  vaultExportFor: (name) => `Export ${name}`,
+  vaultImport: "Import",
+  vaultExportTitle: "Export a file",
+  vaultExportBody:
+    "Downloads a .zip file with this signature, to move it to another device or keep it as a backup.",
+  vaultExportPasswordLabel: "Password (optional)",
+  vaultExportPasswordConfirmLabel: "Repeat the password",
+  vaultExportPasswordHint:
+    "With a password the file is encrypted and only opens with it. If you forget it, it can't be recovered.",
+  vaultExportPasswordUnavailable:
+    "This browser can't encrypt the file (a secure connection, https, is required). It can only be exported without a password.",
+  vaultExportPasswordMismatch: "The two passwords don't match.",
+  vaultExportIncludeDocument: "Include the document name in the file name",
+  vaultExportIncludeDocumentHint:
+    "The file name is visible to anyone, even when the contents are encrypted.",
+  vaultExportPlainWarning:
+    "Without a password the file contains the signature in the clear: anyone who has it can use it.",
+  vaultExportConfirm: "Export",
+  vaultExportWorking: "Preparing the file. With a password it can take a few seconds.",
+  vaultExportDone: (filename, encrypted) =>
+    `Downloaded "${filename}"${encrypted ? " (password-encrypted)" : " (not encrypted)"}.`,
+  vaultExportFailed: "Couldn't create the file. Try again.",
+  vaultImportWorking: "Reading the file",
+  vaultImportPasswordTitle: "Password-protected file",
+  vaultImportPasswordBody: "This file is encrypted. Type the password to open it.",
+  vaultImportPasswordLabel: "Password",
+  vaultImportPasswordConfirm: "Open file",
+  vaultImportWrongPassword: "The password is wrong, or the file is damaged.",
+  vaultImported: (name) => `Imported the signature of ${name}.`,
+  vaultImportedDuplicate: (name) =>
+    `The signature of ${name} was already saved on this device.`,
+  vaultImportInvalid: "The file is not valid or is damaged.",
+  vaultImportTooLarge: "The file is too large to be a signature file.",
+  vaultImportUnsupportedVersion:
+    "This file is from a version this app doesn't understand. Try refreshing the page.",
+  vaultImportNoEncryption:
+    "This browser can't open encrypted files (a secure connection, https, is required).",
+  vaultSaveLimit:
+    "There's no room for another signature on this device (the maximum is 30, or the space is full). Delete a saved one and try again.",
+  vaultSaveTooLarge: "The image is too large to save.",
+  vaultSaveUnavailable:
+    "This browser doesn't let us save signatures right now. The signature was still used on the document.",
+  vaultSaveInvalid: "Couldn't save it: the signature data is incomplete.",
+  vaultSaved: "Signature saved on this device.",
+  vaultSavedDuplicate: "That signature was already saved on this device.",
+  vaultSavedInitials: "Initials saved on this device.",
+  vaultSavedDuplicateInitials: "Those initials were already saved on this device.",
+  vaultRemember: "Remember on this device",
+  vaultRememberHint:
+    "Only stored in this browser and never uploaded. You can delete it whenever you like.",
+  vaultRememberFor: (name) => `It will be remembered under the name ${name}.`,
+  vaultRememberNameLabel: "Signer name",
+  vaultRememberNamePlaceholder: "E.g. Ana Pérez",
+  vaultRememberNeedsName:
+    "Type the signer's name to remember this signature, or untick the box.",
+  vaultApplied: (name) => `Applied the saved signature of ${name}.`,
+  vaultAppliedPartial: (name, missing) => {
+    const both = missing.length > 1;
+    const initialsOnly = !both && missing[0] === "initials";
+    const what = both
+      ? "the signature or the initials"
+      : initialsOnly
+        ? "initials"
+        : "the signature";
+    const create = both || initialsOnly ? "create them" : "create it";
+    return `Applied what was saved for ${name}. It doesn't include ${what}: ${create} separately.`;
+  },
+  vaultClearFailed: (stores) =>
+    `Couldn't clear everything (${stores
+      .map((store) => (store === "vault" ? "saved signatures" : "drafts"))
+      .join(" and ")}). Close the other OptimusPDF tabs and try again.`,
+
+  documentsLabel: "Documents",
+  documentTab: (index, name) => `${index}. ${name}`,
+  documentLive: (index, count, name) => `Document ${index} of ${count}: ${name}`,
+  documentSwitchHint: "Switch document with Alt + Page Up / Page Down.",
+  sequenceBarLabel: "Pages of all documents",
+  sequenceDocPage: (name, local, total) =>
+    `${name} · p. ${local}${total === null ? "" : `/${total}`}`,
+  sequenceLive: (docIndex, docCount, name, local, total) =>
+    `Document ${docIndex} of ${docCount}: ${name}, page ${local}${total === null ? "" : ` of ${total}`}`,
+  sequenceThumbsTitle: "Pages of all documents",
+  sequenceThumbsHint:
+    "Move through the pages with the arrow keys; Home and End go to the first and last.",
+  sequenceDocGroup: (index, name, pages) =>
+    pages === null
+      ? `${index}. ${name}`
+      : `${index}. ${name} (${pages} ${pages === 1 ? "page" : "pages"})`,
+  sequenceGoToPage: (page, name) => `Go to page ${page} of ${name}`,
+  docBadgePlaced: "Placed",
+  docBadgePending: "Pending",
+  soloAllTitle: "Your signature in every document",
+  soloAllSummary: (placed, total) =>
+    `Signature placed in ${placed} of ${total} documents.`,
+  soloApplyAll: "Apply to all documents",
+  soloApplyAllBusy: "Placing the signature…",
+  soloApplyAllDone: (count) => `Signature placed in ${count} documents.`,
+  soloApplyAllFailed:
+    "Some page could not be read: the signature was placed at its default size.",
+  soloApplyAllUndo: "Undo",
+  soloApplyAllUndone: "The previous placement was restored.",
+  soloApplyAllHint:
+    "Uses this document's signature position in all the others; you can then adjust it in each one.",
+  duplicateDocsNotice: (names) =>
+    `${quotedNames(names, "and", (n) => `${n} more`)} have exactly the same content. They will all be signed anyway.`,
+  docLimitCount: (max, names) =>
+    `Each round fits up to ${max} documents: ${quotedNames(names, "and", (n) => `${n} more`)} didn't make it in.`,
+  docLimitSize: (maxMb, names) =>
+    `${quotedNames(names, "and", (n) => `${n} more`)} ${names.length > 1 ? "are" : "is"} over ${maxMb} MB and wasn't added.`,
+  docLimitTotal: (maxMb, names) =>
+    `Adding ${quotedNames(names, "and", (n) => `${n} more`)} would go over ${maxMb} MB in total, so it was left out.`,
+
+  signModeLabel: "Signatures in each document",
+  signModeSame: "Same signatures",
+  signModeIndependent: "Different signatures per document",
+  signModeSameHint:
+    "Each signer signs once and that signature works for every document. Each document carries its own seal.",
+  signModeIndependentHint:
+    "Each signer signs separately in each document. You can group documents into one block whenever you like.",
+  signModeChangedSame: "Mode changed: same signatures for all documents.",
+  signModeChangedIndependent: "Mode changed: different signatures per document.",
+  signModeMergedNotice: (discarded) =>
+    discarded === 1
+      ? "Signatures merged. 1 block with a different stroke was discarded."
+      : `Signatures merged. ${discarded} blocks with different strokes were discarded.`,
+  undoSignMode: "Undo",
+  signModeRestored: "The per-document signatures were restored.",
+  signerBlocksLabel: (name) => `${name}'s blocks`,
+  blockName: (position) => `Block ${position}`,
+  blockScopeAll: (count) => `All (${count})`,
+  blockScopeSome: (names, more) =>
+    `${names.join(", ")}${more > 0 ? ` +${more}` : ""}`,
+  blockAppliesTo: (summary) => `Applies to: ${summary}`,
+  blockChangeScope: "Change",
+  blockChangeScopeFor: (block, signer) =>
+    `Change the documents of ${signer}'s ${block.toLowerCase()}`,
+  blockAdd: "Add block",
+  blockAddFor: (signer) => `Add a block for ${signer}`,
+  blockAddFull: "Every document already has its own block.",
+  blockRemove: "Remove block",
+  blockRemoveFor: (block, signer) =>
+    `Remove ${signer}'s ${block.toLowerCase()}`,
+  blockAdded: (signer, position) => `Block ${position} added for ${signer}.`,
+  blockRemoved: (position) =>
+    `Block removed. Its documents move to block ${position}.`,
+  blockScopeMoved: (doc, from, to) =>
+    `${doc} moves from block ${from} to block ${to}.`,
+  blockScopeUpdated: (block, summary) => `${block}: applies to ${summary}.`,
+  scopeSheetTitle: (block, signer) => `${signer}'s ${block.toLowerCase()}`,
+  scopeSheetIntro:
+    "Choose which documents this block applies to. A document can only be in one block per signer: if you tick it here, it leaves the other one.",
+  scopeDocsLabel: "Documents in this block",
+  scopeAllLabel: "All documents",
+  scopeEmpty: "Tick at least one document.",
+  scopeMovePreview: (doc, fromBlock) =>
+    `${doc} will leave block ${fromBlock}.`,
+  scopeApply: "Apply",
+  coverageMissing: (signer, doc) => `${signer}'s block for ${doc} is missing.`,
+  coverageAddBlock: (doc) => `Add a block for ${doc}`,
+  blockCaptureBody:
+    "Create the signature and initials of each block. You can use a saved one and, with “Apply to all my blocks”, fill every empty block at once.",
+  blockReviewBody: (blocks, documents) =>
+    `These signatures will be applied across ${blocks} block${blocks === 1 ? "" : "s"} and ${documents} document${documents === 1 ? "" : "s"}.`,
+  vaultApplyAll: "Apply to all my blocks",
+  vaultApplyAllHint: "Only fills the blocks that are still empty.",
+  vaultAppliedAll: (name, others) =>
+    others === 0
+      ? `Applied the saved signature of ${name}. There were no other empty blocks.`
+      : `Applied the saved signature of ${name} to this block and ${others} more.`,
+  vaultSourceMany: (count) => `${count} documents`,
+  deliveryBlockedTitle: "Before downloading",
+  batchSoloUnplaced: (doc) => `Your signature isn't placed in ${doc} yet.`,
+  batchPendingBlocks: (signer, count) =>
+    count === 1
+      ? `${signer} still has 1 block to sign.`
+      : `${signer} still has ${count} blocks to sign.`,
+  batchDocEmpty: (doc) => `${doc} has no signature slots or filled fields.`,
+  batchReadyBody: (documents) =>
+    `All set: you will download a .zip with ${documents} signed documents.`,
+  batchSummary: (documents, slots) =>
+    `${documents} documents · ${slots} signature slot${slots === 1 ? "" : "s"}`,
+  batchDocsCount: (documents) => `${documents} documents`,
 };
 
 export const SIGN_STRINGS: Record<Language, SignStrings> = { es, en };

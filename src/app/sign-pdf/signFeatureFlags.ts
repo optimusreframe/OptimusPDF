@@ -15,7 +15,9 @@ export type SignPdfFeatureFlag =
   | "reusableTemplates"
   | "richFieldTypes"
   | "completionCertificate"
-  | "pinchZoom";
+  | "pinchZoom"
+  | "signatureVault"
+  | "multiDocument";
 
 export const SIGN_PDF_FEATURE_FLAGS: readonly SignPdfFeatureFlag[] = [
   "keyboardNav",
@@ -25,6 +27,8 @@ export const SIGN_PDF_FEATURE_FLAGS: readonly SignPdfFeatureFlag[] = [
   "richFieldTypes",
   "completionCertificate",
   "pinchZoom",
+  "signatureVault",
+  "multiDocument",
 ] as const;
 
 export type SignPdfFeatureFlagState = Record<SignPdfFeatureFlag, boolean>;
@@ -37,6 +41,8 @@ export const DEFAULT_SIGN_PDF_FEATURE_FLAGS: SignPdfFeatureFlagState = {
   richFieldTypes: true,
   completionCertificate: true,
   pinchZoom: true,
+  signatureVault: true,
+  multiDocument: true,
 };
 
 export const SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY =

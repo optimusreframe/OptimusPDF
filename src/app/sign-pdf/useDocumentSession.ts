@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useDocumentKey } from "@/app/sign-pdf/documentKey";
+import { takeBackgroundDetection } from "@/app/sign-pdf/useBackgroundDetection";
 import type { CanvasSelection } from "@/app/sign-pdf/DocumentCanvas";
 import {
   detectFields,
@@ -291,7 +292,8 @@ export function useDocumentSession<T extends SessionOptions>({
 
     let cancelled = false;
     setDetecting(true);
-    void detectFields(file)
+    // Si la vista continua ya los detecto en segundo plano, se usan esos (una vez).
+    void (takeBackgroundDetection(file) ?? detectFields(file))
       .then((detected) => {
         if (cancelled) return;
         const existing = latestOptionsRef.current.textFields;

@@ -4,12 +4,23 @@ import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
-  SIGNER_COLORS,
   signerColorAt,
   signerDisplayName,
   type Signer,
 } from "@/lib/pdf/sign";
+import { MAX_SIGNERS } from "@/app/sign-pdf/signLimits";
+import {
+  SignerBlockList,
+  type SignerBlocksApi,
+} from "@/app/sign-pdf/SignerBlocks";
 import type { SignStrings } from "@/app/sign-pdf/strings";
+
+/**
+ * Limite de altas (2). Vive en `signLimits.ts` para que los modulos de datos
+ * lo usen sin importar este componente; se re-exporta aqui por ser donde lo
+ * busca quien trabaja con firmantes. `SIGNER_COLORS` queda aparte y entera.
+ */
+export { MAX_SIGNERS };
 
 export type SignerManagerProps = {
   signers: Signer[];
@@ -19,6 +30,11 @@ export type SignerManagerProps = {
   /** Huecos ya reservados por firmante, indexados por `id`. */
   fieldCounts?: Record<string, number>;
   strings: SignStrings;
+  /**
+   * Varios documentos: cada tarjeta muestra los bloques del firmante
+   * (alcance, anadir, quitar). Ausente = la interfaz de siempre.
+   */
+  blocks?: SignerBlocksApi;
 };
 
 /** Identificadores estables sin depender de `crypto.randomUUID`. Exportado por el mismo motivo que `nextFieldId` en `DocumentCanvas.tsx`. */
@@ -58,8 +74,11 @@ export function SignerManager({
   onActiveSignerIdChange,
   fieldCounts,
   strings,
+  blocks,
 }: SignerManagerProps) {
-  const full = signers.length >= SIGNER_COLORS.length;
+  // Solo limita el ALTA: una lista heredada con mas firmantes (borrador,
+  // configuracion) se muestra tal cual, con el boton de alta deshabilitado.
+  const full = signers.length >= MAX_SIGNERS;
 
   const add = () => {
     if (full) return;
@@ -109,10 +128,13 @@ export function SignerManager({
             <li
               key={signer.id}
               className={cn(
-                "glass rounded-ios flex items-center gap-3 p-3 transition-colors",
+                "glass rounded-ios p-3 transition-colors",
+                // Con bloques la tarjeta se apila: fila del firmante + sus bloques.
+                blocks ? "space-y-3" : "flex items-center gap-3",
                 active ? "border border-signal/50" : "border border-white/10",
               )}
             >
+              <div className={blocks ? "flex items-center gap-3" : "contents"}>
               <button
                 type="button"
                 role="radio"
@@ -123,13 +145,19 @@ export function SignerManager({
                   strings.defaultSignerName,
                 )}
                 onClick={() => onActiveSignerIdChange(signer.id)}
-                className="flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200 ease-spring"
-                /* Color del firmante: es dato del documento, no un token del tema. */
-                style={{
-                  backgroundColor: signer.color,
-                  borderColor: active ? "var(--color-signal)" : "transparent",
-                }}
-              />
+                // 44 px de caja con puntero grueso (margen negativo: el aspecto no cambia).
+                className="flex size-6 shrink-0 items-center justify-center rounded-full pointer-coarse:size-11 pointer-coarse:-m-2.5"
+              >
+                <span
+                  aria-hidden="true"
+                  className="block size-6 rounded-full border-2 transition-all duration-200 ease-spring"
+                  /* Color del firmante: es dato del documento, no un token del tema. */
+                  style={{
+                    backgroundColor: signer.color,
+                    borderColor: active ? "var(--color-signal)" : "transparent",
+                  }}
+                />
+              </button>
 
               <input
                 type="text"
@@ -139,7 +167,7 @@ export function SignerManager({
                 aria-label={strings.signerNameLabel(index + 1)}
                 onChange={(event) => rename(signer.id, event.target.value)}
                 onFocus={() => onActiveSignerIdChange(signer.id)}
-                className="h-9 min-w-0 flex-1 rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+                className="h-9 pointer-coarse:h-11 min-w-0 flex-1 rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
               />
 
               <span className="shrink-0 text-caption text-muted-foreground tabular-nums">
@@ -152,10 +180,19 @@ export function SignerManager({
                   signerDisplayName(signer.name, index, strings.defaultSignerName),
                 )}
                 onClick={() => remove(signer.id)}
-                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-muted-foreground transition-colors hover:bg-white/15 hover:text-destructive"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-muted-foreground transition-colors hover:bg-white/15 hover:text-destructive pointer-coarse:size-11 pointer-coarse:-m-1.5"
               >
                 <X aria-hidden="true" className="size-4" />
               </button>
+              </div>
+              {blocks ? (
+                <SignerBlockList
+                  signer={signer}
+                  signers={signers}
+                  api={blocks}
+                  strings={strings}
+                />
+              ) : null}
             </li>
           );
         })}

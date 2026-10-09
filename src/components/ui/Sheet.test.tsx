@@ -376,6 +376,61 @@ describe("Sheet: gestos", () => {
   });
 });
 
+describe("Sheet: zonas que gestionan su propio gesto (data-sheet-no-drag)", () => {
+  function Drawing({ onClose }: { onClose: () => void }) {
+    return (
+      <Sheet open onClose={onClose} title="Opciones" closeLabel="Cerrar">
+        <div data-sheet-no-drag="" data-testid="lienzo">
+          <span data-testid="dentro">trazo</span>
+        </div>
+        <button type="button">Aceptar</button>
+      </Sheet>
+    );
+  }
+
+  async function touchDrag(target: Element, onClose = vi.fn()) {
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0), { timeout: 3000 });
+    let now = 2000;
+    pointer("pointerDown", target, { pointerId: 5, pointerType: "touch", button: 0, clientY: 300 }, now);
+    for (const y of [330, 380, 440, 520]) {
+      now += 16;
+      pointer("pointerMove", dialog, { pointerId: 5, pointerType: "touch", clientY: y }, now);
+    }
+    await frames();
+    const during = translateY(dialog) ?? 0;
+    now += 16;
+    pointer("pointerUp", dialog, { pointerId: 5, pointerType: "touch", clientY: 520 }, now);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    return { during, onClose };
+  }
+
+  it("un gesto tactil con excursion vertical dentro de la zona NO arrastra la hoja ni la cierra", async () => {
+    const onClose = vi.fn();
+    render(<Drawing onClose={onClose} />);
+    const { during } = await touchDrag(screen.getByTestId("dentro"));
+    expect(during).toBeCloseTo(0, 0);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("(control) el mismo gesto desde otro contenido de la hoja SI la arrastra", async () => {
+    render(<Drawing onClose={() => {}} />);
+    const { during } = await touchDrag(screen.getByRole("button", { name: "Aceptar" }));
+    expect(during).toBeGreaterThan(50);
+  });
+
+  it("(control) desde la cabecera sigue siendo arrastrable", async () => {
+    render(<Drawing onClose={() => {}} />);
+    const { during } = await touchDrag(
+      screen.getByRole("heading", { name: "Opciones" }).parentElement!,
+    );
+    expect(during).toBeGreaterThan(50);
+  });
+});
+
 describe("Sheet: pointercancel", () => {
   it("si el navegador reclama el gesto a mitad de un arrastre, el panel vuelve a 0 en vez de decidir por posicion", async () => {
     const onClose = vi.fn();

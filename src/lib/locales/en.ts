@@ -307,6 +307,10 @@ export const en: Dictionary = {
     dropActive: "Drop to add",
     skippedOne: "{names} was skipped: unsupported format.",
     skippedMany: "{count} files were skipped ({names}): unsupported format.",
+    // Batch delivery with partial failures (`ProcessResult.report`).
+    partialReportTitle: "{ok} of {total} documents signed",
+    partialReportIntro: "Could not sign:",
+    partialReportItem: "{name} ({reason})",
     errors: {
       title: "Could not finish",
       invalidType: "That format does not work with this tool.",
@@ -373,7 +377,7 @@ export const en: Dictionary = {
     languageBody: "Change the language of the whole interface.",
     dataTitle: "Local data",
     dataBody:
-      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (the full PDF and signature captures).",
+      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and signatures; the full PDF and signature captures). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password.",
     clearData: "Clear local data",
     cleared: "Local data cleared.",
     aboutTitle: "About the app",
@@ -408,6 +412,14 @@ export const en: Dictionary = {
       pinchZoom: {
         label: "Pinch to zoom",
         hint: "Lets you pinch-zoom the canvas on dense forms with many small fields.",
+      },
+      signatureVault: {
+        label: "Saved signatures",
+        hint: "Lets you remember your signatures and initials on this device to reuse them on other documents. It is optional: only what you tick is stored, and it never leaves the browser.",
+      },
+      multiDocument: {
+        label: "Several documents at once",
+        hint: "Lets you load several PDFs in Sign PDF and sign them in a single round. When off, the tool works with one document at a time, as before.",
       },
     },
   },

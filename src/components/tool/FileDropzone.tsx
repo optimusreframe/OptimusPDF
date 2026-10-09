@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -12,6 +13,7 @@ import {
 import { motion } from "motion/react";
 import { Plus, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { FileAdmissionContext } from "@/components/tool/fileAdmission";
 import { useI18n, localeTag } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { springs } from "@/lib/motion";
@@ -64,6 +66,8 @@ export function FileDropzone({
   compact = false,
 }: FileDropzoneProps) {
   const { t, language } = useI18n();
+  /** Puerta opcional de la herramienta (topes propios); sin proveedor, null. */
+  const admission = useContext(FileAdmissionContext);
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [windowDragging, setWindowDragging] = useState(false);
@@ -85,21 +89,35 @@ export function FileDropzone({
         return;
       }
       const skipped = candidates.filter((file) => !valid.includes(file));
-      if (skipped.length > 0 && !onSkipped) {
-        onError("invalidType");
-      }
-      if (valid.some((file) => file.size > MAX_SAFE_FILE_SIZE)) {
-        onError("tooLarge");
-      }
 
-      onFilesChange(
-        tool.multiple ? [...files, ...valid] : [valid[0]],
-      );
-      // Despues de `onFilesChange`: el shell limpia los avisos al cambiar
-      // los archivos y este debe sobrevivir a ese mismo cambio.
-      if (skipped.length > 0 && onSkipped) onSkipped(skipped);
+      // Con puerta de admision (una herramienta con topes propios de
+      // documentos y peso) manda ella; sin ella, el pase libre de siempre y
+      // el peso solo se avisa.
+      const gated = !!admission && tool.multiple;
+      let toAdd = valid;
+      let notice: string | null = null;
+      if (gated) {
+        const decision = admission.admit(files, valid);
+        toAdd = decision.accepted;
+        notice = decision.notice;
+      }
+      const oversized =
+        !gated && valid.some((file) => file.size > MAX_SAFE_FILE_SIZE);
+
+      if (toAdd.length > 0) {
+        onFilesChange(tool.multiple ? [...files, ...toAdd] : [toAdd[0]]);
+      }
+      // Los avisos van DESPUES de `onFilesChange`: el shell limpia el error y
+      // los avisos al cambiar los archivos, y estos tienen que sobrevivir a
+      // ese mismo cambio (antes se publicaban antes y se borraban en el acto).
+      if (skipped.length > 0) {
+        if (onSkipped) onSkipped(skipped);
+        else onError("invalidType");
+      }
+      if (oversized) onError("tooLarge");
+      if (gated) admission.onNotice(notice);
     },
-    [files, onError, onFilesChange, onSkipped, tool.accept, tool.extensions, tool.multiple],
+    [admission, files, onError, onFilesChange, onSkipped, tool.accept, tool.extensions, tool.multiple],
   );
 
   // Un archivo arrastrado a cualquier punto de la ventana: la zona se ofrece.

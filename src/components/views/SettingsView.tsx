@@ -10,7 +10,12 @@ import { useI18n, type Language } from "@/lib/i18n";
 import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { clearRecentEntries } from "@/lib/recent";
 import { clearValueHistory } from "@/lib/valueHistory";
-import { clearAllDrafts } from "@/app/sign-pdf/signDrafts";
+import {
+  clearLocalSignData,
+  type ClearFailure,
+} from "@/app/sign-pdf/clearLocalSignData";
+import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
+import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import {
   SIGN_PDF_FEATURE_FLAGS,
   setSignPdfFeatureFlag,
@@ -21,6 +26,8 @@ export function SettingsView() {
   const { t, language, setLanguage } = useI18n();
   const { theme, setTheme } = useTheme();
   const [cleared, setCleared] = useState(false);
+  /** Almacenes que no se pudieron vaciar en el ultimo intento (vacio = bien). */
+  const [failed, setFailed] = useState<ClearFailure[]>([]);
   const signPdfFlags = useSignPdfFeatureFlags();
 
   return (
@@ -101,16 +108,31 @@ export function SettingsView() {
               onClick={() => {
                 clearRecentEntries();
                 clearValueHistory();
-                // Async (IndexedDB): no se afirma "borrado" hasta que
-                // de verdad termino.
-                void clearAllDrafts().then(() => setCleared(true));
+                clearAllTemplates();
+                // Async (IndexedDB): no se afirma "borrado" hasta que de verdad
+                // terminaron BIEN los borradores y el baul de firmas (que se
+                // borra aunque su flag este apagado). Si falla alguno se dice
+                // cual y el boton sigue sirviendo para reintentar.
+                setCleared(false);
+                setFailed([]);
+                void clearLocalSignData().then((failures) => {
+                  setFailed(failures);
+                  setCleared(failures.length === 0);
+                });
               }}
             >
               {t.settings.clearData}
             </Button>
-            {cleared ? (
-              <Badge variant="success">{t.settings.cleared}</Badge>
-            ) : null}
+            {/* Region de estado siempre montada: solo cambia su contenido. */}
+            <span role="status">
+              {failed.length > 0 ? (
+                <span className="text-footnote text-destructive-text">
+                  {SIGN_STRINGS[language].vaultClearFailed(failed)}
+                </span>
+              ) : cleared ? (
+                <Badge variant="success">{t.settings.cleared}</Badge>
+              ) : null}
+            </span>
           </div>
         </GlassCard>
 

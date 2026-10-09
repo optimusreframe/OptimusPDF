@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   SignatureComposer,
   drawStrokeSegment,
@@ -497,5 +497,68 @@ describe("SignatureComposer — src/app/sign-pdf/SignatureComposer.tsx", () => {
 
     expect(canvas().className).toContain("mx-auto");
     expect(canvas().style.aspectRatio).not.toBe("");
+  });
+});
+
+describe("SignatureComposer — el trazo tactil no arrastra la hoja", () => {
+  const dialogY = (dialog: HTMLElement): number => {
+    const match = /translateY\((-?[\d.]+)px\)/.exec(dialog.style.transform);
+    return match ? Number(match[1]) : 0;
+  };
+
+  async function waitIdle() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+  }
+
+  it.each([20, 40, 80])(
+    "un trazo con +/-%i px de excursion vertical queda dibujado, la hoja no se mueve y no se cierra",
+    async (excursion) => {
+      let closed = 0;
+      render(
+        <LanguageProvider>
+          <SignatureComposer
+            open
+            onClose={() => {
+              closed += 1;
+            }}
+            onSave={(draft) => {
+              saved = draft;
+            }}
+            strings={strings}
+          />
+        </LanguageProvider>,
+      );
+      const dialog = screen.getByRole("dialog");
+      // La hoja arranca fuera de pantalla: se espera a que termine de entrar.
+      await waitFor(() => expect(dialogY(dialog)).toBeCloseTo(0, 0), { timeout: 3000 });
+      const target = canvas();
+      const touch = { pointerId: 4, pointerType: "touch" as const };
+      fireEvent.pointerDown(target, { ...touch, clientX: 100, clientY: 100 });
+      for (const [x, y] of [
+        [150, 100 - excursion],
+        [200, 100 + excursion],
+        [250, 100 - excursion],
+        [300, 100 + excursion],
+      ]) {
+        fireEvent.pointerMove(target, { ...touch, clientX: x, clientY: y });
+        expect(dialogY(dialog)).toBeCloseTo(0, 0);
+      }
+      fireEvent.pointerUp(target, { ...touch, clientX: 300, clientY: 100 + excursion });
+      await waitIdle();
+      expect(closed).toBe(0);
+      expect(dialogY(dialog)).toBeCloseTo(0, 0);
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      // La firma se guarda con lo trazado.
+      fireEvent.click(screen.getByRole("button", { name: strings.save }));
+      expect(saved).not.toBeNull();
+    },
+  );
+
+  it("el lienzo se marca como zona no arrastrable de la hoja", () => {
+    open();
+    expect(canvas().hasAttribute("data-sheet-no-drag")).toBe(true);
+    expect(canvas().className).toContain("touch-none");
   });
 });

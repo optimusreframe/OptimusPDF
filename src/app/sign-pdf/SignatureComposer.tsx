@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Eraser, ImageUp, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { MOBILE_FULLSCREEN_QUERY, Sheet } from "@/components/ui/Sheet";
 import { Slider } from "@/components/ui/Slider";
@@ -44,6 +45,17 @@ export type SignatureComposerProps = {
   /** Titulo del panel. Por defecto, el generico "Tu firma". */
   title?: string;
   variant?: SignatureComposerVariant;
+  /**
+   * Baul de firmas (opcional y SEPARADO de `onSave`, que no cambia): si se
+   * pasa, el pie ofrece la casilla «Recordar en este dispositivo»
+   * (desmarcada por defecto). Con ella marcada, al guardar se llama primero
+   * a `onSave` (la firma se usa igual pase lo que pase con el baul) y luego a
+   * `onRemember` con el nombre del firmante. Quien lo pasa decide que hacer
+   * (y como contar el resultado); sin esta prop no hay casilla.
+   */
+  onRemember?: (draft: SignatureDraft, who: { signerName: string }) => void;
+  /** Nombre ya conocido del firmante (varios firmantes). Vacio/ausente = se pide en un campo. */
+  signerName?: string;
 };
 
 type ComposerMode = "draw" | "type" | "upload";
@@ -362,6 +374,8 @@ export function SignatureComposer({
   strings,
   title,
   variant = "signature",
+  onRemember,
+  signerName,
 }: SignatureComposerProps) {
   const t = useT();
   const initials = variant === "initials";
@@ -395,6 +409,29 @@ export function SignatureComposer({
   const [uploaded, setUploaded] = useState<HTMLCanvasElement | null>(null);
   const [uploadName, setUploadName] = useState<string | null>(null);
   const [warning, setWarning] = useState(false);
+  /* Baul de firmas: casilla desmarcada y sin nombre cada vez que se abre. */
+  const [remember, setRemember] = useState(false);
+  /** `null` = aun no lo ha tocado: se precarga con lo escrito en «Escribir». */
+  const [rememberNameEdit, setRememberNameEdit] = useState<string | null>(null);
+  const [rememberNotice, setRememberNotice] = useState("");
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (!open) {
+      setRemember(false);
+      setRememberNameEdit(null);
+      setRememberNotice("");
+    }
+  }
+  const knownName = signerName?.trim() ?? "";
+  /**
+   * El nombre no se pide dos veces: si ya se escribio el nombre en «Escribir»
+   * (solo una firma; las iniciales no son un nombre), el campo de «Recordar»
+   * arranca con ese valor y se puede corregir. Una vez editado, manda lo editado.
+   */
+  const rememberName =
+    rememberNameEdit ?? (!initials && mode === "type" ? typed.trim() : "");
+  const rememberNameRef = useRef<HTMLInputElement>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** Ultimo punto capturado: es el control de la curva siguiente. */
@@ -756,7 +793,19 @@ export function SignatureComposer({
       return;
     }
     setWarning(false);
-    onSave(draft);
+    if (remember && onRemember) {
+      const who = knownName || rememberName.trim();
+      if (!who) {
+        // Sin nombre no se guarda: se explica y se deja corregir, sin cerrar.
+        setRememberNotice(strings.vaultRememberNeedsName);
+        rememberNameRef.current?.focus();
+        return;
+      }
+      onSave(draft);
+      onRemember(draft, { signerName: who });
+    } else {
+      onSave(draft);
+    }
     onClose();
   };
 
@@ -805,6 +854,8 @@ export function SignatureComposer({
             >
               <canvas
                 ref={canvasRef}
+                // El trazo es del lienzo: la hoja no se arrastra desde aqui (ver `Sheet`).
+                data-sheet-no-drag=""
                 onPointerDown={startStroke}
                 onPointerMove={continueStroke}
                 onPointerUp={endStroke}
@@ -991,6 +1042,61 @@ export function SignatureComposer({
           <p role="alert" className="text-sm text-destructive">
             {strings.emptyWarning}
           </p>
+        ) : null}
+
+        {onRemember ? (
+          <div className="space-y-2">
+            <Checkbox
+              label={strings.vaultRemember}
+              hint={strings.vaultRememberHint}
+              checked={remember}
+              onChange={(next) => {
+                setRemember(next);
+                setRememberNotice("");
+              }}
+            />
+            {remember && knownName ? (
+              <p className="pl-[34px] text-footnote text-muted-foreground">
+                {strings.vaultRememberFor(knownName)}
+              </p>
+            ) : null}
+            {remember && !knownName ? (
+              <div className="pl-[34px]">
+                <label
+                  htmlFor="signature-remember-name"
+                  className="ui-label mb-1.5 block text-muted-foreground"
+                >
+                  {strings.vaultRememberNameLabel}
+                </label>
+                <input
+                  ref={rememberNameRef}
+                  id="signature-remember-name"
+                  type="text"
+                  value={rememberName}
+                  maxLength={200}
+                  placeholder={strings.vaultRememberNamePlaceholder}
+                  aria-invalid={rememberNotice ? true : undefined}
+                  onChange={(event) => {
+                    setRememberNameEdit(event.target.value);
+                    setRememberNotice("");
+                  }}
+                  className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+                />
+              </div>
+            ) : null}
+            {/* Region de estado siempre montada: solo cambia su contenido. */}
+            <p
+              role="status"
+              aria-live="polite"
+              className={
+                rememberNotice
+                  ? "pl-[34px] text-footnote text-destructive-text"
+                  : "sr-only"
+              }
+            >
+              {rememberNotice}
+            </p>
+          </div>
         ) : null}
 
         <Button size="lg" fullWidth onClick={save}>

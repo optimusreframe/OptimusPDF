@@ -17,6 +17,8 @@ export type TemplatesSheetProps = {
   open: boolean;
   onClose: () => void;
   onApply: (template: SignTemplate) => void;
+  /** Con varios documentos: aplica la plantilla a TODOS (firmantes una vez, huecos repetidos por documento). Ausente = un solo documento. */
+  onApplyAll?: (template: SignTemplate) => void;
   strings: SignStrings;
 };
 
@@ -30,6 +32,7 @@ export function TemplatesSheet({
   open,
   onClose,
   onApply,
+  onApplyAll,
   strings,
 }: TemplatesSheetProps) {
   const { t, language } = useI18n();
@@ -59,7 +62,7 @@ export function TemplatesSheet({
         <ul className="space-y-2 pb-2">
           {templates.map((template) => (
             <li key={template.id}>
-              <div className="glass rounded-ios-sm flex items-center gap-3 p-3">
+              <div className="glass rounded-ios-sm flex flex-wrap items-center gap-3 p-3">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-ios-sm bg-white/6">
                   <LayoutTemplate
                     aria-hidden="true"
@@ -93,6 +96,16 @@ export function TemplatesSheet({
                 >
                   <Trash2 aria-hidden="true" className="size-4" />
                 </button>
+                {onApplyAll ? (
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    fullWidth
+                    onClick={() => onApplyAll(template)}
+                  >
+                    {strings.templatesApplyAll}
+                  </Button>
+                ) : null}
               </div>
             </li>
           ))}

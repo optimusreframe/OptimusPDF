@@ -1,10 +1,15 @@
 "use client";
 
-import type { Ref } from "react";
+import { useId, type Ref } from "react";
 import { motion } from "motion/react";
 import { Check, Download, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ToolCard } from "@/components/tool/ToolCard";
+import {
+  PartialFailureReport,
+  hasPartialFailures,
+} from "@/components/tool/PartialFailureReport";
+import type { BatchReport } from "@/lib/pdf/batchReport";
 import { useI18n, localeTag } from "@/lib/i18n";
 import { springs, withCrossFadeOpacity } from "@/lib/motion";
 import { formatFileSize } from "@/lib/pdf/core";
@@ -18,6 +23,13 @@ export type DownloadScreenProps = {
   onStartOver: () => void;
   /** Ref al boton primario (Descargar): ToolShell le da el foco al terminar. */
   downloadButtonRef?: Ref<HTMLButtonElement>;
+  /**
+   * Informe de un procesado por lotes. Opcional: sin el, o sin fallos, la
+   * pantalla es exactamente la de siempre. Con fallos parciales muestra
+   * cuales documentos no se pudieron procesar (los demas ya van en el
+   * archivo descargable).
+   */
+  report?: BatchReport;
 };
 
 /**
@@ -33,8 +45,11 @@ export function DownloadScreen({
   onDownload,
   onStartOver,
   downloadButtonRef,
+  report,
 }: DownloadScreenProps) {
   const { t, language } = useI18n();
+  const reportId = useId();
+  const showReport = hasPartialFailures(report);
   const related = getRelatedTools(slug, 3);
 
   return (
@@ -72,11 +87,16 @@ export function DownloadScreen({
           </p>
         </div>
 
+        {report && showReport ? (
+          <PartialFailureReport report={report} id={reportId} />
+        ) : null}
+
         <Button
           ref={downloadButtonRef}
           size="lg"
           className="mt-7 min-w-56"
           onClick={onDownload}
+          aria-describedby={showReport ? reportId : undefined}
         >
           <Download aria-hidden="true" className="size-5" />
           {t.tool.download}
