@@ -658,6 +658,16 @@ export async function savePdfToBlob(document: PDFDocument): Promise<Blob> {
  */
 export const PDF_WORKER_SRC = "/pdf.worker.min.mjs";
 
+/**
+ * Fuentes de reemplazo de pdf.js (Liberation TTF y Foxit PFB) para los PDF
+ * que NO embeben Helvetica/Times/Courier. Sin esta ruta pdf.js tiene que
+ * inventar otra fuente y la vista previa deja de parecerse a lo que
+ * exportara el editor. Se copia de `pdfjs-dist/standard_fonts` a
+ * `public/standard_fonts/` y, igual que el worker, debe refrescarse al
+ * subir de version la libreria. Lleva la barra final que exige pdf.js.
+ */
+export const PDF_STANDARD_FONTS_URL = "/standard_fonts/";
+
 type PdfJsModule = typeof import("pdfjs-dist");
 
 let pdfjsPromise: Promise<PdfJsModule> | null = null;
@@ -687,7 +697,11 @@ export async function openPdfDocument(
   const copy = new Uint8Array(original);
 
   try {
-    const task = pdfjs.getDocument({ data: copy, password });
+    const task = pdfjs.getDocument({
+      data: copy,
+      password,
+      standardFontDataUrl: PDF_STANDARD_FONTS_URL,
+    });
     return await task.promise;
   } catch (error) {
     // pdf.js usa PasswordException para documentos protegidos.

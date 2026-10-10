@@ -59,7 +59,7 @@ describe("PageThumbnailGrid — foco al quitar paginas", () => {
     const after = removeButtons();
     expect(after).toHaveLength(2);
     // La que era la tercera pagina es ahora la segunda: su boton recibe el foco.
-    expect(document.activeElement).toBe(after[1]);
+    await waitFor(() => expect(document.activeElement).toBe(removeButtons()[1]));
     expect(document.activeElement).not.toBe(document.body);
   });
 
@@ -72,7 +72,7 @@ describe("PageThumbnailGrid — foco al quitar paginas", () => {
 
     const after = removeButtons();
     expect(after).toHaveLength(2);
-    expect(document.activeElement).toBe(after[1]);
+    await waitFor(() => expect(document.activeElement).toBe(removeButtons()[1]));
   });
 
   it("al quitar la unica pagina que queda, el foco va al encabezado de la rejilla (no a body)", async () => {
@@ -84,13 +84,13 @@ describe("PageThumbnailGrid — foco al quitar paginas", () => {
       buttons[0].focus();
       fireEvent.click(buttons[0]);
       if (remaining > 1) {
-        expect(document.activeElement).toBe(removeButtons()[0]);
+        await waitFor(() => expect(document.activeElement).toBe(removeButtons()[0]));
       }
     }
 
     expect(screen.queryAllByRole("button", { name: "Quitar" })).toHaveLength(0);
     const heading = screen.getByRole("heading", { name: "Vista previa de páginas" });
-    expect(document.activeElement).toBe(heading);
+    await waitFor(() => expect(document.activeElement).toBe(heading));
     expect(document.activeElement).not.toBe(document.body);
   });
 
@@ -99,6 +99,8 @@ describe("PageThumbnailGrid — foco al quitar paginas", () => {
     const toggle = screen.getByRole("button", { name: "Página 2" });
     toggle.focus();
     fireEvent.click(toggle);
+    // Negativo: no debe moverse; se deja pasar un frame antes de leerlo.
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
     expect(document.activeElement).toBe(toggle);
   });
 });

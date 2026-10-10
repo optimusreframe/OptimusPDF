@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import JSZip from "jszip";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { SignToolClient } from "@/app/sign-pdf/SignToolClient";
@@ -54,7 +54,6 @@ vi.mock("@/lib/pdf/detectFields", async (importOriginal) => {
   return { ...actual, detectFields: vi.fn(async () => []) };
 });
 
-configure({ asyncUtilTimeout: 6000 });
 // Cada caso espera varios autoguardados reales (debounce de ~800 ms).
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -145,7 +144,6 @@ async function startRound() {
 
 const waitSessions = (count: number) =>
   waitFor(async () => expect(await listSessionDrafts()).toHaveLength(count), {
-    timeout: 6000,
     interval: 100,
   });
 
@@ -197,7 +195,6 @@ describe("borrador de sesion con varios documentos", () => {
     await waitFor(() => expect(docNav()).not.toBeNull());
     fireEvent.click(await screen.findByRole("button", { name: strings.addSigner }));
     await waitFor(async () => expect((await listSessionDrafts())[0]?.signers).toHaveLength(2), {
-      timeout: 6000,
       interval: 100,
     });
     const after = await listSessionDrafts();
@@ -213,7 +210,6 @@ describe("borrador de sesion con varios documentos", () => {
     await startRound();
     fireEvent.click(await screen.findByRole("button", { name: `2. ${strings.stepDocument}` }));
     await waitFor(async () => expect((await listSessionDrafts())[0]?.step).toBe("document"), {
-      timeout: 6000,
       interval: 100,
     });
     first.unmount();
@@ -233,12 +229,12 @@ describe("borrador de sesion con varios documentos", () => {
     const { container } = renderTool();
     await load(container, a);
     await startRound();
-    await waitFor(async () => expect(await listDrafts()).toHaveLength(1), { timeout: 6000, interval: 100 });
+    await waitFor(async () => expect(await listDrafts()).toHaveLength(1), { interval: 100 });
 
     fireEvent.change(pdfInput(container), { target: { files: [await pdf("b.pdf")] } });
     await waitFor(() => expect(docNav()).not.toBeNull());
     await waitSessions(1);
-    await waitFor(async () => expect(await listDrafts()).toEqual([]), { timeout: 6000, interval: 100 });
+    await waitFor(async () => expect(await listDrafts()).toEqual([]), { interval: 100 });
   });
 
   it("de 2 a 1 documento: la sesion se borra y el flujo de un documento toma el relevo con su borrador v1", async () => {
@@ -250,7 +246,7 @@ describe("borrador de sesion con varios documentos", () => {
     fireEvent.click(screen.getAllByRole("button", { name: es.tool.remove })[1]);
     await waitFor(() => expect(docNav()).toBeNull());
     await waitSessions(0);
-    await waitFor(async () => expect(await listDrafts()).toHaveLength(1), { timeout: 6000, interval: 100 });
+    await waitFor(async () => expect(await listDrafts()).toHaveLength(1), { interval: 100 });
     expect((await listAllDrafts())[0].kind).toBe("document");
   });
 
@@ -258,7 +254,7 @@ describe("borrador de sesion con varios documentos", () => {
     const { container } = renderTool();
     await load(container, await pdf("solo.pdf"));
     await startRound();
-    await waitFor(async () => expect(await listDrafts()).toHaveLength(1), { timeout: 6000, interval: 100 });
+    await waitFor(async () => expect(await listDrafts()).toHaveLength(1), { interval: 100 });
     expect(await listSessionDrafts()).toEqual([]);
   });
 
@@ -421,7 +417,7 @@ describe("plantillas con varios documentos", () => {
       const [meta] = await listSessionDrafts();
       expect(meta?.signers.map((signer) => signer.name)).toEqual(["Ana", "Luis"]);
       expect(Object.values(meta.docStates).map((state) => state.fields.length)).toEqual([2, 2]);
-    }, { timeout: 6000, interval: 100 });
+    }, { interval: 100 });
     const [meta] = await listSessionDrafts();
     const ids = Object.values(meta.docStates).flatMap((state) => state.fields.map((field) => field.id));
     expect(new Set(ids).size).toBe(4);

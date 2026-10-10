@@ -535,7 +535,7 @@ describe("pdfToPowerpoint — src/lib/pdf/pdfToPowerpoint.ts (paginacion/presupu
       // Se detuvo en la primera pagina: nunca llego a pedir la 2a/3a.
       expect(fakeDocument.getPage).toHaveBeenCalledTimes(1);
       expect(closePdfDocumentMock).toHaveBeenCalledWith(fakeDocument);
-    }, 20_000);
+    });
 
     it("varias paginas cuyo tamano individual esta bajo el presupuesto, pero cuya suma lo supera, tambien lanzan PdfError('tooLarge')", async () => {
       const fakeDocument = makeFakeDocument(3);
@@ -565,6 +565,6 @@ describe("pdfToPowerpoint — src/lib/pdf/pdfToPowerpoint.ts (paginacion/presupu
       // La 1a pagina por si sola (60%) no excede el presupuesto: se
       // detiene en la 2a (60% + 60% = 120% > 100%), nunca llega a la 3a.
       expect(fakeDocument.getPage).toHaveBeenCalledTimes(2);
-    }, 20_000);
+    });
   });
 });

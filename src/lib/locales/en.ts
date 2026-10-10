@@ -132,7 +132,8 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "edit-pdf": {
     name: "Edit PDF",
-    description: "Add text, images, shapes and highlights on top of the document pages.",
+    description:
+      "Edit the text already in the PDF and add text, images and shapes directly on the document.",
   },
   "sign-pdf": {
     name: "Sign PDF",
@@ -213,7 +214,7 @@ const categories: Record<
   },
   edit: {
     label: "Edit and analyse",
-    description: "Annotate, sign, number and compare documents.",
+    description: "Edit, sign, number and compare documents.",
   },
   security: {
     label: "Security",
@@ -377,7 +378,7 @@ export const en: Dictionary = {
     languageBody: "Change the language of the whole interface.",
     dataTitle: "Local data",
     dataBody:
-      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and signatures; the full PDF and signature captures). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password.",
+      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and signatures; the full PDF and signature captures). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password. The PDF editor also saves an automatic draft (IndexedDB) with the whole document and your edits, so you can pick it up if you close the tab; it never leaves your device either and \"Clear local data\" removes it (no draft is kept for password-protected PDFs).",
     clearData: "Clear local data",
     cleared: "Local data cleared.",
     aboutTitle: "About the app",
@@ -420,6 +421,19 @@ export const en: Dictionary = {
       multiDocument: {
         label: "Several documents at once",
         hint: "Lets you load several PDFs in Sign PDF and sign them in a single round. When off, the tool works with one document at a time, as before.",
+      },
+    },
+    editPdfFeaturesTitle: "PDF editor: new features",
+    editPdfFeaturesBody:
+      "These options are local to this browser only — they are never synced to an account or sent anywhere.",
+    editPdfFeatures: {
+      editExistingText: {
+        label: "Edit the text already in the PDF",
+        hint: "Lets you click existing text and change it: the editor covers the original and draws the new text on top. When off, the text already in the PDF can't be touched, but the editor still lets you add text, images and shapes.",
+      },
+      stripOriginalText: {
+        label: "Clean the original content from the file (coming soon)",
+        hint: "Not available yet, so it can't be turned on: full content cleaning will arrive in a later version. Today the editor covers and redraws the text, but the original text may still exist under the edit, and someone copying or searching the PDF could find it. To remove it now, “Flatten page” (in the editor) turns that page into an image: the text no longer exists in the file.",
       },
     },
   },

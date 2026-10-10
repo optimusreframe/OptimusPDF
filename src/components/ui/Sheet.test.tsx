@@ -1,4 +1,5 @@
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MotionGlobalConfig } from "motion/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetReducedMotionPrefCache } from "@/hooks/useReducedMotionPref";
@@ -96,14 +97,15 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   resetReducedMotionPrefCache();
+  MotionGlobalConfig.skipAnimations = true;
 });
 
 describe("Sheet: contrato ARIA", () => {
-  it("expone role dialog con el titulo como nombre, aria-modal y mueve el foco dentro", () => {
+  it("expone role dialog con el titulo como nombre, aria-modal y mueve el foco dentro", async () => {
     render(<Harness />);
     const dialog = screen.getByRole("dialog", { name: "Opciones" });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
-    expect(document.activeElement).toBe(dialog);
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
     expect(screen.getByRole("heading", { name: "Opciones" })).toBeTruthy();
   });
 
@@ -127,12 +129,8 @@ describe("Sheet: contrato ARIA", () => {
     render(<Harness onClose={onClose} />);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), {
-      timeout: 3000,
-    });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("el boton de cierre (44px) y el scrim cierran", async () => {
@@ -141,9 +139,7 @@ describe("Sheet: contrato ARIA", () => {
     const close = screen.getByRole("button", { name: "Cerrar" });
     expect(close.className).toMatch(/size-11/);
     fireEvent.click(close);
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("el scrim no es un control accesible (aria-hidden) pero cierra al tocarlo", async () => {
@@ -152,9 +148,7 @@ describe("Sheet: contrato ARIA", () => {
     expect(scrim().getAttribute("aria-hidden")).toBe("true");
     expect(screen.getAllByRole("button", { name: "Cerrar" })).toHaveLength(1);
     fireEvent.click(scrim());
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("atrapa el foco con Tab en ambos sentidos", () => {
@@ -174,14 +168,15 @@ describe("Sheet: contrato ARIA", () => {
     opener.focus();
     fireEvent.click(opener);
     const dialog = await screen.findByRole("dialog");
-    expect(document.activeElement).toBe(dialog);
+    // El foco lo mueven efectos de la hoja (al montarse y al desmontarse), que
+    // React ejecuta DESPUES de que el DOM cambie: se espera a verlo en vez de
+    // leerlo en el mismo instante en que aparece/desaparece el nodo.
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
 
     // El padre cierra sin gesto: el dialog sigue montado mientras sale...
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), {
-      timeout: 3000,
-    });
-    expect(document.activeElement).toBe(opener);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
   it("ConfirmSheet: confirmar llama a onConfirm y onClose; cancelar solo a onClose", async () => {
@@ -216,7 +211,7 @@ describe("Sheet: gestos", () => {
 
   /** Espera a que la entrada termine (el panel arranca fuera de pantalla). */
   const settled = (dialog: HTMLElement) =>
-    waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0), { timeout: 3000 });
+    waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0));
 
   async function drag(steps: Array<{ y: number; dt: number }>, pointerType = "touch") {
     const dialog = screen.getByRole("dialog");
@@ -270,9 +265,7 @@ describe("Sheet: gestos", () => {
     ]);
     release(300); // el dedo lleva quieto: velocidad 0, manda la posicion (90/768 < 0.5)
     expect(onClose).not.toHaveBeenCalled();
-    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0));
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
@@ -286,9 +279,7 @@ describe("Sheet: gestos", () => {
       { y: 180, dt: 16 }, // ~2500 px/s
     ]);
     release();
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("con velocidad hacia arriba vuelve aunque este mas alla de la mitad", async () => {
@@ -300,13 +291,14 @@ describe("Sheet: gestos", () => {
       { y: 560, dt: 16 }, // ...pero el dedo sube al soltar
     ]);
     release();
-    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0));
     expect(onClose).not.toHaveBeenCalled();
   });
 
   it("agarrarlo mientras se cierra lo detiene donde esta, sin salto, y onClose no se dispara", async () => {
+    // Prueba una animacion A MEDIAS: necesita el muelle real, asi que se
+    // apaga el `skipAnimations` global del setup (el afterEach lo restaura).
+    MotionGlobalConfig.skipAnimations = false;
     const onClose = vi.fn();
     render(<Harness onClose={onClose} />);
     const dialog = screen.getByRole("dialog");
@@ -314,18 +306,31 @@ describe("Sheet: gestos", () => {
     expect(translateY(dialog)).toBe(768);
     await settled(dialog);
     fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
-    // Deja avanzar el cierre unos frames.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 60));
+    // Agarra la hoja EN CUANTO el cierre lleve un buen tramo recorrido (100 px:
+    // lo bastante para que `grabbed - 30` siga siendo positivo, es decir, sin
+    // la resistencia elastica de pasar de 0). Se sondea y se agarra en el
+    // MISMO callback, sin saltos de microtarea/`act` entre la lectura y el
+    // `pointerdown`: motion fija el valor al "ahora" del agarre, asi que
+    // cualquier retraso ahi (CPU cargada) deja la hoja mas cerca del final.
+    // Antes se dormia un plazo fijo de 60 ms, con el mismo problema.
+    const midway = await new Promise<number>((resolve) => {
+      const check = () => {
+        const current = translateY(dialog) ?? 0;
+        if (current > 100) {
+          pointer("pointerDown", header(), { pointerId: 9, pointerType: "touch", button: 0, clientY: 300 }, 5000);
+          resolve(current);
+        } else {
+          setTimeout(check, 0);
+        }
+      };
+      check();
     });
-    const midway = translateY(dialog)!;
     expect(midway).toBeGreaterThan(0);
     expect(midway).toBeLessThan(768);
 
     // Agarra: motion sincroniza el valor con el instante del pointerdown
     // (como mucho un frame de recorrido por delante del DOM pintado) y
     // desde ahi queda congelado: dos lecturas separadas por frames coinciden.
-    pointer("pointerDown", header(), { pointerId: 9, pointerType: "touch", button: 0, clientY: 300 }, 5000);
     await frames();
     const grabbed = translateY(dialog)!;
     expect(grabbed).toBeGreaterThanOrEqual(midway);
@@ -340,9 +345,7 @@ describe("Sheet: gestos", () => {
     // Sigue el dedo desde el valor interrumpido (grabbed - 30 tras el re-base).
     expect(translateY(dialog)!).toBeCloseTo(grabbed - 30, 0);
     pointer("pointerUp", dialog, { pointerId: 9, pointerType: "touch", clientY: 250 }, 5048);
-    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0));
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
@@ -369,9 +372,7 @@ describe("Sheet: gestos", () => {
     const dialog = screen.getByRole("dialog");
     expect(translateY(dialog) ?? 0).toBe(0);
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(translateY(dialog) ?? 0).toBe(0);
   });
 });
@@ -390,7 +391,7 @@ describe("Sheet: zonas que gestionan su propio gesto (data-sheet-no-drag)", () =
 
   async function touchDrag(target: Element, onClose = vi.fn()) {
     const dialog = screen.getByRole("dialog");
-    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0), { timeout: 3000 });
+    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0));
     let now = 2000;
     pointer("pointerDown", target, { pointerId: 5, pointerType: "touch", button: 0, clientY: 300 }, now);
     for (const y of [330, 380, 440, 520]) {
@@ -436,7 +437,7 @@ describe("Sheet: pointercancel", () => {
     const onClose = vi.fn();
     render(<Harness onClose={onClose} />);
     const dialog = screen.getByRole("dialog");
-    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0), { timeout: 3000 });
+    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0));
     const target = screen.getByRole("heading", { name: "Opciones" }).parentElement!;
     pointer("pointerDown", target, { pointerId: 5, pointerType: "touch", button: 0, clientY: 100 }, 1000);
     pointer("pointerMove", dialog, { pointerId: 5, pointerType: "touch", clientY: 110 }, 1016);
@@ -444,7 +445,7 @@ describe("Sheet: pointercancel", () => {
     const cancel = createEvent.pointerCancel(dialog, { pointerId: 5, pointerType: "touch", clientY: 600 });
     Object.defineProperty(cancel, "timeStamp", { value: 1048 });
     fireEvent(dialog, cancel);
-    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0), { timeout: 3000 });
+    await waitFor(() => expect(translateY(dialog)).toBeCloseTo(0, 0));
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
@@ -535,10 +536,27 @@ describe("Sheet: hojas apiladas y Escape", () => {
   const settleExit = () =>
     act(() => new Promise<void>((resolve) => setTimeout(resolve, 900)));
 
+  const dialogNamed = (name: string) =>
+    screen.queryAllByRole("dialog").find((d) => d.getAttribute("aria-label") === name);
+
+  /**
+   * Espera a que la hoja recien abierta se haya llevado el foco al panel.
+   * Que su contenido ya este en el DOM no basta: el foco inicial lo mueve
+   * un efecto de la hoja, que con la maquina cargada puede ejecutarse
+   * DESPUES de que el test pulse el boton siguiente y, al ejecutarse, le
+   * quita el foco a ese boton y cambia a que elemento volvera el foco al
+   * cerrar la hoja de encima.
+   */
+  const focusIsIn = (name: string) =>
+    waitFor(() => expect(document.activeElement).toBe(dialogNamed(name)));
+
   async function openThree() {
     press(screen.getByRole("button", { name: "Abrir opciones" }));
+    await focusIsIn("Opciones");
     press(await screen.findByRole("button", { name: "Abrir plantillas" }));
+    await focusIsIn("Plantillas");
     press(await screen.findByRole("button", { name: "Abrir confirmar" }));
+    await focusIsIn("Confirmar");
     await waitFor(() =>
       expect(dialogNames()).toEqual(["Opciones", "Plantillas", "Confirmar"]),
     );
@@ -561,35 +579,31 @@ describe("Sheet: hojas apiladas y Escape", () => {
       expect(scrimCount()).toBe(3);
 
       fireEvent.keyDown(window, { key: "Escape" });
-      await waitFor(() => expect(dialogNames()).toEqual(["Opciones", "Plantillas"]), {
-        timeout: 3000,
-      });
+      await waitFor(() => expect(dialogNames()).toEqual(["Opciones", "Plantillas"]));
       await settleExit();
       expect(dialogNames()).toEqual(["Opciones", "Plantillas"]);
       expect(closed).toEqual(["c"]);
       // El foco vuelve al disparador del nivel cerrado (dentro de la hoja de debajo).
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Abrir confirmar" }),
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole("button", { name: "Abrir confirmar" })),
       );
       expect(scrimCount()).toBe(2);
 
       fireEvent.keyDown(window, { key: "Escape" });
-      await waitFor(() => expect(dialogNames()).toEqual(["Opciones"]), {
-        timeout: 3000,
-      });
+      await waitFor(() => expect(dialogNames()).toEqual(["Opciones"]));
       await settleExit();
       expect(dialogNames()).toEqual(["Opciones"]);
       expect(closed).toEqual(["c", "b"]);
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Abrir plantillas" }),
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole("button", { name: "Abrir plantillas" })),
       );
       expect(document.body.style.overflow).toBe("hidden");
 
       fireEvent.keyDown(window, { key: "Escape" });
-      await waitFor(() => expect(dialogNames()).toEqual([]), { timeout: 3000 });
+      await waitFor(() => expect(dialogNames()).toEqual([]));
       expect(closed).toEqual(["c", "b", "a"]);
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Abrir opciones" }),
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole("button", { name: "Abrir opciones" })),
       );
       expect(document.body.style.overflow).not.toBe("hidden");
     });
@@ -609,9 +623,7 @@ describe("Sheet: hojas apiladas y Escape", () => {
     await openThree();
     fireEvent.keyDown(window, { key: "Escape" });
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(dialogNames()).toEqual(["Opciones"]), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(dialogNames()).toEqual(["Opciones"]));
     await settleExit();
     expect(dialogNames()).toEqual(["Opciones"]);
     expect(closed.sort()).toEqual(["b", "c"]);
@@ -623,7 +635,7 @@ describe("Sheet: hojas apiladas y Escape", () => {
     const dialogOf = (name: string) =>
       screen.getAllByRole("dialog").find((d) => d.getAttribute("aria-label") === name)!;
     const top = dialogOf("Confirmar");
-    await waitFor(() => expect(translateY(top)).toBeCloseTo(0, 0), { timeout: 3000 });
+    await waitFor(() => expect(translateY(top)).toBeCloseTo(0, 0));
     const header = within(top).getByRole("heading", { name: "Confirmar" }).parentElement!;
     pointer("pointerDown", header, { pointerId: 9, pointerType: "touch", button: 0, clientY: 100 }, 1000);
     pointer("pointerMove", top, { pointerId: 9, pointerType: "touch", clientY: 120 }, 1016);
@@ -648,13 +660,13 @@ describe("Sheet: hojas apiladas y Escape", () => {
     );
     await openThree();
     const top = screen.getAllByRole("dialog").find((d) => d.getAttribute("aria-label") === "Confirmar")!;
-    await waitFor(() => expect(translateY(top)).toBeCloseTo(0, 0), { timeout: 3000 });
+    await waitFor(() => expect(translateY(top)).toBeCloseTo(0, 0));
     const header = within(top).getByRole("heading", { name: "Confirmar" }).parentElement!;
     pointer("pointerDown", header, { pointerId: 9, pointerType: "touch", button: 0, clientY: 100 }, 1000);
     pointer("pointerMove", top, { pointerId: 9, pointerType: "touch", clientY: 300 }, 1016);
     pointer("pointerMove", top, { pointerId: 9, pointerType: "touch", clientY: 700 }, 1032);
     pointer("pointerUp", top, { pointerId: 9, pointerType: "touch", clientY: 700 }, 1048);
-    await waitFor(() => expect(dialogNames()).toEqual(["Opciones", "Plantillas"]), { timeout: 3000 });
+    await waitFor(() => expect(dialogNames()).toEqual(["Opciones", "Plantillas"]));
     await settleExit();
     expect(dialogNames()).toEqual(["Opciones", "Plantillas"]);
     expect(closed).toEqual(["c"]);
@@ -664,9 +676,7 @@ describe("Sheet: hojas apiladas y Escape", () => {
     render(<Stack />);
     await openThree();
     fireEvent.click(screen.getByRole("button", { name: "Cerrar opciones" }));
-    await waitFor(() => expect(dialogNames()).toEqual(["Plantillas", "Confirmar"]), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(dialogNames()).toEqual(["Plantillas", "Confirmar"]));
     expect(document.body.style.overflow).toBe("hidden");
   });
 
@@ -674,8 +684,54 @@ describe("Sheet: hojas apiladas y Escape", () => {
     const onClose = vi.fn();
     render(<Harness onClose={onClose} />);
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), { timeout: 3000 });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });
 
 const scrimCount = () => document.querySelectorAll("[data-sheet-scrim]").length;
+
+describe("Sheet: devolver el foco al cerrar (restoreFocusOnClose)", () => {
+  function Focusing({ restore }: { restore?: () => boolean }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Abrir
+        </button>
+        <button type="button">Destino</button>
+        <Sheet open={open} onClose={() => setOpen(false)} title="Hoja" closeLabel="Cerrar" restoreFocusOnClose={restore}>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              // La accion que cierra la hoja mueve el foco ella misma.
+              screen.getByRole("button", { name: "Destino" }).focus();
+            }}
+          >
+            Hacer
+          </button>
+        </Sheet>
+      </>
+    );
+  }
+
+  it("por defecto devuelve el foco al disparador; con `restoreFocusOnClose` false respeta el foco que puso la accion", async () => {
+    const first = render(<Focusing />);
+    const opener = screen.getByRole("button", { name: "Abrir" });
+    opener.focus();
+    fireEvent.click(opener);
+    fireEvent.click(await screen.findByRole("button", { name: "Hacer" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+    first.unmount();
+
+    render(<Focusing restore={() => false} />);
+    const opener2 = screen.getByRole("button", { name: "Abrir" });
+    opener2.focus();
+    fireEvent.click(opener2);
+    fireEvent.click(await screen.findByRole("button", { name: "Hacer" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Destino" }));
+  });
+});

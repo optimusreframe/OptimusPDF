@@ -130,7 +130,7 @@ describe("detectVectorFieldsOnPage — src/lib/pdf/detectFields.ts (geometria re
     // y desde arriba = (300-149.5)/300, ancho=200/400.
     expect(result.fields[0].rect.x).toBeCloseTo(90 / 400, 4);
     expect(result.fields[0].rect.width).toBeCloseTo(200 / 400, 4);
-  }, 15000);
+  });
 
   it("ignora rectangulos gruesos (no son rayas) y los demasiado estrechos", async () => {
     const pdfLibDoc = await PDFDocument.create();
@@ -148,7 +148,7 @@ describe("detectVectorFieldsOnPage — src/lib/pdf/detectFields.ts (geometria re
 
     const result = await detectVectorFieldsOnPage(pdfjsPage, 0, geometry, OPS, "vec");
     expect(result.fields).toEqual([]);
-  }, 15000);
+  });
 
   it("una pagina sin texto extraible se marca `hasText: false` (la trata el detector raster)", async () => {
     const pdfLibDoc = await PDFDocument.create();
@@ -163,7 +163,7 @@ describe("detectVectorFieldsOnPage — src/lib/pdf/detectFields.ts (geometria re
     const result = await detectVectorFieldsOnPage(pdfjsPage, 0, geometry, OPS, "vec");
     expect(result.hasText).toBe(false);
     expect(result.fields).toEqual([]);
-  }, 15000);
+  });
 });
 
 describe("nearestLabel — src/lib/pdf/detectFields.ts", () => {

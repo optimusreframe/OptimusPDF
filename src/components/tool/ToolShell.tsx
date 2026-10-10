@@ -46,6 +46,16 @@ export type ProcessResult = {
    * avisa de los fallos; sin este campo todo se comporta como siempre.
    */
   report?: BatchReport;
+  /**
+   * Resumen de lo que se hizo («3 textos editados, 1 imagen añadida.»), ya
+   * traducido. `DownloadScreen` lo muestra bajo el nombre del archivo.
+   */
+  summary?: string;
+  /**
+   * Avisos de la exportacion, ya traducidos, mostrados como lista accesible
+   * en la pantalla de descarga (p. ej. fuente sustituida, firma invalidada).
+   */
+  notices?: { title: string; items: string[] };
 };
 
 export type ToolRenderContext<TOptions> = {
@@ -85,6 +95,18 @@ export type ToolShellProps<TOptions> = {
    * minimo de archivos; sin ella el comportamiento es el de siempre.
    */
   canRun?: (files: File[], options: TOptions) => boolean;
+  /**
+   * Confirmacion previa a procesar (p. ej. «editar invalida las firmas
+   * digitales»). Se evalua al pulsar el boton de procesar, ANTES de abrir el
+   * overlay de progreso (que es modal y dejaria inerte cualquier hoja de
+   * confirmacion). `false` cancela la ejecucion sin error y sin tocar nada.
+   */
+  beforeRun?: (files: File[], options: TOptions) => boolean | Promise<boolean>;
+  /**
+   * Texto del aviso NEUTRO (`role="status"`, no un error) que sale al cancelar
+   * el procesado. Por defecto, `tool.errors.cancelled`.
+   */
+  cancelledMessage?: string;
   /**
    * Mensaje del overlay de progreso. Por defecto, el nombre de la
    * herramienta; una herramienta con pasos largos puede narrarlos.
@@ -167,6 +189,8 @@ export function ToolShell<TOptions>({
   process,
   minFiles = 1,
   canRun: canRunProp,
+  beforeRun,
+  cancelledMessage,
   progressMessage,
   runRef,
   renderDone,
@@ -293,6 +317,7 @@ export function ToolShell<TOptions>({
       setError("nothingSelected");
       return;
     }
+    if (beforeRun && !(await beforeRun(files, options))) return;
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
 
@@ -324,7 +349,7 @@ export function ToolShell<TOptions>({
       pendingFocusRef.current = "run";
       setPhase("files");
     }
-  }, [canRunProp, files, minFiles, options, process, tool.slug]);
+  }, [beforeRun, canRunProp, files, minFiles, options, process, tool.slug]);
 
   useEffect(() => {
     if (!runRef) return;
@@ -416,17 +441,21 @@ export function ToolShell<TOptions>({
     };
   }, [showWorkspace]);
 
+  // Cancelar no es un fallo: es un aviso neutro en la region viva siempre montada (sin pantalla de error).
+  const cancelledNotice = error === "cancelled" ? (cancelledMessage ?? t.tool.errors.cancelled) : null;
   const skippedNotice =
-    skipped.length === 1
+    cancelledNotice ??
+    (skipped.length === 1
       ? fillTemplate(t.tool.skippedOne, { names: skipped[0] })
       : skipped.length > 1
         ? fillTemplate(t.tool.skippedMany, {
             count: String(skipped.length),
             names: skipped.join(", "),
           })
-        : null;
+        : null);
 
   const errorAction = error ? ERROR_ACTIONS[error] : undefined;
+  const showErrorBanner = error !== null && error !== "cancelled";
 
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-40 md:px-6 md:pt-10 md:pb-16">
@@ -456,7 +485,7 @@ export function ToolShell<TOptions>({
       </header>
 
       <AnimatePresence initial={false}>
-        {error ? (
+        {showErrorBanner && error ? (
           <motion.div
             key={error}
             role="alert"
@@ -533,7 +562,10 @@ export function ToolShell<TOptions>({
         {skippedNotice ? (
           <button
             type="button"
-            onClick={() => setSkipped([])}
+            onClick={() => {
+              setSkipped([]);
+              if (cancelledNotice) setError(null);
+            }}
             aria-label={t.common.close}
             className="group -mt-2 flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-6px] focus-visible:outline-signal"
           >
@@ -676,6 +708,8 @@ export function ToolShell<TOptions>({
             onStartOver={reset}
             downloadButtonRef={downloadRef}
             report={result.report}
+            summary={result.summary}
+            notices={result.notices}
           />
           {renderDone ? renderDone({ result, options }) : null}
         </>

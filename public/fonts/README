@@ -1,0 +1,53 @@
+Fuentes del catalogo del editor de PDF (Wave 5, edicion de texto existente)
+
+Se sirven como archivos estaticos (/fonts/...) y el editor pide SOLO las
+variantes que un documento usa (carga perezosa). Se embeben en el PDF como
+SUBCONJUNTO con @pdf-lib/fontkit (unos pocos KB por fuente usada) y tambien
+sirven como @font-face de la vista previa (los navegadores si cargan TTF).
+
+Contenido
+- Liberation{Sans,Serif,Mono}-{Regular,Bold,Italic,BoldItalic}.ttf (12 archivos)
+  Liberation 2.1.5 (tabla `name`: "Version 2.1.5"), sin modificar. Clones
+  metricos de Arial/Helvetica, Times New Roman y Courier New; latin extendido,
+  griego y cirilico (~2300 caracteres por fuente). fsType = 0 (sin
+  restricciones de incrustacion ni de subconjunto).
+- LICENSE_LIBERATION.txt  SIL Open Font License 1.1, texto oficial incluido en el
+  paquete de origen (identico al LICENSE_LIBERATION de pdfjs-dist).
+  Digitized data (c) 2010 Google Corporation (Arimo, Tinos, Cousine);
+  (c) 2012 Red Hat, Inc. (nombre reservado "Liberation").
+- AUTHORS_LIBERATION.txt  Fichero AUTHORS del proyecto.
+
+Origen y verificacion (obtenidos el 2026-10-09)
+- Paquete npm `@formepdf/fonts-standard@0.28.0` (licencia OFL-1.1; distribuye
+  las 12 fuentes Liberation sin modificar en base64 dentro de
+  dist/generated/font-data.js). Integridad del tarball:
+  sha512-vFDQclp5vDWpqqT1sK7zMy8CLhX7+vLaX48UHi2xVLLd/VasOZ26HAXgP26LeKJRfrk7k/ZsVpH4Sso9jFjXoQ==
+  Se descargo y decodifico en un directorio temporal FUERA del proyecto; no es
+  dependencia de package.json. El paquete es de un mantenedor pequeno: la
+  verificacion se hizo sobre los propios TTF (version 2.1.5, URL de licencia
+  OFL en la tabla `name`, fsType 0, texto OFL y copyrights coherentes con el
+  proyecto original liberationfonts/liberation-fonts).
+- SHA-256 de cada TTF:
+  LiberationMono-Bold        bd62a0672d0b9b6710b01df434c80ad54fa5f0835207eb7b17b7a761463067bb
+  LiberationMono-BoldItalic  79451f3c09fe25116098853b7a2ca6e2436220ccc11af022979adbcf195be130
+  LiberationMono-Italic      605c01c711b44480a7508d349dfbf3264e81fa43d69e61cfa7d10b86e764c4d1
+  LiberationMono-Regular     f2b83c763e8afd21709333370bed4774337fae82267937e2b5aea7e2fbd922c1
+  LiberationSans-Bold        788abee4c806d660e8aee46689dd8540cd4bb98da03dcc9d171ce3efd99a9173
+  LiberationSans-BoldItalic  698da70fc191cc5f33ad4d6d3fe830fe4624b898ea2e3169955928b7c491f1ee
+  LiberationSans-Italic      e5bae5c4cde31f22142753855f4f8fb86da6ff39955ed3c0a11248b0d16948b0
+  LiberationSans-Regular     76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8
+  LiberationSerif-Bold       d754ba427cfe0bca54ae052384baa8f842da5bd6550ad4da024ac441e7a7d5ce
+  LiberationSerif-BoldItalic f17db8af71e24d2066b587546021d4f0b296be389512b658dec3c09affeb11a7
+  LiberationSerif-Italic     0e3dea9f8d613e006ccfa62201f33e265d19167bd0907725c3e145368b04fc2e
+  LiberationSerif-Regular    058ea80864aef09a23f45cbec2bb5400bc3dfbdea01c3f10538a21fcb497fb74
+
+Notas
+- Las tablas de glifos (src/lib/pdf/editFontCoverage.ts) estan generadas desde
+  estos TTF; un test las contrasta con el cmap real. Al cambiar las fuentes,
+  regenerarlas.
+- No usar WOFF/WOFF2: no se pueden embeber en un PDF.
+- /standard_fonts (fuentes de reemplazo de pdf.js, copia integra de
+  node_modules/pdfjs-dist/standard_fonts) es OTRA cosa: son Liberation Sans 1.07.4
+  y Foxit, con sus propias licencias (LICENSE_LIBERATION, LICENSE_FOXIT); solo
+  las lee pdf.js para dibujar, la aplicacion no las embebe en ningun PDF.
+  Refrescarla al subir de version pdfjs-dist.

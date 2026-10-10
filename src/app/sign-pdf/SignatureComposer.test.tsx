@@ -532,7 +532,7 @@ describe("SignatureComposer — el trazo tactil no arrastra la hoja", () => {
       );
       const dialog = screen.getByRole("dialog");
       // La hoja arranca fuera de pantalla: se espera a que termine de entrar.
-      await waitFor(() => expect(dialogY(dialog)).toBeCloseTo(0, 0), { timeout: 3000 });
+      await waitFor(() => expect(dialogY(dialog)).toBeCloseTo(0, 0));
       const target = canvas();
       const touch = { pointerId: 4, pointerType: "touch" as const };
       fireEvent.pointerDown(target, { ...touch, clientX: 100, clientY: 100 });

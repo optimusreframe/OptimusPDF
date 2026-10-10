@@ -245,7 +245,6 @@ describe("Vista continua dentro de Sign PDF (3 PDF de distinto tamano y paginas)
         const groupB = document.querySelector<HTMLElement>('[role="group"][aria-label^="2. b.pdf"]')!;
         expect(within(groupB).getByRole("button", { name: "Ir a la página 2 de b.pdf" }).textContent).toContain("2 · 1");
       },
-      { timeout: 4000 },
     );
     expect(tabs()[1].getAttribute("aria-current")).toBeNull();
     const group = await screen.findByRole("group", { name: /^Nombre, / });

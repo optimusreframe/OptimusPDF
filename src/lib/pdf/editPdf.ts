@@ -54,16 +54,6 @@ export type EditElementType =
   | "highlight"
   | "check";
 
-export const EDIT_ELEMENT_TYPES: readonly EditElementType[] = [
-  "text",
-  "image",
-  "rect",
-  "ellipse",
-  "line",
-  "highlight",
-  "check",
-] as const;
-
 export type EditElementBase = {
   /** Identificador estable para React keys y para la seleccion. */
   id: string;
@@ -250,59 +240,6 @@ export const DEFAULT_EDIT_STYLE: EditStyle = {
   checkMark: "check",
 };
 
-/**
- * Reaplica el estilo activo a un elemento ya creado. Solo toca los
- * campos que ese tipo entiende, asi que cambiar el grosor con un texto
- * seleccionado no lo altera.
- */
-export function applyStyleToElement(
-  element: EditElement,
-  style: EditStyle,
-): EditElement {
-  switch (element.type) {
-    case "text":
-      return {
-        ...element,
-        fontFamily: style.fontFamily,
-        fontSize: style.fontSize,
-        bold: style.bold,
-        italic: style.italic,
-        color: style.textColor,
-      };
-    case "rect":
-    case "ellipse":
-      return {
-        ...element,
-        strokeColor: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-        fill: style.fill,
-        fillColor: style.fillColor,
-        fillOpacity: style.fillOpacity,
-      };
-    case "line":
-      return {
-        ...element,
-        strokeColor: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-      };
-    case "check":
-      return {
-        ...element,
-        mark: style.checkMark,
-        strokeColor: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-      };
-    case "highlight":
-      return {
-        ...element,
-        color: style.highlightColor,
-        opacity: style.highlightOpacity,
-      };
-    default:
-      return element;
-  }
-}
-
 /* ------------------------------------------------------------------ *
  * Saneado y agrupado
  * ------------------------------------------------------------------ */
@@ -462,10 +399,36 @@ export function wrapText(
   size: number,
   maxWidth: number,
 ): string[] {
+  return wrapTextWith(font, text, size, maxWidth, (raw) =>
+    toWinAnsiSafe(raw).trim(),
+  );
+}
+
+/**
+ * Nucleo de `wrapText` con la limpieza de cada linea inyectable. El editor
+ * de texto existente (`editTextExport.ts`) lo usa con fuentes embebidas que
+ * cubren mas que WinAnsi: alli la limpieza la hace el catalogo de fuentes
+ * ANTES de medir, y `toWinAnsiSafe` convertiria en `?` justo lo que la
+ * fuente si sabe dibujar. `prepare` recibe cada linea sin saltos y debe
+ * devolver texto que `font` pueda medir.
+ *
+ * `hardLimit` (por defecto `maxWidth`, que reproduce `wrapText`) es el ancho
+ * a partir del cual una PALABRA se parte caracter a caracter. Entre `maxWidth`
+ * y `hardLimit` la palabra se queda entera en su linea y sobresale de la caja:
+ * partir "Servicios" en "Servicio/s" es peor que dejarla asomar.
+ */
+export function wrapTextWith(
+  font: PDFFont,
+  text: string,
+  size: number,
+  maxWidth: number,
+  prepare: (rawLine: string) => string,
+  hardLimit: number = maxWidth,
+): string[] {
   const lines: string[] = [];
 
   for (const rawLine of text.split(/\r?\n/)) {
-    const safe = toWinAnsiSafe(rawLine).trim();
+    const safe = prepare(rawLine);
     if (safe.length === 0) {
       lines.push("");
       continue;
@@ -473,12 +436,19 @@ export function wrapText(
 
     let current = "";
     for (const word of safe.split(/\s+/)) {
-      if (font.widthOfTextAtSize(word, size) > maxWidth) {
+      const wordWidth = font.widthOfTextAtSize(word, size);
+      if (wordWidth > maxWidth && wordWidth <= hardLimit) {
+        // Cabe en la pagina pero no en la caja: entera, en su propia linea.
+        if (current) lines.push(current);
+        current = word;
+        continue;
+      }
+      if (wordWidth > maxWidth) {
         if (current) {
           lines.push(current);
           current = "";
         }
-        const pieces = hardBreak(font, word, size, maxWidth);
+        const pieces = hardBreak(font, word, size, hardLimit);
         lines.push(...pieces.slice(0, -1));
         current = pieces[pieces.length - 1] ?? "";
         continue;

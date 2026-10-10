@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SignToolClient } from "@/app/sign-pdf/SignToolClient";
 import { clearAllDrafts } from "@/app/sign-pdf/signDrafts";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
@@ -37,8 +37,6 @@ vi.mock("@/lib/pdf/detectFields", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pdf/detectFields")>();
   return { ...actual, detectFields: vi.fn(async () => []) };
 });
-
-configure({ asyncUtilTimeout: 5000 });
 
 const strings = SIGN_STRINGS.es;
 

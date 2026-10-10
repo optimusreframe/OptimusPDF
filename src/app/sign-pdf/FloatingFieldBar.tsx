@@ -3,16 +3,20 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type ComponentProps,
   type RefObject,
+  type SyntheticEvent,
 } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { cn } from "@/lib/cn";
 import { springs, withCrossFadeOpacity } from "@/lib/motion";
+import { pickBarSpot } from "@/app/sign-pdf/barNeighbors";
 import {
   placeFloatingBar,
   type BarSide,
@@ -43,7 +47,8 @@ const REM = 16;
 /** Pestana inferior movil: barra de pestanas (4.5 rem) + barra de accion de ToolShell (4.25 rem). */
 const MOBILE_FIXED_BOTTOM_REM = 8.75;
 
-type Placement = { left: number; top: number; side: BarSide };
+/** `fixed`: acoplada al borde inferior de la ventana visual (coordenadas de ventana, no del escenario). */
+type Placement = { left: number; top: number; side: BarSide; fixed?: boolean };
 
 export type FloatingBarProps = {
   /** Escenario `relative` que contiene la tarjeta de la pagina. */
@@ -69,8 +74,55 @@ export type FloatingBarProps = {
   onTabForward: () => boolean;
   /** El foco paso a un elemento FUERA de la barra (Tab, Mayus+Tab...): quien abrio algo dentro lo cierra. */
   onFocusLeave?: () => void;
+  /**
+   * (W5-U5) Con la barra de zoom y paginas a media pantalla (aun sin fijar arriba), la barra
+   * flotante colocada ENCIMA de un bloque cae sobre ella y la nav (z-30) tapaba sus controles.
+   * Con esto la barra flotante va POR ENCIMA de la nav (z-40): sigue sobre el bloque (que queda
+   * libre para tocarlo otra vez) y todos sus controles reciben el toque. Firmar no lo activa:
+   * su comportamiento visible no cambia.
+   *
+   * Es tambien el interruptor de TODO lo especifico de Editar en la colocacion: medir la ventana
+   * visual (teclado virtual, zoom de pellizco), acoplarse abajo y desplazar la pagina. Por defecto
+   * (`false`) la barra se calcula exactamente como antes de la Wave 5.
+   */
+  aboveSticky?: boolean;
+  /** (W5-U5) Descripcion accesible (se lee una vez al entrar en la barra), p. ej. los atajos del elemento. */
+  description?: string;
   children: ReactNode;
 };
+
+/**
+ * Borde inferior (px de ventana) de lo que de verdad se ve. Con el teclado virtual
+ * abierto la ventana VISUAL es mas baja que `innerHeight`: la barra se coloca por
+ * encima del teclado, no detras (W5-U4b). Sin `visualViewport`, `innerHeight`.
+ */
+/** Calma (ms) del alto de la ventana visual antes de reajustar el desplazamiento de la barra acoplada. */
+const VIEWPORT_SETTLE_MS = 120;
+/** Ventana (ms) tras seleccionar en la que la barra de Editar ignora punteros (click fantasma del dedo). */
+const GHOST_CLICK_MS = 350;
+/** Un toque de hace menos de esto es el que acaba de seleccionar el elemento. */
+const TOUCH_SELECT_WINDOW_MS = 1000;
+
+export function usableViewportBottom(win: {
+  innerHeight: number;
+  visualViewport?: { offsetTop: number; height: number } | null;
+}): number {
+  const visual = win.visualViewport;
+  if (!visual || !Number.isFinite(visual.height) || visual.height <= 0) return win.innerHeight;
+  return Math.min(win.innerHeight, visual.offsetTop + visual.height);
+}
+
+/**
+ * Borde inferior que usa la barra para colocarse. Con `viewportAware` (Editar) es
+ * el de la ventana visual; sin el, EXACTAMENTE `innerHeight` como siempre (Firmar
+ * no cambia con teclado virtual ni zoom de pellizco).
+ */
+export function barViewportBottom(
+  win: { innerHeight: number; visualViewport?: { offsetTop: number; height: number } | null },
+  viewportAware: boolean,
+): number {
+  return viewportAware ? usableViewportBottom(win) : win.innerHeight;
+}
 
 function intersect(a: PxRect, b: PxRect): PxRect | null {
   const x = Math.max(a.x, b.x);
@@ -88,6 +140,30 @@ const toPx = (rect: DOMRect): PxRect => ({
   height: rect.height,
 });
 
+/**
+ * Superficie de la barra. Con `blockPointersOnExit` (Editar), mientras la barra SE VA (su animacion de salida dura
+ * ~120 ms, mas con la maquina cargada) deja de recibir punteros en el acto: tapaba el punto donde el usuario ya
+ * empezaba a dibujar con la herramienta recien elegida y el dibujo se perdia (W5-U5). Firmar no lo activa.
+ */
+function BarSurface({
+  surfaceRef,
+  blockPointersOnExit,
+  style,
+  ...rest
+}: ComponentProps<typeof motion.div> & {
+  surfaceRef: RefObject<HTMLDivElement | null>;
+  blockPointersOnExit: boolean;
+}) {
+  const present = useIsPresent();
+  return (
+    <motion.div
+      ref={surfaceRef}
+      {...rest}
+      style={blockPointersOnExit && !present ? { ...style, pointerEvents: "none" } : style}
+    />
+  );
+}
+
 export function FloatingFieldBar({
   stageRef,
   clipRef,
@@ -101,9 +177,12 @@ export function FloatingFieldBar({
   onTabBackward,
   onTabForward,
   onFocusLeave,
+  aboveSticky = false,
+  description,
   children,
 }: FloatingBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
+  const descriptionId = useId();
   const probeRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const [anchored, setAnchored] = useState(false);
@@ -111,6 +190,30 @@ export function FloatingFieldBar({
   const sideCallback = useRef(onSideChange);
   useEffect(() => {
     sideCallback.current = onSideChange;
+  });
+
+  const layoutKeyRef = useRef(layoutKey);
+  /** Ultima seleccion/geometria para la que ya se desplazo la pagina al acoplar la barra (una sola vez por una). */
+  const dockedScrollRef = useRef<string | null>(null);
+  /** Idem para el desplazamiento que descubre los tiradores cuando la paleta fija de abajo los taparia. */
+  const revealScrollRef = useRef<string | null>(null);
+  /** Alto de la ventana visual medido por la ultima pasada y si ya estuvo estable (teclado virtual, N6). */
+  const viewportHeightRef = useRef<{ height: number | null; settled: boolean; timer: number }>({
+    height: null,
+    settled: true,
+    timer: 0,
+  });
+  const computeRef = useRef<() => void>(() => {});
+  /**
+   * (W5-U5, N6) Con el dedo, los eventos de raton de compatibilidad (mousedown/mouseup/click) llegan DESPUES de
+   * `pointerup`: si la barra aparece (acoplada) justo bajo el dedo, caen en su primer control (el selector de fuente) y
+   * le roban el foco. Tras una seleccion HECHA CON EL DEDO, esos eventos «fantasma» —los que llegan a la barra sin que
+   * antes hubiera un `pointerdown` suyo— se descartan durante ~350 ms. Un toque nuevo, o un clic de raton, si pasan.
+   */
+  const ghostUntilRef = useRef(0);
+  const barPressRef = useRef(false);
+  useLayoutEffect(() => {
+    layoutKeyRef.current = layoutKey;
   });
 
   // Primitivas: la seleccion que llega del padre es un objeto nuevo en cada render.
@@ -138,7 +241,20 @@ export function FloatingFieldBar({
 
     const clipRect = toPx(clip.getBoundingClientRect());
     const pageRect = intersect(toPx(host.getBoundingClientRect()), clipRect);
-    const anchorRect = intersect(toPx(element.getBoundingClientRect()), clipRect);
+    let anchorRect = intersect(toPx(element.getBoundingClientRect()), clipRect);
+    if (anchorRect && aboveSticky && selKind === "text") {
+      // (W5-U5 · D1) Los tiradores externos (44 px bajo el bloque) y el asa de mover cuelgan FUERA de su caja: la barra
+      // no puede taparlos, asi que forman parte del ancla (para elegir lado y para el desplazamiento al acoplar).
+      for (const part of host.querySelectorAll<HTMLElement>("[data-resize-handle], [data-move-handle]")) {
+        const partRect = intersect(toPx(part.getBoundingClientRect()), clipRect);
+        if (!partRect) continue;
+        const left = Math.min(anchorRect.x, partRect.x);
+        const top = Math.min(anchorRect.y, partRect.y);
+        const right = Math.max(anchorRect.x + anchorRect.width, partRect.x + partRect.width);
+        const bottom = Math.max(anchorRect.y + anchorRect.height, partRect.y + partRect.height);
+        anchorRect = { x: left, y: top, width: right - left, height: bottom - top };
+      }
+    }
     if (!pageRect || !anchorRect) {
       // El elemento esta fuera de la parte visible de la pagina (zoom y desplazamiento).
       setPlacement(null);
@@ -146,7 +262,24 @@ export function FloatingFieldBar({
     }
 
     const viewportWidth = document.documentElement.clientWidth;
-    const viewportHeight = window.innerHeight;
+    // Solo Editar mide la ventana VISUAL (teclado virtual, zoom de pellizco); Firmar conserva `innerHeight`.
+    const viewportHeight = barViewportBottom(window, aboveSticky);
+    if (aboveSticky) {
+      // El alto cambia mientras el teclado se anima: el desplazamiento de acople espera ~120 ms de calma.
+      const tracked = viewportHeightRef.current;
+      const rounded = Math.round(viewportHeight);
+      if (tracked.height === null) {
+        tracked.height = rounded;
+      } else if (tracked.height !== rounded) {
+        tracked.height = rounded;
+        tracked.settled = false;
+        window.clearTimeout(tracked.timer);
+        tracked.timer = window.setTimeout(() => {
+          tracked.settled = true;
+          computeRef.current();
+        }, VIEWPORT_SETTLE_MS);
+      }
+    }
     const header = document.querySelector("header");
     let safeTop = 0;
     if (header) {
@@ -170,9 +303,11 @@ export function FloatingFieldBar({
     /** Parte baja de la ventana sin barras fijas (la paleta movil aun cuenta como zona libre). */
     let viewBottom = viewportHeight;
     const mobile = viewportWidth < 768;
+    // (W5-U5) Con el teclado virtual abierto las barras fijas de abajo quedan DETRAS de el: ya no restan sitio.
+    const keyboardOpen = aboveSticky && viewportHeight < window.innerHeight - 80;
     if (mobile) {
       const inset = probeRef.current?.offsetHeight ?? 0;
-      safeBottom = viewportHeight - MOBILE_FIXED_BOTTOM_REM * REM - inset;
+      safeBottom = keyboardOpen ? viewportHeight - 4 : viewportHeight - MOBILE_FIXED_BOTTOM_REM * REM - inset;
       viewBottom = safeBottom;
       const palette = document.querySelector<HTMLElement>("[data-tool-palette]");
       if (palette) {
@@ -210,10 +345,66 @@ export function FloatingFieldBar({
       gap: BAR_GAP,
       prefer,
     });
+    if (aboveSticky && mobile && selKind === "text" && placed.side !== "overlay") {
+      // (D1) La barra cabe, pero los tiradores externos de un bloque cerca de la paleta fija de abajo quedarian TAPADOS
+      // por ella: se sube la pagina (una vez por seleccion y alto de ventana) lo justo para dejarlos libres.
+      const overflow = anchorRect.y + anchorRect.height + 2 - safeBottom;
+      const revealKey = `${selKind}:${selId}:${layoutKeyRef.current}:${Math.round(viewportHeight)}`;
+      if (overflow > 0 && revealScrollRef.current !== revealKey && viewportHeightRef.current.settled) {
+        revealScrollRef.current = revealKey;
+        const delta = Math.max(0, Math.min(overflow, anchorRect.y - 4 - safeTop));
+        if (delta > 0) window.scrollBy({ top: delta, behavior: "instant" });
+      }
+    }
+    if (aboveSticky && placed.side === "overlay" && height > 0) {
+      // Ningun lado cabe sin tapar el elemento (pantalla estrecha, barra alta, teclado): la barra se ACOPLA al
+      // borde inferior util de la ventana visual y la pagina se desplaza (una vez) para que el elemento
+      // seleccionado quede visible POR ENCIMA de ella. Nunca se devuelve el caso en que su centro queda tapado.
+      const dockTop = Math.max(safeTop, safeBottom - height - 4);
+      // (N6) La clave incluye el alto de la ventana visual: si el teclado se abre/cierra DESPUES de acoplar, la barra
+      // sube/baja y hay que volver a poner el elemento por encima de ella; solo cuando el alto se estabiliza.
+      const scrollKey = `${selKind}:${selId}:${layoutKeyRef.current}:${Math.round(viewportHeight)}`;
+      if (dockedScrollRef.current !== scrollKey && viewportHeightRef.current.settled) {
+        dockedScrollRef.current = scrollKey;
+        const need = anchorRect.y + anchorRect.height + 8 - dockTop;
+        // (D1) El ancla ya incluye el asa de mover y los tiradores: solo se deja un margen minimo bajo la nav.
+        const room = anchorRect.y - 4 - safeTop;
+        const delta = Math.max(0, Math.min(need, room));
+        if (delta > 0) window.scrollBy({ top: delta, behavior: "instant" });
+      }
+      setPlacement((current) =>
+        current && current.fixed && current.left === Math.round(placed.x * 2) / 2 && current.top === dockTop
+          ? current
+          : { left: Math.round(placed.x * 2) / 2, top: dockTop, side: "overlay", fixed: true },
+      );
+      return;
+    }
+    let spot: { x: number; y: number; side: BarSide } = placed;
+    if (aboveSticky && selKind === "text" && !mobile && placed.side !== "overlay") {
+      // (minor b) En una tabla apretada, mejor al otro lado o junto al bloque que tapando el de al lado.
+      const neighbors: PxRect[] = [];
+      for (const other of host.querySelectorAll<HTMLElement>('[data-element-kind="text"][data-drag-mode="move"]')) {
+        if (other === element) continue;
+        const near = intersect(toPx(other.getBoundingClientRect()), clipRect);
+        if (near) neighbors.push(near);
+      }
+      if (neighbors.length > 0) {
+        spot = pickBarSpot({
+          placed: { x: placed.x, y: placed.y, side: placed.side },
+          anchor: anchorRect,
+          anchorPad: ANCHOR_PAD,
+          bar: { width, height },
+          safe: { x: 0, y: safeTop, width: viewportWidth, height: Math.max(0, safeBottom - safeTop) },
+          stage: { left: Math.max(stageRect.left, 8), right: Math.min(stageRect.right, viewportWidth - 8) },
+          gap: BAR_GAP,
+          neighbors,
+        });
+      }
+    }
     const next: Placement = {
-      left: Math.round((placed.x - stageRect.left) * 2) / 2,
-      top: Math.round((placed.y - stageRect.top) * 2) / 2,
-      side: placed.side,
+      left: Math.round((spot.x - stageRect.left) * 2) / 2,
+      top: Math.round((spot.y - stageRect.top) * 2) / 2,
+      side: spot.side,
     };
     setPlacement((current) =>
       current &&
@@ -223,7 +414,15 @@ export function FloatingFieldBar({
         ? current
         : next,
     );
-  }, [hostRef, stageRef, clipRef, selKind, selId, prefer]);
+  }, [hostRef, stageRef, clipRef, selKind, selId, prefer, aboveSticky]);
+
+  useEffect(() => {
+    computeRef.current = compute;
+  });
+  useEffect(() => {
+    const tracked = viewportHeightRef.current;
+    return () => window.clearTimeout(tracked.timer);
+  }, []);
 
   // Antes de pintar: asi la barra nunca se ve un frame en un sitio provisional.
   useLayoutEffect(compute, [compute, layoutKey, barSize.width, barSize.height, anchored]);
@@ -269,6 +468,28 @@ export function FloatingFieldBar({
     };
   }, [selKind, compute]);
 
+  /** Instante (ms) del ultimo toque con el dedo: solo ese gesto genera el click de compatibilidad. */
+  const lastTouchRef = useRef(Number.NEGATIVE_INFINITY);
+  useEffect(() => {
+    if (!aboveSticky) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "touch") lastTouchRef.current = performance.now();
+    };
+    window.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+    return () => window.removeEventListener("pointerdown", onPointerDown, { capture: true });
+  }, [aboveSticky]);
+  useEffect(() => {
+    if (!aboveSticky || selKind === null) return;
+    const touched = performance.now() - lastTouchRef.current < TOUCH_SELECT_WINDOW_MS;
+    ghostUntilRef.current = touched ? performance.now() + GHOST_CLICK_MS : 0;
+  }, [aboveSticky, selKind, selId]);
+  const stopGhost = (event: SyntheticEvent) => {
+    if (performance.now() < ghostUntilRef.current && !barPressRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
   const visible = selKind !== null && anchored;
   const side = visible && placement ? placement.side : null;
   useEffect(() => {
@@ -308,14 +529,30 @@ export function FloatingFieldBar({
       />
       <AnimatePresence>
         {visible ? (
-          <motion.div
+          <BarSurface
             key="bar"
-            ref={barRef}
+            surfaceRef={barRef}
+            blockPointersOnExit={aboveSticky}
             role="group"
             aria-label={label}
+            aria-describedby={description ? descriptionId : undefined}
             data-floating-bar=""
             data-side={placement?.side}
+            data-docked={placement?.fixed ? "" : undefined}
             onKeyDown={onKeyDown}
+            {...(aboveSticky
+              ? {
+                  onPointerDownCapture: () => {
+                    barPressRef.current = true;
+                  },
+                  onMouseDownCapture: stopGhost,
+                  onMouseUpCapture: stopGhost,
+                  onClickCapture: (event: SyntheticEvent) => {
+                    stopGhost(event);
+                    barPressRef.current = false;
+                  },
+                }
+              : {})}
             onBlur={(event) => {
               // Solo cuando el foco SALE a otro elemento: si el nodo enfocado se desmonta
               // (el selector de tipo sustituye a las acciones) no hay `relatedTarget`.
@@ -324,10 +561,16 @@ export function FloatingFieldBar({
                 onFocusLeave?.();
               }
             }}
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.12 } }}
-            transition={withCrossFadeOpacity(springs.snappy)}
+            // (W5-U5) La barra de Editar entra y sale solo con opacidad: el resorte de escala dejaba su caja moviendose
+            // (36 px en una barra ancha, cola de ~1 s) y nada que mida la posicion —un dedo, una prueba— la daba por quieta.
+            initial={aboveSticky ? { opacity: 0 } : { opacity: 0, scale: 0.92 }}
+            animate={aboveSticky ? { opacity: 1 } : { opacity: 1, scale: 1 }}
+            exit={
+              aboveSticky
+                ? { opacity: 0, transition: { duration: 0.1 } }
+                : { opacity: 0, scale: 0.96, transition: { duration: 0.12 } }
+            }
+            transition={aboveSticky ? { duration: 0.1 } : withCrossFadeOpacity(springs.snappy)}
             style={{
               left: placement?.left ?? 0,
               top: placement?.top ?? 0,
@@ -335,11 +578,19 @@ export function FloatingFieldBar({
               transformOrigin: placement?.side === "bottom" ? "top center" : "bottom center",
             }}
             className={cn(
-              "material-thick shadow-elevation-3 absolute z-20 flex w-max max-w-full flex-wrap items-center justify-center gap-1 rounded-ios p-1",
+              "material-thick shadow-elevation-3",
+              placement?.fixed ? "fixed" : "absolute",
+              aboveSticky ? "z-40" : "z-20",
+              "flex w-max max-w-full flex-wrap items-center justify-center gap-1 rounded-ios p-1",
             )}
           >
+            {description ? (
+              <span id={descriptionId} className="sr-only">
+                {description}
+              </span>
+            ) : null}
             {children}
-          </motion.div>
+          </BarSurface>
         ) : null}
       </AnimatePresence>
     </>

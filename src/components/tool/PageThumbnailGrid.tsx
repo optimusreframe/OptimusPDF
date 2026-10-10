@@ -74,8 +74,11 @@ function PageThumbnailGridInner({
   const headingRef = useRef<HTMLHeadingElement>(null);
   /* Boton "Quitar" de cada pagina, por id (la lista se reordena). */
   const removeButtonsRef = useRef(new Map<string, HTMLButtonElement>());
-  /* Posicion cuyo boton "Quitar" debe recibir el foco tras el proximo render. */
-  const pendingFocusRef = useRef<number | null>(null);
+  /*
+   * Pagina que se esta quitando: su posicion (para saber a que boton pasar el
+   * foco) y su id (para saber cuando el quitado ya esta confirmado).
+   */
+  const pendingFocusRef = useRef<{ index: number; id: string } | null>(null);
 
   useEffect(() => {
     changeRef.current = onItemsChange;
@@ -150,10 +153,15 @@ function PageThumbnailGridInner({
   // archivos. Si no queda ninguna, la fila de acciones desaparece y el foco
   // va al encabezado de la rejilla: nunca cae a <body>.
   useEffect(() => {
-    const index = pendingFocusRef.current;
-    if (index === null) return;
+    const pending = pendingFocusRef.current;
+    if (pending === null) return;
+    // Un efecto de un render anterior (la lista recien cargada) puede
+    // ejecutarse tras el clic pero antes de confirmarse el quitado: aun ve
+    // la pagina en la lista. Si consumiera el aviso ahora, el foco iria al
+    // boton que acaba desapareciendo y caeria a <body>.
+    if (items.some((item) => item.id === pending.id)) return;
     pendingFocusRef.current = null;
-    const next = items[Math.min(index, items.length - 1)];
+    const next = items[Math.min(pending.index, items.length - 1)];
     const target =
       (next ? removeButtonsRef.current.get(next.id) : null) ??
       headingRef.current;
@@ -186,7 +194,7 @@ function PageThumbnailGridInner({
   );
 
   const removeAt = useCallback((id: string, index: number) => {
-    pendingFocusRef.current = index;
+    pendingFocusRef.current = { index, id };
     setItems((previous) => previous.filter((item) => item.id !== id));
   }, []);
 

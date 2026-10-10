@@ -1784,3 +1784,48 @@ export async function removeProtection(
     throw toPdfError(error);
   }
 }
+
+/**
+ * (Wave 5 · U5) Copia SIN cifrado de un PDF protegido, para poder editarlo.
+ *
+ * A diferencia de `removeProtection`, NO toca las firmas ni pide
+ * consentimiento: solo retira el cifrado estandar con la contrasena dada
+ * (`""` abre los PDF que solo bloquean permisos). Quien la usa avisa por su
+ * cuenta de que editar invalida las firmas digitales. Lanza
+ * `UnlockError("wrongPassword")` si la contrasena no abre el documento y los
+ * demas `UnlockError` del motor (manejador no soportado, estructura dudosa).
+ * Un documento que no esta cifrado se devuelve tal cual.
+ */
+export async function decryptPdfCopy(file: File, password: string): Promise<Blob> {
+  const bytes = await readFileBytes(file);
+  if (bytes.byteLength === 0) throw new PdfError("corrupt");
+
+  const probe = await loadProbe(bytes);
+  const envelope = readEncryptionEnvelope(probe);
+  if (envelope.status === "incomplete") throw new UnlockError("inspectionIncomplete");
+  if (envelope.status === "unsupported") {
+    throw new UnlockError(unsupportedHandlerFailure(envelope.securityHandler));
+  }
+  if (envelope.status === "notEncrypted") {
+    return new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
+  }
+
+  // Se anota antes de descifrar: despues desaparece del trailer.
+  const encryptRef = probe.context.trailerInfo.Encrypt;
+  const document = await loadDecrypted(bytes, password, envelope.securityHandler);
+  try {
+    stripEncryption(document, encryptRef);
+    const blob = await savePdfToBlob(document);
+    // Comprobacion sobre los bytes reales: se tienen que poder releer sin contrasena.
+    const reloaded = await PDFDocument.load(new Uint8Array(await blob.arrayBuffer()), {
+      updateMetadata: false,
+    });
+    if (readEncryptionEnvelope(reloaded).status !== "notEncrypted") {
+      throw new UnlockError("inspectionIncomplete");
+    }
+    return blob;
+  } catch (error) {
+    if (error instanceof UnlockError) throw error;
+    throw toPdfError(error);
+  }
+}

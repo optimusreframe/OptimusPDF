@@ -315,9 +315,7 @@ describe("SignToolClient — modo Solo yo de punta a punta (jsdom)", () => {
       expect(run().some((button) => !(button as HTMLButtonElement).disabled)).toBe(true),
     );
     fireEvent.click(run().find((button) => !(button as HTMLButtonElement).disabled)!);
-    await waitFor(() => expect(screen.getByText("solo-firmado.pdf")).toBeTruthy(), {
-      timeout: 5000,
-    });
+    await waitFor(() => expect(screen.getByText("solo-firmado.pdf")).toBeTruthy());
   });
 
   it("alternar a Varios firmantes y volver conserva los campos rellenados (el estado es del documento)", async () => {

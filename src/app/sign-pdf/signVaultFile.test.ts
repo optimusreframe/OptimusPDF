@@ -316,7 +316,7 @@ describe("cifrado con contraseña — src/app/sign-pdf/signVaultFile.ts", () => 
     expect(result.entry.role).toBe("Directora");
     expect(result.entry.signature?.png).toEqual(ENTRY.signature.png);
     expect(result.entry.initials?.png).toEqual(ENTRY.initials.png);
-  }, 20_000);
+  });
 
   it("sin contraseña pide contraseña; con una incorrecta, wrongPassword", async () => {
     const out = await exported({ password: "secreta" });
@@ -328,12 +328,12 @@ describe("cifrado con contraseña — src/app/sign-pdf/signVaultFile.ts", () => 
     });
     expect(await importReason(file, "Secreta")).toBe("wrongPassword");
     expect(await importReason(file, "secreta")).toBe("ok");
-  }, 20_000);
+  });
 
   it("la misma contraseña con otra composicion Unicode abre el archivo", async () => {
     const out = await exported({ password: "ni\u00f1o-caf\u00e9" });
     expect(await importReason(asFile(out.blob), "nin\u0303o-cafe\u0301")).toBe("ok");
-  }, 20_000);
+  });
 
   it("cada exportacion usa sal e IV distintos", async () => {
     const a = await exported({ password: "x" });
@@ -343,7 +343,7 @@ describe("cifrado con contraseña — src/app/sign-pdf/signVaultFile.ts", () => 
     const [ma, mb] = [await read(a.blob), await read(b.blob)];
     expect(ma.kdf.salt).not.toBe(mb.kdf.salt);
     expect(ma.iv).not.toBe(mb.iv);
-  }, 20_000);
+  });
 
   describe("archivo manipulado: mismo error que contraseña incorrecta", () => {
     async function encrypted() {
@@ -365,7 +365,7 @@ describe("cifrado con contraseña — src/app/sign-pdf/signVaultFile.ts", () => 
         zip.file("vault.enc", bytes);
       });
       expect(await importReason(file, "secreta")).toBe("wrongPassword");
-    }, 20_000);
+    });
 
     it("el IV cambiado en el manifiesto exterior", async () => {
       const file = await tamper(await encrypted(), async (zip) => {
@@ -374,7 +374,7 @@ describe("cifrado con contraseña — src/app/sign-pdf/signVaultFile.ts", () => 
         zip.file("manifest.json", JSON.stringify(manifest));
       });
       expect(await importReason(file, "secreta")).toBe("wrongPassword");
-    }, 20_000);
+    });
 
     it("la sal cambiada en el manifiesto exterior", async () => {
       const file = await tamper(await encrypted(), async (zip) => {
@@ -383,7 +383,7 @@ describe("cifrado con contraseña — src/app/sign-pdf/signVaultFile.ts", () => 
         zip.file("manifest.json", JSON.stringify(manifest));
       });
       expect(await importReason(file, "secreta")).toBe("wrongPassword");
-    }, 20_000);
+    });
 
     it("el manifiesto exterior re-serializado (AAD distinto) aunque diga lo mismo", async () => {
       const file = await tamper(await encrypted(), async (zip) => {
@@ -391,7 +391,7 @@ describe("cifrado con contraseña — src/app/sign-pdf/signVaultFile.ts", () => 
         zip.file("manifest.json", JSON.stringify(JSON.parse(text), null, 2));
       });
       expect(await importReason(file, "secreta")).toBe("wrongPassword");
-    }, 20_000);
+    });
 
     it("parametros del KDF ajenos (iteraciones) se rechazan sin derivar nada", async () => {
       const file = await tamper(await encrypted(), async (zip) => {
@@ -466,7 +466,7 @@ describe("cifrado con contraseña — src/app/sign-pdf/signVaultFile.ts", () => 
     const file = await zipFile({ "manifest.json": outerManifest, "vault.enc": cipher });
 
     expect(await importReason(file, "pw")).toBe("invalid");
-  }, 20_000);
+  });
 });
 
 describe("sin crypto.subtle — src/app/sign-pdf/signVaultFile.ts", () => {
@@ -499,7 +499,7 @@ describe("sin crypto.subtle — src/app/sign-pdf/signVaultFile.ts", () => {
     stubWithoutSubtle();
     expect(await importReason(asFile(out.blob), "x")).toBe("encryptionUnavailable");
     expect(await importReason(asFile(out.blob))).toBe("encryptionUnavailable");
-  }, 20_000);
+  });
 });
 
 describe("importVaultFile — archivos hostiles o rotos — src/app/sign-pdf/signVaultFile.ts", () => {

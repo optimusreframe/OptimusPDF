@@ -16,6 +16,13 @@ import {
 } from "@/app/sign-pdf/clearLocalSignData";
 import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
+import { clearAllEditDrafts } from "@/app/edit-pdf/editDrafts";
+import {
+  EDIT_PDF_FEATURE_FLAGS,
+  EDIT_PDF_FEATURE_FLAG_AVAILABLE,
+  setEditPdfFeatureFlag,
+  useEditPdfFeatureFlags,
+} from "@/app/edit-pdf/editFeatureFlags";
 import {
   SIGN_PDF_FEATURE_FLAGS,
   setSignPdfFeatureFlag,
@@ -27,8 +34,9 @@ export function SettingsView() {
   const { theme, setTheme } = useTheme();
   const [cleared, setCleared] = useState(false);
   /** Almacenes que no se pudieron vaciar en el ultimo intento (vacio = bien). */
-  const [failed, setFailed] = useState<ClearFailure[]>([]);
+  const [failed, setFailed] = useState<(ClearFailure | "editDrafts")[]>([]);
   const signPdfFlags = useSignPdfFeatureFlags();
+  const editPdfFlags = useEditPdfFeatureFlags();
 
   return (
     <div className="mx-auto max-w-[800px] px-4 pt-10 pb-16 md:px-6 md:pt-16">
@@ -96,6 +104,31 @@ export function SettingsView() {
 
         <GlassCard className="p-6">
           <h2 className="text-headline text-foreground">
+            {t.settings.editPdfFeaturesTitle}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t.settings.editPdfFeaturesBody}
+          </p>
+          <div className="mt-5 space-y-4">
+            {EDIT_PDF_FEATURE_FLAGS.map((flag) => {
+              const available = EDIT_PDF_FEATURE_FLAG_AVAILABLE[flag];
+              return (
+                <Checkbox
+                  key={flag}
+                  label={t.settings.editPdfFeatures[flag].label}
+                  hint={t.settings.editPdfFeatures[flag].hint}
+                  // Una funcion aun no disponible se muestra deshabilitada y desmarcada.
+                  checked={available && editPdfFlags[flag]}
+                  disabled={!available}
+                  onChange={(enabled) => setEditPdfFeatureFlag(flag, enabled)}
+                />
+              );
+            })}
+          </div>
+        </GlassCard>
+
+        <GlassCard className="p-6">
+          <h2 className="text-headline text-foreground">
             {t.settings.dataTitle}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -112,12 +145,19 @@ export function SettingsView() {
                 // Async (IndexedDB): no se afirma "borrado" hasta que de verdad
                 // terminaron BIEN los borradores y el baul de firmas (que se
                 // borra aunque su flag este apagado). Si falla alguno se dice
-                // cual y el boton sigue sirviendo para reintentar.
+                // cual y el boton sigue sirviendo para reintentar. Los borradores
+                // del editor (otra base de IndexedDB) se vacian a la vez.
                 setCleared(false);
                 setFailed([]);
-                void clearLocalSignData().then((failures) => {
-                  setFailed(failures);
-                  setCleared(failures.length === 0);
+                void Promise.all([
+                  clearLocalSignData(),
+                  clearAllEditDrafts(),
+                ]).then(([failures, editDrafts]) => {
+                  const all: (ClearFailure | "editDrafts")[] = editDrafts.ok
+                    ? failures
+                    : [...failures, "editDrafts"];
+                  setFailed(all);
+                  setCleared(all.length === 0);
                 });
               }}
             >

@@ -2,7 +2,7 @@
 
 import { useId, type Ref } from "react";
 import { motion } from "motion/react";
-import { Check, Download, RotateCcw } from "lucide-react";
+import { Check, Download, Info, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ToolCard } from "@/components/tool/ToolCard";
 import {
@@ -30,6 +30,10 @@ export type DownloadScreenProps = {
    * archivo descargable).
    */
   report?: BatchReport;
+  /** Resumen de lo hecho, ya traducido (opcional). */
+  summary?: string;
+  /** Avisos de la exportacion, ya traducidos (opcional): lista accesible. */
+  notices?: { title: string; items: string[] };
 };
 
 /**
@@ -46,10 +50,23 @@ export function DownloadScreen({
   onStartOver,
   downloadButtonRef,
   report,
+  summary,
+  notices,
 }: DownloadScreenProps) {
   const { t, language } = useI18n();
   const reportId = useId();
+  const summaryId = useId();
+  const noticesId = useId();
+  const noticeItems = notices?.items ?? [];
   const showReport = hasPartialFailures(report);
+  const describedBy =
+    [
+      summary ? summaryId : null,
+      noticeItems.length > 0 ? noticesId : null,
+      showReport ? reportId : null,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
   const related = getRelatedTools(slug, 3);
 
   return (
@@ -87,6 +104,39 @@ export function DownloadScreen({
           </p>
         </div>
 
+        {summary ? (
+          <p
+            id={summaryId}
+            data-download-summary=""
+            className="mt-4 max-w-md text-subheadline text-foreground"
+          >
+            {summary}
+          </p>
+        ) : null}
+
+        {noticeItems.length > 0 && notices ? (
+          <div
+            id={noticesId}
+            role="group"
+            aria-labelledby={`${noticesId}-title`}
+            data-download-notices=""
+            className="mt-5 w-full max-w-lg rounded-ios border border-hairline bg-white/5 p-4 text-left"
+          >
+            <h3
+              id={`${noticesId}-title`}
+              className="flex items-center gap-2 text-subheadline font-semibold text-foreground"
+            >
+              <Info aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+              {notices.title}
+            </h3>
+            <ul className="mt-2 list-disc space-y-1.5 pl-5 text-footnote text-muted-foreground">
+              {noticeItems.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {report && showReport ? (
           <PartialFailureReport report={report} id={reportId} />
         ) : null}
@@ -96,7 +146,7 @@ export function DownloadScreen({
           size="lg"
           className="mt-7 min-w-56"
           onClick={onDownload}
-          aria-describedby={showReport ? reportId : undefined}
+          aria-describedby={describedBy}
         >
           <Download aria-hidden="true" className="size-5" />
           {t.tool.download}

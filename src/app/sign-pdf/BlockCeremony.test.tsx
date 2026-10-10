@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { BlockCeremony } from "@/app/sign-pdf/BlockCeremony";
 import {
   captureForBlock,
@@ -50,8 +50,6 @@ vi.mock("@/app/sign-pdf/signVault", async (importOriginal) => {
     },
   };
 });
-
-configure({ asyncUtilTimeout: 5000 });
 
 const strings = SIGN_STRINGS.es;
 

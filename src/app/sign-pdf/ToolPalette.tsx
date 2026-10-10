@@ -48,6 +48,26 @@ const TOOL_ICONS: Record<PlacementTool, typeof Type> = {
   date: CalendarDays,
 };
 
+/**
+ * Clases de cada boton de la paleta. Se exportan para que la paleta del editor
+ * de PDF (`edit-pdf/EditToolPalette`) tenga EXACTAMENTE el mismo aspecto sin
+ * tocar el contrato de esta (decision W5-U4a: una paleta propia que reutiliza
+ * las piezas, en vez de abrir `ToolPalette` a una lista generica).
+ */
+export function paletteItemClass(active: boolean, dimmed = false): string {
+  return cn(
+    "relative flex h-11 min-w-11 flex-1 items-center justify-center rounded-ios-sm",
+    "md:size-10 md:flex-none md:pointer-coarse:size-11",
+    "transition-[background-color,color,scale,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
+    "active:scale-[0.92] active:duration-[80ms]",
+    "focus-visible:outline-2 focus-visible:outline-offset-[-2px] outline-signal",
+    active
+      ? "bg-signal/25 text-foreground shadow-[inset_0_0_0_1.5px_var(--color-signal)] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
+      : "text-muted-foreground hover:bg-white/8 hover:text-foreground",
+    dimmed && "opacity-40",
+  );
+}
+
 type ItemKey = PlacementTool | "prev" | "next";
 
 export type ToolPaletteProps = {
@@ -142,18 +162,7 @@ export function ToolPalette({
     focusItem(keys[next]);
   };
 
-  const itemClass = (active: boolean, dimmed = false) =>
-    cn(
-      "relative flex h-11 min-w-11 flex-1 items-center justify-center rounded-ios-sm",
-      "md:size-10 md:flex-none md:pointer-coarse:size-11",
-      "transition-[background-color,color,scale,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
-      "active:scale-[0.92] active:duration-[80ms]",
-      "focus-visible:outline-2 focus-visible:outline-offset-[-2px] outline-signal",
-      active
-        ? "bg-signal/25 text-foreground shadow-[inset_0_0_0_1.5px_var(--color-signal)] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
-        : "text-muted-foreground hover:bg-white/8 hover:text-foreground",
-      dimmed && "opacity-40",
-    );
+  const itemClass = paletteItemClass;
 
   return (
     <div

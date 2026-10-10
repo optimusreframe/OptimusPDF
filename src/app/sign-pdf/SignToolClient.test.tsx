@@ -684,7 +684,7 @@ describe("SignToolClient — borradores locales y configuracion (WS8/WS9)", () =
           const drafts = await listDrafts();
           expect(drafts.some((draft) => draft.id === id)).toBe(true);
         },
-        { timeout: 3000, interval: 100 },
+        { interval: 100 },
       );
 
       const saved = (await listDrafts()).find((draft) => draft.id === id);
@@ -719,7 +719,6 @@ describe("SignToolClient — borradores locales y configuracion (WS8/WS9)", () =
       // El archivo quedo cargado sin pasar por el dropzone.
       expect(freshContainer.querySelector('input[type="file"]')).toBeTruthy();
     },
-    10_000,
   );
 
   it("importa una configuracion exportada y carga firmantes/campos sin volver a detectar", async () => {
@@ -872,7 +871,6 @@ describe("SignToolClient — borrador durante la ventana de 'Deshacer' (limitaci
       ).toBeNull();
       expect(screen.queryByText(strings.signerDeletedNotice)).toBeNull();
     },
-    10_000,
   );
 });
 
@@ -1763,7 +1761,6 @@ describe("SignToolClient — migracion de pasos a 'document' (W2-A)", () => {
       expect(screen.queryByRole("button", { name: "Nombre" })).toBeNull();
       expect(document.querySelector("form")).toBeNull();
     },
-    10_000,
   );
 
   it(
@@ -1810,7 +1807,6 @@ describe("SignToolClient — migracion de pasos a 'document' (W2-A)", () => {
           .getAttribute("aria-pressed"),
       ).toBe("true");
     },
-    10_000,
   );
 
   it(
@@ -1834,10 +1830,9 @@ describe("SignToolClient — migracion de pasos a 'document' (W2-A)", () => {
           const saved = (await listDrafts()).find((draft) => draft.id === id);
           expect(saved?.step).toBe("document");
         },
-        { timeout: 3000, interval: 100 },
+        { interval: 100 },
       );
     },
-    10_000,
   );
 
   it("una configuracion importada muestra sus campos y valores en el lienzo del paso Documento", async () => {

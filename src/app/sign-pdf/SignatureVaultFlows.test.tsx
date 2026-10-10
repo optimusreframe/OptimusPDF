@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { useCallback, useState } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within, configure } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -67,9 +67,6 @@ vi.mock("@/lib/pdf/detectFields", async (importOriginal) => {
 });
 
 const strings = SIGN_STRINGS.es;
-
-/* IndexedDB (fake) y las hojas animadas van mas lentas con toda la suite en paralelo. */
-configure({ asyncUtilTimeout: 5000 });
 
 beforeAll(() => {
   Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
@@ -664,7 +661,6 @@ describe("«Varios firmantes» con firmas guardadas — SigningCeremony", () => 
     // La salida animada del Sheet tarda mas de 1 s en jsdom.
     await waitFor(
       () => expect(screen.queryByRole("dialog", { name: strings.vaultTitle })).toBeNull(),
-      { timeout: 4000 },
     );
   });
 

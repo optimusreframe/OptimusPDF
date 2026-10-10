@@ -143,7 +143,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   "edit-pdf": {
     name: "Editar PDF",
     description:
-      "Añade texto, imágenes, formas y resaltados sobre las páginas del documento.",
+      "Edita el texto que ya trae el PDF y añade texto, imágenes y formas directamente sobre el documento.",
   },
   "sign-pdf": {
     name: "Firmar PDF",
@@ -230,7 +230,7 @@ const categories: Record<
   },
   edit: {
     label: "Editar y analizar",
-    description: "Anota, firma, numera y compara documentos.",
+    description: "Edita, firma, numera y compara documentos.",
   },
   security: {
     label: "Seguridad",
@@ -394,7 +394,7 @@ export const es = {
     languageBody: "Cambia el idioma de toda la interfaz.",
     dataTitle: "Datos locales",
     dataBody:
-      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y firmas; PDF completo y capturas de firma). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña.",
+      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y firmas; PDF completo y capturas de firma). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña. El editor de PDF también guarda un borrador automático (IndexedDB) con el documento completo y tus ediciones, para retomarlo si cierras la pestaña; tampoco sale del dispositivo y «Borrar datos locales» lo elimina (no se guarda borrador de los PDF protegidos con contraseña).",
     clearData: "Borrar datos locales",
     cleared: "Datos locales borrados.",
     aboutTitle: "Sobre la aplicación",
@@ -437,6 +437,19 @@ export const es = {
       multiDocument: {
         label: "Varios documentos a la vez",
         hint: "Permite cargar varios PDF en Firmar PDF y firmarlos en una sola ronda. Apagado, la herramienta trabaja con un único documento, como antes.",
+      },
+    },
+    editPdfFeaturesTitle: "Editor de PDF: funciones nuevas",
+    editPdfFeaturesBody:
+      "Estas opciones son solo de este navegador: no se sincronizan con ninguna cuenta ni salen de tu dispositivo.",
+    editPdfFeatures: {
+      editExistingText: {
+        label: "Editar el texto que ya trae el PDF",
+        hint: "Permite hacer clic en el texto existente y cambiarlo: el editor cubre el original y dibuja el nuevo encima. Apagado, el texto que ya trae el PDF no se puede tocar, pero el editor sigue permitiendo añadir texto, imágenes y formas.",
+      },
+      stripOriginalText: {
+        label: "Limpiar el contenido original del archivo (próximamente)",
+        hint: "Todavía no está disponible, por eso no se puede activar: la limpieza completa del contenido llegará en una versión posterior. Hoy el editor cubre y redibuja el texto, pero el texto original puede seguir existiendo bajo la edición y alguien que copie o busque en el PDF podría encontrarlo. Para quitarlo ya, «Aplanar página» (en el editor) convierte esa página en una imagen: el texto deja de existir en el archivo.",
       },
     },
   },

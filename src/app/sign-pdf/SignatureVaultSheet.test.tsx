@@ -1,7 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  configure,
   fireEvent,
   render,
   screen,
@@ -54,9 +53,6 @@ vi.mock("@/app/sign-pdf/signVaultFile", async (importOriginal) => {
 });
 
 const strings = SIGN_STRINGS.es;
-
-/* IndexedDB (fake) y las hojas animadas van mas lentas con toda la suite en paralelo. */
-configure({ asyncUtilTimeout: 5000 });
 
 beforeEach(async () => {
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
@@ -613,9 +609,13 @@ describe("SignatureVaultSheet — importar", () => {
     renderSheet();
     await screen.findByText("Firmante 0");
     await importFile(file);
-    expect(await screen.findByText(strings.vaultSaveLimit)).toBeTruthy();
+    // 30 firmas guardadas + exportar + importar sobre fake-indexeddb: ~1 s en
+    // reposo pero de lo mas lento de la suite (12 s+ medidos con la CPU muy
+    // repartida), por eso espera mas que el plazo global de 10 s, igual que
+    // los otros tests de importar/exportar de este archivo.
+    expect(await screen.findByText(strings.vaultSaveLimit, {}, { timeout: 25_000 })).toBeTruthy();
     expect((await listVault()).entries).toHaveLength(30);
-  }, 30000);
+  }, 60_000);
 });
 
 describe("SignatureVaultSheet — region de estado", () => {

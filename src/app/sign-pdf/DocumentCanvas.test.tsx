@@ -204,6 +204,39 @@ const startsWith = (prefix: string) =>
 const floatingBar = () => screen.getByRole("group", { name: BAR_NAME });
 
 /** Espera a que la vista previa simulada este montada. */
+/**
+ * Captura los `window.setTimeout` de EXACTAMENTE `delayMs` en vez de
+ * esperarlos de verdad. Los avisos «Deshacer» caducan a los 6 s con un
+ * temporizador de la propia app: esperarlo en tiempo real hacia que dos
+ * tests tardasen 6-7 s (y fallasen por plazo en una maquina cargada).
+ * Aqui se comprueba lo mismo, que lo dispara un temporizador de ESE plazo
+ * y que al dispararse desaparece el aviso, sin esperar el reloj. Los demas
+ * temporizadores (los de `waitFor`, por ejemplo) siguen siendo reales.
+ */
+function captureTimeouts(delayMs: number) {
+  const realSetTimeout = window.setTimeout.bind(window);
+  const captured: (() => void)[] = [];
+  const spy = vi.spyOn(window, "setTimeout").mockImplementation(((
+    handler: TimerHandler,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay === delayMs && typeof handler === "function") {
+      captured.push(() => (handler as (...a: unknown[]) => void)(...args));
+      return 0;
+    }
+    return realSetTimeout(handler, delay, ...args);
+  }) as typeof window.setTimeout);
+  return {
+    /** Dispara el temporizador vigente (el ultimo registrado), dentro de `act`. */
+    fireLatest() {
+      expect(captured.length).toBeGreaterThan(0);
+      act(() => captured[captured.length - 1]());
+    },
+    restore: () => spy.mockRestore(),
+  };
+}
+
 async function waitForPreview() {
   await waitFor(() =>
     expect(screen.getByAltText(strings.documentTitle)).toBeTruthy(),
@@ -1098,40 +1131,33 @@ describe("DocumentCanvas (campos de texto) — src/app/sign-pdf/DocumentCanvas.t
       expect(screen.queryByText(strings.textFieldDeletedNotice)).toBeNull();
     });
 
-    it(
-      "pasados 6s sin deshacer, el aviso desaparece y el borrado queda en firme",
-      async () => {
-        let last: DetectedField[] = [field];
-        render(
-          <TextHarness
-            initialFields={[field]}
-            onFieldsChange={(fields) => (last = fields)}
-            undoDeleteEnabled
-          />,
-        );
-        await waitForTextPreview();
+    it("pasados 6s sin deshacer, el aviso desaparece y el borrado queda en firme", async () => {
+      let last: DetectedField[] = [field];
+      render(
+        <TextHarness
+          initialFields={[field]}
+          onFieldsChange={(fields) => (last = fields)}
+          undoDeleteEnabled
+        />,
+      );
+      await waitForTextPreview();
 
+      // El temporizador de 6 s se captura ANTES de borrar (ver captureTimeouts).
+      const timers = captureTimeouts(6000);
+      try {
         selectField("Nombre");
         fireEvent.click(
           screen.getByRole("button", { name: startsWith(strings.removeTextField) }),
         );
         expect(screen.getByText(strings.textFieldDeletedNotice)).toBeTruthy();
 
-        // Timers reales de proposito (no fake): `waitFor` de Testing
-        // Library depende de temporizadores reales para sondear, y esto
-        // solo espera un `setTimeout` de la propia app, no un reloj
-        // simulado.
-        await waitFor(
-          () =>
-            expect(
-              screen.queryByText(strings.textFieldDeletedNotice),
-            ).toBeNull(),
-          { timeout: 6500, interval: 250 },
-        );
+        timers.fireLatest();
+        expect(screen.queryByText(strings.textFieldDeletedNotice)).toBeNull();
         expect(last).toHaveLength(0);
-      },
-      7000,
-    );
+      } finally {
+        timers.restore();
+      }
+    });
 
     it("borrar un segundo campo reemplaza el aviso pendiente: el primero ya no es deshacible", async () => {
       const fieldB: DetectedField = {
@@ -1788,7 +1814,7 @@ describe("DocumentCanvas — foco gestionado (W2-A)", () => {
     fireEvent.pointerDown(box, { pointerId: 1, clientX: 100, clientY: 100 });
     fireEvent.pointerUp(box, { pointerId: 1 });
     const input = screen.getByRole("textbox", { name: "Nombre" });
-    expect(document.activeElement).toBe(input);
+    await waitFor(() => expect(document.activeElement).toBe(input));
 
     fireEvent.keyDown(input, { key: "Escape", bubbles: true });
 
@@ -1838,27 +1864,27 @@ describe("DocumentCanvas — foco gestionado (W2-A)", () => {
     );
   });
 
-  it(
-    "si el aviso 'Deshacer' caduca (6 s) con el foco en su boton, el foco se recoloca (no cae a <body>)",
-    async () => {
-      render(<Harness initialFields={[SLOT]} undoDeleteEnabled />);
-      await waitForPreview();
+  it("si el aviso 'Deshacer' caduca (6 s) con el foco en su boton, el foco se recoloca (no cae a <body>)", async () => {
+    render(<Harness initialFields={[SLOT]} undoDeleteEnabled />);
+    await waitForPreview();
+    // El temporizador de 6 s se captura ANTES de borrar (ver captureTimeouts).
+    const timers = captureTimeouts(6000);
+    try {
       tapElement(screen.getByRole("group", { name: signatureLabel }));
       fireEvent.keyDown(window, { key: "Delete" });
       const undo = await screen.findByRole("button", { name: strings.undoRemoveField });
       await waitFor(() => expect(document.activeElement).toBe(undo));
 
-      await waitFor(
-        () => expect(screen.queryByRole("button", { name: strings.undoRemoveField })).toBeNull(),
-        { timeout: 8000 },
-      );
+      timers.fireLatest();
+      expect(screen.queryByRole("button", { name: strings.undoRemoveField })).toBeNull();
       expect(document.activeElement).not.toBe(document.body);
       expect(document.activeElement).toBe(
         screen.getByRole("button", { name: strings.addFieldHere }),
       );
-    },
-    12000,
-  );
+    } finally {
+      timers.restore();
+    }
+  });
 
   it("la region de estado del aviso 'Deshacer' esta montada antes de borrar nada", async () => {
     render(<Harness initialFields={[SLOT]} undoDeleteEnabled />);
@@ -2679,9 +2705,9 @@ describe("DocumentCanvas — barra flotante contextual (W2-B)", () => {
     box.focus();
     fireEvent.keyDown(box, { key: "Tab" });
     const first = floatingBar().querySelector<HTMLElement>("button")!;
-    expect(document.activeElement).toBe(first);
+    await waitFor(() => expect(document.activeElement).toBe(first));
     fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(textGroup("Nombre"));
+    await waitFor(() => expect(document.activeElement).toBe(textGroup("Nombre")));
   });
 
   it("Tab desde la ultima accion de la barra sigue con el siguiente elemento de la pagina", async () => {
@@ -2693,7 +2719,7 @@ describe("DocumentCanvas — barra flotante contextual (W2-B)", () => {
     const last = buttons[buttons.length - 1];
     last.focus();
     fireEvent.keyDown(last, { key: "Tab" });
-    expect(document.activeElement).toBe(textGroup("Correo"));
+    await waitFor(() => expect(document.activeElement).toBe(textGroup("Correo")));
   });
 
   it("Escape dentro de la barra devuelve el foco al elemento sin deseleccionarlo", async () => {
@@ -2704,7 +2730,7 @@ describe("DocumentCanvas — barra flotante contextual (W2-B)", () => {
     const button = floatingBar().querySelector<HTMLElement>("button")!;
     button.focus();
     fireEvent.keyDown(button, { key: "Escape" });
-    expect(document.activeElement).toBe(textGroup("Nombre"));
+    await waitFor(() => expect(document.activeElement).toBe(textGroup("Nombre")));
     expect(screen.getByRole("group", { name: BAR_NAME })).toBeTruthy();
   });
 
@@ -2715,7 +2741,7 @@ describe("DocumentCanvas — barra flotante contextual (W2-B)", () => {
     fireEvent.pointerUp(textGroup("Nombre"), { pointerId: 1 });
     const input = await screen.findByRole("textbox", { name: "Nombre" });
     await waitFor(() => expect(floatingBar()).toBeTruthy());
-    expect(document.activeElement).toBe(input);
+    await waitFor(() => expect(document.activeElement).toBe(input));
   });
 
   it("borrar desde la barra no deja el foco en <body>: va a 'Deshacer'", async () => {

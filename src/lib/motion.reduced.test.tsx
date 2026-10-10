@@ -1,6 +1,6 @@
-import { act, render } from "@testing-library/react";
-import { MotionConfig, animate, motion } from "motion/react";
-import { describe, expect, it } from "vitest";
+import { act, render, waitFor } from "@testing-library/react";
+import { MotionConfig, MotionGlobalConfig, animate, motion } from "motion/react";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { reducedAnimateOptions } from "./motion";
 
 /*
@@ -8,7 +8,20 @@ import { reducedAnimateOptions } from "./motion";
  * reduced motion (solo cambia COMO se llega al estado final, nunca el
  * estado final). jsdom se crea con pretendToBeVisual, asi que hay
  * requestAnimationFrame real (~16ms).
+ *
+ * Este archivo prueba el propio motor, asi que necesita la interpolacion
+ * real: el setup global activa `skipAnimations` (ver vitest.setup.dom.ts)
+ * y aqui se desactiva. En vez de dormir un plazo fijo y esperar que hayan
+ * pasado "los frames justos", cada espera es un `waitFor` sobre el estado
+ * que importa, de modo que no depende de lo cargada que este la maquina.
  */
+
+beforeAll(() => {
+  MotionGlobalConfig.skipAnimations = false;
+});
+afterAll(() => {
+  MotionGlobalConfig.skipAnimations = true;
+});
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -23,12 +36,14 @@ describe("animate(elementoDOM) con reducedAnimateOptions", () => {
     document.body.appendChild(el);
 
     animate(el, { x: -300, opacity: 0.2 }, reducedAnimateOptions({ duration: 1 }, true));
-    await sleep(60);
-
-    expect(translateX(el)).toBe(-300);
-    const opacity = Number(el.style.opacity);
-    expect(opacity).toBeGreaterThan(0.2);
-    expect(opacity).toBeLessThan(1);
+    // x salta al destino en el primer frame; opacity (duracion 1 s) sigue en
+    // camino. En ese primer frame opacity aun vale 1 (t = 0), por eso se
+    // espera a que haya avanzado algo antes de comprobar que no ha llegado.
+    await waitFor(() => {
+      expect(translateX(el)).toBe(-300);
+      expect(Number(el.style.opacity)).toBeLessThan(1);
+    });
+    expect(Number(el.style.opacity)).toBeGreaterThan(0.2);
     el.remove();
   });
 
@@ -37,11 +52,11 @@ describe("animate(elementoDOM) con reducedAnimateOptions", () => {
     document.body.appendChild(el);
 
     animate(el, { x: -300 }, reducedAnimateOptions({ duration: 1 }, false));
-    await sleep(60);
+    // Espera a que se pinte el primer frame (x deja de ser null) y comprueba
+    // que sigue en camino en vez de haber saltado al destino.
+    await waitFor(() => expect(translateX(el)).not.toBeNull());
 
-    const x = translateX(el);
-    expect(x).not.toBeNull();
-    expect(x).toBeGreaterThan(-300);
+    expect(translateX(el)).toBeGreaterThan(-300);
     el.remove();
   });
 });
@@ -60,12 +75,9 @@ describe("<MotionConfig reducedMotion=\"always\">", () => {
     );
     const box = getByTestId("box");
 
-    await act(async () => {
-      await sleep(400);
-    });
+    await waitFor(() => expect(Number(box.style.opacity)).toBe(0));
 
     expect(translateX(box)).toBe(-300);
-    expect(Number(box.style.opacity)).toBe(0);
   });
 
   it("initial={false}: no hay animacion de montaje, el estado final esta desde el primer frame", async () => {

@@ -404,7 +404,7 @@ export type SignStrings = {
     name: string,
     missing: readonly ("signature" | "initials")[],
   ) => string;
-  vaultClearFailed: (stores: readonly ("vault" | "drafts")[]) => string;
+  vaultClearFailed: (stores: readonly ("vault" | "drafts" | "editDrafts")[]) => string;
 
   /* --- Varios documentos (W4-U1) --- */
   documentsLabel: string;
@@ -960,7 +960,13 @@ const es: SignStrings = {
   },
   vaultClearFailed: (stores) =>
     `No se pudo borrar todo (${stores
-      .map((store) => (store === "vault" ? "firmas guardadas" : "borradores"))
+      .map((store) =>
+        store === "vault"
+          ? "firmas guardadas"
+          : store === "editDrafts"
+            ? "borradores del editor"
+            : "borradores",
+      )
       .join(" y ")}). Cierra las demás pestañas de OptimusPDF e inténtalo de nuevo.`,
 
   documentsLabel: "Documentos",
@@ -1509,7 +1515,13 @@ const en: SignStrings = {
   },
   vaultClearFailed: (stores) =>
     `Couldn't clear everything (${stores
-      .map((store) => (store === "vault" ? "saved signatures" : "drafts"))
+      .map((store) =>
+        store === "vault"
+          ? "saved signatures"
+          : store === "editDrafts"
+            ? "editor drafts"
+            : "drafts",
+      )
       .join(" and ")}). Close the other OptimusPDF tabs and try again.`,
 
   documentsLabel: "Documents",

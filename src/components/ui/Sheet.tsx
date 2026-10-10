@@ -51,6 +51,12 @@ export type SheetProps = {
    * firma.
    */
   mobileFullscreen?: boolean;
+  /**
+   * Al cerrarse, la hoja devuelve el foco a lo que lo tenia al abrirla. Si la accion que la cierra YA movio el foco a
+   * otro sitio (p. ej. duplicar un texto lo deja en la copia), esta funcion devuelve `false` y la hoja no se lo quita.
+   * Es una funcion (no una prop booleana) porque la hoja que sale conserva las props con que se renderizo por ultima vez.
+   */
+  restoreFocusOnClose?: () => boolean;
 };
 
 /**
@@ -145,6 +151,7 @@ function SheetPanel({
   children,
   className,
   mobileFullscreen = false,
+  restoreFocusOnClose,
 }: Omit<SheetProps, "open">) {
   const [isPresent, safeToRemove] = usePresence();
   const reduced = useReducedMotionPref();
@@ -347,10 +354,16 @@ function SheetPanel({
     };
   }, []);
 
+  const restoreFocusRef = useRef(restoreFocusOnClose);
+  useEffect(() => {
+    restoreFocusRef.current = restoreFocusOnClose;
+  });
   useEffect(() => {
     const previouslyFocused = document.activeElement;
     panelRef.current?.focus({ preventScroll: true });
     return () => {
+      // Se lee al CERRAR (no al montar): lo decide la accion que cierra la hoja.
+      if (restoreFocusRef.current && !restoreFocusRef.current()) return;
       if (
         previouslyFocused instanceof HTMLElement &&
         previouslyFocused.isConnected

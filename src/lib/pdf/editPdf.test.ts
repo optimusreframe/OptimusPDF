@@ -8,20 +8,17 @@ import {
 } from "@cantoo/pdf-lib";
 import {
   CHECK_STROKES,
-  DEFAULT_EDIT_STYLE,
   MAX_FONT_SIZE,
   MIN_ELEMENT_SIDE,
   MIN_FONT_SIZE,
   MIN_STROKE_WIDTH,
   MAX_STROKE_WIDTH,
   applyEdits,
-  applyStyleToElement,
   groupElementsByPage,
   sanitizeElement,
   wrapText,
   type CheckElement,
   type EditElement,
-  type EditStyle,
   type EllipseElement,
   type HighlightElement,
   type ImageElement,
@@ -293,72 +290,6 @@ describe("groupElementsByPage — src/lib/pdf/editPdf.ts", () => {
     expect([...grouped.keys()].sort()).toEqual([0, 1]);
     expect(grouped.get(1)?.map((element) => element.id)).toEqual(["a", "c"]);
     expect(grouped.get(0)?.map((element) => element.id)).toEqual(["b"]);
-  });
-});
-
-describe("applyStyleToElement — src/lib/pdf/editPdf.ts", () => {
-  const style: EditStyle = {
-    ...DEFAULT_EDIT_STYLE,
-    fontFamily: "times",
-    fontSize: 22,
-    bold: true,
-    italic: true,
-    textColor: "#123456",
-    strokeColor: "#abcdef",
-    strokeWidth: 5,
-    fill: true,
-    fillColor: "#654321",
-    fillOpacity: 0.9,
-    highlightColor: "#00ff00",
-    highlightOpacity: 0.6,
-  };
-
-  it("reaplica solo los campos de estilo que el tipo 'text' entiende", () => {
-    const original = textElement({ x: 0.42 });
-    const restyled = applyStyleToElement(original, style) as TextElement;
-
-    expect(restyled.fontFamily).toBe("times");
-    expect(restyled.fontSize).toBe(22);
-    expect(restyled.bold).toBe(true);
-    expect(restyled.italic).toBe(true);
-    expect(restyled.color).toBe("#123456");
-    // Geometria y contenido intactos.
-    expect(restyled.x).toBe(0.42);
-    expect(restyled.text).toBe(original.text);
-  });
-
-  it("reaplica los campos de forma en rect/ellipse sin tocar la geometria", () => {
-    const restyled = applyStyleToElement(rectElement(), style) as RectElement;
-    expect(restyled.strokeColor).toBe("#abcdef");
-    expect(restyled.strokeWidth).toBe(5);
-    expect(restyled.fill).toBe(true);
-    expect(restyled.fillColor).toBe("#654321");
-    expect(restyled.fillOpacity).toBe(0.9);
-  });
-
-  it("reaplica solo trazo en 'line' y color/opacidad en 'highlight'", () => {
-    const restyledLine = applyStyleToElement(lineElement(), style) as LineElement;
-    expect(restyledLine.strokeColor).toBe("#abcdef");
-    expect(restyledLine.strokeWidth).toBe(5);
-
-    const restyledHighlight = applyStyleToElement(
-      highlightElement(),
-      style,
-    ) as HighlightElement;
-    expect(restyledHighlight.color).toBe("#00ff00");
-    expect(restyledHighlight.opacity).toBe(0.6);
-  });
-
-  it("reaplica trazo y simbolo en 'check' sin tocar la caja", () => {
-    const restyled = applyStyleToElement(checkElement(), {
-      ...style,
-      checkMark: "cross",
-    }) as CheckElement;
-    expect(restyled.mark).toBe("cross");
-    expect(restyled.strokeColor).toBe("#abcdef");
-    expect(restyled.strokeWidth).toBe(5);
-    expect(restyled.x).toBe(0.2);
-    expect(restyled.width).toBe(0.1);
   });
 });
 

@@ -117,7 +117,7 @@ describe("PrivacyNotice — «Borrar datos»", () => {
     expect((await listVault()).entries).toHaveLength(1);
 
     // Reintento: espera a que la hoja de confirmacion anterior termine de salir.
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await confirmClear();
     expect(await screen.findByText(strings.privacyDataCleared)).toBeTruthy();
     expect(screen.queryByText(strings.vaultClearFailed(["vault"]))).toBeNull();
