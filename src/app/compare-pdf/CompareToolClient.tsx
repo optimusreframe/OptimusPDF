@@ -1,28 +1,31 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { AlertTriangle, GitCompare, RotateCcw, X } from "lucide-react";
+import { GitCompare, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { ErrorBanner } from "@/components/tool/ErrorBanner";
+import { blockedRunText, errorCopy } from "@/components/tool/errorCopy";
+import { useOwnToolFocus } from "@/components/tool/useOwnToolFocus";
+import { useReplaceFilePicker } from "@/components/tool/useReplaceFilePicker";
 import { FileDropzone } from "@/components/tool/FileDropzone";
+import { FileList } from "@/components/tool/FileList";
 import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
+import { useInputProblem } from "@/components/tool/useInputProblem";
 import { ToolCard } from "@/components/tool/ToolCard";
 import { DiffColumn } from "@/app/compare-pdf/DiffColumn";
 import { COMPARE_STRINGS } from "@/app/compare-pdf/strings";
 import { cn } from "@/lib/cn";
-import { localeTag, useI18n } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { addRecentEntry } from "@/lib/recent";
-import {
-  formatFileSize,
-  toPdfError,
-  type PdfErrorCode,
-} from "@/lib/pdf/core";
+import { toPdfError, type PdfErrorCode } from "@/lib/pdf/core";
 import { comparePdfFiles, type CompareResult } from "@/lib/pdf/compare";
 import {
   ACCENT_BG_SOFT,
   ACCENT_TEXT,
   getRelatedTools,
   getTool,
+  toolHref,
   type Tool,
 } from "@/lib/tools-registry";
 
@@ -58,6 +61,13 @@ export function CompareToolClient() {
   const [onlyChanged, setOnlyChanged] = useState(true);
   const runIdRef = useRef(0);
 
+  const { problem, checking } = useInputProblem([fileA, fileB]);
+  const bannerCode = problem?.code ?? (error && error !== "cancelled" ? error : null);
+  const { ask, bannerRef, runRef, areaRef } = useOwnToolFocus({
+    bannerKey: bannerCode ? (problem ? `file-${problem.code}` : bannerCode) : null,
+    checking,
+  });
+
   const reset = useCallback(() => {
     runIdRef.current += 1;
     setFileA(null);
@@ -67,7 +77,8 @@ export function CompareToolClient() {
     setError(null);
     setOnlyChanged(true);
     setPhase("idle");
-  }, []);
+    ask("attention");
+  }, [ask]);
 
   const run = useCallback(async () => {
     if (!fileA || !fileB) {
@@ -101,7 +112,53 @@ export function CompareToolClient() {
     setProgress(0);
     setError("cancelled");
     setPhase("idle");
-  }, []);
+    ask("run");
+  }, [ask]);
+
+  const code = problem?.code ?? error;
+  const picker = useReplaceFilePicker({
+    tool: SLOT_TOOL,
+    // El archivo elegido ocupa el hueco del que tenia el problema (A o B).
+    onPick: (file) => {
+      if (problem?.file === fileA) setFileA(file);
+      else if (problem?.file === fileB) setFileB(file);
+      setError(null);
+      ask("attention");
+    },
+    onInvalid: setError,
+  });
+  const banner =
+    code && code !== "cancelled"
+      ? {
+          key: problem ? `file-${problem.code}` : code,
+          ...errorCopy(t, code, { fileProblem: problem !== null }),
+          detail: problem
+            ? t.tool.fileProblemFile.replace("{name}", problem.file.name)
+            : undefined,
+          actions: [
+            ...(code === "encrypted"
+              ? [{ id: "unlock", label: t.tool.errors.encryptedAction, href: toolHref("unlock-pdf"), primary: true }]
+              : []),
+            ...(problem
+              ? [
+                  { id: "choose", label: t.tool.chooseAnother, primary: code !== "encrypted" },
+                  { id: "remove", label: t.tool.removeFile },
+                ]
+              : []),
+          ],
+        }
+      : null;
+  const onBannerAction = (action: { id?: string }) => {
+    if (action.id === "choose") {
+      picker.open();
+      return;
+    }
+    if (action.id !== "remove" || !problem) return;
+    if (problem.file === fileA) setFileA(null);
+    if (problem.file === fileB) setFileB(null);
+    setError(null);
+    ask("attention");
+  };
 
   const visiblePages =
     result?.pages.filter((page) => !onlyChanged || page.changed) ?? [];
@@ -122,9 +179,6 @@ export function CompareToolClient() {
             <h1 className="text-title-1 text-foreground">
               {copy.name}
             </h1>
-            <Badge variant="live" dot>
-              {t.common.live}
-            </Badge>
           </div>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             {copy.description}
@@ -132,59 +186,69 @@ export function CompareToolClient() {
         </div>
       </header>
 
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-ios mb-6 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4"
-        >
-          <AlertTriangle
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-destructive"
-          />
-          <div>
-            <p className="ui-label text-destructive-text">
-              {t.tool.errors.title}
-            </p>
-            <p className="mt-1 text-sm text-foreground">{t.tool.errors[error]}</p>
-          </div>
-        </div>
-      ) : null}
+      <ErrorBanner
+        show={banner !== null}
+        errorKey={banner?.key}
+        title={banner?.title ?? ""}
+        message={banner?.message ?? ""}
+        hint={banner?.hint}
+        detail={banner?.detail}
+        actions={banner?.actions}
+        onAction={onBannerAction}
+        variant={banner?.kind ?? "error"}
+        bannerRef={bannerRef}
+        onDismiss={problem ? undefined : () => setError(null)}
+        dismissLabel={t.common.close}
+      />
+      {banner ? picker.input : null}
+      {/* Cancelar no es un fallo: aviso neutro en la region viva (como en ToolShell). */}
+      <p role="status" aria-live="polite" className={error === "cancelled" ? "mb-6 text-subheadline text-muted-foreground" : undefined}>
+        {error === "cancelled" ? t.tool.errors.cancelled : null}
+      </p>
 
       {phase !== "done" ? (
         <>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2" ref={areaRef as React.RefObject<HTMLDivElement>}>
             <CompareSlot
               title={strings.slotA}
               hint={strings.slotHintA}
-              replaceLabel={strings.replace}
+              addLabel={strings.addSlotA}
               file={fileA}
-              onFileChange={setFileA}
+              onFileChange={(next) => {
+                setFileA(next);
+                if (!next) ask("attention");
+              }}
               onError={setError}
-              locale={localeTag(language)}
             />
             <CompareSlot
               title={strings.slotB}
               hint={strings.slotHintB}
-              replaceLabel={strings.replace}
+              addLabel={strings.addSlotB}
               file={fileB}
-              onFileChange={setFileB}
+              onFileChange={(next) => {
+                setFileB(next);
+                if (!next) ask("attention");
+              }}
               onError={setError}
-              locale={localeTag(language)}
             />
           </div>
 
           <div className="mt-8 flex flex-col items-start gap-3">
             <Button
+              ref={runRef}
               size="lg"
-              disabled={!fileA || !fileB}
+              disabled={!fileA || !fileB || problem !== null || checking}
+              aria-describedby={!fileA || !fileB || problem ? "compare-run-reason" : undefined}
               onClick={() => void run()}
               className="w-full md:w-auto"
             >
               <GitCompare aria-hidden="true" className="size-4" />
               {strings.run}
             </Button>
-            {!fileA || !fileB ? (
-              <p className="text-xs text-muted-foreground">{strings.needBoth}</p>
+            {!fileA || !fileB || problem ? (
+              <p id="compare-run-reason" className="text-footnote text-muted-foreground">
+                {problem ? blockedRunText(t, strings.run) : strings.needBoth}
+              </p>
             ) : null}
             <p className="text-footnote text-muted-foreground">
               {t.tool.localNotice}
@@ -324,19 +388,17 @@ function Legend({ className, label }: { className: string; label: string }) {
 function CompareSlot({
   title,
   hint,
-  replaceLabel,
+  addLabel,
   file,
   onFileChange,
   onError,
-  locale,
 }: {
   title: string;
   hint: string;
-  replaceLabel: string;
+  addLabel: string;
   file: File | null;
   onFileChange: (file: File | null) => void;
   onError: (code: PdfErrorCode) => void;
-  locale: string;
 }) {
   return (
     <div>
@@ -345,25 +407,7 @@ function CompareSlot({
       </h2>
       <p className="mb-3 text-xs text-muted-foreground">{hint}</p>
       {file ? (
-        <div className="glass rounded-ios flex items-center gap-3 p-4">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">
-              {file.name}
-            </p>
-            <p className="mt-1 text-footnote text-muted-foreground tabular-nums">
-              {formatFileSize(file.size, locale)}
-            </p>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={replaceLabel}
-            title={replaceLabel}
-            onClick={() => onFileChange(null)}
-          >
-            <X aria-hidden="true" className="size-4" />
-          </Button>
-        </div>
+        <FileList files={[file]} onChange={(next) => onFileChange(next[0] ?? null)} />
       ) : (
         <FileDropzone
           tool={SLOT_TOOL}
@@ -371,6 +415,7 @@ function CompareSlot({
           onFilesChange={(next) => onFileChange(next[0] ?? null)}
           onError={onError}
           compact
+          addLabel={addLabel}
         />
       )}
     </div>

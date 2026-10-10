@@ -258,7 +258,7 @@ export const es = {
     light: "Claro",
     dark: "Oscuro",
     system: "Sistema",
-    skipToContent: "Ir al contenido",
+    skipToContent: "Saltar al contenido",
     openMenu: "Abrir menú",
     closeMenu: "Cerrar menú",
   },
@@ -328,8 +328,46 @@ export const es = {
     partialReportTitle: "{ok} de {total} documentos firmados",
     partialReportIntro: "No se pudo firmar:",
     partialReportItem: "{name} ({reason})",
+    // Archivo con problemas (Wave 6 · U1/U3): banner con acciones.
+    fileProblemTitle: "No se puede usar este archivo",
+    fileProblemFile: "Archivo: {name}",
+    chooseAnother: "Elegir otro archivo",
+    removeFile: "Quitar archivo",
+    enterPassword: "Escribir la contraseña",
+    openRepair: "Abrir Reparar PDF",
+    needPageSelected: "Deja marcada al menos una página para poder unir.",
+    blockedRun: "{action} se activa cuando cambies o quites el archivo marcado.",
+    largeFileTitle: "Archivo muy grande",
+    encryptedSheetMessage:
+      "Este PDF está protegido con contraseña. Escríbela para trabajar con una copia sin protección; la contraseña no se guarda.",
+    restrictedNotice:
+      "{name}: este PDF tenía restricciones de edición o impresión; trabajas con una copia sin ellas.",
+    decryptedNotice:
+      "{name}: trabajas con una copia sin contraseña. No se guardará la contraseña y el resultado saldrá sin cifrar.",
+    password: {
+      title: "PDF con contraseña",
+      body: "Escríbela para abrirlo. Solo se usa en tu navegador y no se guarda. El resultado saldrá sin contraseña.",
+      label: "Contraseña",
+      show: "Mostrar la contraseña",
+      hide: "Ocultar la contraseña",
+      submit: "Abrir documento",
+      opening: "Abriendo…",
+      cancel: "Cancelar",
+      wrong: "La contraseña no es correcta. Revísala e inténtalo de nuevo.",
+      failed: "No se pudo abrir el documento con esa contraseña. Inténtalo de nuevo.",
+      close: "Cerrar",
+    },
+    errorHints: {
+      corrupt: "Prueba con «Reparar PDF» o elige otro archivo.",
+      tooLarge: "Si falla, prueba con un archivo más pequeño.",
+      tooLargeSplit: "Si falla, prueba con un archivo más pequeño: puedes dividirlo antes con «Dividir PDF».",
+      unknown: "Si se repite, prueba con otro archivo.",
+    },
     errors: {
       title: "No se pudo completar",
+      emptyFile: "El archivo está vacío (0 bytes). Elige otro archivo.",
+      notPdf:
+        "Este archivo no es un PDF, aunque su nombre termine en .pdf (puede ser una imagen u otro formato renombrado). Elige un PDF de verdad.",
       invalidType: "Ese formato no sirve para esta herramienta.",
       encryptedAction: "Abrir Desbloquear PDF",
       encrypted:
@@ -353,7 +391,7 @@ export const es = {
         "No pudimos comprobar con seguridad las restricciones de este PDF, así que no vamos a crear una copia que podría conservar protecciones sin avisarte.",
       nothingSelected: "Selecciona o marca algo antes de procesar.",
       ocrNetworkFailure:
-        "No se pudieron descargar los archivos del motor de OCR. Comprueba tu conexión y vuelve a intentarlo.",
+        "No se pudo cargar el motor de OCR. Comprueba tu conexión e inténtalo de nuevo.",
       ocrEngineFailure:
         "El motor de OCR falló al leer este documento. Vuelve a intentarlo; si persiste, puede que esas páginas escaneadas no se puedan reconocer.",
       modelDownloadFailure:

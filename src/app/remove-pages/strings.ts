@@ -13,6 +13,8 @@ export type RemovePagesStrings = {
   unmarkLabel: string;
   clear: string;
   markedNone: string;
+  /** Motivo junto a «Procesar» desactivado: nada marcado. */
+  needMark: string;
   marked: (count: number) => string;
   kept: (kept: number, total: number) => string;
   largeFile: string;
@@ -35,6 +37,7 @@ const STRINGS: Record<Language, RemovePagesStrings> = {
     unmarkLabel: "Conservar esta página",
     clear: "Quitar todas las marcas",
     markedNone: "Ninguna página marcada: el documento saldría igual que entró.",
+    needMark: "Marca al menos una página para quitar.",
     marked: (count) =>
       count === 1 ? "1 página marcada" : `${count} páginas marcadas`,
     kept: (kept, total) => `Quedan ${kept} de ${total} páginas`,
@@ -56,6 +59,7 @@ const STRINGS: Record<Language, RemovePagesStrings> = {
     unmarkLabel: "Keep this page",
     clear: "Clear every mark",
     markedNone: "No page marked: the document would come out exactly as it went in.",
+    needMark: "Mark at least one page to remove.",
     marked: (count) =>
       count === 1 ? "1 page marked" : `${count} pages marked`,
     kept: (kept, total) => `${kept} of ${total} pages stay`,

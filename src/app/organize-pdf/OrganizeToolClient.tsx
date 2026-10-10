@@ -103,6 +103,22 @@ export function OrganizeToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_OPTIONS}
       process={process}
+      canRun={(files, options) => {
+        // Hasta que el tablero lee las paginas no hay plan.
+        if (options.signature !== fileKey(files[0]) || options.items.length === 0) {
+          return { ok: false, reason: "" };
+        }
+        // Un plan identico al documento (mismo orden, sin giros, sin cambios) devolveria el mismo PDF.
+        const untouched =
+          options.items.length === realPageCount &&
+          options.items.every(
+            (item, index) =>
+              item.kind === "existing" &&
+              item.page === index + 1 &&
+              item.rotation % 360 === 0,
+          );
+        return untouched ? { ok: false, reason: strings.needChange } : { ok: true };
+      }}
       renderMain={({ files, options, setOptions }) => (
         <OrganizeBoard
           key={fileKey(files[0])}

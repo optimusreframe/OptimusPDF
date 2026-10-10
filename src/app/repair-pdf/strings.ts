@@ -56,6 +56,9 @@ export type RepairStrings = {
 
   /** Errores. */
   errorTitle: string;
+  /** Aviso de «Listo» cuando el PDF solo restringia editar/imprimir y se reparo una copia sin esas restricciones. */
+  restrictedCopyTitle: string;
+  restrictedCopyNotice: string;
   errors: Record<RepairFailure, string>;
 
   /** Sufijo del archivo descargado. */
@@ -124,6 +127,9 @@ const ES: RepairStrings = {
   failedPages: (list) => `Páginas que no se pudieron rescatar: ${list}.`,
 
   errorTitle: "No se pudo reparar",
+  restrictedCopyTitle: "Copia sin restricciones",
+  restrictedCopyNotice:
+    "Este PDF tenía restricciones de edición o impresión (cifrado de solo propietario): se ha reparado una copia sin ellas.",
   errors: {
     unreadable:
       "No se reconoció ningún PDF dentro de este archivo. No hay nada que reconstruir: puede que el contenido se haya perdido por completo o que no sea un PDF.",
@@ -198,6 +204,9 @@ const EN: RepairStrings = {
   failedPages: (list) => `Pages that could not be salvaged: ${list}.`,
 
   errorTitle: "Could not repair",
+  restrictedCopyTitle: "Copy without restrictions",
+  restrictedCopyNotice:
+    "This PDF had editing or printing restrictions (owner-only encryption): a copy without them has been repaired.",
   errors: {
     unreadable:
       "No PDF was recognised inside this file. There is nothing to rebuild: the content may be lost entirely, or this may not be a PDF.",

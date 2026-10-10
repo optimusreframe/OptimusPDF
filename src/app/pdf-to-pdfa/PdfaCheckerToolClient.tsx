@@ -14,8 +14,14 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { ErrorBanner } from "@/components/tool/ErrorBanner";
+import { blockedRunText, errorCopy } from "@/components/tool/errorCopy";
+import { useOwnToolFocus } from "@/components/tool/useOwnToolFocus";
+import { useReplaceFilePicker } from "@/components/tool/useReplaceFilePicker";
 import { FileDropzone } from "@/components/tool/FileDropzone";
+import { FileList } from "@/components/tool/FileList";
 import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
+import { useInputProblem } from "@/components/tool/useInputProblem";
 import { ToolCard } from "@/components/tool/ToolCard";
 import {
   PDFA_STRINGS,
@@ -41,6 +47,7 @@ import {
   ACCENT_TEXT,
   getRelatedTools,
   getTool,
+  toolHref,
 } from "@/lib/tools-registry";
 
 /**
@@ -104,6 +111,13 @@ export function PdfaCheckerToolClient() {
   const runIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
+  const { problem, checking } = useInputProblem(files);
+  const bannerCode = problem?.code ?? (error && error !== "cancelled" ? error : null);
+  const { ask, bannerRef, runRef, dropzoneRef, areaRef } = useOwnToolFocus({
+    bannerKey: bannerCode ? (problem ? `file-${problem.code}` : bannerCode) : null,
+    checking,
+  });
+
   const reset = useCallback(() => {
     runIdRef.current += 1;
     abortRef.current = null;
@@ -112,7 +126,8 @@ export function PdfaCheckerToolClient() {
     setProgress(0);
     setError(null);
     setPhase("idle");
-  }, []);
+    ask("dropzone");
+  }, [ask]);
 
   const run = useCallback(async () => {
     const file = files[0];
@@ -157,7 +172,8 @@ export function PdfaCheckerToolClient() {
     setProgress(0);
     setError("cancelled");
     setPhase("idle");
-  }, []);
+    ask("run");
+  }, [ask]);
 
   const downloadReport = useCallback(() => {
     if (!report) return;
@@ -167,6 +183,47 @@ export function PdfaCheckerToolClient() {
     const base = (dot > 0 ? report.fileName.slice(0, dot) : report.fileName).trim();
     downloadBlob(blob, strings.reportFilename(base || "documento"));
   }, [locale, report, strings]);
+
+  const code = problem?.code ?? error;
+  const picker = useReplaceFilePicker({
+    tool: TOOL,
+    onPick: (file) => {
+      setFiles([file]);
+      setError(null);
+      ask("attention");
+    },
+    onInvalid: setError,
+  });
+  const banner =
+    code && code !== "cancelled"
+      ? {
+          key: problem ? `file-${problem.code}` : code,
+          ...errorCopy(t, code, { fileProblem: problem !== null }),
+          detail: problem
+            ? t.tool.fileProblemFile.replace("{name}", problem.file.name)
+            : undefined,
+          actions: [
+            ...(code === "encrypted"
+              ? [{ id: "unlock", label: t.tool.errors.encryptedAction, href: toolHref("unlock-pdf"), primary: true }]
+              : []),
+            ...(files.length === 1
+              ? [
+                  { id: "choose", label: t.tool.chooseAnother, primary: code !== "encrypted" },
+                  { id: "remove", label: t.tool.removeFile },
+                ]
+              : []),
+          ],
+        }
+      : null;
+  const onBannerAction = (action: { id?: string }) => {
+    if (action.id === "choose") {
+      picker.open();
+    } else if (action.id === "remove") {
+      setFiles([]);
+      setError(null);
+      ask("dropzone");
+    }
+  };
 
   const claim = report?.claim
     ? `PDF/A-${report.claim.part}${
@@ -193,9 +250,7 @@ export function PdfaCheckerToolClient() {
             <h1 className="text-title-1 text-foreground">
               {copy.name}
             </h1>
-            <Badge variant={TOOL.status === "live" ? "live" : "soon"} dot>
-              {TOOL.status === "live" ? t.common.live : t.common.soon}
-            </Badge>
+            {TOOL.status === "soon" ? <Badge variant="soon">{t.common.soon}</Badge> : null}
           </div>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             {strings.lead}
@@ -203,23 +258,25 @@ export function PdfaCheckerToolClient() {
         </div>
       </header>
 
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-ios mb-6 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4"
-        >
-          <AlertTriangle
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-destructive"
-          />
-          <div>
-            <p className="ui-label text-destructive-text">
-              {t.tool.errors.title}
-            </p>
-            <p className="mt-1 text-sm text-foreground">{t.tool.errors[error]}</p>
-          </div>
-        </div>
-      ) : null}
+      <ErrorBanner
+        show={banner !== null}
+        errorKey={banner?.key}
+        title={banner?.title ?? ""}
+        message={banner?.message ?? ""}
+        hint={banner?.hint}
+        detail={banner?.detail}
+        actions={banner?.actions}
+        onAction={onBannerAction}
+        variant={banner?.kind ?? "error"}
+        bannerRef={bannerRef}
+        onDismiss={problem ? undefined : () => setError(null)}
+        dismissLabel={t.common.close}
+      />
+      {banner ? picker.input : null}
+      {/* Cancelar no es un fallo: aviso neutro en la region viva (como en ToolShell). */}
+      <p role="status" aria-live="polite" className={error === "cancelled" ? "mb-6 text-subheadline text-muted-foreground" : undefined}>
+        {error === "cancelled" ? t.tool.errors.cancelled : null}
+      </p>
 
       <section className="rounded-ios mb-6 flex items-start gap-3 border border-white/10 bg-white/5 p-4">
         <Info
@@ -238,28 +295,47 @@ export function PdfaCheckerToolClient() {
 
       {phase !== "done" ? (
         <>
-          <FileDropzone
-            tool={SLOT_TOOL}
-            files={files}
-            onFilesChange={(next) => {
-              setFiles(next.slice(0, 1));
-              setError(null);
-            }}
-            onError={setError}
-          />
+          {files.length === 0 ? (
+            <FileDropzone
+              tool={SLOT_TOOL}
+              files={files}
+              onFilesChange={(next) => {
+                setFiles(next.slice(0, 1));
+                setError(null);
+              }}
+              onError={setError}
+              buttonRef={dropzoneRef}
+            />
+          ) : (
+            <section aria-label={t.tool.filesTitle} ref={areaRef}>
+              <h2 className="ui-label mb-3 text-muted-foreground">{t.tool.filesTitle}</h2>
+              <FileList
+                files={files}
+                onChange={(next) => {
+                  setFiles(next.slice(0, 1));
+                  setError(null);
+                  if (next.length === 0) ask("dropzone");
+                }}
+              />
+            </section>
+          )}
 
           <div className="mt-8 flex flex-col items-start gap-3">
             <Button
+              ref={runRef}
               size="lg"
-              disabled={files.length === 0}
+              disabled={files.length === 0 || problem !== null || checking}
+              aria-describedby={files.length === 0 || problem ? "pdfa-run-reason" : undefined}
               onClick={() => void run()}
               className="w-full md:w-auto"
             >
               <FileSearch aria-hidden="true" className="size-4" />
               {strings.run}
             </Button>
-            {files.length === 0 ? (
-              <p className="text-xs text-muted-foreground">{strings.needFile}</p>
+            {files.length === 0 || problem ? (
+              <p id="pdfa-run-reason" className="text-footnote text-muted-foreground">
+                {problem ? blockedRunText(t, strings.run) : strings.needFile}
+              </p>
             ) : null}
           </div>
         </>

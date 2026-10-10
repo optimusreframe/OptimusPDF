@@ -101,6 +101,19 @@ export function ExtractPagesToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_OPTIONS}
       process={process}
+      canRun={(files, options) => {
+        // Hasta que el tablero lee las paginas no hay seleccion; una lista escrita mal no se aplica.
+        if (options.signature !== fileKey(files[0]) || options.pageCount === 0) {
+          return { ok: false, reason: "" };
+        }
+        if (options.issue === "syntax") return { ok: false, reason: strings.rangeInvalid };
+        if (options.issue === "empty" && options.text.trim() === "") {
+          return { ok: false, reason: strings.keepOne };
+        }
+        return options.selected.length > 0
+          ? { ok: true }
+          : { ok: false, reason: strings.keepOne };
+      }}
       renderMain={({ files, options, setOptions }) => (
         <ExtractPagesBoard
           key={fileKey(files[0])}

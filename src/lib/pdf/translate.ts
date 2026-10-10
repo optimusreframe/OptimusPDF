@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { createOcrWorker } from "@/lib/pdf/ocrGuard";
 import {
   PdfError,
   closePdfDocument,
@@ -641,10 +642,10 @@ async function extractPages(
     }
 
     // Solo se paga tesseract.js si de verdad hay paginas sin texto.
-    const tesseract = await import("tesseract.js");
-    worker = await tesseract.createWorker(
+    worker = await createOcrWorker(
       OCR_LANGUAGE_BY_TRANSLATE_LANGUAGE[options.source],
-      tesseract.OEM.LSTM_ONLY,
+      undefined,
+      signal,
     );
 
     for (let position = 0; position < needsOcr.length; position += 1) {

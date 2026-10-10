@@ -32,6 +32,8 @@ export type SignStrings = {
   loadingPreview: string;
   legalNote: string;
   filenameSuffix: string;
+  /** Sufijo del archivo cuando solo se edito el texto original (sin ninguna firma estampada). */
+  editedFilenameSuffix: string;
 
   /* --- Certificado de finalizacion (pagina final opcional) --- */
   certificateTitle: string;
@@ -171,6 +173,8 @@ export type SignStrings = {
   typeChangeClearedNotice: (type: string) => string;
   undoTypeChange: string;
   textFieldFallbackLabel: (position: number) => string;
+  /** Nombre accesible de un hueco hallado en una pagina escaneada (sin etiqueta del documento). */
+  scannedFieldLabel: (position: number) => string;
   textFieldPlaceholder: string;
   initialsFieldPlaceholder: string;
   /** Segmentado "Texto / Casilla / Fecha / Inicial" del campo seleccionado. */
@@ -186,6 +190,27 @@ export type SignStrings = {
   confirmClearAllTextFieldsTitle: string;
   confirmClearAllTextFieldsBody: string;
   lowConfidenceHint: string;
+  /* --- Campos sugeridos y busqueda en paginas escaneadas (W6-A) --- */
+  /** Interruptor de la capa de sugerencias: «Campos sugeridos (N)». */
+  suggestedFieldsToggle: (count: number) => string;
+  suggestedFieldsDescription: string;
+  suggestedFieldsShown: (count: number) => string;
+  suggestedFieldsHidden: string;
+  scanPageFields: string;
+  scanningPage: string;
+  scanFound: (count: number, page: number) => string;
+  scanNone: (page: number) => string;
+  scanFailed: string;
+  /* --- Herramienta «Editar texto» (W6-A) --- */
+  toolEditText: string;
+  /** Pista de uso mientras la herramienta esta activa. */
+  editTextHint: string;
+  editTextCount: (count: number) => string;
+  /** Aviso permanente: lo editado cubre y redibuja; el original puede seguir en el archivo. */
+  editTextNote: string;
+  editTextFlattenLink: string;
+  editTextUndo: string;
+  editTextRedo: string;
   /** Aviso NO bloqueante antes de firmar/descargar si quedan campos vacios. */
   pendingTextFieldsWarning: (missing: number) => string;
   /** Anuncio del snackbar tras borrar un campo con "Deshacer" activo. */
@@ -284,6 +309,8 @@ export type SignStrings = {
 
   /* --- Exportar/importar configuracion --- */
   exportConfigButton: string;
+  /** Aviso bajo «Exportar configuracion» cuando hay ediciones del texto original. */
+  exportConfigEditsNote: string;
   importConfigButton: string;
   /** Aviso bajo el boton de exportar: el .zip contiene los documentos. */
   exportConfigNote: string;
@@ -551,6 +578,7 @@ const es: SignStrings = {
   legalNote:
     "Es una firma visual: se dibuja sobre la página. No sustituye a una firma electrónica cualificada con certificado.",
   filenameSuffix: "firmado",
+  editedFilenameSuffix: "editado",
 
   certificateTitle: "Certificado de finalización",
   certificateHashLabel: "Hash SHA-256 del documento firmado",
@@ -688,6 +716,7 @@ const es: SignStrings = {
     `Se borró el valor porque no vale como «${type}».`,
   undoTypeChange: "Deshacer",
   textFieldFallbackLabel: (position) => `Campo ${position}`,
+  scannedFieldLabel: (position) => `Hueco encontrado en una página escaneada, ${position}`,
   textFieldPlaceholder: "Escribe el valor",
   initialsFieldPlaceholder: "Iniciales",
   textFieldTypeLabel: "Tipo de campo",
@@ -704,6 +733,32 @@ const es: SignStrings = {
     "Se van a quitar todos los campos de texto detectados o añadidos a mano, en todas las páginas, junto con lo que hayas escrito en ellos. Esta acción no se puede deshacer.",
   lowConfidenceHint:
     "Contorno discontinuo = detección experimental sobre una imagen escaneada. Revísala antes de firmar; si no es un campo real, bórrala.",
+  suggestedFieldsToggle: (count) => `Campos sugeridos (${count})`,
+  suggestedFieldsDescription:
+    "Rayas con etiqueta que parecen un hueco para rellenar. Actívalos para escribir sobre ellas; no se aplican al PDF hasta que escribas algo.",
+  suggestedFieldsShown: (count) =>
+    count === 1 ? "Se muestra 1 campo sugerido." : `Se muestran ${count} campos sugeridos.`,
+  suggestedFieldsHidden: "Campos sugeridos ocultos.",
+  scanPageFields: "Buscar huecos en páginas escaneadas",
+  scanningPage: "Buscando huecos en la página escaneada",
+  scanFound: (count, page) =>
+    count === 1
+      ? `Se encontró 1 posible hueco en la página ${page}. Revísalo antes de firmar.`
+      : `Se encontraron ${count} posibles huecos en la página ${page}. Revísalos antes de firmar.`,
+  scanNone: (page) => `No se encontraron huecos en la página ${page}.`,
+  scanFailed: "No se pudo analizar la página escaneada.",
+  toolEditText: "Editar texto",
+  editTextHint:
+    "Haz doble clic (o toca dos veces) en un texto del PDF para cambiarlo. Con un bloque enfocado: Intro edita, las flechas lo mueven, Supr lo borra.",
+  editTextCount: (count) =>
+    count === 1
+      ? "1 texto editado en este documento."
+      : `${count} textos editados en este documento.`,
+  editTextNote:
+    "El texto editado se dibuja sobre el original: el texto original puede seguir existiendo en el archivo. Para eliminarlo del todo, usa «Aplanar página» en Editar PDF antes de firmar.",
+  editTextFlattenLink: "Abrir Editar PDF",
+  editTextUndo: "Deshacer cambio de texto",
+  editTextRedo: "Rehacer cambio de texto",
   pendingTextFieldsWarning: (missing) =>
     `Queda${missing === 1 ? "" : "n"} ${missing} campo${missing === 1 ? "" : "s"} de texto sin rellenar. Puedes continuar igual.`,
   textFieldDeletedNotice: "Campo eliminado.",
@@ -808,6 +863,8 @@ const es: SignStrings = {
   multiDocOffNotice:
     "Esta ronda tiene varios documentos, pero «Varios documentos a la vez» está desactivado en Ajustes. Actívalo para cargarla; no se ha borrado nada.",
   exportConfigButton: "Exportar configuración",
+  exportConfigEditsNote:
+    "Las ediciones de texto no se incluyen en la configuración; se guardan en el borrador del documento.",
   importConfigButton: "Importar configuración",
   exportConfigNote:
     "El .zip incluye tus documentos, los firmantes y los huecos, pero no las firmas dibujadas. Quien lo reciba tendrá los documentos.",
@@ -1114,6 +1171,7 @@ const en: SignStrings = {
   legalNote:
     "This is a visual signature drawn onto the page. It does not replace a qualified electronic signature backed by a certificate.",
   filenameSuffix: "signed",
+  editedFilenameSuffix: "edited",
 
   certificateTitle: "Completion certificate",
   certificateHashLabel: "SHA-256 hash of the signed document",
@@ -1250,6 +1308,7 @@ const en: SignStrings = {
     `The value was cleared because it is not valid as “${type}”.`,
   undoTypeChange: "Undo",
   textFieldFallbackLabel: (position) => `Field ${position}`,
+  scannedFieldLabel: (position) => `Blank found on a scanned page, ${position}`,
   textFieldPlaceholder: "Type the value",
   initialsFieldPlaceholder: "Initials",
   textFieldTypeLabel: "Field type",
@@ -1266,6 +1325,30 @@ const en: SignStrings = {
     "This removes every text field, detected or added by hand, on every page, along with whatever you typed into them. This cannot be undone.",
   lowConfidenceHint:
     "Dashed outline = experimental detection on a scanned image. Review it before signing; delete it if it isn't a real field.",
+  suggestedFieldsToggle: (count) => `Suggested fields (${count})`,
+  suggestedFieldsDescription:
+    "Labelled lines that look like a blank to fill in. Turn them on to type over them; nothing is added to the PDF until you type something.",
+  suggestedFieldsShown: (count) =>
+    count === 1 ? "Showing 1 suggested field." : `Showing ${count} suggested fields.`,
+  suggestedFieldsHidden: "Suggested fields hidden.",
+  scanPageFields: "Find blanks on scanned pages",
+  scanningPage: "Looking for blanks on the scanned page",
+  scanFound: (count, page) =>
+    count === 1
+      ? `Found 1 possible blank on page ${page}. Review it before signing.`
+      : `Found ${count} possible blanks on page ${page}. Review them before signing.`,
+  scanNone: (page) => `No blanks found on page ${page}.`,
+  scanFailed: "The scanned page could not be analyzed.",
+  toolEditText: "Edit text",
+  editTextHint:
+    "Double-click (or double-tap) a text in the PDF to change it. With a block focused: Enter edits, arrow keys move it, Delete removes it.",
+  editTextCount: (count) =>
+    count === 1 ? "1 text edited in this document." : `${count} texts edited in this document.`,
+  editTextNote:
+    "Edited text is drawn over the original: the original text may still exist in the file. To remove it completely, use “Flatten page” in Edit PDF before signing.",
+  editTextFlattenLink: "Open Edit PDF",
+  editTextUndo: "Undo text change",
+  editTextRedo: "Redo text change",
   pendingTextFieldsWarning: (missing) =>
     `${missing} text field${missing === 1 ? "" : "s"} still empty. You can continue anyway.`,
   textFieldDeletedNotice: "Field deleted.",
@@ -1369,6 +1452,8 @@ const en: SignStrings = {
   multiDocOffNotice:
     "This round has several documents, but \"Several documents at once\" is turned off in Settings. Turn it on to load it; nothing has been deleted.",
   exportConfigButton: "Export configuration",
+  exportConfigEditsNote:
+    "Text edits are not included in the configuration; they are kept in the document draft.",
   importConfigButton: "Import configuration",
   exportConfigNote:
     "The .zip includes your documents, the signers and the slots, but not the drawn signatures. Whoever receives it will have the documents.",

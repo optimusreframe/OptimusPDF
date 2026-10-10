@@ -8,8 +8,8 @@ import {
   NumberField,
   OptionSection,
   TextField,
-} from "@/app/add-page-numbers/OptionControls";
-import { PositionGrid } from "@/app/add-page-numbers/PositionGrid";
+} from "@/components/tool/OptionControls";
+import { PositionGrid } from "@/components/tool/PositionGrid";
 import type { PageNumbersStrings } from "@/app/add-page-numbers/strings";
 import {
   NUMBER_TEMPLATE,

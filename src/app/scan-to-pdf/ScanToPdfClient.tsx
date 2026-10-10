@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, SlidersHorizontal } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
+import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { DownloadScreen } from "@/components/tool/DownloadScreen";
+import { ErrorBanner } from "@/components/tool/ErrorBanner";
+import { errorCopy } from "@/components/tool/errorCopy";
+import { useFocusTarget } from "@/components/tool/useFocusTarget";
+import { useOwnToolFocus } from "@/components/tool/useOwnToolFocus";
 import { OptionsPanel } from "@/components/tool/OptionsPanel";
 import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
 import { useI18n } from "@/lib/i18n";
@@ -72,9 +75,59 @@ export function ScanToPdfClient() {
   const [options, setOptions] = useState<ScanToPdfOptions>(DEFAULT_SCAN_OPTIONS);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<PdfErrorCode | null>(null);
+  // Mismo foco que ToolShell: un aviso nuevo recibe el foco (nunca <body>).
+  const { bannerRef } = useOwnToolFocus({
+    bannerKey: error && error !== "cancelled" ? error : null,
+    checking: false,
+  });
   const [result, setResult] = useState<ScanResult | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const runIdRef = useRef(0);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const downloadRef = useRef<HTMLButtonElement>(null);
+  /** Parametros del destino de foco pedido (que captura, que accion, que posicion). */
+  const focusArgRef = useRef<{ id: string; action: string; index: number }>({ id: "", action: "edit", index: 0 });
+
+  /*
+   * Foco con destino logico (mismo mecanismo que ToolShell): descartar, mover, deshacer el recorte, cerrar el
+   * editor de esquinas, cancelar y volver a empezar desmontan el control pulsado; el foco pasa en el mismo
+   * commit a la siguiente captura, a la misma accion de su captura, a la camara o al boton que sustituye.
+   */
+  const { request: askFocus } = useFocusTarget<
+    "capture" | "afterRemove" | "camera" | "run" | "download" | "editor"
+  >((target) => {
+    const camera = (action: string) =>
+      document.querySelector<HTMLElement>(`[data-camera-stage] [data-camera-action="${action}"]`);
+    const cameraCandidates = [camera("capture"), camera("start"), camera("native"), camera("upload")];
+    const lis = () => Array.from(stripRef.current?.querySelectorAll<HTMLElement>("[data-capture-id]") ?? []);
+    const action = (li: Element | null | undefined, name: string) =>
+      li?.querySelector<HTMLElement>(`[data-capture-action="${name}"]`) ?? null;
+    switch (target) {
+      case "capture": {
+        const { id, action: wanted } = focusArgRef.current;
+        const li = lis().find((item) => item.getAttribute("data-capture-id") === id);
+        const siblings = Array.from(li?.querySelectorAll<HTMLElement>("[data-capture-action]") ?? []);
+        return { candidates: [action(li, wanted), ...siblings, ...cameraCandidates] };
+      }
+      case "afterRemove": {
+        const all = lis();
+        const li = all[Math.min(focusArgRef.current.index, all.length - 1)];
+        return { candidates: [action(li, "remove"), ...cameraCandidates] };
+      }
+      case "camera":
+        return { candidates: cameraCandidates };
+      case "run":
+        return { candidates: Array.from(document.querySelectorAll<HTMLElement>("[data-scan-generate]")) };
+      case "download":
+        return { candidates: [downloadRef.current] };
+      case "editor":
+        return {
+          candidates: [
+            document.querySelector<HTMLElement>('[data-corner-editor] [data-editor-action="close"]'),
+          ],
+        };
+    }
+  });
 
   // Los object URL de las miniaturas se revocan al desmontar.
   const capturesRef = useRef<ScanCapture[]>([]);
@@ -238,26 +291,61 @@ export function ScanToPdfClient() {
     [addCapture],
   );
 
-  const editCorners = useCallback((id: string) => setEditingId(id), []);
+  const editCorners = useCallback(
+    (id: string) => {
+      setEditingId(id);
+      askFocus("editor");
+    },
+    [askFocus],
+  );
+
+  /** Cierra el editor de esquinas y devuelve el foco a su boton «Recortar» de la captura. */
+  const closeEditor = useCallback(
+    (id: string) => {
+      setEditingId(null);
+      focusArgRef.current = { id, action: "edit", index: 0 };
+      askFocus("capture");
+    },
+    [askFocus],
+  );
 
   const undoCrop = useCallback(
     (id: string) => {
       const target = capturesRef.current.find((capture) => capture.id === id);
       if (target) replaceCaptureBlob(id, target.originalBlob, null, null);
+      // «Deshacer recorte» desaparece: el foco pasa a «Recortar» de la misma captura.
+      focusArgRef.current = { id, action: "edit", index: 0 };
+      askFocus("capture");
     },
-    [replaceCaptureBlob],
+    [replaceCaptureBlob, askFocus],
   );
 
-  const removeCapture = useCallback((id: string) => {
+  const removeCapture = useCallback(
+    (id: string) => {
+    focusArgRef.current = {
+      id,
+      action: "remove",
+      index: Math.max(0, capturesRef.current.findIndex((capture) => capture.id === id)),
+    };
+    askFocus("afterRemove");
     setEditingId((current) => (current === id ? null : current));
     setCaptures((previous) => {
       const target = previous.find((capture) => capture.id === id);
       if (target) URL.revokeObjectURL(target.url);
       return previous.filter((capture) => capture.id !== id);
     });
-  }, []);
+    },
+    [askFocus],
+  );
 
-  const moveCapture = useCallback((index: number, offset: number) => {
+  const moveCapture = useCallback(
+    (index: number, offset: number) => {
+    const moved = capturesRef.current[index];
+    if (moved) {
+      // Al reordenar, la fila se mueve en el DOM y el foco se pierde: vuelve a la misma flecha (o a la otra).
+      focusArgRef.current = { id: moved.id, action: offset < 0 ? "up" : "down", index };
+      askFocus("capture");
+    }
     setCaptures((previous) => {
       const target = index + offset;
       if (target < 0 || target >= previous.length) return previous;
@@ -266,7 +354,9 @@ export function ScanToPdfClient() {
       next.splice(target, 0, item);
       return next;
     });
-  }, []);
+    },
+    [askFocus],
+  );
 
   const reset = useCallback(() => {
     runIdRef.current += 1;
@@ -278,7 +368,8 @@ export function ScanToPdfClient() {
     setProgress(0);
     setError(null);
     setPhase("capture");
-  }, []);
+    askFocus("camera");
+  }, [askFocus]);
 
   const run = useCallback(async () => {
     // Se vuelve a comprobar aqui, sobre el mismo array cuyos blobs se van
@@ -312,21 +403,28 @@ export function ScanToPdfClient() {
       setResult({ blob, filename });
       addRecentEntry("scan-to-pdf", filename);
       setPhase("done");
+      askFocus("download");
     } catch (caught) {
       if (runIdRef.current !== runId) return;
       setError(toPdfError(caught).code);
       setPhase("capture");
     }
-  }, [captures, options, t]);
+  }, [captures, options, t, askFocus]);
 
   const cancel = useCallback(() => {
     runIdRef.current += 1;
     setPhase("capture");
     setProgress(0);
     setError("cancelled");
-  }, []);
+    askFocus("run");
+  }, [askFocus]);
 
   const canRun = canGenerate(captures);
+  const runReason = canRun
+    ? ""
+    : captures.length === 0
+      ? s.needCapture
+      : s.capturePending;
   const showWorkspace = phase === "capture" || phase === "options";
   const editing = captures.find((capture) => capture.id === editingId) ?? null;
 
@@ -349,9 +447,6 @@ export function ScanToPdfClient() {
             <h1 className="text-title-1 text-foreground">
               {copy.name}
             </h1>
-            <Badge variant="live" dot>
-              {t.common.live}
-            </Badge>
           </div>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             {copy.description}
@@ -359,36 +454,32 @@ export function ScanToPdfClient() {
         </div>
       </header>
 
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-ios mb-6 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4"
-        >
-          <AlertTriangle
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-destructive"
-          />
-          <div>
-            <p className="ui-label text-destructive-text">
-              {t.tool.errors.title}
-            </p>
-            <p className="mt-1 text-sm text-foreground">
-              {t.tool.errors[error]}
-            </p>
-          </div>
-        </div>
-      ) : null}
+      <ErrorBanner
+        show={error !== null && error !== "cancelled"}
+        errorKey={error ?? undefined}
+        bannerRef={bannerRef}
+        {...(error && error !== "cancelled" ? errorCopy(t, error) : { title: "", message: "" })}
+        onDismiss={() => {
+          setError(null);
+          askFocus("camera");
+        }}
+        dismissLabel={t.common.close}
+      />
+      {/* Cancelar no es un fallo: aviso neutro en la region viva (como en ToolShell). */}
+      <p role="status" aria-live="polite" className={error === "cancelled" ? "mb-6 text-subheadline text-muted-foreground" : undefined}>
+        {error === "cancelled" ? t.tool.errors.cancelled : null}
+      </p>
 
       {showWorkspace ? (
         <div className="flex flex-col gap-6 md:flex-row md:items-start">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1" inert={phase === "options"}>
             <CameraStage
               filter={options.filter}
               onCapture={addCapture}
               onImport={importCapture}
             />
 
-            <div className="mt-8">
+            <div className="mt-8" ref={stripRef}>
               <CaptureStrip
                 captures={captures}
                 filter={options.filter}
@@ -399,28 +490,38 @@ export function ScanToPdfClient() {
               />
             </div>
 
-            <div className="mt-8 hidden md:block">
-              <Button size="lg" disabled={!canRun} onClick={() => void run()}>
-                {s.generate}
-              </Button>
-            </div>
+            {/* Un solo boton de generar por pantalla: en escritorio vive en el pie del panel; en movil, en la barra. */}
+            {runReason ? (
+              <p id="scan-run-reason-bar" className="mt-6 text-footnote text-muted-foreground md:hidden">
+                {runReason}
+              </p>
+            ) : null}
           </div>
 
           <OptionsPanel
             open={phase === "options"}
             onOpenChange={(open) => setPhase(open ? "options" : "capture")}
             footer={
-              <Button
-                fullWidth
-                size="lg"
-                disabled={!canRun}
-                onClick={() => {
-                  setPhase("capture");
-                  void run();
-                }}
-              >
-                {s.generate}
-              </Button>
+              <>
+                {runReason ? (
+                  <p id="scan-run-reason" className="mb-2 text-footnote text-muted-foreground">
+                    {runReason}
+                  </p>
+                ) : null}
+                <Button
+                  fullWidth
+                  size="lg"
+                  data-scan-generate=""
+                  disabled={!canRun}
+                  aria-describedby={runReason ? "scan-run-reason" : undefined}
+                  onClick={() => {
+                    setPhase("capture");
+                    void run();
+                  }}
+                >
+                  {s.generate}
+                </Button>
+              </>
             }
           >
             <div>
@@ -467,6 +568,7 @@ export function ScanToPdfClient() {
 
       {showWorkspace ? (
         <div
+          inert={phase === "options"}
           className="glass-bar fixed inset-x-0 z-30 flex items-center gap-3 border-t border-white/10 px-4 py-3 md:hidden"
           style={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom, 0px))" }}
         >
@@ -478,7 +580,14 @@ export function ScanToPdfClient() {
             <SlidersHorizontal aria-hidden="true" className="size-4" />
             {t.tool.openOptions}
           </Button>
-          <Button size="md" fullWidth disabled={!canRun} onClick={() => void run()}>
+          <Button
+            size="md"
+            fullWidth
+            data-scan-generate=""
+            disabled={!canRun}
+            aria-describedby={runReason ? "scan-run-reason-bar" : undefined}
+            onClick={() => void run()}
+          >
             {s.generate}
           </Button>
         </div>
@@ -488,10 +597,10 @@ export function ScanToPdfClient() {
         <CornerEditor
           source={editing.originalBlob}
           corners={editing.corners ?? DEFAULT_QUAD}
-          onCancel={() => setEditingId(null)}
+          onCancel={() => closeEditor(editing.id)}
           onConfirm={(corners) => {
             const target = editing;
-            setEditingId(null);
+            closeEditor(target.id);
             void applyCorners(
               target.id,
               target.originalBlob,
@@ -517,6 +626,7 @@ export function ScanToPdfClient() {
           size={result.blob.size}
           onDownload={() => downloadBlob(result.blob, result.filename)}
           onStartOver={reset}
+          downloadButtonRef={downloadRef}
         />
       ) : null}
     </div>

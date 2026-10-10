@@ -17,6 +17,7 @@ import {
   warmDraftsConnection,
 } from "@/app/sign-pdf/signDrafts";
 import type { SignSession } from "@/app/sign-pdf/signSession";
+import { isDecryptedCopy } from "@/lib/pdf/inputGuard";
 
 /**
  * Calma antes de guardar la sesion. Corto a proposito: solo se reescriben los
@@ -117,6 +118,8 @@ export function SessionDraftAutosave({
       return;
     }
     if (mode !== "multi") return;
+    // Una copia descifrada (PDF abierto con contrasena) nunca se guarda como borrador (Wave 6 · U3).
+    if (files.some(isDecryptedCopy)) return;
 
     const hasProgress = hasSessionProgress({ signers, docs }, liveIds);
     if (!hasProgress) {

@@ -597,7 +597,7 @@ function SheetPanel({
       >
         <div
           className={cn(
-            "material-thick flex min-h-0 flex-1 flex-col",
+            "material-thick flex min-h-0 flex-1 flex-col forced-colors:border-[CanvasText]",
             fullscreen ? "rounded-none border-0" : "rounded-[inherit]",
           )}
           /* Inline a proposito: `border-b-0` va antes que `material-thick` en
@@ -617,7 +617,7 @@ function SheetPanel({
               <div className="flex items-center justify-center pt-2 pb-1 md:hidden">
                 <span
                   aria-hidden="true"
-                  className="h-[5px] w-9 rounded-full bg-foreground/25"
+                  className="h-[5px] w-9 rounded-full bg-foreground/25 forced-colors:bg-[CanvasText]"
                 />
               </div>
             )}
@@ -639,7 +639,7 @@ function SheetPanel({
               >
                 <span
                   aria-hidden="true"
-                  className="flex size-[30px] items-center justify-center rounded-full bg-white/10 text-muted-foreground transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-hover:bg-white/15 group-hover:text-foreground group-active:scale-90 group-active:duration-[80ms]"
+                  className="flex size-[30px] items-center justify-center rounded-full bg-white/10 text-muted-foreground forced-colors:border forced-colors:border-[ButtonText] transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-hover:bg-white/15 group-hover:text-foreground group-active:scale-90 group-active:duration-[80ms]"
                 >
                   <X className="size-4" strokeWidth={2.5} />
                 </span>

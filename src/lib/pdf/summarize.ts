@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { createOcrWorker } from "@/lib/pdf/ocrGuard";
 import type { AppConfig } from "@mlc-ai/web-llm";
 import {
   PdfError,
@@ -901,11 +902,7 @@ export async function extractDocumentText(
       });
 
       if (!worker) {
-        const tesseract = await import("tesseract.js");
-        worker = await tesseract.createWorker(
-          options.ocrLanguage,
-          tesseract.OEM.LSTM_ONLY,
-        );
+        worker = await createOcrWorker(options.ocrLanguage, undefined, signal);
       }
 
       const base = page.getViewport({ scale: 1 });

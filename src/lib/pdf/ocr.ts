@@ -6,6 +6,7 @@ import {
   type PDFPage,
 } from "@cantoo/pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { createOcrWorker } from "@/lib/pdf/ocrGuard";
 import {
   PdfError,
   closePdfDocument,
@@ -208,14 +209,16 @@ export async function ocrPdf(
       onProgress?.(value * 0.95);
     };
 
-    const tesseract = await import("tesseract.js");
-    worker = await tesseract.createWorker(language, tesseract.OEM.LSTM_ONLY, {
-      logger: (message) => {
+    // Con guarda de inactividad (20 s) y error CLARO si no hay red a la CDN (antes: «Algo ha fallado»).
+    worker = await createOcrWorker(
+      language,
+      (message) => {
         if (message.status === "recognizing text") {
           report(0.15 + message.progress * 0.8);
         }
       },
-    });
+      signal,
+    );
 
     const pages = document.getPages();
 

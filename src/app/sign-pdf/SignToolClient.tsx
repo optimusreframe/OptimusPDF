@@ -68,7 +68,14 @@ import {
 } from "@/app/sign-pdf/SigningCeremony";
 import { documentContentKey } from "@/app/sign-pdf/documentKey";
 import {
+  applyEditsToFile,
+  hasTextEdits,
+  sanitizeTextEdits,
+  stampKeyOf,
+} from "@/app/sign-pdf/textEdits";
+import {
   DetectionStatus,
+  ExportEditsNotice,
   PendingFieldsNotice,
   ReuseValuesPrompt,
 } from "@/app/sign-pdf/DocumentSessionParts";
@@ -157,6 +164,9 @@ import {
 } from "@/app/sign-pdf/signDrafts";
 import { SIGN_STRINGS, type SignStrings } from "@/app/sign-pdf/strings";
 import { useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
+import { EDIT_STRINGS, type EditInlineStrings } from "@/app/edit-pdf/strings";
+import { useEditPdfFeatureFlag } from "@/app/edit-pdf/editFeatureFlags";
+import type { SignTextEditConfig } from "@/app/sign-pdf/useSignTextEditing";
 import { useI18n, type Language } from "@/lib/i18n";
 import {
   MAX_SAFE_FILE_SIZE,
@@ -164,12 +174,15 @@ import {
   downloadBlob,
   loadPdf,
   matchesAccept,
+  scaleProgress,
   toPdfError,
   withSuffix,
   type PdfErrorCode,
   type ProgressCallback,
 } from "@/lib/pdf/core";
+import { isDecryptedCopy } from "@/lib/pdf/inputGuard";
 import { type DetectedField } from "@/lib/pdf/detectFields";
+import type { TextEdit } from "@/lib/pdf/editTypes";
 import {
   SIGNER_COLORS,
   buildSignerFilenamePrefix,
@@ -264,6 +277,15 @@ export type SignToolOptions = {
    * deteccion real nunca podria reconstruir).
    */
   textFieldsDetectedFor: string | null;
+
+  /* --- Texto original editado (herramienta «Editar texto», W6-A) --- */
+  /**
+   * Ediciones del texto del PDF original. Ausente = ninguna. Se aplican ANTES de
+   * estampar las firmas y entran en la huella de las capturas (`stampKeyOf`),
+   * pero NO en la huella del archivo (`signature`): esa sigue siendo la del
+   * contenido original.
+   */
+  textEdits?: TextEdit[];
 };
 
 /**
@@ -286,7 +308,40 @@ const CLEARED_DOCUMENT_STATE: Partial<SignToolOptions> = {
   selectedTextFieldId: null,
   editingTextFieldId: null,
   textFieldsDetectedFor: null,
+  textEdits: [],
 };
+
+/**
+ * Configuracion de la herramienta «Editar texto» del lienzo (W6-A): solo existe con el ajuste
+ * `editExistingText` activo -- o si el documento YA trae ediciones (para poder verlas, deshacerlas
+ * y quitarlas aunque el ajuste se apague despues). Las ediciones viven en las opciones del documento.
+ */
+function useTextEditConfig(
+  textEdits: TextEdit[] | undefined,
+  setOptions: (patch: Partial<SignToolOptions>) => void,
+  editStrings: EditInlineStrings | undefined,
+): SignTextEditConfig | undefined {
+  const allowed = useEditPdfFeatureFlag("editExistingText");
+  const edits = textEdits ?? NO_TEXT_EDITS;
+  const setRef = useRef(setOptions);
+  useEffect(() => {
+    setRef.current = setOptions;
+  });
+  const enabled = editStrings !== undefined && (allowed || edits.length > 0);
+  return useMemo(
+    () =>
+      enabled && editStrings
+        ? {
+            edits,
+            onEditsChange: (next: TextEdit[]) => setRef.current({ textEdits: next }),
+            strings: editStrings,
+          }
+        : undefined,
+    [enabled, edits, editStrings],
+  );
+}
+
+const NO_TEXT_EDITS: TextEdit[] = [];
 
 /* ------------------------------------------------------------------ *
  * Reutilizacion de valores entre documentos (src/lib/valueHistory.ts)
@@ -377,12 +432,15 @@ function multiReady(
         options.signers,
         options.fields,
         options.captures,
-        documentKey,
+        stampKeyOf(documentKey, options.textEdits),
       ).length === 0
     );
   }
 
-  return hasFilledTextValue(options.textFields, options.textValues);
+  return (
+    hasFilledTextValue(options.textFields, options.textValues) ||
+    hasTextEdits(options.textEdits)
+  );
 }
 
 /**
@@ -407,11 +465,53 @@ export type DocumentJobContext = {
 /** Lo necesario para empotrar UN documento. */
 export type DocumentJob = {
   docId: DocId;
+  /** El archivo original del documento. */
+  file: File;
   /** Lo que recibe `signPdfMulti`: colocaciones y, en la ronda por turnos, el certificado. */
   params: SignMultiOptions;
+  /**
+   * Ediciones del texto original (herramienta «Editar texto»): se aplican al PDF
+   * ANTES de estampar nada (`runDocumentJob`), asi que las firmas caen sobre el
+   * documento ya editado.
+   */
+  textEdits: readonly TextEdit[];
   /** A llamar tras un empotrado con exito (historial de valores reutilizables). */
   commit: () => void;
 };
+
+/** El trabajo solo edita texto: no estampa ninguna firma (imagen). Sus archivos acaban en `-editado`. */
+export function isEditOnlyJob(job: Pick<DocumentJob, "params" | "textEdits">): boolean {
+  return hasTextEdits(job.textEdits) && !job.params.placements.some((placement) => placement.kind === "image");
+}
+
+/**
+ * Produce el PDF final de UN documento: primero aplica las ediciones de texto
+ * (si hay) y despues estampa firmas y campos sobre el resultado. Con ediciones
+ * y nada que estampar, el PDF editado ES el resultado. Sin ediciones es
+ * exactamente `signPdfMulti(file, params, onProgress)` de siempre.
+ */
+export async function runDocumentJob(
+  job: DocumentJob,
+  onProgress?: ProgressCallback,
+): Promise<Blob> {
+  if (!hasTextEdits(job.textEdits)) {
+    return signPdfMulti(job.file, job.params, onProgress);
+  }
+  const editedOnly = job.params.placements.length === 0;
+  const applied = await applyEditsToFile(job.file, job.textEdits, {
+    onProgress: onProgress
+      ? (value) => onProgress(scaleProgress(value, 0, editedOnly ? 1 : 0.4))
+      : undefined,
+  });
+  if (editedOnly) {
+    return new Blob([await applied.file.arrayBuffer()], { type: "application/pdf" });
+  }
+  return signPdfMulti(
+    applied.file,
+    job.params,
+    onProgress ? (value) => onProgress(scaleProgress(value, 0.4, 1)) : undefined,
+  );
+}
 
 /**
  * Prepara el trabajo de UN documento a partir de la sesion: su vista plana
@@ -437,24 +537,32 @@ export async function prepareDocumentJob(
     // exactamente la colocacion de siempre. Sin certificado ni prefijo de
     // firmantes: son de la ronda por turnos.
     const placements = buildSoloPlacements(options, language);
-    if (placements.length === 0) throw new PdfError("empty");
+    if (placements.length === 0 && !hasTextEdits(options.textEdits)) {
+      throw new PdfError("empty");
+    }
     return {
       docId,
+      file,
       params: { placements },
+      textEdits: options.textEdits ?? [],
       commit: () => recordFilledValues(options.textFields, options.textValues),
     };
   }
 
   const hasText = hasFilledTextValue(options.textFields, options.textValues);
-  if (options.fields.length === 0 && !hasText) {
+  if (options.fields.length === 0 && !hasText && !hasTextEdits(options.textEdits)) {
     throw new PdfError("nothingSelected", "sign:noFields");
   }
-  const documentKey = await documentContentKey(file).catch(() => null);
-  if (!documentKey) {
+  const fileKey = await documentContentKey(file).catch(() => null);
+  if (!fileKey) {
     throw new PdfError("inspectionIncomplete", "sign:documentKey");
   }
+  // Las capturas se sellaron con la huella del archivo MAS la de sus ediciones de texto.
+  const documentKey = stampKeyOf(fileKey, options.textEdits) as string;
   return {
     docId,
+    file,
+    textEdits: options.textEdits ?? [],
     params: {
       placements: buildPlacements(options, documentKey, language),
       certificate: certificateEnabled
@@ -519,11 +627,14 @@ export async function signDocumentsBatch({
         ...context,
         signerNames,
       });
-      const blob = await signPdfMulti(document.file, job.params, progress.onProgress);
+      const blob = await runDocumentJob(job, progress.onProgress);
       job.commit();
+      const edited = isEditOnlyJob(job);
       return {
         bytes: new Uint8Array(await blob.arrayBuffer()),
-        signerNames,
+        // Sin firma estampada no hay firmantes que nombrar en el archivo.
+        signerNames: edited ? [] : signerNames,
+        ...(edited ? { edited: true } : {}),
       };
     },
   });
@@ -758,6 +869,7 @@ export function SignToolClient() {
         textFields: loaded.meta.textFields,
         textValues: loaded.meta.textValues,
         textFieldsDetectedFor: loaded.meta.textFieldsDetectedFor,
+        textEdits: sanitizeTextEdits(loaded.meta.textEdits),
       });
       setLoadError(null);
       setDraftNotice(null);
@@ -1076,18 +1188,22 @@ export function SignToolClient() {
       session: SignSession,
       onProgress: ProgressCallback,
     ): Promise<ProcessResult> => {
-      const baseFilename = withSuffix(file.name, strings.filenameSuffix);
       const job = await prepareDocumentJob(docId, file, session, {
         language,
         strings,
         certificateEnabled: completionCertificateEnabled,
       });
-      const blob = await signPdfMulti(file, job.params, onProgress);
+      const blob = await runDocumentJob(job, onProgress);
       job.commit();
+      // Solo texto editado y ninguna firma estampada: el archivo no esta «firmado».
+      const baseFilename = withSuffix(
+        file.name,
+        isEditOnlyJob(job) ? strings.editedFilenameSuffix : strings.filenameSuffix,
+      );
 
       if (session.mode === "single") return { blob, filename: baseFilename };
 
-      const prefix = signerPrefixRef.current
+      const prefix = signerPrefixRef.current && !isEditOnlyJob(job)
         ? buildSignerFilenamePrefix(session.signers.map((signer) => signer.name))
         : null;
       return {
@@ -1157,6 +1273,7 @@ export function SignToolClient() {
         ref={importInputRef}
         type="file"
         accept=".zip,application/zip"
+        aria-label={strings.importConfigButton}
         className="sr-only"
         onChange={(event) => {
           const zipFile = event.target.files?.[0];
@@ -1318,6 +1435,7 @@ export function SignToolClient() {
                   vault.entries.some((entry) => entry.signature !== null)
                 }
                 strings={strings}
+                editStrings={EDIT_STRINGS[language].inline}
               />
               <SignatureComposer
                 open={composerOpen}
@@ -1380,6 +1498,7 @@ export function SignToolClient() {
                 files.length > 1 ? runRef.current?.() : requestFinish(options.signers)
               }
               strings={strings}
+              editStrings={EDIT_STRINGS[language].inline}
               multi={
                 files.length > 1
                   ? { files, session: hostSession, keys: docKeys, bridge }
@@ -1461,7 +1580,8 @@ export function SignToolClient() {
                   {strings.totalFields(options.fields.length)}
                 </p>
                 {options.fields.length === 0 &&
-                !hasFilledTextValue(options.textFields, options.textValues) ? (
+                !hasFilledTextValue(options.textFields, options.textValues) &&
+                !hasTextEdits(options.textEdits) ? (
                   <p className="text-xs leading-relaxed text-destructive">
                     {strings.noFieldsError}
                   </p>
@@ -1477,7 +1597,7 @@ export function SignToolClient() {
                         options.signers,
                         options.fields,
                         options.captures,
-                        options.signature,
+                        stampKeyOf(options.signature, options.textEdits),
                       ).length,
                     )}
                   </p>
@@ -1497,6 +1617,11 @@ export function SignToolClient() {
                 <p className="text-footnote leading-relaxed text-muted-foreground">
                   {strings.exportConfigNote}
                 </p>
+                {/* Las ediciones del texto original no viajan en la configuracion (van en el borrador). */}
+                <ExportEditsNotice
+                  hasEdits={docIdsOf(files).some((id) => hasTextEdits(docStateOf(session.docs, id).textEdits))}
+                  strings={strings}
+                />
               </>
             ) : null}
 
@@ -1787,6 +1912,8 @@ export type MultiFlowProps = {
   setOptions: (patch: Partial<SignToolOptions>) => void;
   onFinish: () => void;
   strings: SignStrings;
+  /** Copy del editor de texto de Editar PDF; ausente = la herramienta «Editar texto» no existe en el lienzo. */
+  editStrings?: EditInlineStrings;
   /** Ultimo archivo visto, compartido entre flujos (ver `useDocumentSession`). */
   seen?: SeenStore<SignToolOptions>;
   /** Varios documentos: control mismas/distintas, bloques por firmante y ceremonia por bloques. Ausente = un documento, la interfaz de siempre. */
@@ -1799,6 +1926,7 @@ export function MultiFlow({
   setOptions,
   onFinish,
   strings,
+  editStrings,
   seen,
   multi,
 }: MultiFlowProps) {
@@ -1939,6 +2067,7 @@ export function MultiFlow({
     textFieldsMissing,
     detectedFieldsCount,
   } = session;
+  const textEditConfig = useTextEditConfig(options.textEdits, setOptions, editStrings);
 
   /**
    * Cachea los bytes leidos del `File` actual: se necesitan en cada
@@ -2019,12 +2148,16 @@ export function MultiFlow({
     // este autoguardado de un solo documento no escribe nada y, si ya habia
     // guardado un borrador suyo (la ronda tenia un solo documento y se sumaron
     // mas), lo borra por el mismo mecanismo de "sin progreso".
+    // Un PDF que se abrio con contrasena (copia descifrada) NUNCA se guarda como borrador:
+    // dejaria su contenido sin el cifrado en el navegador (Wave 6 · U3).
     const hasProgress =
       !inSession &&
+      !isDecryptedCopy(file) &&
       (options.signers.length > 0 ||
         options.fields.length > 0 ||
         options.textFields.length > 0 ||
-        Object.keys(options.textValues).length > 0);
+        Object.keys(options.textValues).length > 0 ||
+        hasTextEdits(options.textEdits));
 
     const targetId = documentKey;
     if (!hasProgress && !hasSavedDraftRef.current.has(targetId)) return;
@@ -2052,6 +2185,7 @@ export function MultiFlow({
           step: options.step,
           captures: options.captures,
           textFieldsDetectedFor: options.textFieldsDetectedFor,
+          textEdits: options.textEdits,
         }
       : null;
     const targetFile = file;
@@ -2096,6 +2230,7 @@ export function MultiFlow({
     options.step,
     options.captures,
     options.textFieldsDetectedFor,
+    options.textEdits,
   ]);
 
   const stepLabels: Record<MultiStep, string> = {
@@ -2141,6 +2276,16 @@ export function MultiFlow({
   const slotsByDoc = (docId: DocId): SignatureField[] =>
     multiDocs ? liveFields(docStateOf(multiDocs, docId), options.signers) : options.fields;
   const multiBlockers: DeliveryBlocker[] = multi ? deliveryBlockers(multi.session, docIds) : [];
+  /**
+   * Huella de cada documento con la que se sellan los trazos: la del archivo mas la de sus
+   * ediciones de texto (`stampKeyOf`). Sin ediciones es la huella del archivo, sin mas.
+   */
+  const stampKeys: Record<DocId, string | null> = {};
+  if (multi) {
+    for (const id of docIds) {
+      stampKeys[id] = stampKeyOf(multi.keys[id] ?? null, docStateOf(multi.session.docs, id).textEdits) ?? null;
+    }
+  }
   const blocksNow: SignerBlock[] = multi ? multi.session.blocks : [];
   const issues = multi
     ? coverageIssues(
@@ -2159,12 +2304,14 @@ export function MultiFlow({
   }
 
   const anySlots = multi ? docIds.some((id) => slotsByDoc(id).length > 0) : options.fields.length > 0;
+  // Texto relleno o texto original editado: ambos bastan para «rellenar y descargar» sin huecos.
   const anyFilledText = multi
     ? docIds.some((id) => {
         const doc = docStateOf(multi.session.docs, id);
-        return hasFilledTextValue(doc.textFields, doc.textValues);
+        return hasFilledTextValue(doc.textFields, doc.textValues) || hasTextEdits(doc.textEdits);
       })
-    : hasFilledTextValue(options.textFields, options.textValues);
+    : hasFilledTextValue(options.textFields, options.textValues) ||
+      hasTextEdits(options.textEdits);
 
   /**
    * Al quitar a un firmante desaparecen tambien sus huecos y su trazo:
@@ -2513,6 +2660,7 @@ export function MultiFlow({
             richFieldTypesEnabled={richFieldTypesEnabled}
             pinchZoomEnabled={pinchZoomEnabled}
             sequence={sequence}
+            textEdit={textEditConfig}
           />
 
           <PendingFieldsNotice
@@ -2528,7 +2676,7 @@ export function MultiFlow({
             signers={options.signers}
             docs={docRefs}
             docStates={multi.session.docs}
-            keys={multi.keys}
+            keys={stampKeys}
             blocks={blocksNow}
             onBlocksChange={(blocks) => multi.bridge.commit(() => ({ blocks }))}
             blockerMessages={blockerMessages(
@@ -2549,7 +2697,7 @@ export function MultiFlow({
             fields={options.fields}
             captures={options.captures}
             onCapturesChange={(captures) => setOptions({ captures })}
-            documentKey={documentKey}
+            documentKey={stampKeyOf(documentKey, options.textEdits)}
             documentName={file?.name}
             onFinish={onFinish}
             strings={strings}
@@ -2635,6 +2783,8 @@ export type SoloFlowProps = {
   /** Hay alguna firma guardada que ofrecer. */
   hasSaved?: boolean;
   strings: SignStrings;
+  /** Copy del editor de texto de Editar PDF; ausente = la herramienta «Editar texto» no existe en el lienzo. */
+  editStrings?: EditInlineStrings;
   /** Ultimo archivo visto, compartido entre flujos (ver `useDocumentSession`). */
   seen?: SeenStore<SignToolOptions>;
 };
@@ -2659,6 +2809,7 @@ export function SoloFlow({
   onOpenSaved,
   hasSaved,
   strings,
+  editStrings,
   seen,
 }: SoloFlowProps) {
   const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
@@ -2689,6 +2840,7 @@ export function SoloFlow({
     clearedState: CLEARED_DOCUMENT_STATE,
     seen,
   });
+  const textEditConfig = useTextEditConfig(options.textEdits, setOptions, editStrings);
 
   return (
     <section className="flex flex-col gap-4">
@@ -2743,6 +2895,7 @@ export function SoloFlow({
         richFieldTypesEnabled={richFieldTypesEnabled}
         pinchZoomEnabled={pinchZoomEnabled}
         sequence={sequence}
+        textEdit={textEditConfig}
       />
 
       <PendingFieldsNotice

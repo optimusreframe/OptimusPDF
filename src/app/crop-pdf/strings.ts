@@ -13,6 +13,8 @@ export type CropStrings = {
   scopeCurrent: string;
   scopeHint: string;
   sizeLabel: string;
+  /** Motivo junto a «Procesar»: la seleccion es casi un punto. */
+  selectionTooSmall: string;
   loadingPreview: string;
   filenameSuffix: string;
 };
@@ -31,6 +33,7 @@ const es: CropStrings = {
   scopeHint:
     "El recorte es proporcional: si las páginas tienen tamaños distintos, cada una se recorta en la misma proporción.",
   sizeLabel: "Selección",
+  selectionTooSmall: "La selección es demasiado pequeña: agrándala para conservar algo de la página.",
   loadingPreview: "Preparando la vista previa",
   filenameSuffix: "recortado",
 };
@@ -49,6 +52,7 @@ const en: CropStrings = {
   scopeHint:
     "The crop is proportional: if pages have different sizes, each one is cropped by the same ratio.",
   sizeLabel: "Selection",
+  selectionTooSmall: "The selection is too small: enlarge it to keep some of the page.",
   loadingPreview: "Preparing the preview",
   filenameSuffix: "cropped",
 };

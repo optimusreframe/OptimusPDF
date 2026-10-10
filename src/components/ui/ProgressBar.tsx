@@ -27,13 +27,13 @@ export function ProgressBar({ value, label, className }: ProgressBarProps) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={label}
-        className="h-1.5 w-full overflow-hidden rounded-full bg-white/10"
+        className="h-1.5 w-full overflow-hidden rounded-full bg-white/10 forced-colors:border forced-colors:border-[CanvasText]"
       >
         <motion.div
           initial={false}
           animate={{ x: `${clamped - 100}%` }}
           transition={springs.default}
-          className="h-full w-full rounded-full bg-signal will-change-transform"
+          className="h-full w-full rounded-full bg-signal will-change-transform forced-colors:bg-[Highlight]"
         />
       </div>
       <div className="mt-2 flex items-center justify-between gap-3">

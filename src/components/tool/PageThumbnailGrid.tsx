@@ -13,6 +13,7 @@ import {
   type PageRef,
   type PdfErrorCode,
 } from "@/lib/pdf/core";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 
 export type PageThumbnailGridProps = {
   files: File[];
@@ -24,8 +25,13 @@ export type PageThumbnailGridProps = {
   removable?: boolean;
   /** Muestra los controles de reordenacion. */
   reorderable?: boolean;
-  /** Se dispara cada vez que cambia el plan de paginas. */
-  onItemsChange?: (items: PageRef[]) => void;
+  /**
+   * Se dispara cada vez que cambia el plan de paginas. `meta.files` son los archivos (los mismos
+   * objetos `File` recibidos) cuyas paginas recoge el plan YA COMPLETO; es `null` mientras el plan
+   * esta vacio o se esta leyendo. Quien consuma el plan para PROCESAR debe comprobar que `meta.files`
+   * coincide con los archivos actuales: un plan sin ellos puede estar incompleto.
+   */
+  onItemsChange?: (items: PageRef[], meta: { files: File[] | null }) => void;
   onError?: (code: PdfErrorCode) => void;
   className?: string;
 };
@@ -46,8 +52,8 @@ export function PageThumbnailGrid(props: PageThumbnailGridProps) {
 
 /*
  * Rejilla de paginas sobre superficie solida: numero de pagina como
- * etiqueta sobre la miniatura, acciones debajo (40 px con puntero grueso:
- * cuatro acciones no caben a 44 en una celda de 165 px a 375 px). La
+ * etiqueta sobre la miniatura, acciones debajo (32 px con raton; 44 px con
+ * puntero grueso, y si no caben en una fila envuelven a la siguiente). La
  * reordenacion sigue siendo HTML5 drag and drop (logica intacta) con las
  * flechas como alternativa sin arrastre; la celda destino se marca con
  * anillo y escala, la arrastrada se atenua.
@@ -64,6 +70,8 @@ function PageThumbnailGridInner({
 }: PageThumbnailGridProps) {
   const t = useT();
   const [items, setItems] = useState<PageRef[]>([]);
+  /** Archivos a los que pertenece el plan completo de `items` (`null` hasta tenerlo). */
+  const [planFiles, setPlanFiles] = useState<File[] | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(files.length > 0);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -91,13 +99,15 @@ function PageThumbnailGridInner({
 
     void (async () => {
       const built: PageRef[] = [];
+      const documents: PDFDocumentProxy[] = [];
       try {
+        // Paso 1, barato: se abren TODOS los archivos y se publica el plan COMPLETO de una vez. Antes el
+        // plan crecia archivo a archivo, tras renderizar las miniaturas del anterior, y un «Procesar»
+        // en ese intervalo perdia en silencio las paginas de los archivos aun sin leer.
         for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
           const document = await openPdfDocument(files[fileIndex]);
-          if (cancelled) {
-            void closePdfDocument(document);
-            return;
-          }
+          documents.push(document);
+          if (cancelled) return;
 
           for (
             let pageNumber = 1;
@@ -112,8 +122,14 @@ function PageThumbnailGridInner({
               selected: true,
             });
           }
-          if (!cancelled) setItems([...built]);
+        }
+        if (cancelled) return;
+        setItems([...built]);
+        setPlanFiles(files);
 
+        // Paso 2: las miniaturas, archivo a archivo.
+        for (let fileIndex = 0; fileIndex < documents.length; fileIndex += 1) {
+          const document = documents[fileIndex];
           for (
             let pageNumber = 1;
             pageNumber <= document.numPages;
@@ -129,12 +145,12 @@ function PageThumbnailGridInner({
             const id = `${fileIndex}-${pageNumber - 1}`;
             setThumbs((previous) => ({ ...previous, [id]: url }));
           }
-
-          void closePdfDocument(document);
+          if (cancelled) break;
         }
       } catch (error) {
         if (!cancelled) errorRef.current?.(toPdfError(error).code);
       } finally {
+        for (const document of documents) void closePdfDocument(document);
         if (!cancelled) setLoading(false);
       }
     })();
@@ -145,8 +161,8 @@ function PageThumbnailGridInner({
   }, [files]);
 
   useEffect(() => {
-    changeRef.current?.(items);
-  }, [items]);
+    changeRef.current?.(items, { files: planFiles });
+  }, [items, planFiles]);
 
   // Tras quitar una pagina, el foco pasa al "Quitar" de la pagina que ocupa
   // ahora esa posicion (o al de la ultima), como hace FileList con los
@@ -317,13 +333,13 @@ function PageThumbnailGridInner({
                 {selectable && item.selected ? (
                   <span
                     aria-hidden="true"
-                    className="absolute top-1.5 right-1.5 size-3 rounded-full border-2 border-background bg-signal"
+                    className="absolute top-1.5 right-1.5 size-3 rounded-full border-2 border-background bg-signal forced-colors:border-[Canvas] forced-colors:bg-[Highlight]"
                   />
                 ) : null}
               </button>
 
               {hasActions ? (
-                <div className="-mx-1 mt-1.5 flex items-center justify-end">
+                <div className="-mx-1 mt-1.5 flex flex-wrap items-center justify-end">
                   {reorderable ? (
                     <>
                       <MiniButton
@@ -398,7 +414,7 @@ function MiniButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex size-8 items-center justify-center rounded-full text-muted-foreground pointer-coarse:size-10",
+        "flex size-8 items-center justify-center rounded-full text-muted-foreground pointer-coarse:size-11",
         "transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
         "hover:bg-white/10 hover:text-foreground active:scale-90 active:duration-[80ms]",
         "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal",

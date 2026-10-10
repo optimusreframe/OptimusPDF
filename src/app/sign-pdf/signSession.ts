@@ -137,6 +137,7 @@ export function viewOf(
     selectedTextFieldId: session.selectedTextFieldId,
     editingTextFieldId: session.editingTextFieldId,
     textFieldsDetectedFor: doc.textFieldsDetectedFor,
+    textEdits: doc.textEdits,
   };
 }
 
@@ -197,6 +198,7 @@ export function applyViewPatch(
   if (patch.textFieldsDetectedFor !== undefined) {
     docPatch.textFieldsDetectedFor = patch.textFieldsDetectedFor;
   }
+  if (patch.textEdits !== undefined) docPatch.textEdits = patch.textEdits;
   if (patch.fields !== undefined || signersChanged) {
     const base = patch.fields ?? doc.fields;
     if (signersChanged) {
@@ -282,6 +284,7 @@ export function sessionFromView(
     pageIndex: view.pageIndex ?? 0,
     fieldPageIndex: view.fieldPageIndex ?? 0,
     sealedKey: view.signature ?? "",
+    ...(view.textEdits && view.textEdits.length > 0 ? { textEdits: view.textEdits } : {}),
   };
   const signers = view.signers ?? [];
   const blocks = ensureBlocks(

@@ -1,5 +1,5 @@
 import type { DocId, DocState } from "@/app/sign-pdf/docSet";
-import { fieldTypeOf, type DetectedField } from "@/lib/pdf/detectFields";
+import { fieldTypeOf, isSuggestionOnly, type DetectedField } from "@/lib/pdf/detectFields";
 import { defaultSoloRect, refitSoloRect } from "@/app/sign-pdf/soloSignature";
 import type { NormalizedRect } from "@/lib/pdf/watermark";
 
@@ -122,6 +122,8 @@ export function isPendingElsewhere(
   values: Readonly<Record<string, string>>,
 ): boolean {
   const value = values[field.id] ?? "";
+  // Una sugerencia sin tocar no es un campo del documento: no cuenta como pendiente.
+  if (isSuggestionOnly(field, value)) return false;
   return fieldTypeOf(field) === "checkbox"
     ? value.length === 0
     : value.trim().length === 0;

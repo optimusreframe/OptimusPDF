@@ -32,13 +32,13 @@ export function PdfToTextClient() {
       signal: AbortSignal,
     ): Promise<ProcessResult> => {
       const file = files[0];
-      const blob = await pdfToText(file, options, onProgress, signal);
+      const blob = await pdfToText(file, options, onProgress, signal, s.ocrFailureMarker);
       return {
         blob,
         filename: withSuffix(file.name, s.filenameSuffix, "txt"),
       };
     },
-    [s.filenameSuffix],
+    [s.filenameSuffix, s.ocrFailureMarker],
   );
 
   return (

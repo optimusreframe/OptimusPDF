@@ -11,6 +11,7 @@ import type {
 } from "@/app/sign-pdf/SignToolClient";
 import type { SignConfigManifest } from "@/app/sign-pdf/signConfig";
 import type { DetectedField } from "@/lib/pdf/detectFields";
+import type { TextEdit } from "@/lib/pdf/editTypes";
 import type { Signer, SignatureField } from "@/lib/pdf/sign";
 
 /**
@@ -57,6 +58,8 @@ export type DraftMeta = {
   captures: CaptureMap;
   /** Espejo de `SignToolOptions.textFieldsDetectedFor` -- ver ese campo. */
   textFieldsDetectedFor: string | null;
+  /** Texto original editado (W6-A). Ausente en borradores anteriores. Al leer, pasa por `sanitizeTextEdits`. */
+  textEdits?: TextEdit[];
 };
 
 /** Un documento de un borrador de sesion (los bytes viven en `draftFiles`). */
@@ -373,6 +376,8 @@ export type SaveDraftParams = {
   step: MultiStep;
   captures: CaptureMap;
   textFieldsDetectedFor: string | null;
+  /** Texto original editado (W6-A); vacio/ausente = ninguno. */
+  textEdits?: readonly TextEdit[];
 };
 
 /**
@@ -407,6 +412,9 @@ function saveDraftTx(db: IDBDatabase, params: SaveDraftParams): Promise<void> {
         step: params.step,
         captures: params.captures,
         textFieldsDetectedFor: params.textFieldsDetectedFor,
+        ...(params.textEdits && params.textEdits.length > 0
+          ? { textEdits: [...params.textEdits] }
+          : {}),
       };
       metaStore.put(meta);
     };

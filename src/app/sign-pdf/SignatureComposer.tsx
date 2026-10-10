@@ -15,7 +15,7 @@ import { MOBILE_FULLSCREEN_QUERY, Sheet } from "@/components/ui/Sheet";
 import { Slider } from "@/components/ui/Slider";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/cn";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 
 /**
@@ -137,6 +137,67 @@ function resolveFontFamily(family: string): string {
     .replace(/^\s*,\s*/, "")
     .replace(/,\s*,/g, ",")
     .trim();
+}
+
+/**
+ * Fuente de la firma escrita en el canvas (la misma pila que la vista previa,
+ * con `var(--font-caveat)` ya resuelta). Una sola funcion para medir, dibujar
+ * y esperar: el canvas exportado nunca usa una familia distinta de la que se
+ * comprobo.
+ */
+function typedFontSpec(fontIndex: number): string {
+  return `${TYPE_FONT_SIZE}px ${resolveFontFamily(SIGNATURE_FONTS[fontIndex])}`;
+}
+
+/** Tiempo maximo de espera de la fuente antes de avisar (W6-C, N1). */
+export const SIGNATURE_FONT_TIMEOUT_MS = 4000;
+
+const FONT_FALLBACK_NOTICE = {
+  es: "La fuente de la firma no cargó: se usará una fuente de respaldo. Pulsa «Usar esta firma» otra vez para guardarla así, o elige otro estilo.",
+  en: "The signature font did not load: a fallback font will be used. Press “Use this signature” again to save it that way, or pick another style.",
+} as const;
+
+/**
+ * `true` si el canvas ya puede dibujar `text` con `font` sin caer en la fuente
+ * de respaldo. Sin la API de fuentes (jsdom, navegadores muy viejos) no hay
+ * nada que esperar.
+ */
+export function signatureFontReady(font: string, text: string): boolean {
+  const fonts = typeof document === "undefined" ? undefined : document.fonts;
+  if (!fonts || typeof fonts.check !== "function") return true;
+  try {
+    return fonts.check(font, text);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Espera a que `font` este lista para `text` (carga + `document.fonts.ready`)
+ * y confirma con `check`. Resuelve `false` si no llega a tiempo o falla: quien
+ * llama avisa en vez de exportar en silencio una firma con otra fuente.
+ */
+export function loadSignatureFont(
+  font: string,
+  text: string,
+  timeoutMs: number = SIGNATURE_FONT_TIMEOUT_MS,
+): Promise<boolean> {
+  const fonts = typeof document === "undefined" ? undefined : document.fonts;
+  if (!fonts || typeof fonts.load !== "function") return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    fonts
+      .load(font, text)
+      .then(() => fonts.ready)
+      .then(() => {
+        clearTimeout(timer);
+        resolve(signatureFontReady(font, text));
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+  });
 }
 
 export type StrokePoint = { x: number; y: number };
@@ -378,6 +439,7 @@ export function SignatureComposer({
   signerName,
 }: SignatureComposerProps) {
   const t = useT();
+  const { language } = useI18n();
   const initials = variant === "initials";
   // El aviso y el lienzo apaisado solo tienen sentido con el aparato en
   // la mano: en un escritorio la ventana ya es ancha de serie.
@@ -409,6 +471,11 @@ export function SignatureComposer({
   const [uploaded, setUploaded] = useState<HTMLCanvasElement | null>(null);
   const [uploadName, setUploadName] = useState<string | null>(null);
   const [warning, setWarning] = useState(false);
+  /* N1: la fuente de «Escribir» aun no esta lista al guardar / no cargo a tiempo. */
+  const [fontBusy, setFontBusy] = useState(false);
+  const [fontNotice, setFontNotice] = useState(false);
+  /** Estilos cuyo respaldo ya se aviso: la siguiente pulsacion guarda tal cual. */
+  const fontFallbackAckRef = useRef<Set<number>>(new Set());
   /* Baul de firmas: casilla desmarcada y sin nombre cada vez que se abre. */
   const [remember, setRemember] = useState(false);
   /** `null` = aun no lo ha tocado: se precarga con lo escrito en «Escribir». */
@@ -747,15 +814,20 @@ export function SignatureComposer({
     }
   };
 
+  // Precarga: la fuente solo se descarga cuando algo la usa, asi que se pide al
+  // abrir el compositor y al cambiar de estilo; al guardar casi nunca se espera.
+  useEffect(() => {
+    if (!open) return;
+    void loadSignatureFont(typedFontSpec(fontIndex), "Aa");
+  }, [open, fontIndex]);
+
   const buildTyped = (): HTMLCanvasElement | null => {
     const text = typed.trim();
     if (text.length === 0) return null;
     const measure = document.createElement("canvas");
     const measureContext = measure.getContext("2d");
     if (!measureContext) return null;
-    const font = `${TYPE_FONT_SIZE}px ${resolveFontFamily(
-      SIGNATURE_FONTS[fontIndex],
-    )}`;
+    const font = typedFontSpec(fontIndex);
     measureContext.font = font;
     const width = Math.ceil(measureContext.measureText(text).width);
 
@@ -772,21 +844,8 @@ export function SignatureComposer({
     return trimTransparent(canvas);
   };
 
-  const save = () => {
-    let canvas: HTMLCanvasElement | null = null;
-    if (mode === "draw") {
-      // Incluido el trazo que siguiera en curso al pulsar guardar.
-      const active = activeStrokeRef.current;
-      canvas = exportStrokes(
-        active ? [...strokesRef.current, active] : strokesRef.current,
-        referenceSizeRef.current,
-      );
-    } else if (mode === "type") {
-      canvas = buildTyped();
-    } else {
-      canvas = uploaded;
-    }
-
+  /** Cierra el flujo de guardado con el lienzo ya construido. */
+  const finishSave = (canvas: HTMLCanvasElement | null) => {
     const draft = canvas ? toDraft(canvas) : null;
     if (!draft) {
       setWarning(true);
@@ -807,6 +866,48 @@ export function SignatureComposer({
       onSave(draft);
     }
     onClose();
+  };
+
+  const save = () => {
+    if (fontBusy) return;
+    if (mode === "draw") {
+      // Incluido el trazo que siguiera en curso al pulsar guardar.
+      const active = activeStrokeRef.current;
+      finishSave(
+        exportStrokes(
+          active ? [...strokesRef.current, active] : strokesRef.current,
+          referenceSizeRef.current,
+        ),
+      );
+      return;
+    }
+    if (mode !== "type") {
+      finishSave(uploaded);
+      return;
+    }
+    // N1: el canvas exportado debe usar la MISMA fuente que la vista previa.
+    // Si la fuente aun no esta lista, se espera (con tope) antes de medir y
+    // dibujar; si no llega, se avisa en vez de exportar en silencio otra firma.
+    const text = typed.trim();
+    const font = typedFontSpec(fontIndex);
+    if (
+      text.length === 0 ||
+      signatureFontReady(font, text) ||
+      fontFallbackAckRef.current.has(fontIndex)
+    ) {
+      finishSave(buildTyped());
+      return;
+    }
+    setFontBusy(true);
+    void loadSignatureFont(font, text).then((ready) => {
+      setFontBusy(false);
+      if (!ready) {
+        fontFallbackAckRef.current.add(fontIndex);
+        setFontNotice(true);
+        return;
+      }
+      finishSave(buildTyped());
+    });
   };
 
   return (
@@ -934,7 +1035,11 @@ export function SignatureComposer({
                 placeholder={
                   initials ? strings.initialsPlaceholder : strings.typePlaceholder
                 }
-                onChange={(event) => setTyped(event.target.value)}
+                onChange={(event) => {
+                  setTyped(event.target.value);
+                  setFontNotice(false);
+                  fontFallbackAckRef.current.clear();
+                }}
                 className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
               />
             </div>
@@ -956,7 +1061,10 @@ export function SignatureComposer({
                       role="radio"
                       aria-checked={active}
                       aria-label={styleName}
-                      onClick={() => setFontIndex(index)}
+                      onClick={() => {
+                        setFontIndex(index);
+                        setFontNotice(false);
+                      }}
                       className={cn(
                         "flex min-h-14 items-center justify-center rounded-ios-sm border px-3 py-2 transition-all duration-200 ease-spring",
                         active
@@ -1044,6 +1152,18 @@ export function SignatureComposer({
           </p>
         ) : null}
 
+        {/* Aviso de la fuente de «Escribir» (N1): solo existe mientras hay aviso. */}
+        {fontNotice && mode === "type" ? (
+          <p
+            role="status"
+            aria-live="polite"
+            data-font-notice=""
+            className="text-sm text-destructive-text"
+          >
+            {FONT_FALLBACK_NOTICE[language]}
+          </p>
+        ) : null}
+
         {onRemember ? (
           <div className="space-y-2">
             <Checkbox
@@ -1099,7 +1219,7 @@ export function SignatureComposer({
           </div>
         ) : null}
 
-        <Button size="lg" fullWidth onClick={save}>
+        <Button size="lg" fullWidth onClick={save} disabled={fontBusy} aria-busy={fontBusy || undefined}>
           {strings.save}
         </Button>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { Checkbox } from "@/components/ui/Checkbox";
@@ -18,9 +18,9 @@ import {
   ProtectValidationError,
   passwordStrength,
   protectPdf,
+  unsupportedPasswordChars,
   validateProtectOptions,
   type PasswordStrength,
-  type ProtectFailure,
   type ProtectOptions,
 } from "@/lib/pdf/protect";
 import { getTool } from "@/lib/tools-registry";
@@ -30,7 +30,6 @@ const TOOL = getTool("protect-pdf");
 export function ProtectToolClient() {
   const { language } = useI18n();
   const s = PROTECT_STRINGS[language];
-  const [failure, setFailure] = useState<ProtectFailure | null>(null);
 
   const strengthLabel = useCallback(
     (level: PasswordStrength): string =>
@@ -48,14 +47,10 @@ export function ProtectToolClient() {
       options: ProtectOptions,
       onProgress: ProgressCallback,
     ): Promise<ProcessResult> => {
+      // `canRun` ya impide llegar aqui con opciones invalidas (el motivo se lee junto a
+      // «Procesar»); esto es la red de seguridad si alguien lanza el procesado por otra via.
       const invalid = validateProtectOptions(options);
-      if (invalid) {
-        // El motor lanzaria lo mismo; se adelanta para poder mostrar el
-        // motivo exacto junto al formulario.
-        setFailure(invalid);
-        throw new ProtectValidationError(invalid);
-      }
-      setFailure(null);
+      if (invalid) throw new ProtectValidationError(invalid);
 
       const file = files[0];
       const blob = await protectPdf(file, options, onProgress);
@@ -69,6 +64,28 @@ export function ProtectToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_PROTECT_OPTIONS}
       process={process}
+      // Un PDF ya cifrado abre la hoja de contrasena (como en las demas herramientas): se trabaja con una
+      // copia descifrada y se vuelve a proteger con la contrasena NUEVA (no sale «sin cifrar»).
+      inputPolicy={{
+        passwordCopy: { sheetBody: s.encryptedCopySheetBody, notice: s.encryptedCopyNotice },
+      }}
+      canRun={(_files, options) => {
+        const invalid = validateProtectOptions(options);
+        if (invalid === "mismatch" && options.confirm.length === 0) {
+          return { ok: false, reason: s.confirmRequired };
+        }
+        if (invalid === "unsupportedChars") {
+          // Se senala el caracter problematico: nunca el mensaje de «ya esta protegido».
+          return {
+            ok: false,
+            reason: s.errors.unsupportedChars.replace(
+              "{chars}",
+              unsupportedPasswordChars(options.password).join(" "),
+            ),
+          };
+        }
+        return invalid ? { ok: false, reason: s.errors[invalid] } : { ok: true };
+      }}
       renderMain={() => (
         <section className="glass rounded-ios p-5">
           <div className="flex items-start gap-3">
@@ -98,12 +115,6 @@ export function ProtectToolClient() {
               {s.noRecovery}
             </p>
           </div>
-
-          {failure ? (
-            <p role="alert" className="mt-4 text-sm text-destructive">
-              {s.errors[failure]}
-            </p>
-          ) : null}
         </section>
       )}
       renderOptions={({ files, options, setOptions }) => {
@@ -116,14 +127,11 @@ export function ProtectToolClient() {
             <PasswordField
               label={s.passwordLabel}
               value={options.password}
-              onChange={(password) => {
-                setFailure(null);
-                setOptions({ password });
-              }}
+              onChange={(password) => setOptions({ password })}
               showLabel={s.showPassword}
               hideLabel={s.hidePassword}
               autoComplete="new-password"
-              invalid={failure === "empty" || failure === "tooShort"}
+              invalid={unsupportedPasswordChars(options.password).length > 0}
             />
 
             <StrengthMeter
@@ -137,33 +145,21 @@ export function ProtectToolClient() {
             <PasswordField
               label={s.confirmLabel}
               value={options.confirm}
-              onChange={(confirm) => {
-                setFailure(null);
-                setOptions({ confirm });
-              }}
+              onChange={(confirm) => setOptions({ confirm })}
               showLabel={s.showPassword}
               hideLabel={s.hidePassword}
               autoComplete="new-password"
-              invalid={mismatch || failure === "mismatch"}
+              invalid={mismatch}
               hint={mismatch ? s.errors.mismatch : undefined}
               hintTone="error"
             />
-
-            {failure && failure !== "mismatch" ? (
-              <p className="text-xs leading-relaxed text-destructive">
-                {s.errors[failure]}
-              </p>
-            ) : null}
 
             <div className="mt-2 border-t border-white/10 pt-4">
               <Checkbox
                 label={s.requirePasswordLabel}
                 hint={s.requirePasswordHint}
                 checked={options.requirePasswordToOpen ?? true}
-                onChange={(checked) => {
-                  setFailure(null);
-                  setOptions({ requirePasswordToOpen: checked });
-                }}
+                onChange={(checked) => setOptions({ requirePasswordToOpen: checked })}
               />
 
               {(options.requirePasswordToOpen ?? true) === false ? (
@@ -185,50 +181,32 @@ export function ProtectToolClient() {
                 <Checkbox
                   label={s.permissionPrinting}
                   checked={options.allowPrinting ?? true}
-                  onChange={(checked) => {
-                    setFailure(null);
-                    setOptions({ allowPrinting: checked });
-                  }}
+                  onChange={(checked) => setOptions({ allowPrinting: checked })}
                 />
                 <Checkbox
                   label={s.permissionCopying}
                   checked={options.allowCopying ?? true}
-                  onChange={(checked) => {
-                    setFailure(null);
-                    setOptions({ allowCopying: checked });
-                  }}
+                  onChange={(checked) => setOptions({ allowCopying: checked })}
                 />
                 <Checkbox
                   label={s.permissionModifying}
                   checked={options.allowModifying ?? true}
-                  onChange={(checked) => {
-                    setFailure(null);
-                    setOptions({ allowModifying: checked });
-                  }}
+                  onChange={(checked) => setOptions({ allowModifying: checked })}
                 />
                 <Checkbox
                   label={s.permissionAnnotating}
                   checked={options.allowAnnotating ?? true}
-                  onChange={(checked) => {
-                    setFailure(null);
-                    setOptions({ allowAnnotating: checked });
-                  }}
+                  onChange={(checked) => setOptions({ allowAnnotating: checked })}
                 />
                 <Checkbox
                   label={s.permissionFillingForms}
                   checked={options.allowFillingForms ?? true}
-                  onChange={(checked) => {
-                    setFailure(null);
-                    setOptions({ allowFillingForms: checked });
-                  }}
+                  onChange={(checked) => setOptions({ allowFillingForms: checked })}
                 />
                 <Checkbox
                   label={s.permissionDocumentAssembly}
                   checked={options.allowDocumentAssembly ?? true}
-                  onChange={(checked) => {
-                    setFailure(null);
-                    setOptions({ allowDocumentAssembly: checked });
-                  }}
+                  onChange={(checked) => setOptions({ allowDocumentAssembly: checked })}
                 />
               </div>
 

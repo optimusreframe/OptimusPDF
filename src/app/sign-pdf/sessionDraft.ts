@@ -20,6 +20,7 @@ import type {
   SessionDraftMeta,
 } from "@/app/sign-pdf/signDrafts";
 import type { SignatureField } from "@/lib/pdf/sign";
+import { sanitizeTextEdits } from "@/app/sign-pdf/textEdits";
 
 /*
  * Borrador de SESION (varios documentos): traduccion pura entre la sesion viva
@@ -98,7 +99,8 @@ export function hasSessionProgress(
     return (
       liveFields(doc, session.signers).length > 0 ||
       doc.textFields.length > 0 ||
-      Object.keys(doc.textValues).length > 0
+      Object.keys(doc.textValues).length > 0 ||
+      (doc.textEdits?.length ?? 0) > 0
     );
   });
 }
@@ -195,6 +197,8 @@ function restoreDocState(
   const savedSeal = typeof base.sealedKey === "string" ? base.sealedKey : "";
   const stale = key !== null && savedSeal !== "" && savedSeal !== key;
   const rect = base.rect;
+  // Las ediciones de texto describen los bytes originales: si la huella cambio ya no valen.
+  const textEdits = stale ? [] : sanitizeTextEdits(base.textEdits);
   return {
     stale,
     state: {
@@ -213,6 +217,7 @@ function restoreDocState(
         typeof base.fieldPageIndex === "number" ? base.fieldPageIndex : 0,
       // Vuelve a sellar con la huella RECALCULADA de los bytes recuperados.
       sealedKey: key ?? "",
+      ...(textEdits.length > 0 ? { textEdits } : {}),
     },
   };
 }

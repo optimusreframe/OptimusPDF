@@ -10,6 +10,7 @@ import { ChevronLeft, ChevronRight, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
+import { HIT_44_PSEUDO } from "@/components/ui/touchTarget";
 import {
   closePdfDocument,
   openPdfDocument,
@@ -310,6 +311,8 @@ function CropCanvasInner({
                   {...handlers}
                   className={cn(
                     "absolute size-5 rounded-full border border-white/30 bg-signal/70",
+                    // Con el dedo la zona de toque es de 44 px sin cambiar el aspecto (no se pinta).
+                    HIT_44_PSEUDO,
                     edge.className,
                   )}
                 />
@@ -321,6 +324,7 @@ function CropCanvasInner({
                   {...handlers}
                   className={cn(
                     "absolute size-5 rounded-full border-2 border-foreground bg-signal",
+                    HIT_44_PSEUDO,
                     corner.className,
                   )}
                 />

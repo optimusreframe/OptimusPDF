@@ -24,3 +24,15 @@ async function readDownload(download: Download): Promise<Buffer> {
   const fs = await import("node:fs/promises");
   return fs.readFile(path);
 }
+
+/** Igual que `downloadBytes`, pero devuelve tambien el nombre que propone el navegador. */
+export async function downloadFile(
+  page: Page,
+  action: () => Promise<void>,
+): Promise<{ bytes: Buffer; filename: string }> {
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    action(),
+  ]);
+  return { bytes: await readDownload(download), filename: download.suggestedFilename() };
+}

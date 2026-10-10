@@ -21,6 +21,12 @@ const SIGNED_SUFFIX: Record<NameLang, string> = {
   en: "signed",
 };
 
+/** Sufijo cuando el documento solo se EDITO (texto original cambiado) y no se estampo ninguna firma. */
+const EDITED_SUFFIX: Record<NameLang, string> = {
+  es: "editado",
+  en: "edited",
+};
+
 /** Limites del nombre (ver plan Wave 4). */
 export const MAX_SIGNERS_PART_CHARS = 50;
 export const MAX_DOCUMENT_PART_CHARS = 80;
@@ -151,6 +157,8 @@ export type SignedFilenameInput = {
   /** Nombre del documento original, con o sin `.pdf`. */
   documentName: string;
   lang: NameLang;
+  /** Solo se edito el texto (ninguna firma estampada): `<doc>-editado.pdf` en vez de `-firmado`. */
+  edited?: boolean;
 };
 
 const DOCUMENT_FALLBACK: Record<NameLang, string> = {
@@ -174,7 +182,7 @@ function documentStem(documentName: string): string {
  */
 export function signedFilename(input: SignedFilenameInput): string {
   const { lang } = input;
-  const suffix = SIGNED_SUFFIX[lang];
+  const suffix = input.edited ? EDITED_SUFFIX[lang] : SIGNED_SUFFIX[lang];
   const signers = joinSignerNames(input.signerNames, lang);
   const document =
     safeFilenamePart(documentStem(input.documentName)) || DOCUMENT_FALLBACK[lang];

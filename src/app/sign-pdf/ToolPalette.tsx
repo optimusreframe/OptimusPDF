@@ -15,6 +15,7 @@ import {
   Signature,
   SquareCheck,
   Type,
+  TextCursorInput,
 } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/cn";
@@ -46,6 +47,7 @@ const TOOL_ICONS: Record<PlacementTool, typeof Type> = {
   text: Type,
   checkbox: SquareCheck,
   date: CalendarDays,
+  editText: TextCursorInput,
 };
 
 /**
@@ -114,6 +116,8 @@ export function ToolPalette({
         return strings.fieldTypeCheckbox;
       case "date":
         return strings.fieldTypeDate;
+      case "editText":
+        return strings.toolEditText;
     }
   };
 

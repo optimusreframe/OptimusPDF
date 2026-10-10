@@ -49,6 +49,8 @@ export type SignBatchSigned = {
   bytes: Uint8Array;
   /** Firmantes que aplican a ESE documento, en orden de aparicion. */
   signerNames: readonly string[];
+  /** Solo se edito el texto, sin ninguna firma estampada: el nombre acaba en `-editado`. */
+  edited?: boolean;
 };
 
 export type SignBatchContext = {
@@ -144,6 +146,7 @@ export async function signBatch<D extends SignBatchDocument>(
           signerNames: output.signerNames,
           documentName: document.name,
           lang,
+          edited: output.edited,
         }),
       });
     } catch (caught) {

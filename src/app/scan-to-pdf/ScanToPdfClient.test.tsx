@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { DetectedQuad } from "@/lib/scan/documentDetection";
 import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
@@ -272,5 +272,107 @@ describe("rafaga con la camara del sistema — src/app/scan-to-pdf/CameraStage.t
       expect(screen.getByAltText(`${s.captureAlt} 2`)).toBeTruthy(),
     );
     expect(openCamera).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ScanToPdfClient — el foco nunca cae a <body> (Wave 6 · V-G)", () => {
+  const originalRects = Element.prototype.getClientRects;
+  beforeAll(() => {
+    // jsdom no calcula cajas: el foco solo se da a elementos pintados.
+    Element.prototype.getClientRects = function getClientRects() {
+      return [{ width: 1, height: 1 }] as unknown as DOMRectList;
+    };
+  });
+  afterAll(() => {
+    Element.prototype.getClientRects = originalRects;
+  });
+
+  async function addTwoPhotos(container: HTMLElement) {
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]:not([capture])');
+    expect(input).not.toBeNull();
+    for (const count of [1, 2]) {
+      fireEvent.change(input!, { target: { files: [photo()] } });
+      await waitFor(() => expect(screen.getAllByAltText(new RegExp(`^${s.captureAlt} `))).toHaveLength(count));
+      detection.resolveWith(null);
+      await waitFor(() => expect(screen.queryByLabelText(s.cropping)).toBeNull());
+    }
+  }
+
+  const removeButtons = () => screen.getAllByRole("button", { name: s.removeCapture }) as HTMLButtonElement[];
+
+  it("descartar una captura (hay mas): el foco va al «Descartar» de la que ocupa su sitio", async () => {
+    const { container } = render(
+      <LanguageProvider>
+        <ScanToPdfClient />
+      </LanguageProvider>,
+    );
+    await addTwoPhotos(container);
+    const [first] = removeButtons();
+    first.focus();
+    fireEvent.click(first);
+    await waitFor(() => expect(removeButtons()).toHaveLength(1));
+    expect(document.activeElement).toBe(removeButtons()[0]);
+  });
+
+  it("descartar la ultima captura: el foco va a la camara (nunca <body>)", async () => {
+    const { container } = render(
+      <LanguageProvider>
+        <ScanToPdfClient />
+      </LanguageProvider>,
+    );
+    await addTwoPhotos(container);
+    fireEvent.click(removeButtons()[0]);
+    await waitFor(() => expect(removeButtons()).toHaveLength(1));
+    fireEvent.click(removeButtons()[0]);
+    await waitFor(() => expect(screen.queryAllByRole("button", { name: s.removeCapture })).toHaveLength(0));
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.closest("[data-camera-stage]")).toBeTruthy();
+  });
+
+  it("mover una captura: el foco sigue en una flecha de ESA captura", async () => {
+    const { container } = render(
+      <LanguageProvider>
+        <ScanToPdfClient />
+      </LanguageProvider>,
+    );
+    await addTwoPhotos(container);
+    const firstId = container.querySelector("[data-capture-id]")!.getAttribute("data-capture-id");
+    const down = container.querySelector('[data-capture-id] [data-capture-action="down"]') as HTMLButtonElement;
+    down.focus();
+    fireEvent.click(down);
+    await waitFor(() => expect(container.querySelectorAll("[data-capture-id]")[1].getAttribute("data-capture-id")).toBe(firstId));
+    expect(document.activeElement?.closest("[data-capture-id]")?.getAttribute("data-capture-id")).toBe(firstId);
+  });
+
+  it("editor de esquinas: el foco entra en el dialogo y «Cerrar sin cambios» lo devuelve a «Editar recorte» de la captura", async () => {
+    const { container } = render(
+      <LanguageProvider>
+        <ScanToPdfClient />
+      </LanguageProvider>,
+    );
+    await addTwoPhotos(container);
+    const edit = container.querySelector('[data-capture-id] [data-capture-action="edit"]') as HTMLButtonElement;
+    const id = edit.closest("[data-capture-id]")!.getAttribute("data-capture-id");
+    edit.focus();
+    fireEvent.click(edit);
+    const close = await screen.findByRole("button", { name: s.cornersCancel });
+    await waitFor(() => expect(document.activeElement).toBe(close));
+    fireEvent.click(close);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(
+      container.querySelector(`[data-capture-id="${id}"] [data-capture-action="edit"]`),
+    );
+  });
+
+  it("con la hoja de opciones abierta, la barra de fondo y la columna principal estan inertes", async () => {
+    const { container } = render(
+      <LanguageProvider>
+        <ScanToPdfClient />
+      </LanguageProvider>,
+    );
+    const bar = container.querySelector(".glass-bar") as HTMLElement;
+    expect(bar.hasAttribute("inert")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Opciones" }));
+    await waitFor(() => expect(bar.hasAttribute("inert")).toBe(true));
   });
 });

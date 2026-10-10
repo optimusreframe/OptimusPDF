@@ -11,6 +11,7 @@ import {
 import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { springs } from "@/lib/motion";
+import { HIT_44 } from "@/components/ui/touchTarget";
 
 export type SegmentedOption<T extends string> = {
   value: T;
@@ -157,6 +158,8 @@ export function SegmentedControl<T extends string>({
           // Sin padding vertical: cada tab ocupa la altura entera de la pista
           // (44 px de toque); el pulgar se inseta 4 px por su cuenta.
           "relative isolate grid w-full auto-cols-[minmax(min-content,1fr)] grid-flow-col rounded-full bg-white/8 px-1",
+          // forced-colors: la pista se delimita con borde del sistema.
+          "forced-colors:border forced-colors:border-[ButtonText]",
           size === "sm" ? "min-h-9" : "min-h-11",
         )}
       >
@@ -171,7 +174,9 @@ export function SegmentedControl<T extends string>({
               : { x: `${index * 100}%` }
           }
           transition={springs.snappy}
-          className="absolute inset-y-1 left-1 -z-10 rounded-full bg-elevated shadow-elevation-1 will-change-transform"
+          // forced-colors: sin relleno ni sombra, el pulgar (opcion activa) es
+          // un anillo grueso en Highlight.
+          className="absolute inset-y-1 left-1 -z-10 rounded-full bg-elevated shadow-elevation-1 will-change-transform forced-colors:border-2 forced-colors:border-[Highlight]"
           style={
             box ? undefined : { width: `calc((100% - 0.5rem) / ${count})` }
           }
@@ -197,6 +202,9 @@ export function SegmentedControl<T extends string>({
                 "transition-[color,scale,opacity] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
                 "active:scale-[0.96] active:duration-[80ms]",
                 "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal",
+                // Con puntero grueso las pestañas `sm` (pista de 36 px) amplian
+                // su zona de toque a 44 px sin cambiar el aspecto.
+                size === "sm" && HIT_44,
                 active
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground active:opacity-70",

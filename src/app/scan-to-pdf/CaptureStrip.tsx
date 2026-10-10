@@ -61,6 +61,7 @@ export function CaptureStrip({
           {captures.map((capture, index) => (
             <li
               key={capture.id}
+              data-capture-id={capture.id}
               className="glass rounded-ios-sm relative overflow-hidden p-2"
             >
               <span className="relative flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">
@@ -89,9 +90,10 @@ export function CaptureStrip({
                 <span className="text-caption text-muted-foreground tabular-nums">
                   {index + 1}
                 </span>
-                <div className="flex items-center gap-0.5">
+                <div className="flex items-center gap-0.5 pointer-coarse:flex-wrap pointer-coarse:justify-end">
                   <MiniButton
                     label={s.editCorners}
+                    action="edit"
                     disabled={capture.pending}
                     onClick={() => onEditCorners(capture.id)}
                   >
@@ -100,6 +102,7 @@ export function CaptureStrip({
                   {capture.corners ? (
                     <MiniButton
                       label={s.undoCrop}
+                      action="undo"
                       disabled={capture.pending}
                       onClick={() => onUndoCrop(capture.id)}
                     >
@@ -108,6 +111,7 @@ export function CaptureStrip({
                   ) : null}
                   <MiniButton
                     label={t.tool.moveUp}
+                    action="up"
                     disabled={index === 0}
                     onClick={() => onMove(index, -1)}
                   >
@@ -115,6 +119,7 @@ export function CaptureStrip({
                   </MiniButton>
                   <MiniButton
                     label={t.tool.moveDown}
+                    action="down"
                     disabled={index === captures.length - 1}
                     onClick={() => onMove(index, 1)}
                   >
@@ -122,6 +127,7 @@ export function CaptureStrip({
                   </MiniButton>
                   <MiniButton
                     label={s.removeCapture}
+                    action="remove"
                     onClick={() => onRemove(capture.id)}
                   >
                     <Trash2 aria-hidden="true" className="size-3" />
@@ -138,11 +144,14 @@ export function CaptureStrip({
 
 function MiniButton({
   label,
+  action,
   disabled,
   onClick,
   children,
 }: {
   label: string;
+  /** Identifica la accion para llevar el foco a ella (`useFocusTarget` del cliente). */
+  action: "edit" | "undo" | "up" | "down" | "remove";
   disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
@@ -150,11 +159,12 @@ function MiniButton({
   return (
     <button
       type="button"
+      data-capture-action={action}
       aria-label={label}
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/12 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+      className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors pointer-coarse:size-11 hover:bg-white/12 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
     >
       {children}
     </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Reorder, useDragControls } from "motion/react";
 import { ArrowDown, ArrowUp, FileText, GripVertical, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
@@ -64,7 +64,8 @@ export function FileList({
   // Tras quitar un archivo, el foco pasa al "Quitar" del archivo que ocupa
   // ahora esa posicion (o al ultimo). Si no queda ninguno, la lista se
   // desmonta y ToolShell lleva el foco a la zona de carga.
-  useEffect(() => {
+  // En fase de layout: el foco pasa al vecino en el mismo commit que retira la fila, sin pasar por <body>.
+  useLayoutEffect(() => {
     const index = pendingFocusRef.current;
     if (index === null) return;
     pendingFocusRef.current = null;

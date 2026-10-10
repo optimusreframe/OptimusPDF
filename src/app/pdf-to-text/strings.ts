@@ -12,6 +12,8 @@ export type PdfToTextStrings = {
 
   largeFile: string;
   filenameSuffix: string;
+  /** Aviso en el lugar de una pagina cuyo OCR no pudo ejecutarse. */
+  ocrFailureMarker: string;
 };
 
 const es: PdfToTextStrings = {
@@ -29,6 +31,7 @@ const es: PdfToTextStrings = {
   largeFile:
     "El archivo pasa de 100 MB. Extraer el texto de un documento así puede agotar la memoria de la pestaña.",
   filenameSuffix: "texto",
+  ocrFailureMarker: "[OCR no disponible para esta página — comprueba tu conexión]",
 };
 
 const en: PdfToTextStrings = {
@@ -46,6 +49,7 @@ const en: PdfToTextStrings = {
   largeFile:
     "The file is over 100 MB. Extracting text from a document that size may exhaust the tab's memory.",
   filenameSuffix: "text",
+  ocrFailureMarker: "[OCR unavailable for this page — check your connection]",
 };
 
 export const PDF_TO_TEXT_STRINGS: Record<Language, PdfToTextStrings> = {

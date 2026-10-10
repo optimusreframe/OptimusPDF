@@ -18,6 +18,8 @@ export type RotateStrings = {
   tapHint: string;
   touched: (count: number) => string;
   untouched: string;
+  /** Motivo junto a «Procesar» desactivado: ninguna pagina girada. */
+  needTurn: string;
   largeFile: string;
   outputName: string;
   /** Sufijo para el archivo final descargado, sobre el nombre original. */
@@ -44,6 +46,7 @@ const STRINGS: Record<Language, RotateStrings> = {
     touched: (count) =>
       count === 1 ? "1 página girada" : `${count} páginas giradas`,
     untouched: "Ninguna página girada todavía.",
+    needTurn: "Gira al menos una página para poder procesar.",
     largeFile:
       "El documento supera los 100 MB: generar las miniaturas puede tardar.",
     outputName: "documento-girado",
@@ -67,6 +70,7 @@ const STRINGS: Record<Language, RotateStrings> = {
     touched: (count) =>
       count === 1 ? "1 page rotated" : `${count} pages rotated`,
     untouched: "No page rotated yet.",
+    needTurn: "Rotate at least one page to be able to process.",
     largeFile:
       "This document is over 100 MB: building the thumbnails may take a while.",
     outputName: "rotated-document",

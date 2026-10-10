@@ -7,6 +7,9 @@ export type CompareStrings = {
   slotHintA: string;
   slotHintB: string;
   replace: string;
+  /** Fila para elegir el documento de cada hueco («Añadir documento A»). */
+  addSlotA: string;
+  addSlotB: string;
   run: string;
   processing: string;
   startOver: string;
@@ -37,6 +40,8 @@ const es: CompareStrings = {
   slotHintA: "La versión de partida.",
   slotHintB: "La versión que quieres contrastar.",
   replace: "Cambiar archivo",
+  addSlotA: "Añadir documento A",
+  addSlotB: "Añadir documento B",
   run: "Comparar",
   processing: "Comparando documentos",
   startOver: "Empezar de nuevo",
@@ -72,6 +77,8 @@ const en: CompareStrings = {
   slotHintA: "The starting version.",
   slotHintB: "The version you want to check against it.",
   replace: "Change file",
+  addSlotA: "Add document A",
+  addSlotB: "Add document B",
   run: "Compare",
   processing: "Comparing documents",
   startOver: "Start over",

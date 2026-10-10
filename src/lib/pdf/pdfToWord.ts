@@ -336,6 +336,8 @@ export async function pdfToWord(
   options: PdfToWordOptions,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
+  /** Aviso de una pagina cuyo OCR fallo, ya traducido al idioma de la interfaz. */
+  ocrFailureMarker?: string,
 ): Promise<Blob> {
   try {
     throwIfAborted(signal);
@@ -345,6 +347,7 @@ export async function pdfToWord(
       DEFAULT_PDF_TO_MARKDOWN_OPTIONS,
       (value) => onProgress?.(value * 0.9),
       signal,
+      ocrFailureMarker,
     );
     throwIfAborted(signal);
 

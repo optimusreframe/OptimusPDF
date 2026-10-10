@@ -9,15 +9,20 @@ import {
   RotateCcw,
   ShieldOff,
   Sparkles,
-  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Spinner } from "@/components/ui/Spinner";
+import { ErrorBanner } from "@/components/tool/ErrorBanner";
+import { blockedRunText, errorCopy } from "@/components/tool/errorCopy";
+import { useOwnToolFocus } from "@/components/tool/useOwnToolFocus";
+import { useReplaceFilePicker } from "@/components/tool/useReplaceFilePicker";
 import { FileDropzone } from "@/components/tool/FileDropzone";
+import { FileList } from "@/components/tool/FileList";
 import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
+import { useInputProblem } from "@/components/tool/useInputProblem";
 import { ToolCard } from "@/components/tool/ToolCard";
 import { SUMMARIZER_STRINGS } from "@/app/pdf-summarizer/strings";
 import { cn } from "@/lib/cn";
@@ -50,6 +55,7 @@ import {
   ACCENT_TEXT,
   getRelatedTools,
   getTool,
+  toolHref,
 } from "@/lib/tools-registry";
 
 /**
@@ -164,13 +170,21 @@ export function PdfSummarizerToolClient() {
     };
   }, [gpu, model]);
 
+  const { problem, checking } = useInputProblem(files);
+  const earlyCode = problem?.code ?? (error && error !== "cancelled" ? error : null);
+  const { ask, bannerRef, runRef, dropzoneRef, areaRef } = useOwnToolFocus({
+    bannerKey: earlyCode ? (problem ? `file-${problem.code}` : earlyCode) : localError ? `local-${localError}` : null,
+    checking,
+  });
+
   const onFilesChange = useCallback((next: File[]) => {
+    if (next.length === 0) ask("dropzone");
     setFiles(next);
     setError(null);
     setLocalError(null);
     setTechnicalDetail(null);
     setPhase(next.length === 0 ? "idle" : "files");
-  }, []);
+  }, [ask]);
 
   const reset = useCallback(() => {
     runIdRef.current += 1;
@@ -186,7 +200,8 @@ export function PdfSummarizerToolClient() {
     setConsented(false);
     setCopiedFlag(false);
     setPhase("idle");
-  }, []);
+    ask("dropzone");
+  }, [ask]);
 
   const describeStage = useCallback(
     (report: SummarizerProgress): string => {
@@ -328,7 +343,8 @@ export function PdfSummarizerToolClient() {
     setProgress(0);
     setError("cancelled");
     setPhase("files");
-  }, []);
+    ask("run");
+  }, [ask]);
 
   const documentText = result
     ? renderSummaryDocument(result, {
@@ -364,6 +380,64 @@ export function PdfSummarizerToolClient() {
     downloadBlob(blob, withSuffix(files[0].name, s.filenameSuffix, "txt"));
   }, [documentText, files, s.filenameSuffix]);
 
+  const picker = useReplaceFilePicker({
+    tool: TOOL,
+    onPick: (file) => {
+      onFilesChange([file]);
+      ask("attention");
+    },
+    onInvalid: setError,
+  });
+  const localMessage =
+    localError === "noText"
+      ? s.noTextError
+      : localError === "deviceLost"
+        ? s.modelError
+        : localError === "modelDownload"
+          ? s.modelDownloadError
+          : s.genericModelError;
+  const bannerCode = problem?.code ?? (error && error !== "cancelled" ? error : null);
+  const banner = bannerCode
+    ? {
+        key: problem ? `file-${problem.code}` : bannerCode,
+        ...errorCopy(t, bannerCode, { fileProblem: problem !== null }),
+        detail: problem ? t.tool.fileProblemFile.replace("{name}", problem.file.name) : undefined,
+        actions: [
+          ...(bannerCode === "encrypted"
+            ? [{ id: "unlock", label: t.tool.errors.encryptedAction, href: toolHref("unlock-pdf"), primary: true }]
+            : []),
+          ...(problem
+            ? [
+                { id: "choose", label: t.tool.chooseAnother, primary: bannerCode !== "encrypted" },
+                { id: "remove", label: t.tool.removeFile },
+              ]
+            : []),
+        ],
+      }
+    : localError
+      ? {
+          key: `local-${localError}`,
+          kind: "error" as const,
+          title: t.tool.errors.title,
+          message: localMessage,
+          hint: undefined,
+          detail: undefined,
+          actions: [],
+        }
+      : null;
+  const onBannerAction = (action: { id?: string }) => {
+    if (action.id === "choose") picker.open();
+    else if (action.id === "remove") onFilesChange([]);
+  };
+  const runReason =
+    files.length === 0
+      ? s.runNeedsFile
+      : problem
+        ? blockedRunText(t, cached ? s.consentButtonCached : s.consentButton)
+        : !consented
+          ? s.runNeedsConsent
+          : "";
+
   const header = (
     <header className="mb-8 flex items-start gap-4">
       <span
@@ -382,9 +456,7 @@ export function PdfSummarizerToolClient() {
           <h1 className="text-title-1 text-foreground">
             {copy.name}
           </h1>
-          <Badge variant={TOOL.status === "live" ? "live" : "soon"} dot>
-            {TOOL.status === "live" ? t.common.live : t.common.soon}
-          </Badge>
+          {TOOL.status === "soon" ? <Badge variant="soon">{t.common.soon}</Badge> : null}
           <Badge variant="neutral">
             <Sparkles aria-hidden="true" className="size-3" />
             {s.aiBadge}
@@ -478,61 +550,36 @@ export function PdfSummarizerToolClient() {
     <div className="mx-auto w-full max-w-[1200px] px-4 pt-8 pb-24 md:px-6 md:pt-12 md:pb-16">
       {header}
 
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-ios mb-6 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4"
-        >
-          <AlertTriangle
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-destructive"
-          />
-          <div>
-            <p className="ui-label text-destructive-text">
-              {t.tool.errors.title}
-            </p>
-            <p className="mt-1 text-sm text-foreground">
-              {t.tool.errors[error]}
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      {localError ? (
-        <div
-          role="alert"
-          className="rounded-ios mb-6 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4"
-        >
-          <AlertTriangle
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-destructive"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="ui-label text-destructive-text">
-              {t.tool.errors.title}
-            </p>
-            <p className="mt-1 text-sm text-foreground">
-              {localError === "noText"
-                ? s.noTextError
-                : localError === "deviceLost"
-                  ? s.modelError
-                  : localError === "modelDownload"
-                    ? s.modelDownloadError
-                    : s.genericModelError}
-            </p>
-            {localError === "generic" && technicalDetail ? (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                  {s.technicalDetailsLabel}
-                </summary>
-                <pre className="rounded-ios-sm mt-2 max-h-40 overflow-auto border border-white/10 bg-white/[0.03] p-3 text-xs whitespace-pre-wrap text-foreground/85">
-                  {technicalDetail}
-                </pre>
-              </details>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+      <ErrorBanner
+        show={banner !== null}
+        errorKey={banner?.key}
+        title={banner?.title ?? ""}
+        message={banner?.message ?? ""}
+        hint={banner?.hint}
+        detail={banner?.detail}
+        actions={banner?.actions}
+        onAction={onBannerAction}
+        variant={banner?.kind ?? "error"}
+        bannerRef={bannerRef}
+        onDismiss={undefined}
+        dismissLabel={t.common.close}
+      >
+        {!problem && !error && localError === "generic" && technicalDetail ? (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+              {s.technicalDetailsLabel}
+            </summary>
+            <pre className="rounded-ios-sm mt-2 max-h-40 overflow-auto border border-white/10 bg-white/[0.03] p-3 text-xs whitespace-pre-wrap text-foreground/85">
+              {technicalDetail}
+            </pre>
+          </details>
+        ) : null}
+      </ErrorBanner>
+      {banner ? picker.input : null}
+      {/* Cancelar no es un fallo: aviso neutro en la region viva (como en ToolShell). */}
+      <p role="status" aria-live="polite" className={error === "cancelled" ? "mb-6 text-subheadline text-muted-foreground" : undefined}>
+        {error === "cancelled" ? t.tool.errors.cancelled : null}
+      </p>
 
       {phase !== "done" ? (
         <>
@@ -542,27 +589,13 @@ export function PdfSummarizerToolClient() {
               files={files}
               onFilesChange={onFilesChange}
               onError={setError}
+              buttonRef={dropzoneRef}
             />
           ) : (
-            <div className="glass rounded-ios flex items-center gap-3 p-4">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">
-                  {files[0].name}
-                </p>
-                <p className="mt-1 text-footnote text-muted-foreground tabular-nums">
-                  {formatFileSize(files[0].size, locale)}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={t.tool.remove}
-                title={t.tool.remove}
-                onClick={() => onFilesChange([])}
-              >
-                <X aria-hidden="true" className="size-4" />
-              </Button>
-            </div>
+            <section aria-label={t.tool.filesTitle} ref={areaRef}>
+              <h2 className="ui-label mb-3 text-muted-foreground">{t.tool.filesTitle}</h2>
+              <FileList files={files} onChange={onFilesChange} />
+            </section>
           )}
 
           <section className="glass rounded-ios mt-6 p-5">
@@ -696,14 +729,21 @@ export function PdfSummarizerToolClient() {
 
                 <div className="mt-5 flex flex-col items-start gap-3">
                   <Button
+                    ref={runRef}
                     size="lg"
-                    disabled={files.length === 0 || !consented}
+                    disabled={files.length === 0 || !consented || problem !== null || checking}
+                    aria-describedby={runReason ? "summarizer-run-reason" : undefined}
                     onClick={() => void run()}
                     className="w-full md:w-auto"
                   >
                     <Sparkles aria-hidden="true" className="size-4" />
                     {cached ? s.consentButtonCached : s.consentButton}
                   </Button>
+                  {runReason ? (
+                    <p id="summarizer-run-reason" className="text-footnote text-muted-foreground">
+                      {runReason}
+                    </p>
+                  ) : null}
                   <p className="text-footnote text-muted-foreground">
                     {t.tool.localNotice}
                   </p>

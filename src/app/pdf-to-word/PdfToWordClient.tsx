@@ -27,13 +27,13 @@ export function PdfToWordClient() {
       signal: AbortSignal,
     ): Promise<ProcessResult> => {
       const file = files[0];
-      const blob = await pdfToWord(file, options, onProgress, signal);
+      const blob = await pdfToWord(file, options, onProgress, signal, s.ocrFailureMarker);
       return {
         blob,
         filename: withSuffix(file.name, s.filenameSuffix, "docx"),
       };
     },
-    [s.filenameSuffix],
+    [s.filenameSuffix, s.ocrFailureMarker],
   );
 
   return (

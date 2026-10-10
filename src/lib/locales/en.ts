@@ -312,8 +312,46 @@ export const en: Dictionary = {
     partialReportTitle: "{ok} of {total} documents signed",
     partialReportIntro: "Could not sign:",
     partialReportItem: "{name} ({reason})",
+    // File problems (Wave 6 · U1/U3): banner with actions.
+    fileProblemTitle: "This file cannot be used",
+    fileProblemFile: "File: {name}",
+    chooseAnother: "Choose another file",
+    removeFile: "Remove file",
+    enterPassword: "Enter the password",
+    openRepair: "Open Repair PDF",
+    needPageSelected: "Keep at least one page checked to be able to merge.",
+    blockedRun: "{action} turns on when you change or remove the flagged file.",
+    largeFileTitle: "Very large file",
+    encryptedSheetMessage:
+      "This PDF is password protected. Enter the password to work with an unprotected copy; the password is not stored.",
+    restrictedNotice:
+      "{name}: this PDF had editing or printing restrictions; you are working with a copy without them.",
+    decryptedNotice:
+      "{name}: you are working with a copy without a password. The password is not stored and the result will come out unencrypted.",
+    password: {
+      title: "PDF with a password",
+      body: "Enter it to open the file. It is only used in your browser and is not stored. The result will have no password.",
+      label: "Password",
+      show: "Show the password",
+      hide: "Hide the password",
+      submit: "Open document",
+      opening: "Opening…",
+      cancel: "Cancel",
+      wrong: "That password is not correct. Check it and try again.",
+      failed: "The document could not be opened with that password. Try again.",
+      close: "Close",
+    },
+    errorHints: {
+      corrupt: "Try \"Repair PDF\" or choose another file.",
+      tooLarge: "If it fails, try a smaller file.",
+      tooLargeSplit: "If it fails, try a smaller file: you can split it first with \"Split PDF\".",
+      unknown: "If it keeps happening, try another file.",
+    },
     errors: {
       title: "Could not finish",
+      emptyFile: "The file is empty (0 bytes). Choose another file.",
+      notPdf:
+        "This file is not a PDF, even though its name ends in .pdf (it may be an image or another format that was renamed). Choose a real PDF.",
       invalidType: "That format does not work with this tool.",
       encryptedAction: "Open Unlock PDF",
       encrypted:
@@ -337,7 +375,7 @@ export const en: Dictionary = {
         "We could not safely check this PDF's restrictions, so we will not build a copy that might keep protections without telling you.",
       nothingSelected: "Select or mark something before processing.",
       ocrNetworkFailure:
-        "Could not download the OCR engine's files. Check your connection and try again.",
+        "Could not load the OCR engine. Check your connection and try again.",
       ocrEngineFailure:
         "The OCR engine failed while reading this document. Try again; if it keeps happening, the scanned pages may be unusable.",
       modelDownloadFailure:

@@ -197,7 +197,7 @@ export function Sidebar() {
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t.nav.searchPlaceholder}
               aria-label={t.nav.searchPlaceholder}
-              aria-controls={resultsId}
+              aria-controls={trimmed.length > 0 ? resultsId : undefined}
               autoComplete="off"
               className="h-10 w-full rounded-ios-sm border border-hairline bg-white/5 pr-3 pl-9 text-subheadline text-foreground placeholder:text-muted-foreground focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
             />
@@ -387,7 +387,7 @@ function SidebarLink({
             aria-hidden="true"
             layoutId="sidebar-active-pill"
             transition={springs.snappy}
-            className="absolute inset-0 -z-10 rounded-ios-sm bg-white/10"
+            className="absolute inset-0 -z-10 rounded-ios-sm bg-white/10 forced-colors:border-2 forced-colors:border-[Highlight]"
           />
         ) : null}
         <Icon

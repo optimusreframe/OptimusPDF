@@ -40,6 +40,12 @@ export function CropToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_CROP_OPTIONS}
       process={process}
+      canRun={(_files, options) =>
+        // El motor rechaza un lado menor de 8 pt: aqui, menos del 3 % de la pagina.
+        options.rect.width < 0.03 || options.rect.height < 0.03
+          ? { ok: false, reason: strings.selectionTooSmall }
+          : { ok: true }
+      }
       renderMain={({ files, options, setOptions }) => (
         <CropCanvas
           file={files[0] ?? null}

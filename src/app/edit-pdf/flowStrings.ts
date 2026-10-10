@@ -91,6 +91,8 @@ export type EditFlowStrings = {
 
   /* ---- Descarga ---- */
   exportCancelled: string;
+  /** Motivo junto a «Procesar» desactivado: todavia no hay cambios que exportar. */
+  exportNeedsChange: string;
   summaryEditedTexts: (count: number) => string;
   summaryAddedTexts: (count: number) => string;
   summaryImages: (count: number) => string;
@@ -223,6 +225,7 @@ const es: EditFlowStrings = {
   confirmClose: "Cerrar",
 
   exportCancelled: "Exportación cancelada. Tus cambios siguen aquí.",
+  exportNeedsChange: "Haz un cambio en el documento para poder exportarlo.",
   summaryEditedTexts: (count) => esCount(count, "texto editado", "textos editados"),
   summaryAddedTexts: (count) => esCount(count, "texto añadido", "textos añadidos"),
   summaryImages: (count) => esCount(count, "imagen añadida", "imágenes añadidas"),
@@ -362,6 +365,7 @@ const en: EditFlowStrings = {
   confirmClose: "Close",
 
   exportCancelled: "Export cancelled. Your changes are still here.",
+  exportNeedsChange: "Make a change to the document to be able to export it.",
   summaryEditedTexts: (count) => enCount(count, "text edited", "texts edited"),
   summaryAddedTexts: (count) => enCount(count, "text added", "texts added"),
   summaryImages: (count) => enCount(count, "image added", "images added"),

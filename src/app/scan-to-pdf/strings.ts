@@ -55,6 +55,9 @@ export type ScanToPdfStrings = {
   marginSmall: string;
   marginLarge: string;
   generate: string;
+  /** Motivos junto al boton de generar cuando esta desactivado. */
+  needCapture: string;
+  capturePending: string;
   cameraErrorTitle: string;
   cameraErrors: Record<CameraErrorCode, string>;
 };
@@ -121,6 +124,8 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
     marginSmall: "Pequeño",
     marginLarge: "Grande",
     generate: "Generar PDF",
+    needCapture: "Haz o importa al menos una captura para generar el PDF.",
+    capturePending: "Espera a que termine de procesarse la última captura.",
     cameraErrorTitle: "La cámara no está disponible",
     cameraErrors: {
       denied:
@@ -193,6 +198,8 @@ export const STRINGS: Record<Language, ScanToPdfStrings> = {
     marginSmall: "Small",
     marginLarge: "Large",
     generate: "Build PDF",
+    needCapture: "Take or import at least one capture to build the PDF.",
+    capturePending: "Wait for the last capture to finish processing.",
     cameraErrorTitle: "The camera is not available",
     cameraErrors: {
       denied:

@@ -65,7 +65,7 @@ export function MobileTabBar() {
                       aria-hidden="true"
                       layoutId="tabbar-active-pill"
                       transition={springs.snappy}
-                      className="absolute inset-0 -z-10 rounded-full bg-signal/15"
+                      className="absolute inset-0 -z-10 rounded-full bg-signal/15 forced-colors:border-2 forced-colors:border-[Highlight]"
                     />
                   ) : null}
                   <Icon

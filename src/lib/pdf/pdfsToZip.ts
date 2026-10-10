@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { uniqueZipName } from "@/lib/pdf/entryNames";
 import {
   PdfError,
   isPdfFile,
@@ -33,52 +34,7 @@ import {
 export const MAX_ZIP_FILES = 100;
 export const MAX_ZIP_TOTAL_BYTES = 500 * 1024 * 1024; // 500 MB
 
-/**
- * Opciones de `uniqueZipName`. Por defecto reproducen el comportamiento de
- * siempre (comparacion exacta, contador desde 1) que usa `pdfsToZip`.
- */
-export type UniqueZipNameOptions = {
-  /** Primer contador a probar. Por defecto 1 (`a (1).pdf`). */
-  startAt?: number;
-  /**
-   * Clave con la que se compara `used`. Por defecto el propio nombre. Para
-   * extractores que no distinguen mayusculas (Windows/macOS) o que
-   * normalizan Unicode, quien llama pasa `minusculas + NFC`; en ese caso
-   * `used` guarda CLAVES, no nombres.
-   */
-  key?: (name: string) => string;
-};
-
-/**
- * Devuelve un nombre que no colisiona con `used`. jszip sobrescribiria en
- * silencio una entrada anterior con el mismo nombre (`zip.file("a.pdf", …)`
- * dos veces deja solo la segunda), asi que los duplicados de entrada se
- * desambiguan aqui ANTES de llamar a `zip.file()`: `informe.pdf` ->
- * `informe (1).pdf`, `informe (2).pdf`, etc.
- */
-export function uniqueZipName(
-  name: string,
-  used: Set<string>,
-  options: UniqueZipNameOptions = {},
-): string {
-  const keyOf = options.key ?? ((value: string) => value);
-  if (!used.has(keyOf(name))) {
-    used.add(keyOf(name));
-    return name;
-  }
-  const dot = name.lastIndexOf(".");
-  const base = dot > 0 ? name.slice(0, dot) : name;
-  const extension = dot > 0 ? name.slice(dot) : "";
-
-  let counter = options.startAt ?? 1;
-  let candidate = `${base} (${counter})${extension}`;
-  while (used.has(keyOf(candidate))) {
-    counter += 1;
-    candidate = `${base} (${counter})${extension}`;
-  }
-  used.add(keyOf(candidate));
-  return candidate;
-}
+export { uniqueZipName, zipNameKey, type UniqueZipNameOptions } from "@/lib/pdf/entryNames";
 
 /**
  * Empaqueta varios PDF en un unico ZIP, sin re-parsear ni fusionar su

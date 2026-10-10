@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import JSZip from "jszip";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { PdfError } from "@/lib/pdf/core";
 import { splitPdf } from "@/lib/pdf/split";
@@ -57,6 +58,25 @@ describe("splitPdf — src/lib/pdf/split.ts (humo)", () => {
 
     expect(output.kind).toBe("zip");
     expect(output.parts).toBe(2);
+  });
+
+  it("dos tramos iguales no se pisan en el ZIP: el segundo se llama «… (2).pdf»", async () => {
+    const file = await toFile(await documentWithPages(4));
+    const output = await splitPdf(
+      file,
+      {
+        mode: "ranges",
+        ranges: [
+          { from: 1, to: 2 },
+          { from: 1, to: 2 },
+        ],
+        merge: false,
+      },
+      "source",
+    );
+    expect(output.kind).toBe("zip");
+    const zip = await JSZip.loadAsync(await output.blob.arrayBuffer());
+    expect(Object.keys(zip.files).sort()).toEqual(["source-1-2 (2).pdf", "source-1-2.pdf"]);
   });
 
   it("un plan sin rangos falla con 'nothingSelected', no con 'empty' (el archivo si se cargo)", async () => {

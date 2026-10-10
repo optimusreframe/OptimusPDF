@@ -49,6 +49,15 @@ import {
  * solo sus dependencias de pdf.js/tesseract.js estan sustituidas.
  */
 
+const FAKE_OPS = vi.hoisted(() => ({
+  save: 10,
+  restore: 11,
+  transform: 12,
+  paintImageXObject: 85,
+  paintInlineImageXObject: 86,
+  paintImageMaskXObject: 83,
+}));
+
 vi.mock("@/lib/pdf/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pdf/core")>();
   return {
@@ -56,6 +65,8 @@ vi.mock("@/lib/pdf/core", async (importOriginal) => {
     openPdfDocument: vi.fn(),
     renderPageToCanvas: vi.fn(),
     closePdfDocument: vi.fn(async () => {}),
+    // pdf.js real no arranca en Node: solo se necesita la enumeracion `OPS` para medir imagenes.
+    getPdfJs: vi.fn(async () => ({ OPS: FAKE_OPS })),
   };
 });
 
@@ -1234,5 +1245,153 @@ describe("extractMarkdownPages — reserva de OCR (pdf.js/tesseract.js sustituid
     const pages = await extractMarkdownPages(new Blob(["pdf"]));
     expect(pages[0].source).toBe("ocrFailed");
     expect(pages[0].ocrText).toBe(DEFAULT_OCR_FAILURE_MARKER);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Texto real corto vs. pagina escaneada (W6-D)
+ * ------------------------------------------------------------------ */
+
+/** Pagina con `text` de verdad y, si se pide, una imagen que cubre `coverage` de la pagina. */
+function makeTextPage(text: string, coverage = 0): FakePdfPage & { getOperatorList: () => Promise<unknown> } {
+  const page = makeFakePdfPage(0);
+  const items = [
+    { str: text, width: text.length * 6, height: 12, transform: [12, 0, 0, -12, 72, 700], fontName: "F1" },
+  ];
+  const side = Math.sqrt(coverage * 612 * 792);
+  return {
+    ...page,
+    getTextContent: async () => ({ items, styles: {} }),
+    getOperatorList: async () => ({
+      fnArray: coverage > 0 ? [FAKE_OPS.save, FAKE_OPS.transform, FAKE_OPS.paintImageXObject, FAKE_OPS.restore] : [],
+      argsArray: coverage > 0 ? [null, [side, 0, 0, side, 0, 0], ["img", 10, 10], null] : [],
+    }),
+  };
+}
+
+describe("extractMarkdownPages — texto real corto: no se descarta por OCR", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+    renderPageToCanvasMock.mockImplementation(
+      async () => ({ width: 0, height: 0 }) as unknown as HTMLCanvasElement,
+    );
+  });
+
+  it("una pagina con «Fin del texto» (13 caracteres, sin imagen) sale como 'text' y NO se lanza el OCR", async () => {
+    openPdfDocumentMock.mockResolvedValueOnce(makeFakePdfDocument([makeTextPage("Fin del texto")]) as never);
+    const createWorkerMock = await getCreateWorkerMock();
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+    expect(pages[0].source).toBe("text");
+    expect(pages[0].items.map((item) => item.text)).toEqual(["Fin del texto"]);
+    expect(createWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it("una pagina con poco texto que es casi toda una imagen (escaneo con un numero de pagina) SI se reconoce", async () => {
+    openPdfDocumentMock.mockResolvedValueOnce(makeFakePdfDocument([makeTextPage("12", 0.9)]) as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockResolvedValueOnce(makeFakeWorker("Contenido del escaneo.") as never);
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+    expect(pages[0].source).toBe("ocr");
+    expect(pages[0].ocrText).toBe("Contenido del escaneo.");
+  });
+
+  // Regresion (W6-D): un «&» solo se sustituia por la lectura del OCR («8»).
+  it("paginas con un unico caracter legible («&», «é», «—», «1») conservan ese texto aunque el OCR este activado", async () => {
+    for (const text of ["&", "é", "—", "1", "Fin."]) {
+      vi.clearAllMocks();
+      openPdfDocumentMock.mockResolvedValueOnce(makeFakePdfDocument([makeTextPage(text)]) as never);
+      const createWorkerMock = await getCreateWorkerMock();
+
+      const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+      expect(pages[0].source, text).toBe("text");
+      expect(pages[0].items.map((item) => item.text), text).toEqual([text]);
+      expect(createWorkerMock, text).not.toHaveBeenCalled();
+    }
+  });
+
+  it("poco texto real con una imagen pequena (un logo) se queda como texto", async () => {
+    openPdfDocumentMock.mockResolvedValueOnce(makeFakePdfDocument([makeTextPage("Portada", 0.05)]) as never);
+    const createWorkerMock = await getCreateWorkerMock();
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+    expect(pages[0].source).toBe("text");
+    expect(createWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it("si el OCR no puede ejecutarse en una pagina-imagen con algo de texto, se conserva ese texto (no el aviso de fallo)", async () => {
+    openPdfDocumentMock.mockResolvedValueOnce(makeFakePdfDocument([makeTextPage("Anexo 3", 0.9)]) as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const pages = await extractMarkdownPages(new Blob(["pdf"]));
+
+    expect(pages[0].source).toBe("text");
+    expect(pages[0].items.map((item) => item.text)).toEqual(["Anexo 3"]);
+  });
+});
+
+describe("extractMarkdownPages — sin red el OCR no cuelga la conversion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    renderPageToCanvasMock.mockImplementation(
+      async () => ({ width: 0, height: 0 }) as unknown as HTMLCanvasElement,
+    );
+  });
+
+  it("un motor que no responde falla a los 20 s con ocrNetworkFailure (antes: esperaba para siempre)", async () => {
+    openPdfDocumentMock.mockResolvedValueOnce(makeFakePdfDocument([makeFakePdfPage(0)]) as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockImplementation(() => new Promise(() => {}));
+
+    const attempt = extractMarkdownPages(new Blob(["pdf"]));
+    const outcome = attempt.then(
+      () => "ok",
+      (error: { code?: string }) => error.code,
+    );
+    await vi.advanceTimersByTimeAsync(19_000);
+    // Aun dentro del margen: sigue esperando.
+    expect(await Promise.race([outcome, Promise.resolve("pendiente")])).toBe("pendiente");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await outcome).toBe("ocrNetworkFailure");
+    // Un motor sin respuesta no se reintenta (ya se espero) ni se vuelve a esperar por cada pagina.
+    expect(createWorkerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("con varias paginas-imagen y un motor mudo solo se espera UNA vez; las paginas de texto salen intactas", async () => {
+    const document = makeFakePdfDocument([makeFakePdfPage(60), makeFakePdfPage(0), makeFakePdfPage(0), makeFakePdfPage(0)]);
+    openPdfDocumentMock.mockResolvedValueOnce(document as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockImplementation(() => new Promise(() => {}));
+
+    const result = extractMarkdownPages(new Blob(["pdf"]));
+    await vi.advanceTimersByTimeAsync(21_000);
+    const pages = await result;
+
+    expect(pages.map((page) => page.source)).toEqual(["text", "ocrFailed", "ocrFailed", "ocrFailed"]);
+    expect(createWorkerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancelar durante la espera del motor corta al instante con 'cancelled'", async () => {
+    openPdfDocumentMock.mockResolvedValueOnce(makeFakePdfDocument([makeFakePdfPage(0)]) as never);
+    const createWorkerMock = await getCreateWorkerMock();
+    createWorkerMock.mockImplementation(() => new Promise(() => {}));
+    const controller = new AbortController();
+
+    const outcome = extractMarkdownPages(new Blob(["pdf"]), DEFAULT_PDF_TO_MARKDOWN_OPTIONS, undefined, controller.signal).then(
+      () => "ok",
+      (error: { code?: string }) => error.code,
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await outcome).toBe("cancelled");
   });
 });

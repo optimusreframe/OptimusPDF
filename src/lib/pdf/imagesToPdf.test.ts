@@ -5,6 +5,7 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import {
   DEFAULT_IMAGES_TO_PDF_OPTIONS,
   imagesToPdf,
+  uniquePdfEntryName,
   type ImagesToPdfOptions,
 } from "@/lib/pdf/imagesToPdf";
 
@@ -224,7 +225,26 @@ describe("imagesToPdf — src/lib/pdf/imagesToPdf.ts", () => {
 
     const zip = await JSZip.loadAsync(await result.blob.arrayBuffer());
     const names = Object.keys(zip.files).sort();
-    expect(names).toEqual(["foo-2.pdf", "foo.pdf"]);
+    expect(names).toEqual(["foo (2).pdf", "foo.pdf"]);
+  });
+
+  // Regresion (W6-D): `replaceExtension("foto.jpg-2")` volvia a dar "foto.pdf" y el `while` no terminaba
+  // nunca (pestana colgada con «foto.jpg» + «foto.png» sin unir). El Set corta el bucle con un error.
+  it("uniquePdfEntryName: foto.jpg y foto.png dan foto.pdf y foto (2).pdf sin bucles", () => {
+    class BudgetSet extends Set<string> {
+      private calls = 0;
+      override has(value: string): boolean {
+        this.calls += 1;
+        if (this.calls > 1000) throw new Error("bucle sin fin");
+        return super.has(value);
+      }
+    }
+    const used = new BudgetSet();
+    expect(uniquePdfEntryName("foto.jpg", used)).toBe("foto.pdf");
+    expect(uniquePdfEntryName("foto.png", used)).toBe("foto (2).pdf");
+    expect(uniquePdfEntryName("FOTO.JPEG", used)).toBe("FOTO (3).pdf");
+    expect(uniquePdfEntryName("sin extension", used)).toBe("sin extension.pdf");
+    expect(uniquePdfEntryName("sin extension", used)).toBe("sin extension (2).pdf");
   });
 
   it("detecta JPEG por los bytes magicos aunque el nombre/MIME no lo declare", async () => {

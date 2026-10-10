@@ -12,8 +12,8 @@ import {
   OptionSection,
   TextField,
   ToggleRow,
-} from "@/app/add-watermark/OptionControls";
-import { PositionGrid } from "@/app/add-watermark/PositionGrid";
+} from "@/components/tool/OptionControls";
+import { PositionGrid } from "@/components/tool/PositionGrid";
 import {
   INK_COLORS,
   WATERMARK_OPACITIES,
@@ -67,11 +67,7 @@ export function WatermarkOptionsPanel({
             placeholder={strings.textPlaceholder}
             onChange={(text) => setOptions({ text })}
           />
-          {options.text.trim().length === 0 ? (
-            <p role="alert" className="text-xs text-destructive">
-              {strings.textRequired}
-            </p>
-          ) : null}
+          {/* El motivo por el que falta el texto se lee UNA vez, junto a «Procesar» (canRun del cliente). */}
           <ChoiceGroup<PdfFontFamily>
             label={strings.fontLabel}
             value={options.fontFamily}
@@ -137,14 +133,9 @@ export function WatermarkOptionsPanel({
               {options.image.name}
             </p>
           ) : (
-            <>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {strings.imageHint}
-              </p>
-              <p role="alert" className="text-xs text-destructive">
-                {strings.imageRequired}
-              </p>
-            </>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {strings.imageHint}
+            </p>
           )}
           <Slider
             label={strings.imageSizeLabel}

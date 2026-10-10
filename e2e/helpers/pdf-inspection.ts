@@ -41,23 +41,32 @@ export type PageOperatorCounts = {
   totalOps: number;
 };
 
-async function loadDocument(bytes: Buffer) {
+async function loadDocument(bytes: Buffer, password?: string) {
   const pdfjsLib = await getPdfjs();
   const data = new Uint8Array(bytes);
-  const loadingTask = pdfjsLib.getDocument({ data });
+  const loadingTask = pdfjsLib.getDocument({
+    data,
+    ...(password === undefined ? {} : { password }),
+    // Sin esto pdfjs avisa por stderr en cada PDF con fuentes estandar.
+    standardFontDataUrl: `${path.resolve(process.cwd(), "node_modules/pdfjs-dist/standard_fonts")}${path.sep}`,
+  });
   return loadingTask.promise;
 }
 
-export async function getPageCount(bytes: Buffer): Promise<number> {
-  const pdf = await loadDocument(bytes);
+export async function getPageCount(bytes: Buffer, password?: string): Promise<number> {
+  const pdf = await loadDocument(bytes, password);
   const count = pdf.numPages;
   await pdf.loadingTask.destroy();
   return count;
 }
 
 /** Texto seleccionable de una pagina (base 1). Vacio si la pagina se rasterizo. */
-export async function getPageText(bytes: Buffer, pageNumber: number): Promise<string> {
-  const pdf = await loadDocument(bytes);
+export async function getPageText(
+  bytes: Buffer,
+  pageNumber: number,
+  password?: string,
+): Promise<string> {
+  const pdf = await loadDocument(bytes, password);
   try {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
@@ -120,6 +129,75 @@ export async function getPageOperatorCounts(
       if (name && IMAGE_PAINT_OP_NAMES.has(name)) imagePaintOps += 1;
     }
     return { textPaintOps, imagePaintOps, totalOps: ops.fnArray.length };
+  } finally {
+    await pdf.loadingTask.destroy();
+  }
+}
+
+/**
+ * `true` si pdfjs pide contrasena para abrir el documento (PasswordException),
+ * sea por no darla o por darla mal.
+ */
+export async function requiresPassword(bytes: Buffer, password?: string): Promise<boolean> {
+  try {
+    const pdf = await loadDocument(bytes, password);
+    await pdf.loadingTask.destroy();
+    return false;
+  } catch (error) {
+    if ((error as { name?: string }).name === "PasswordException") return true;
+    throw error;
+  }
+}
+
+/** Banderas de permiso del PDF cifrado (`null` si no esta cifrado o permite todo). */
+export async function getPermissions(bytes: Buffer, password?: string): Promise<number[] | null> {
+  const pdf = await loadDocument(bytes, password);
+  try {
+    const flags: number[] | null = await pdf.getPermissions();
+    return flags;
+  } finally {
+    await pdf.loadingTask.destroy();
+  }
+}
+
+/** Constantes de `PermissionFlag` de pdfjs (ISO 32000-1, tabla 22). */
+export const PERMISSION = {
+  PRINT: 0x04,
+  MODIFY_CONTENTS: 0x08,
+  COPY: 0x10,
+  MODIFY_ANNOTATIONS: 0x20,
+  FILL_INTERACTIVE_FORMS: 0x100,
+  ASSEMBLE: 0x400,
+} as const;
+
+export type TextItem = {
+  str: string;
+  /** Inicio de la linea base, en puntos del espacio del PDF (origen abajo a la izquierda, sin rotar la pagina). */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Matriz de texto [a, b, c, d, e, f]: b/a dan el giro del texto. */
+  transform: number[];
+};
+
+/** Fragmentos de texto de una pagina (base 1) con su posicion; ignora los vacios. */
+export async function getTextItems(bytes: Buffer, pageNumber: number, password?: string): Promise<TextItem[]> {
+  const pdf = await loadDocument(bytes, password);
+  try {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (content.items as any[])
+      .filter((item) => typeof item.str === "string" && item.str.trim() !== "")
+      .map((item) => ({
+        str: item.str as string,
+        x: item.transform[4] as number,
+        y: item.transform[5] as number,
+        width: item.width as number,
+        height: item.height as number,
+        transform: item.transform as number[],
+      }));
   } finally {
     await pdf.loadingTask.destroy();
   }

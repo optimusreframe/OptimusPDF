@@ -6,7 +6,7 @@ import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { WatermarkOptionsPanel } from "@/app/add-watermark/WatermarkOptionsPanel";
 import { WATERMARK_STRINGS } from "@/app/add-watermark/strings";
 import { useI18n } from "@/lib/i18n";
-import { withSuffix, type ProgressCallback } from "@/lib/pdf/core";
+import { toWinAnsiSafe, withSuffix, type ProgressCallback } from "@/lib/pdf/core";
 import {
   DEFAULT_WATERMARK_OPTIONS,
   addWatermark,
@@ -45,6 +45,16 @@ export function WatermarkToolClient() {
       tool={TOOL}
       defaultOptions={defaultOptions}
       process={process}
+      canRun={(_files, options) => {
+        // Una marca sin texto (o sin imagen) no estampa nada.
+        if (options.kind === "text" && toWinAnsiSafe(options.text.trim()).length === 0) {
+          return { ok: false, reason: strings.textRequired };
+        }
+        if (options.kind === "image" && !options.image) {
+          return { ok: false, reason: strings.imageRequired };
+        }
+        return { ok: true };
+      }}
       renderMain={({ files }) => <PageThumbnailGrid files={files} />}
       renderOptions={({ options, setOptions }) => (
         <WatermarkOptionsPanel

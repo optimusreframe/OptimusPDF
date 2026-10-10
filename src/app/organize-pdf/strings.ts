@@ -24,6 +24,8 @@ export type OrganizeStrings = {
   restore: string;
   restoreHint: string;
   keepLast: string;
+  /** Motivo junto a «Procesar» desactivado: el plan es igual al original. */
+  needChange: string;
   largeFile: string;
   outputName: string;
   /** Etiqueta del boton que inserta una pagina en blanco tras esta. */
@@ -55,6 +57,7 @@ const STRINGS: Record<Language, OrganizeStrings> = {
     restore: "Deshacer cambios",
     restoreHint: "Vuelve al orden y la rotación originales.",
     keepLast: "Tiene que quedar al menos una página.",
+    needChange: "Reordena, gira, quita o añade alguna página para poder procesar.",
     largeFile:
       "El documento supera los 100 MB: generar las miniaturas puede tardar.",
     outputName: "documento-organizado",
@@ -82,6 +85,7 @@ const STRINGS: Record<Language, OrganizeStrings> = {
     restore: "Undo changes",
     restoreHint: "Back to the original order and rotation.",
     keepLast: "At least one page has to stay.",
+    needChange: "Reorder, rotate, remove or add a page to be able to process.",
     largeFile:
       "This document is over 100 MB: building the thumbnails may take a while.",
     outputName: "organised-document",

@@ -85,7 +85,6 @@
   /* Lineas tecnicas */
   --color-hairline: color-mix(in oklab, white 10%, transparent);
   --color-hairline-strong: color-mix(in oklab, white 14%, transparent);
-  --color-grid-line: color-mix(in oklab, white 5%, transparent);
 
   /* ---------------------------------------------------------------- *
    * Tipografia
@@ -329,7 +328,6 @@
     /* Lineas tecnicas: negro translucido en vez de blanco. */
     --color-hairline: color-mix(in oklab, black 12%, transparent);
     --color-hairline-strong: color-mix(in oklab, black 20%, transparent);
-    --color-grid-line: color-mix(in oklab, black 6%, transparent);
 
     /* Sombras: en claro la umbra es tenue; la penumbra es un hairline. */
     --shadow-umbra: oklch(0% 0 0 / 0.14);
@@ -540,18 +538,6 @@
   box-shadow: 0 0 32px -6px color-mix(in oklab, var(--color-glow) 70%, transparent);
 }
 
-@utility glow-signal-lg {
-  box-shadow: 0 0 64px -8px color-mix(in oklab, var(--color-glow) 60%, transparent);
-}
-
-/* Reticula tecnica del hero */
-@utility hud-grid {
-  background-image:
-    linear-gradient(to right, var(--color-grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-grid-line) 1px, transparent 1px);
-  background-size: 64px 64px;
-}
-
 /*
  * Etiqueta de seccion o de campo al estilo Apple (cabeceras de grupo de
  * iOS): fuente del sistema, footnote 13px, semibold, sentence-case y
@@ -582,16 +568,8 @@
   --color-white: oklch(100% 0 0);
 }
 
-@utility safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
 @utility safe-top {
   padding-top: env(safe-area-inset-top, 0px);
-}
-
-@utility pb-tabbar {
-  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* ------------------------------------------------------------------ *
@@ -883,5 +861,86 @@
     right: calc(-2px - var(--hit-r, 0px));
     bottom: calc(-2px - var(--hit-b, 0px));
     left: calc(-2px - var(--hit-l, 0px));
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Colores forzados (W6-C · Windows "Contraste alto", modo oscuro/claro
+ * forzado de otros sistemas).
+ *
+ * Con `forced-colors: active` el navegador sustituye colores de texto,
+ * fondo y borde por los del sistema y DESCARTA sombras y fondos
+ * translucidos: un boton primario sin borde, la pista de un segmentado,
+ * el relleno de un slider o la marca de una casilla dejan de verse. Los
+ * componentes de `components/ui/*` y los controles compartidos llevan sus
+ * propias variantes `forced-colors:` (bordes ButtonText/Highlight,
+ * deshabilitado GrayText); aqui va solo lo que no se puede escribir con
+ * utilidades: el anillo de foco global y el input range (pseudo-elementos
+ * del navegador). Sin cambios fuera de ese modo. Va fuera de `@layer`
+ * a proposito: el CSS sin capa gana a las utilidades, asi el anillo sale
+ * en Highlight aunque el componente fije `outline-signal`.
+ * ------------------------------------------------------------------ */
+@media (forced-colors: active) {
+  /* Anillo de foco en Highlight. Se excluyen los contenedores con foco
+     programatico (tabindex="-1": <main>, paneles de dialogo), que no llevan
+     anillo a proposito, y el slider (su anillo va en el thumb, abajo). */
+  :focus-visible:not([tabindex="-1"]):not(.slider-ios) {
+    outline: 2px solid Highlight;
+  }
+
+  .slider-ios {
+    forced-color-adjust: none;
+  }
+  .slider-ios::-webkit-slider-runnable-track {
+    box-sizing: border-box;
+    height: 8px;
+    border: 1px solid ButtonText;
+    background: linear-gradient(
+      to right,
+      Highlight var(--slider-fill),
+      ButtonFace var(--slider-fill)
+    );
+  }
+  .slider-ios::-webkit-slider-thumb {
+    box-sizing: border-box;
+    margin-top: -10px;
+    border: 2px solid ButtonText;
+    background: ButtonFace;
+    box-shadow: none;
+  }
+  .slider-ios::-moz-range-track {
+    box-sizing: border-box;
+    height: 8px;
+    border: 1px solid ButtonText;
+    background: ButtonFace;
+  }
+  .slider-ios::-moz-range-progress {
+    height: 8px;
+    background: Highlight;
+  }
+  .slider-ios::-moz-range-thumb {
+    box-sizing: border-box;
+    border: 2px solid ButtonText;
+    background: ButtonFace;
+    box-shadow: none;
+  }
+  .slider-ios:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  .slider-ios:focus-visible::-moz-range-thumb {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  .slider-ios:disabled {
+    opacity: 1;
+  }
+  .slider-ios:disabled::-webkit-slider-runnable-track,
+  .slider-ios:disabled::-webkit-slider-thumb {
+    border-color: GrayText;
+  }
+  .slider-ios:disabled::-moz-range-track,
+  .slider-ios:disabled::-moz-range-thumb {
+    border-color: GrayText;
   }
 }

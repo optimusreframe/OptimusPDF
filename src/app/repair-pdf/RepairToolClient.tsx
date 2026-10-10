@@ -252,6 +252,12 @@ export function RepairToolClient() {
     };
   }, [analysis]);
 
+  const restrictedNotices = useCallback(
+    (opened: boolean | undefined) =>
+      opened ? { title: s.restrictedCopyTitle, items: [s.restrictedCopyNotice] } : undefined,
+    [s.restrictedCopyNotice, s.restrictedCopyTitle],
+  );
+
   const process = useCallback(
     async (
       files: File[],
@@ -266,13 +272,21 @@ export function RepairToolClient() {
       // documento de otro.
       if (analysis.status === "ready" && analysis.file === file) {
         onProgress(1);
-        return { blob: analysis.outcome.blob, filename };
+        return {
+          blob: analysis.outcome.blob,
+          filename,
+          notices: restrictedNotices(analysis.outcome.report.openedDecryptedCopy),
+        };
       }
 
       const outcome = await repairPdf(file, {}, onProgress);
-      return { blob: outcome.blob, filename };
+      return {
+        blob: outcome.blob,
+        filename,
+        notices: restrictedNotices(outcome.report.openedDecryptedCopy),
+      };
     },
-    [analysis, s.filenameSuffix],
+    [analysis, restrictedNotices, s.filenameSuffix],
   );
 
   /**
@@ -295,6 +309,8 @@ export function RepairToolClient() {
       defaultOptions={{}}
       process={process}
       canRun={canRun}
+      // Reparar abre justo los PDF danados y analiza el archivo al elegirlo (su propio informe).
+      inputPolicy="off"
       renderMain={({ files }) => {
         const file = files[0] ?? null;
         const current = analysis.file === file ? analysis : null;

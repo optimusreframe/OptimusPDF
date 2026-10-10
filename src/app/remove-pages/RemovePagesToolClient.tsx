@@ -76,6 +76,14 @@ export function RemovePagesToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_OPTIONS}
       process={process}
+      canRun={(files, options) => {
+        // Sin paginas marcadas (o con la lista escrita a mano mal) la salida seria igual a la entrada.
+        if (options.issue === "syntax") return { ok: false, reason: strings.rangeInvalid };
+        const fresh = options.signature === fileKey(files[0]);
+        return fresh && options.removed.length > 0
+          ? { ok: true }
+          : { ok: false, reason: strings.needMark };
+      }}
       renderMain={({ files, options, setOptions }) => (
         <RemovePagesBoard
           key={fileKey(files[0])}

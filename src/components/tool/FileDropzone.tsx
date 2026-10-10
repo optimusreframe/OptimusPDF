@@ -36,6 +36,8 @@ export type FileDropzoneProps = {
   buttonRef?: Ref<HTMLButtonElement>;
   className?: string;
   compact?: boolean;
+  /** Texto de la fila `compact` (por defecto «Añadir más archivos»): p. ej. «Añadir documento B». */
+  addLabel?: string;
 };
 
 function hasFiles(event: DragEvent | globalThis.DragEvent): boolean {
@@ -64,6 +66,7 @@ export function FileDropzone({
   buttonRef,
   className,
   compact = false,
+  addLabel,
 }: FileDropzoneProps) {
   const { t, language } = useI18n();
   /** Puerta opcional de la herramienta (topes propios); sin proveedor, null. */
@@ -182,6 +185,13 @@ export function FileDropzone({
       type="file"
       accept={accept}
       multiple={tool.multiple}
+      aria-label={
+        compact
+          ? (addLabel ?? t.tool.addMore)
+          : tool.multiple
+            ? t.tool.dropButtonMultiple
+            : t.tool.dropButton
+      }
       className="sr-only"
       tabIndex={-1}
       onChange={(event) => {
@@ -220,7 +230,7 @@ export function FileDropzone({
           className="h-14 rounded-ios text-subheadline"
         >
           <Plus aria-hidden="true" className="size-4" />
-          {over || windowDragging ? t.tool.dropActive : t.tool.addMore}
+          {over || windowDragging ? t.tool.dropActive : (addLabel ?? t.tool.addMore)}
         </Button>
       </motion.div>
     );

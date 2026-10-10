@@ -446,3 +446,29 @@ describe("repairPdf — falla en claro en vez de fingir exito", () => {
     }
   });
 });
+
+describe("repairPdf — cifrado", () => {
+  async function encryptedPdf(userPassword: string): Promise<Uint8Array> {
+    const document = await PDFDocument.create();
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    document.addPage([200, 200]).drawText("SOLO-PROPIETARIO", { x: 10, y: 100, size: 12, font });
+    document.encrypt({ userPassword, ownerPassword: "propietaria-1", permissions: { printing: false, copying: false } });
+    return new Uint8Array(await document.save());
+  }
+
+  // Regresion (W6-D): un PDF «solo propietario» (se abre sin contrasena, pero restringe imprimir/copiar)
+  // se rechazaba como «cifrado». Ahora se repara una copia sin cifrar y se avisa.
+  it("un PDF solo-propietario se repara sobre una copia sin cifrar y lo declara en el informe", async () => {
+    const outcome = await repairPdf(toFile(await encryptedPdf(""), "restringido.pdf"));
+    expect(outcome.report.openedDecryptedCopy).toBe(true);
+    const reopened = await PDFDocument.load(new Uint8Array(await outcome.blob.arrayBuffer()));
+    expect(reopened.getPageCount()).toBe(1);
+  });
+
+  it("con contrasena de usuario sigue fallando en claro como 'encrypted'", async () => {
+    await expect(repairPdf(toFile(await encryptedPdf("secreta-1"), "cerrado.pdf"))).rejects.toMatchObject({
+      reason: "encrypted",
+      code: "encrypted",
+    });
+  });
+});

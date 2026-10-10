@@ -6,6 +6,7 @@ import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Footer } from "@/components/layout/Footer";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
+import { MAIN_CONTENT_ID, SkipLink } from "@/components/layout/SkipLink";
 
 /*
  * La fuente de texto es la del sistema (SF Pro en Apple, Segoe UI en
@@ -28,6 +29,12 @@ const caveat = Caveat({
   variable: "--font-caveat",
   subsets: ["latin"],
   display: "swap",
+  // W6-C: solo /sign-pdf la usa, pero este es el layout raiz: con el preload
+  // por defecto TODAS las paginas descargaban 74,6 kB de fuente que no
+  // pintan. El @font-face sigue declarado; el navegador baja el archivo la
+  // primera vez que algo renderiza la familia (el selector de estilos de
+  // firma, en el DOM, antes de poder guardar).
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -94,11 +101,17 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col bg-background text-foreground antialiased">
         <Providers>
+          {/* Primer elemento enfocable: salta la barra lateral y la cabecera. */}
+          <SkipLink />
           <div className="flex flex-1">
             <Sidebar />
             <div className="flex min-w-0 flex-1 flex-col">
               <Header />
-              <main id="content" className="flex-1">
+              <main
+                id={MAIN_CONTENT_ID}
+                tabIndex={-1}
+                className="flex-1 outline-none"
+              >
                 {children}
               </main>
               <Footer />

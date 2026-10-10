@@ -10,6 +10,7 @@ import {
 } from "@/app/sign-pdf/docSet";
 import type { SignSession } from "@/app/sign-pdf/signSession";
 import { hasFilledField, hasPlacedSignature } from "@/app/sign-pdf/soloSignature";
+import { hasTextEdits, stampKeyOf } from "@/app/sign-pdf/textEdits";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 import type { Signer } from "@/lib/pdf/sign";
 
@@ -115,7 +116,8 @@ export function deliveryBlockers(
         fields,
         projectCaptures(session.blocks, docId),
         signer.id,
-        doc.sealedKey || null,
+        // Los trazos se sellaron con la huella del archivo MAS la de sus ediciones de texto.
+        stampKeyOf(doc.sealedKey || null, doc.textEdits) || null,
       );
       if (!complete) pendingBlocks.add(block.id);
     }
@@ -126,7 +128,11 @@ export function deliveryBlockers(
   for (const docId of docOrder) {
     const doc = docStateOf(session.docs, docId);
     const fields = liveFields(doc, session.signers);
-    if (fields.length === 0 && !hasFilledField(doc.textFields, doc.textValues)) {
+    if (
+      fields.length === 0 &&
+      !hasFilledField(doc.textFields, doc.textValues) &&
+      !hasTextEdits(doc.textEdits)
+    ) {
       out.push({ kind: "empty", docId });
     }
   }

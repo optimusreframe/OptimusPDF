@@ -630,7 +630,8 @@ describe("DocumentCanvas (campos de texto) — src/app/sign-pdf/DocumentCanvas.t
     render(<TextHarness initialFields={[field]} onFieldsChange={() => {}} />);
     await waitForTextPreview();
 
-    const label = strings.textFieldFallbackLabel(1);
+    // El hueco del raster ya no se llama «Campo N»: «Hueco encontrado en una pagina escaneada, N».
+    const label = strings.scannedFieldLabel(1);
     fireEvent.pointerDown(textGroup(label), {
       pointerId: 1,
       clientX: 100,

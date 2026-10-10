@@ -15,6 +15,12 @@ export type ProtectStrings = {
   strengthHint: string;
 
   errors: Record<ProtectFailure, string>;
+  /** Motivo junto a «Procesar»: falta repetir la contrasena. */
+  confirmRequired: string;
+  /** Hoja de contrasena de un PDF ya cifrado: el resultado se vuelve a cifrar con la contrasena NUEVA. */
+  encryptedCopySheetBody: string;
+  /** Aviso de la copia abierta (`{name}`). */
+  encryptedCopyNotice: string;
 
   infoTitle: string;
   infoBody: string;
@@ -52,9 +58,16 @@ const es: ProtectStrings = {
   strengthHint:
     "Medimos solo longitud y variedad de caracteres. Una frase larga con mayúsculas, números y algún símbolo aguanta mucho más que una palabra corta.",
 
+  confirmRequired: "Repite la contraseña para confirmarla.",
+  encryptedCopySheetBody:
+    "Escríbela para abrirlo. Solo se usa en tu navegador y no se guarda. Se abrirá una copia y se protegerá con la contraseña nueva que elijas aquí.",
+  encryptedCopyNotice:
+    "{name}: se abrió una copia sin la contraseña antigua. El resultado se protegerá con la contraseña nueva; la antigua no se guarda.",
   errors: {
     empty: "Escribe una contraseña para cifrar el documento.",
     tooShort: "Usa al menos 4 caracteres.",
+    unsupportedChars:
+      "La contraseña solo puede contener caracteres Latin-1 (letras sin acentos o con acentos europeos, números y símbolos comunes). Caracteres como € o emoji no son compatibles. Quita o cambia: {chars}",
     mismatch: "Las dos contraseñas no coinciden.",
     nothingToDo:
       "Así como está configurado, este PDF saldría cifrado pero sin pedir contraseña y sin restringir nada: no cambiaría nada de verdad. Exige contraseña para abrir o restringe al menos un permiso.",
@@ -104,9 +117,16 @@ const en: ProtectStrings = {
   strengthHint:
     "We only measure length and character variety. A long phrase with capitals, digits and a symbol holds up far better than a short word.",
 
+  confirmRequired: "Type the password again to confirm it.",
+  encryptedCopySheetBody:
+    "Type it to open the file. It is only used in your browser and is never saved. A copy will be opened and protected with the new password you choose here.",
+  encryptedCopyNotice:
+    "{name}: a copy without the old password was opened. The result will be protected with the new password; the old one is not saved.",
   errors: {
     empty: "Type a password to encrypt the document.",
     tooShort: "Use at least 4 characters.",
+    unsupportedChars:
+      "The password can only contain Latin-1 characters (letters with or without European accents, digits and common symbols). Characters like € or emoji are not supported. Remove or change: {chars}",
     mismatch: "The two passwords do not match.",
     nothingToDo:
       "As configured, this PDF would end up encrypted but ask for no password and restrict nothing: nothing would actually change. Require a password to open, or restrict at least one permission.",

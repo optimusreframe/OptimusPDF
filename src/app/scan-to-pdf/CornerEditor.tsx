@@ -140,6 +140,7 @@ export function CornerEditor({
     <div
       role="dialog"
       aria-modal="true"
+      data-corner-editor=""
       aria-label={s.cornersTitle}
       className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-xl"
     >
@@ -152,7 +153,13 @@ export function CornerEditor({
             {s.cornersHint}
           </p>
         </div>
-        <Button variant="ghost" size="sm" aria-label={s.cornersCancel} onClick={onCancel}>
+        <Button
+          variant="ghost"
+          size="sm"
+          data-editor-action="close"
+          aria-label={s.cornersCancel}
+          onClick={onCancel}
+        >
           <X aria-hidden="true" className="size-4" />
         </Button>
       </header>

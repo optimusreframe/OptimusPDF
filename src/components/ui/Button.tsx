@@ -2,6 +2,7 @@
 
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
+import { HIT_44 } from "@/components/ui/touchTarget";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -24,11 +25,18 @@ const BASE =
   "transition-[scale,background-color,color,border-color,box-shadow,opacity] duration-[var(--duration-fast)] ease-[var(--ease-spring)] " +
   "active:scale-[0.97] active:duration-[80ms] " +
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal " +
-  "disabled:pointer-events-none disabled:opacity-50";
+  "disabled:pointer-events-none disabled:opacity-50 " +
+  // forced-colors (W6-C): el relleno desaparece, asi que el limite lo da el
+  // borde (ButtonText) y el deshabilitado pasa a GrayText sin el 50 % de
+  // opacidad (que lo dejaria aun mas tenue).
+  "forced-colors:border forced-colors:border-[ButtonText] " +
+  "forced-colors:disabled:border-[GrayText] forced-colors:disabled:text-[GrayText] forced-colors:disabled:opacity-100";
 
 const VARIANTS: Record<ButtonVariant, string> = {
+  // El primario se distingue del resto por un borde de 2 px en Highlight.
   primary:
-    "bg-signal text-[var(--color-on-signal)] shadow-elevation-1 hover:bg-glow",
+    "bg-signal text-[var(--color-on-signal)] shadow-elevation-1 hover:bg-glow " +
+    "forced-colors:border-2 forced-colors:border-[Highlight]",
   secondary:
     "material-thin text-foreground hover:bg-white/10 active:bg-white/14",
   ghost: "text-foreground hover:bg-white/8 active:bg-white/12",
@@ -37,11 +45,10 @@ const VARIANTS: Record<ButtonVariant, string> = {
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  // sm mide 36 px; con puntero grueso un pseudo-elemento amplia el area de
-  // toque a 44 px sin cambiar el aspecto ni el flujo.
-  sm:
-    "h-9 rounded-ios-sm px-3.5 text-footnote font-semibold " +
-    "pointer-coarse:relative pointer-coarse:before:absolute pointer-coarse:before:inset-x-0 pointer-coarse:before:-inset-y-1 pointer-coarse:before:content-['']",
+  // sm mide 36 px; con puntero grueso un pseudo-elemento de 44 px de alto
+  // (exactos, con o sin borde: antes el secundario daba 42) amplia el area de
+  // toque sin cambiar el aspecto ni el flujo.
+  sm: `h-9 rounded-ios-sm px-3.5 text-footnote font-semibold ${HIT_44}`,
   md: "h-11 rounded-ios-sm px-5 text-callout font-semibold",
   lg: "h-14 rounded-ios px-7 text-headline",
 };

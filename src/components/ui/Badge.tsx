@@ -46,6 +46,8 @@ export function Badge({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-caption-2 leading-none font-medium whitespace-nowrap",
         VARIANTS[variant],
+        // forced-colors: el chip se delimita con borde del sistema.
+        "forced-colors:border forced-colors:border-[CanvasText]",
         className,
       )}
       {...props}
@@ -53,7 +55,7 @@ export function Badge({
       {dot ? (
         <span
           aria-hidden="true"
-          className="size-1.5 shrink-0 rounded-full bg-current"
+          className="size-1.5 shrink-0 rounded-full bg-current forced-colors:bg-[CanvasText]"
         />
       ) : null}
       {children}

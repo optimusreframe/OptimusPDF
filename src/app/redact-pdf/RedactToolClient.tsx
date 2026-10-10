@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { EyeOff } from "lucide-react";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { RedactCanvas } from "@/app/redact-pdf/RedactCanvas";
@@ -28,7 +28,6 @@ const DEFAULT_OPTIONS: RedactToolOptions = { elements: [], pageIndex: 0 };
 export function RedactToolClient() {
   const { language } = useI18n();
   const s = REDACT_STRINGS[language];
-  const [missingElements, setMissingElements] = useState(false);
 
   const process = useCallback(
     async (
@@ -36,11 +35,10 @@ export function RedactToolClient() {
       options: RedactToolOptions,
       onProgress: ProgressCallback,
     ): Promise<ProcessResult> => {
+      // `canRun` impide llegar aqui sin zonas; red de seguridad por si algo lo lanza por otra via.
       if (options.elements.length === 0) {
-        setMissingElements(true);
         throw new PdfError("nothingSelected", "redact:noBoxes");
       }
-      setMissingElements(false);
 
       const file = files[0];
       const blob = await redactPdf(file, { elements: options.elements }, onProgress);
@@ -54,25 +52,19 @@ export function RedactToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_OPTIONS}
       process={process}
+      canRun={(_files, options) =>
+        options.elements.length > 0 ? { ok: true } : { ok: false, reason: s.noBoxes }
+      }
       renderMain={({ files, options, setOptions }) => (
         <div className="space-y-6">
           <RedactCanvas
             file={files[0] ?? null}
             elements={options.elements}
-            onElementsChange={(elements) => {
-              if (elements.length > 0) setMissingElements(false);
-              setOptions({ elements });
-            }}
+            onElementsChange={(elements) => setOptions({ elements })}
             pageIndex={options.pageIndex}
             onPageIndexChange={(pageIndex) => setOptions({ pageIndex })}
             strings={s}
           />
-
-          {missingElements ? (
-            <p role="alert" className="text-sm text-destructive">
-              {s.noBoxes}
-            </p>
-          ) : null}
 
           <section className="glass rounded-ios p-5">
             <div className="flex items-start gap-3">
@@ -113,12 +105,6 @@ export function RedactToolClient() {
           <p className="text-xs leading-relaxed text-muted-foreground">
             {s.rasterWarning}
           </p>
-
-          {options.elements.length === 0 ? (
-            <p className="text-xs leading-relaxed text-destructive">
-              {s.noBoxes}
-            </p>
-          ) : null}
 
           {files[0] && files[0].size > MAX_SAFE_FILE_SIZE ? (
             <p className="text-xs leading-relaxed text-destructive">

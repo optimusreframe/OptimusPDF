@@ -4,6 +4,7 @@ import {
   MIN_PASSWORD_LENGTH,
   ProtectValidationError,
   protectPdf,
+  unsupportedPasswordChars,
   validateProtectOptions,
   type ProtectOptions,
 } from "@/lib/pdf/protect";
@@ -87,12 +88,33 @@ describe("protectPdf / validateProtectOptions — src/lib/pdf/protect.ts", () =>
       [{ password: "", confirm: "" }, "empty"],
       [{ password: "ab", confirm: "ab" }, "tooShort"],
       [{ password: "unaClaveSegura1", confirm: "otra" }, "mismatch"],
+      [{ password: "clave€7", confirm: "clave€7" }, "unsupportedChars"],
     ];
 
     for (const [options, reason] of cases) {
       await expect(protectPdf(file, options)).rejects.toBeInstanceOf(ProtectValidationError);
       await expect(protectPdf(file, options)).rejects.toMatchObject({ reason });
     }
+  });
+
+  // Regresion (W6-D): con «€», chino o emoji `document.encrypt` lanzaba «Password contains one or more
+  // invalid characters» y la interfaz lo mostraba como «El PDF esta protegido con contrasena».
+  it("una contrasena con caracteres fuera de Latin-1 se rechaza ANTES de cifrar y senala los caracteres", async () => {
+    expect(unsupportedPasswordChars("clave€7")).toEqual(["€"]);
+    expect(unsupportedPasswordChars("密码1234😀😀")).toEqual(["密", "码", "😀"]);
+    expect(unsupportedPasswordChars("contraseña-ñandú-ÿ")).toEqual([]);
+    expect(validateProtectOptions({ password: "clave€7", confirm: "otra" })).toBe("unsupportedChars");
+
+    const file = await toFile(await createDocument());
+    const attempt = protectPdf(file, { password: "clave€7", confirm: "clave€7" });
+    await expect(attempt).rejects.toBeInstanceOf(ProtectValidationError);
+    await expect(attempt).rejects.toMatchObject({ reason: "unsupportedChars" });
+  });
+
+  it("las contrasenas Latin-1 con acentos si se cifran", async () => {
+    const file = await toFile(await createDocument());
+    const blob = await protectPdf(file, { password: "contraseña-ñandú", confirm: "contraseña-ñandú" });
+    expect(blob.size).toBeGreaterThan(0);
   });
 
   it("intentar proteger un PDF ya cifrado da un error apropiado (no lo protege dos veces en silencio)", async () => {

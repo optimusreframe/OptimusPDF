@@ -72,6 +72,13 @@ export function RotateToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_OPTIONS}
       process={process}
+      canRun={(files, options) =>
+        // Por pagina sin ninguna girada: el PDF saldria idéntico.
+        options.scope === "page" &&
+        (options.signature !== fileKey(files[0]) || countTouched(options) === 0)
+          ? { ok: false, reason: strings.needTurn }
+          : { ok: true }
+      }
       renderMain={({ files, options, setOptions }) => (
         <RotateBoard
           key={fileKey(files[0])}
@@ -199,7 +206,13 @@ function RotateBoard({
             <span className="text-caption text-muted-foreground">
               {strings.tapHint}
             </span>
-            <Button variant="secondary" size="sm" onClick={rotateAll}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={rotateAll}
+              // Actua sobre las paginas YA leidas: sin ellas no giraba nada, en silencio.
+              disabled={pageCount === 0}
+            >
               <RotateCw aria-hidden="true" className="size-4" />
               {strings.rotateAll}
             </Button>

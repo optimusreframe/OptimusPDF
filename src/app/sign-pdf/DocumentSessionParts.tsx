@@ -57,6 +57,29 @@ export function DetectionStatus({
   );
 }
 
+/**
+ * Aviso de «Exportar configuracion» cuando hay ediciones del texto original: la configuracion
+ * (huecos, campos, firmantes) NO las incluye; viajan en el borrador. La region viva esta SIEMPRE
+ * montada (vacia sin ediciones) para que el lector de pantalla anuncie su aparicion.
+ */
+export function ExportEditsNotice({
+  hasEdits,
+  strings,
+}: {
+  hasEdits: boolean;
+  strings: SignStrings;
+}) {
+  return (
+    <p
+      role="status"
+      data-export-edits-notice=""
+      className={hasEdits ? "text-footnote leading-relaxed text-muted-foreground" : "sr-only"}
+    >
+      {hasEdits ? strings.exportConfigEditsNote : ""}
+    </p>
+  );
+}
+
 export function ReuseValuesPrompt({
   matches,
   textFields,

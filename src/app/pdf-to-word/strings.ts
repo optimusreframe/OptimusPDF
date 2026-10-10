@@ -13,6 +13,8 @@ export type PdfToWordStrings = {
   limitsBody: string;
   progress: string;
   filenameSuffix: string;
+  /** Aviso en el lugar de una pagina cuyo OCR no pudo ejecutarse. */
+  ocrFailureMarker: string;
 };
 
 const es: PdfToWordStrings = {
@@ -24,6 +26,7 @@ const es: PdfToWordStrings = {
     "Esto es extracción semántica, no una conversión exacta: Word reflowea el contenido, así que el maquetado original (columnas, posición exacta de cada elemento) no se conserva pixel a pixel. Las páginas en blanco del PDF original no se preservan. Documentos a dos columnas, tablas con celdas combinadas o el maquetado de un paper académico no se recuperan bien — revisa el resultado antes de darlo por bueno.",
   progress: "Convirtiendo el documento",
   filenameSuffix: "word",
+  ocrFailureMarker: "[OCR no disponible para esta página — comprueba tu conexión]",
 };
 
 const en: PdfToWordStrings = {
@@ -35,6 +38,7 @@ const en: PdfToWordStrings = {
     "This is semantic extraction, not an exact conversion: Word reflows the content, so the original layout (columns, the exact position of each element) is not preserved pixel for pixel. Blank pages in the original PDF are not preserved. Two-column documents, tables with merged cells, or academic paper layouts do not come out clean — check the result before trusting it.",
   progress: "Converting the document",
   filenameSuffix: "word",
+  ocrFailureMarker: "[OCR unavailable for this page — check your connection]",
 };
 
 export const STRINGS: Record<Language, PdfToWordStrings> = { es, en };

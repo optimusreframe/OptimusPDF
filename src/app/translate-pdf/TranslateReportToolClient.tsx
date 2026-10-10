@@ -58,7 +58,12 @@ export function TranslateReportToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_TRANSLATE_OPTIONS}
       process={process}
-      canRun={(_files, options) => canTranslate(options)}
+      canRun={(_files, options) => {
+        if (canTranslate(options)) return { ok: true };
+        // Par sin modelo (mismo idioma): nada que explicar aqui, el selector ya lo avisa.
+        const pair = findPair(options.source, options.target);
+        return { ok: false, reason: pair ? s.consentPending : "" };
+      }}
       progressMessage={s.howItWorksTitle}
       renderMain={() => (
         <section className="glass rounded-ios p-5">
@@ -205,11 +210,6 @@ export function TranslateReportToolClient() {
                     })
                   }
                 />
-                {options.consentedModel !== pair.model ? (
-                  <p className="mt-3 text-xs leading-relaxed text-destructive">
-                    {s.consentPending}
-                  </p>
-                ) : null}
               </div>
             ) : null}
 

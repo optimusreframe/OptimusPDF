@@ -18,9 +18,11 @@ export type PlacementTool =
   | "initials"
   | "text"
   | "checkbox"
-  | "date";
+  | "date"
+  /** Editar el texto ORIGINAL del PDF en el sitio (W6-A): no crea huecos ni campos. */
+  | "editText";
 
-export type CreationTool = Exclude<PlacementTool, "select">;
+export type CreationTool = Exclude<PlacementTool, "select" | "editText">;
 
 export const PLACEMENT_TOOLS: readonly PlacementTool[] = [
   "select",
@@ -29,6 +31,7 @@ export const PLACEMENT_TOOLS: readonly PlacementTool[] = [
   "text",
   "checkbox",
   "date",
+  "editText",
 ];
 
 export type ToolCreates =
@@ -57,6 +60,7 @@ export const TOOL_SHORTCUTS: Record<PlacementTool, string> = {
   text: "t",
   checkbox: "c",
   date: "d",
+  editText: "e",
 };
 
 export function toolFromShortcut(key: string): PlacementTool | null {
@@ -74,8 +78,11 @@ export function availableTools(options: {
   hasSigners: boolean;
   richFieldTypes: boolean;
   solo?: boolean;
+  /** «Editar texto» existe (ajuste `editExistingText` activo o ya hay ediciones). */
+  editText?: boolean;
 }): PlacementTool[] {
   return PLACEMENT_TOOLS.filter((tool) => {
+    if (tool === "editText") return options.editText === true;
     if (options.solo) {
       if (tool === "signature") return true;
       if (tool === "initials") return false;

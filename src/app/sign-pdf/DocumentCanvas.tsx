@@ -10,6 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import Link from "next/link";
 import { createPortal } from "react-dom";
 import {
   ArrowDown,
@@ -29,6 +30,8 @@ import {
   SquareCheck,
   Trash2,
   Type,
+  Undo2,
+  Redo2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -54,8 +57,11 @@ import {
   type Signer,
 } from "@/lib/pdf/sign";
 import {
+  detectRasterFields,
   fieldTypeOf,
   isFieldFilled,
+  isSuggestedField,
+  isSuggestionOnly,
   type DetectedField,
   type DetectedFieldType,
 } from "@/lib/pdf/detectFields";
@@ -67,6 +73,8 @@ import {
   refitSoloRect,
 } from "@/app/sign-pdf/soloSignature";
 import { pageAspectOf } from "@/app/sign-pdf/pageAspect";
+import { usePageImage } from "@/app/sign-pdf/usePageImage";
+import { useSignTextEditing, type SignTextEditConfig } from "@/app/sign-pdf/useSignTextEditing";
 import { ValueSuggestions } from "@/app/sign-pdf/ValueSuggestions";
 import {
   BarButton,
@@ -119,8 +127,14 @@ import {
  * "Deshacer" pendiente, el zoom y los gestos.
  */
 
-const PREVIEW_WIDTH = 900;
+/** Miniaturas de navegacion: pequenas a proposito. La vista principal se dibuja al tamano real (`usePageImage`). */
 const THUMB_WIDTH = 96;
+
+/**
+ * Con hasta este numero de sugerencias el interruptor «Campos sugeridos» arranca
+ * ACTIVADO; con mas (un documento ruidoso) arranca apagado y la pagina se ve limpia.
+ */
+export const SUGGESTIONS_DEFAULT_MAX = 8;
 
 /** Lado minimo de un elemento, en fraccion de pagina. */
 const MIN_FIELD_SIDE = 0.02;
@@ -355,7 +369,14 @@ export type DocumentCanvasProps = {
   solo?: SoloConfig;
   /** Presente = parte de una vista continua de varios documentos (ver `CanvasSequence`). */
   sequence?: CanvasSequence;
+  /**
+   * Presente = la herramienta «Editar texto» existe en la paleta: las ediciones del texto
+   * original de ESTE documento y sus textos (W6-A, ver `useSignTextEditing`).
+   */
+  textEdit?: SignTextEditConfig;
 };
+
+export type { SignTextEditConfig };
 
 /* ------------------------------------------------------------------ *
  * Tipos internos
@@ -406,6 +427,11 @@ function clamp01(value: number): number {
   return clamp(value, 0, 1);
 }
 
+/** Una sugerencia que la persona toca (mueve, cambia de tipo) pasa a ser un campo suyo. */
+function ownField(field: DetectedField): DetectedField {
+  return isSuggestedField(field) ? { ...field, source: "manual" } : field;
+}
+
 function percent(value: number): string {
   return `${(value * 100).toFixed(3)}%`;
 }
@@ -448,8 +474,8 @@ function DocumentCanvasInner({
   onToolChange,
   slots,
   onSlotsChange,
-  textFields,
-  onTextFieldsChange,
+  textFields: allTextFields,
+  onTextFieldsChange: commitTextFields,
   values,
   onValueChange,
   pageIndex,
@@ -466,19 +492,11 @@ function DocumentCanvasInner({
   pinchZoomEnabled = false,
   solo,
   sequence,
+  textEdit,
 }: DocumentCanvasProps) {
-  const [pageCount, setPageCount] = useState(0);
-  const [preview, setPreview] = useState<string | null>(null);
-  /**
-   * Proporcion ancho/alto de la pagina que se ve, leida del propio PDF (con su
-   * rotacion), o `null` si no se pudo leer. Es la fuente fiable para colocar la
-   * firma al montar: la caja medida (`hostSize`) todavia es la del marcador de
-   * posicion 3:4 cuando llega la vista previa, y una firma colocada con esa
-   * proporcion sale deformada en las paginas que no son 3:4.
-   */
-  const [previewAspect, setPreviewAspect] = useState<number | null>(null);
+  /** Recuento de paginas que da la pasada de miniaturas (la vista grande trae el suyo). */
+  const [thumbPageCount, setThumbPageCount] = useState(0);
   const [thumbs, setThumbs] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
   const [hostSize, setHostSize] = useState({ width: 0, height: 0 });
   const [draft, setDraft] = useState<Draft | null>(null);
   const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
@@ -533,6 +551,58 @@ function DocumentCanvasInner({
     startPan: { x: number; y: number };
     startMid: { x: number; y: number };
   } | null>(null);
+
+  /*
+   * Sugerencias de la heuristica: una capa OPCIONAL, no campos del documento. Una
+   * sugerencia sin valor (`isSuggestionOnly`) solo se ve con el interruptor
+   * «Campos sugeridos» activado (o mientras esta seleccionada o en edicion); en
+   * cuanto la persona escribe en ella, la mueve o le cambia el tipo, es un campo
+   * suyo. `textFields` (de aqui en adelante) es la lista VISIBLE; las ocultas se
+   * conservan y vuelven a la lista completa al escribir (`onTextFieldsChange`).
+   * El estado inicial se decide UNA vez, al llegar las primeras sugerencias.
+   */
+  const [suggestionsPref, setSuggestionsPref] = useState<boolean | null>(null);
+  const [suggestionsAuto, setSuggestionsAuto] = useState<boolean | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const suggestionIds = allTextFields
+    .filter((field) => isSuggestionOnly(field, values[field.id]))
+    .map((field) => field.id);
+  const suggestionCount = suggestionIds.length;
+  if (suggestionsAuto === null && suggestionCount > 0) {
+    setSuggestionsAuto(suggestionCount <= SUGGESTIONS_DEFAULT_MAX);
+  }
+  const suggestionsOn = suggestionsPref ?? suggestionsAuto ?? true;
+  const openFieldId =
+    editingId ?? (selection?.kind === "text" ? selection.id : null);
+  const hiddenKey = suggestionsOn
+    ? ""
+    : suggestionIds.filter((id) => id !== openFieldId).join("|");
+  const textFields = useMemo(() => {
+    if (hiddenKey === "") return allTextFields;
+    const hidden = new Set(hiddenKey.split("|"));
+    return allTextFields.filter((field) => !hidden.has(field.id));
+  }, [allTextFields, hiddenKey]);
+  const allTextFieldsRef = useRef(allTextFields);
+  const valuesRef = useRef(values);
+  useEffect(() => {
+    allTextFieldsRef.current = allTextFields;
+    valuesRef.current = values;
+  });
+  /** Guarda la lista visible editada sin perder las sugerencias ocultas. */
+  const onTextFieldsChange = useCallback(
+    (next: DetectedField[]) => {
+      if (textFields === allTextFields) {
+        commitTextFields(next);
+        return;
+      }
+      const visible = new Set(textFields.map((field) => field.id));
+      commitTextFields([
+        ...next,
+        ...allTextFields.filter((field) => !visible.has(field.id)),
+      ]);
+    },
+    [textFields, allTextFields, commitTextFields],
+  );
 
   // Re-renderiza este subarbol cuando el historial de valores cambia,
   // incluida otra pestaña (borrar datos ahi apaga las sugerencias aqui).
@@ -635,7 +705,7 @@ function DocumentCanvasInner({
           void closePdfDocument(document);
           return;
         }
-        setPageCount(document.numPages);
+        setThumbPageCount(document.numPages);
 
         const collected: string[] = [];
         for (let index = 1; index <= document.numPages; index += 1) {
@@ -657,47 +727,34 @@ function DocumentCanvasInner({
     };
   }, [file, thumbsInSequence]);
 
-  /* Vista grande de la pagina activa. */
+  /*
+   * Vista grande de la pagina activa: dibujada al tamano real en que se ve
+   * (ancho x zoom x densidad de pantalla), nitida tambien al acercar. Un
+   * documento abierto por archivo; render cancelable y con cache (`usePageImage`).
+   */
+  const reportError = useCallback((code: PdfErrorCode) => errorRef.current?.(code), []);
+  const image = usePageImage({
+    file,
+    pageIndex,
+    layoutWidth: layoutSize.width,
+    zoom,
+    onError: reportError,
+  });
+  const preview = image.src;
+  /**
+   * Proporcion ancho/alto de la pagina que se ve, leida del propio PDF (con su
+   * rotacion), o `null` si no se pudo leer. Es la fuente fiable para colocar la
+   * firma al montar: la caja medida (`hostSize`) todavia es la del marcador de
+   * posicion 3:4 cuando llega la vista previa, y una firma colocada con esa
+   * proporcion sale deformada en las paginas que no son 3:4.
+   */
+  const previewAspect = image.aspect;
+  const loading = image.loading;
+  const pageCount = image.pageCount || thumbPageCount;
+  const imagePageCount = image.pageCount;
   useEffect(() => {
-    if (!file) return;
-    let cancelled = false;
-
-    void (async () => {
-      setLoading(true);
-      try {
-        const document = await openPdfDocument(file);
-        if (cancelled) {
-          void closePdfDocument(document);
-          return;
-        }
-        setPageCount(document.numPages);
-        sequenceRef.current?.onPageCount(document.numPages);
-        const number = Math.min(
-          Math.max(1, pageIndex + 1),
-          Math.max(1, document.numPages),
-        );
-        const page = await document.getPage(number);
-        const viewport = page.getViewport?.({ scale: 1 });
-        const url = await renderPageToDataUrl(page, { maxWidth: PREVIEW_WIDTH });
-        page.cleanup();
-        void closePdfDocument(document);
-        if (!cancelled) {
-          setPreview(url);
-          setPreviewAspect(
-            viewport && viewport.height > 0 ? viewport.width / viewport.height : null,
-          );
-        }
-      } catch (error) {
-        if (!cancelled) errorRef.current?.(toPdfError(error).code);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [file, pageIndex]);
+    if (imagePageCount > 0) sequenceRef.current?.onPageCount(imagePageCount);
+  }, [imagePageCount]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -723,18 +780,42 @@ function DocumentCanvasInner({
    * de estar disponible (se borro al ultimo firmante, se apago el ajuste)
    * se trata como Seleccionar.
    */
+  const hasTextEditTool = textEdit !== undefined;
   const tools = useMemo(
     () =>
       availableTools({
         hasSigners: signers.length > 0,
         richFieldTypes: richFieldTypesEnabled,
         solo: Boolean(solo),
+        editText: hasTextEditTool,
       }),
-    [signers.length, richFieldTypesEnabled, solo],
+    [signers.length, richFieldTypesEnabled, solo, hasTextEditTool],
   );
   const effectiveTool: PlacementTool = tools.includes(tool) ? tool : "select";
-  /** Que crea la herramienta activa (`null` = Seleccionar). */
-  const creates = effectiveTool === "select" ? null : TOOL_CREATES[effectiveTool];
+  /** Que crea la herramienta activa (`null` = Seleccionar o «Editar texto», que no crean huecos). */
+  const creates =
+    effectiveTool === "select" || effectiveTool === "editText"
+      ? null
+      : TOOL_CREATES[effectiveTool];
+  const editingText = effectiveTool === "editText";
+
+  /* «Editar texto»: la capa de bloques de Editar PDF sobre la MISMA imagen (ver `useSignTextEditing`). */
+  const imageRef = useRef<HTMLImageElement>(null);
+  const textEditing = useSignTextEditing({
+    config: textEdit,
+    active: editingText,
+    doc: image.doc,
+    page: image.page,
+    pageIndex,
+    layoutWidth: layoutSize.width,
+    renderKey: image.src,
+    imageRef,
+    hostRef,
+    stageRef,
+    clipRef,
+    coarse,
+    announce: setAnnouncement,
+  });
 
   const signerById = (id: string): Signer | null =>
     id === SOLO_SIGNER_ID && solo
@@ -774,6 +855,8 @@ function DocumentCanvasInner({
         return strings.fieldTypeCheckbox;
       case "date":
         return strings.fieldTypeDate;
+      case "editText":
+        return strings.toolEditText;
     }
   };
 
@@ -793,6 +876,8 @@ function DocumentCanvasInner({
   const textLabel = (field: DetectedField): string => {
     if (field.label) return field.label;
     const globalIndex = textFields.findIndex((candidate) => candidate.id === field.id);
+    // Un hueco hallado en una pagina escaneada no es un «Campo N» del documento: se dice lo que es.
+    if (field.source === "heuristic-raster") return strings.scannedFieldLabel(globalIndex + 1);
     return strings.textFieldFallbackLabel(globalIndex + 1);
   };
 
@@ -910,7 +995,9 @@ function DocumentCanvasInner({
         return;
       }
       onTextFieldsChange(
-        textFields.map((field) => (field.id === id ? { ...field, rect } : field)),
+        textFields.map((field) =>
+          field.id === id ? { ...ownField(field), rect } : field,
+        ),
       );
     },
     [slots, onSlotsChange, textFields, onTextFieldsChange],
@@ -1022,6 +1109,11 @@ function DocumentCanvasInner({
           return;
         }
         if (toolRef.current !== "select") {
+          // «Editar texto»: con el foco en un bloque o en su editor, Esc es del bloque (suelta la seleccion);
+          // la herramienta se deja con otro Esc, ya sin foco dentro de la capa.
+          if (toolRef.current === "editText" && origin?.closest?.("[data-block-layer], [data-inline-editor]")) {
+            return;
+          }
           onToolChange("select");
           return;
         }
@@ -1052,6 +1144,8 @@ function DocumentCanvasInner({
       const target = event.target instanceof Element ? (event.target as HTMLElement) : null;
       if (isTypingTarget(target)) return;
       if (target?.closest?.('[role="dialog"], [aria-modal="true"]')) return;
+      // «Editar texto»: teclear una letra con un bloque enfocado EDITA ese bloque (no cambia de herramienta).
+      if (toolRef.current === "editText" && target?.closest?.("[data-block-layer]")) return;
       const inScope =
         !target ||
         target === document.body ||
@@ -1264,6 +1358,39 @@ function DocumentCanvasInner({
         isPendingForNav(field),
     );
 
+  /**
+   * «Buscar huecos en páginas escaneadas»: la heuristica raster NO corre sola (toma por
+   * hueco cualquier raya oscura de una foto); la persona la pide para la pagina que ve.
+   * Los resultados entran como sugerencias (se ven con el interruptor encendido).
+   */
+  const scanScannedPage = async () => {
+    if (!file || scanning) return;
+    const page = pageIndex;
+    setScanning(true);
+    try {
+      const found = await detectRasterFields(file, [page]);
+      if (!aliveRef.current) return;
+      const current = allTextFieldsRef.current;
+      const kept = current.filter(
+        (field) =>
+          !(
+            field.source === "heuristic-raster" &&
+            field.pageIndex === page &&
+            isSuggestionOnly(field, valuesRef.current[field.id])
+          ),
+      );
+      commitTextFields([...kept, ...found]);
+      setSuggestionsPref(true);
+      setAnnouncement(
+        found.length > 0 ? strings.scanFound(found.length, page + 1) : strings.scanNone(page + 1),
+      );
+    } catch {
+      if (aliveRef.current) setAnnouncement(strings.scanFailed);
+    } finally {
+      if (aliveRef.current) setScanning(false);
+    }
+  };
+
   const toggleCheckbox = (field: DetectedField) => {
     markCheckboxTouched(field.id);
     onValueChange(field.id, (values[field.id] ?? "") ? "" : "true");
@@ -1422,7 +1549,9 @@ function DocumentCanvasInner({
       initialsOriginalRef.current.set(field.id, { original: base, formatted: converted.value });
     }
     onTextFieldsChange(
-      textFields.map((candidate) => (candidate.id === field.id ? { ...candidate, type } : candidate)),
+      textFields.map((candidate) =>
+        candidate.id === field.id ? { ...ownField(candidate), type } : candidate,
+      ),
     );
     if (converted.value !== current) onValueChange(field.id, converted.value);
     const typeName = textTypeLabel(type);
@@ -2278,7 +2407,69 @@ function DocumentCanvasInner({
               : strings.canvasTotalSummary(slots.length, textFields.length)}
           </span>
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {suggestionCount > 0 || suggestionsPref !== null ? (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={suggestionsOn}
+              data-suggestions-toggle=""
+              title={strings.suggestedFieldsDescription}
+              onClick={() => {
+                const next = !suggestionsOn;
+                setSuggestionsPref(next);
+                setAnnouncement(
+                  next ? strings.suggestedFieldsShown(suggestionCount) : strings.suggestedFieldsHidden,
+                );
+              }}
+              className={cn(
+                "inline-flex min-h-9 items-center gap-2 rounded-ios-sm border px-2.5 text-footnote font-medium transition-colors duration-200 ease-spring motion-reduce:transition-none pointer-coarse:min-h-11 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
+                // Colores forzados (alto contraste): el estado se distingue por el color de sistema, no por el tema.
+                "forced-colors:border-[ButtonText] forced-colors:text-[ButtonText]",
+                suggestionsOn
+                  ? "border-signal/60 bg-signal/15 text-foreground forced-colors:border-[Highlight] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
+                  : "border-hairline bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground forced-colors:bg-[ButtonFace]",
+              )}
+            >
+              {/* Pista y pulgar: con colores forzados la pista lleva borde y el pulgar el color del texto, a un lado u otro. */}
+              <span
+                aria-hidden="true"
+                data-switch-track=""
+                className={cn(
+                  "relative inline-block h-4 w-7 shrink-0 rounded-full transition-colors duration-200 motion-reduce:transition-none",
+                  // Colores de SISTEMA (un color no-sistema, como `currentColor`, se sustituye por Canvas).
+                  "forced-colors:border forced-colors:bg-transparent",
+                  suggestionsOn
+                    ? "bg-signal forced-colors:border-[HighlightText]"
+                    : "bg-muted-foreground/40 forced-colors:border-[ButtonText]",
+                )}
+              >
+                <span
+                  data-switch-thumb=""
+                  className={cn(
+                    "absolute top-0.5 left-0.5 size-3 rounded-full bg-background transition-transform duration-200 motion-reduce:transition-none",
+                    suggestionsOn ? "translate-x-3 forced-colors:bg-[HighlightText]" : "forced-colors:bg-[ButtonText]",
+                  )}
+                />
+              </span>
+              {strings.suggestedFieldsToggle(suggestionCount)}
+            </button>
+          ) : null}
+          {image.hasText === false ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className={BORDERED_SM_COARSE}
+              disabled={scanning}
+              data-scan-fields=""
+              onClick={() => void scanScannedPage()}
+            >
+              {scanning ? (
+                <Spinner className="size-4" label={strings.scanningPage} />
+              ) : null}
+              {strings.scanPageFields}
+            </Button>
+          ) : null}
           <Button
             variant="secondary"
             size="sm"
@@ -2306,6 +2497,75 @@ function DocumentCanvasInner({
           </Button>
         </div>
       </div>
+
+      {/* «Editar texto»: pista, deshacer/rehacer y el aviso de que el original puede seguir existiendo. */}
+      {textEdit && (editingText || textEditing.count > 0) ? (
+        <div data-edit-text-panel="" className="surface-card rounded-ios mb-3 space-y-2 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="min-w-0 flex-1 basis-60 text-footnote leading-relaxed text-muted-foreground">
+              {editingText ? strings.editTextHint : strings.editTextCount(textEditing.count)}
+            </p>
+            {editingText ? (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={COARSE_TALL}
+                  aria-label={strings.editTextUndo}
+                  title={strings.editTextUndo}
+                  aria-disabled={!textEditing.canUndo}
+                  onClick={() => {
+                    if (textEditing.canUndo) textEditing.undo();
+                  }}
+                >
+                  <Undo2 aria-hidden="true" className="size-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={COARSE_TALL}
+                  aria-label={strings.editTextRedo}
+                  title={strings.editTextRedo}
+                  aria-disabled={!textEditing.canRedo}
+                  onClick={() => {
+                    if (textEditing.canRedo) textEditing.redo();
+                  }}
+                >
+                  <Redo2 aria-hidden="true" className="size-4" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
+          {editingText && textEditing.status !== "ready" && textEditing.status !== "idle" ? (
+            <p className="text-footnote text-muted-foreground" data-edit-text-status="">
+              {textEditing.status === "analyzing"
+                ? textEdit.strings.analyzing
+                : textEditing.status === "failed"
+                  ? textEdit.strings.analysisFailed
+                  : textEdit.strings.scanned}
+            </p>
+          ) : null}
+          {editingText && textEditing.nonEditable > 0 && textEditing.status === "ready" ? (
+            <p className="text-caption text-muted-foreground">
+              {textEdit.strings.nonEditableCount(textEditing.nonEditable)}
+            </p>
+          ) : null}
+          {textEditing.count > 0 ? (
+            <p className="text-footnote leading-relaxed text-muted-foreground">
+              {strings.editTextNote}{" "}
+              <Link
+                href="/edit-pdf"
+                // Otra pestana: lo que se esta firmando no se pierde.
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-signal-text underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+              >
+                {strings.editTextFlattenLink}
+              </Link>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/*
        * Paleta + escenario. La paleta va PRIMERO en el DOM (se elige la
@@ -2349,6 +2609,8 @@ function DocumentCanvasInner({
                 // zoom, el lienzo se queda con el gesto (dibujar, pellizcar, mover la hoja).
                 effectiveTool === "select" && zoom === 1 ? "touch-pan-y" : "touch-none",
                 creates ? "cursor-crosshair" : "cursor-default",
+                // «Editar texto»: los huecos y campos se ven pero no reciben puntero (el texto manda).
+                editingText && "[&_.sign-field-box]:pointer-events-none",
               )}
               style={
                 zoom !== 1 || pan.x !== 0 || pan.y !== 0
@@ -2362,6 +2624,7 @@ function DocumentCanvasInner({
               {preview ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
+                  ref={imageRef}
                   src={preview}
                   alt={strings.documentTitle}
                   draggable={false}
@@ -2409,6 +2672,7 @@ function DocumentCanvasInner({
                   }
                   selected={selection?.kind === "text" && selection.id === field.id}
                   editing={field.id === editingId}
+                  suggested={isSuggestionOnly(field, values[field.id])}
                   strings={strings}
                   hit={hitInsets?.get(`text:${field.id}`)}
                   tiny={isTiny(field.rect)}
@@ -2433,6 +2697,8 @@ function DocumentCanvasInner({
                   onTabToBar={focusBar}
                 />
               ))}
+
+              {textEditing.layer}
 
               {draft ? (
                 <div
@@ -2596,6 +2862,8 @@ function DocumentCanvasInner({
               </>
             ) : null}
           </FloatingFieldBar>
+
+          {textEditing.bar}
         </div>
       </div>
 
@@ -2732,7 +3000,7 @@ const SELECTION_RING =
  * seleccion se pinta con `box-shadow`, nunca con `outline`.
  */
 const BOX_BASE =
-  "absolute cursor-move touch-none rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal";
+  "sign-field-box absolute cursor-move touch-none rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal";
 
 /** El resto de elementos del lienzo ceden el gesto al navegador solo fuera de ellos: `touch-none` en el anfitrion. */
 type HitProps = { hit?: Insets; tiny?: boolean };
@@ -2769,17 +3037,20 @@ const COARSE_HIT_HANDLE =
 const COARSE_HIT_HANDLE_OUTSIDE =
   "pointer-coarse:before:absolute pointer-coarse:before:-top-0.5 pointer-coarse:before:-left-0.5 pointer-coarse:before:-right-3 pointer-coarse:before:-bottom-3 pointer-coarse:before:content-['']";
 
-type ElementLabelProps = { label: string; color: string };
+type ElementLabelProps = { label: string; color: string; className?: string };
 
 /**
  * Pestana de etiqueta: texto del tema sobre superficie elevada, con el
  * color del elemento en el borde y en un punto. Antes era texto blanco de
  * 11 px sobre el propio color (verde y ambar no llegaban a 4,5:1).
  */
-function ElementLabel({ label, color }: ElementLabelProps) {
+function ElementLabel({ label, color, className }: ElementLabelProps) {
   return (
     <span
-      className="pointer-events-none absolute -top-0.5 left-0 flex max-w-full -translate-y-full items-center gap-1 rounded-t-[4px] border border-b-0 bg-elevated px-1.5 py-0.5 text-caption-2 leading-tight font-semibold text-foreground"
+      className={cn(
+        "pointer-events-none absolute -top-0.5 left-0 flex max-w-full -translate-y-full items-center gap-1 rounded-t-[4px] border border-b-0 bg-elevated px-1.5 py-0.5 text-caption-2 leading-tight font-semibold text-foreground",
+        className,
+      )}
       style={{ borderColor: color }}
     >
       <span
@@ -3008,6 +3279,8 @@ type TextFieldBoxProps = HitProps & {
   selected: boolean;
   /** Input en linea abierto (distinto de `selected`). */
   editing: boolean;
+  /** Sugerencia de la heuristica que nadie ha tocado: contorno discreto, etiqueta solo al apuntarla. */
+  suggested?: boolean;
   strings: SignStrings;
   /** Lado del desplegable de sugerencias (lo decide el lienzo segun donde quede la barra flotante). */
   suggestionsPlacement: "top" | "bottom";
@@ -3039,6 +3312,7 @@ function TextFieldBox({
   historyKey,
   selected,
   editing,
+  suggested = false,
   strings,
   hit,
   tiny = false,
@@ -3098,12 +3372,13 @@ function TextFieldBox({
       data-element-kind="text"
       data-element-id={field.id}
       data-hit-zone={hit ? "" : undefined}
+      data-suggested={suggested ? "" : undefined}
       onPointerDown={onPointerDownHandler}
       onFocus={(event) => {
         if (event.target === event.currentTarget) onFocusSelect();
       }}
       onKeyDown={onBoxKeyDown}
-      className={BOX_BASE}
+      className={cn(BOX_BASE, "group")}
       style={{
         ...hitStyle(hit),
         left: percent(field.rect.x),
@@ -3111,7 +3386,11 @@ function TextFieldBox({
         width: percent(field.rect.width),
         height: percent(field.rect.height),
         boxSizing: "border-box",
-        border: `2px ${dashed ? "dashed" : "solid"} ${color}`,
+        // Una sugerencia es una capa discreta: trazo fino y translucido; el campo real, el de siempre.
+        border:
+          suggested && !selected && !editing
+            ? `1.5px dashed ${color}99`
+            : `2px ${dashed ? "dashed" : "solid"} ${color}`,
         backgroundColor: value ? `${color}22` : "transparent",
         boxShadow: selected ? SELECTION_RING : undefined,
         // Por encima de los elementos siguientes (hermanos absolutos sin
@@ -3121,7 +3400,18 @@ function TextFieldBox({
         zIndex: editing ? 30 : selected ? 20 : undefined,
       }}
     >
-      <ElementLabel label={label} color={color} />
+      {/* Solo la etiqueta REAL del documento ("Nombre:"), nunca un «Campo N» generico. */}
+      {field.label ? (
+        <ElementLabel
+          label={label}
+          color={color}
+          className={
+            suggested && !selected && !editing
+              ? "opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+              : undefined
+          }
+        />
+      ) : null}
 
       {selected ? (
         <ResizeHandle

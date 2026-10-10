@@ -185,7 +185,15 @@ export function EditInlineTool() {
         loadRef={loadRef}
         progressMessage={s.progressMessage}
         cancelledMessage={flow.exportCancelled}
-        canRun={() => edit.pendingChangeCount > 0 && prepared !== null}
+        canRun={() =>
+          prepared === null
+            ? { ok: false, reason: "" }
+            : edit.pendingChangeCount > 0
+              ? { ok: true }
+              : { ok: false, reason: flow.exportNeedsChange }
+        }
+        // Editar comprueba, descifra (hoja de contrasena) y avisa por su cuenta antes de abrir el lienzo.
+        inputPolicy="off"
         renderMain={({ files, setError }) => {
           const file = files[0];
           if (!file) return null;

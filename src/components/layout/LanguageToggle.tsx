@@ -28,7 +28,7 @@ export function LanguageToggle({ className }: { className?: string }) {
       className={cn("inline-flex h-11 items-center", className)}
     >
       <div className="relative isolate flex h-11 items-center rounded-full">
-        <span aria-hidden="true" className="absolute inset-x-0 top-1/2 h-8 -translate-y-1/2 rounded-full bg-white/8" />
+        <span aria-hidden="true" className="absolute inset-x-0 top-1/2 h-8 -translate-y-1/2 rounded-full bg-white/8 forced-colors:border forced-colors:border-[ButtonText]" />
         {LANGUAGES.map((code) => {
           const active = code === language;
           return (
@@ -52,7 +52,7 @@ export function LanguageToggle({ className }: { className?: string }) {
                   aria-hidden="true"
                   layoutId={thumbId}
                   transition={springs.snappy}
-                  className="absolute inset-x-0.5 top-1/2 h-7 -translate-y-1/2 rounded-full bg-elevated shadow-elevation-1"
+                  className="absolute inset-x-0.5 top-1/2 h-7 -translate-y-1/2 rounded-full bg-elevated shadow-elevation-1 forced-colors:border-2 forced-colors:border-[Highlight]"
                 />
               ) : null}
               <span className="relative">{LABELS[code]}</span>

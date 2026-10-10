@@ -1,4 +1,5 @@
 import { PDFDocument } from "@cantoo/pdf-lib";
+import { uniqueZipName, zipNameKey } from "@/lib/pdf/entryNames";
 import {
   PdfError,
   loadPdf,
@@ -247,6 +248,8 @@ export async function splitPdf(
     // jszip solo se descarga cuando la salida es realmente multiple.
     const { default: JSZip } = await import("jszip");
     const zip = new JSZip();
+    // Dos tramos iguales (p. ej. 1-2 y 1-2) darian el mismo nombre y jszip se quedaria con el ultimo.
+    const usedNames = new Set<string>();
 
     for (let index = 0; index < groups.length; index += 1) {
       const indices = groups[index];
@@ -254,7 +257,10 @@ export async function splitPdf(
       const copied = await output.copyPages(source, indices);
       for (const page of copied) output.addPage(page);
       const bytes = await output.save({ useObjectStreams: true });
-      zip.file(partFilename(baseName, indices), bytes);
+      zip.file(
+        uniqueZipName(partFilename(baseName, indices), usedNames, { startAt: 2, key: zipNameKey }),
+        bytes,
+      );
       onProgress?.(scaleProgress((index + 1) / groups.length, 0.12, 0.9));
     }
 

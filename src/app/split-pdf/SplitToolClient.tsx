@@ -134,6 +134,20 @@ export function SplitToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_OPTIONS}
       process={process}
+      canRun={(files, options) => {
+        // Hasta que el tablero lee las paginas no hay plan; sin grupos no saldria ningun documento.
+        if (options.signature !== fileKey(files[0]) || options.pageCount === 0) {
+          return { ok: false, reason: "" };
+        }
+        const selecting =
+          options.mode === "extract" && options.extractScope === "selection";
+        if (selecting && options.issue === "syntax") {
+          return { ok: false, reason: strings.rangeInvalid };
+        }
+        return buildSplitGroups(toPlan(options), options.pageCount).length > 0
+          ? { ok: true }
+          : { ok: false, reason: strings.resultNone };
+      }}
       renderMain={({ files, options, setOptions }) => (
         <SplitBoard
           key={fileKey(files[0])}

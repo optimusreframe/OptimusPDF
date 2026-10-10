@@ -241,11 +241,24 @@ export function PageTile({
       ) : null}
 
       {actions ? (
-        <div className="pointer-events-none absolute inset-x-2 top-2 flex justify-center opacity-100 transition-opacity duration-200 md:opacity-0 md:group-hover/tile:opacity-100 md:group-focus-within/tile:opacity-100">
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-2 top-2 flex justify-center opacity-100 transition-opacity duration-200",
+            // Solo con raton las acciones se ocultan hasta pasar el puntero o
+            // enfocar: con el dedo no hay "hover" y deben verse siempre.
+            "md:pointer-fine:opacity-0 md:pointer-fine:group-hover/tile:opacity-100 md:pointer-fine:group-focus-within/tile:opacity-100",
+            // Puntero grueso (W6-C): botones de 44 px. 5 de ellos no caben en
+            // una celda de 165 px, asi que las acciones salen de encima de la
+            // miniatura, pasan al flujo (debajo de ella) y envuelven a otra
+            // fila; con raton el aspecto no cambia.
+            "pointer-coarse:static pointer-coarse:mt-2",
+          )}
+        >
           <div
             className={cn(
               "glass-bar pointer-events-auto flex items-center rounded-full border border-white/14 py-1",
               compactActions ? "gap-0.5 px-0.5" : "gap-1 px-1",
+              "pointer-coarse:flex-wrap pointer-coarse:justify-center pointer-coarse:rounded-3xl",
             )}
           >
             {actions}
@@ -300,6 +313,9 @@ export function TileButton({
       className={cn(
         "flex items-center justify-center rounded-full transition-colors",
         compact ? "size-6" : "size-7",
+        // Puntero grueso: 44 px reales (PageTile pasa las acciones al flujo y
+        // las envuelve para que quepan, ver arriba).
+        "pointer-coarse:size-11",
         tone === "destructive"
           ? "text-destructive-text hover:bg-destructive/20"
           : "text-muted-foreground hover:bg-white/14 hover:text-foreground",
@@ -472,15 +488,16 @@ export function ToggleRow({
 }) {
   const id = useId();
   return (
-    <div className="flex items-start gap-3">
+    <div className="relative flex items-start gap-3 pointer-coarse:min-h-11 pointer-coarse:items-center">
       <input
         id={id}
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 size-4 shrink-0 cursor-pointer accent-signal"
+        className="mt-0.5 size-4 shrink-0 cursor-pointer accent-signal pointer-coarse:mt-0"
       />
-      <label htmlFor={id} className="cursor-pointer">
+      {/* El ::after cubre toda la fila: tocar en cualquier punto alterna la casilla. */}
+      <label htmlFor={id} className="cursor-pointer after:absolute after:inset-0 after:content-['']">
         <span className="block text-sm text-foreground">{label}</span>
         {description ? (
           <span className="mt-1 block text-xs text-muted-foreground">

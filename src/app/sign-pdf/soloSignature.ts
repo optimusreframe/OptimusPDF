@@ -9,7 +9,9 @@ import {
   isFieldFilled,
   type DetectedField,
 } from "@/lib/pdf/detectFields";
+import type { TextEdit } from "@/lib/pdf/editTypes";
 import type { NormalizedRect } from "@/lib/pdf/watermark";
+import { hasTextEdits } from "@/app/sign-pdf/textEdits";
 
 /*
  * Modo "Solo yo" sobre el lienzo unico (W2-C). La firma propia es UN elemento
@@ -143,6 +145,8 @@ export type SoloContent = {
   pageIndex: number;
   textFields: readonly DetectedField[];
   textValues: Readonly<Record<string, string>>;
+  /** Texto original editado (W6-A): por si solo ya hay algo que aplicar. */
+  textEdits?: readonly TextEdit[];
 };
 
 /** Hay una firma creada Y colocada sobre el documento. */
@@ -161,11 +165,12 @@ export function hasFilledField(
   return textFields.some((field) => isFieldFilled(field, textValues[field.id]));
 }
 
-/** Hay algo que aplicar: la firma colocada o algun campo relleno. */
+/** Hay algo que aplicar: la firma colocada, algun campo relleno o texto original editado. */
 export function soloReady(content: SoloContent): boolean {
   return (
     hasPlacedSignature(content) ||
-    hasFilledField(content.textFields, content.textValues)
+    hasFilledField(content.textFields, content.textValues) ||
+    hasTextEdits(content.textEdits)
   );
 }
 

@@ -442,6 +442,8 @@ export function UnlockToolClient() {
       defaultOptions={DEFAULT_UNLOCK_OPTIONS}
       process={process}
       canRun={canRun}
+      // Desbloquear recibe PDF cifrados a proposito: tiene su propio flujo de contrasena.
+      inputPolicy={{ encrypted: "allow" }}
       renderMain={({ files, setOptions }) => {
         const file = files[0] ?? null;
         const current =

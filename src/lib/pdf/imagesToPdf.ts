@@ -1,5 +1,6 @@
 import { PDFDocument, type PDFImage } from "@cantoo/pdf-lib";
 import JSZip from "jszip";
+import { uniqueZipName, zipNameKey } from "@/lib/pdf/entryNames";
 import {
   PdfError,
   readFileBytes,
@@ -273,6 +274,18 @@ function replaceExtension(filename: string, extension: string): string {
   return `${base || "imagen"}.${extension}`;
 }
 
+/**
+ * Nombre de la entrada del ZIP para una imagen: `foto.jpg` -> `foto.pdf`, y si ya existe
+ * (sin distinguir mayusculas ni forma Unicode) `foto (2).pdf`, `foto (3).pdf`... Termina siempre:
+ * el contador de `uniqueZipName` crece y tiene tope. `used` guarda claves, no nombres.
+ */
+export function uniquePdfEntryName(filename: string, used: Set<string>): string {
+  return uniqueZipName(replaceExtension(filename, "pdf"), used, {
+    startAt: 2,
+    key: zipNameKey,
+  });
+}
+
 function resolveOrder(files: File[], order?: number[]): number[] {
   // `undefined` = todavia no hay plan explicito: se usan todas.
   // Un array vacio si es un plan, y significa "no queda ninguna imagen".
@@ -322,14 +335,7 @@ export async function imagesToPdf(
       const document = await buildPdfFromImages([file], layout);
       const pdf = await savePdfToBlob(document);
 
-      let name = replaceExtension(file.name, "pdf");
-      let duplicate = 2;
-      while (used.has(name.toLowerCase())) {
-        name = replaceExtension(`${file.name}-${duplicate}`, "pdf");
-        duplicate += 1;
-      }
-      used.add(name.toLowerCase());
-      zip.file(name, pdf);
+      zip.file(uniquePdfEntryName(file.name, used), pdf);
 
       onProgress?.(((position + 1) / indices.length) * 0.9);
     }

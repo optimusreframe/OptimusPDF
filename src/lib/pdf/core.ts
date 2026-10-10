@@ -99,7 +99,18 @@ export type PdfErrorCode =
    * es un zip valido, le falta `manifest.json`, su `version` no se
    * reconoce, o su contenido no pasa el type guard escrito a mano.
    */
-  | "invalidConfig";
+  | "invalidConfig"
+  /**
+   * El archivo no tiene ningun byte (0 B). Lo asigna la comprobacion de la
+   * entrada (`inputGuard.ts`): los motores siguen lanzando `corrupt` para un
+   * archivo vacio, asi que el shell afina el codigo al ver el archivo.
+   */
+  | "emptyFile"
+  /**
+   * El contenido no es un PDF (no empieza por `%PDF-`): texto, una imagen
+   * renombrada a .pdf, etc. Igual que `emptyFile`, lo asigna `inputGuard.ts`.
+   */
+  | "notPdf";
 
 /** Error tipado del motor: la UI traduce `code` mediante i18n. */
 export class PdfError extends Error {
@@ -112,6 +123,43 @@ export class PdfError extends Error {
   }
 }
 
+/**
+ * Huellas de un PDF danado en los mensajes de pdf-lib y pdf.js. Un texto de
+ * error de libreria nunca debe llegar a la persona usuaria como «Algo ha
+ * fallado»: si el documento esta roto, se dice que esta roto.
+ */
+const CORRUPT_HINTS = [
+  "invalid pdf",
+  "no pdf header",
+  "missing pdf header",
+  "failed to parse",
+  "invalid object ref",
+  "invalid xref",
+  "bad xref",
+  "xref",
+  "unexpected object",
+  "unexpectedobjecterror",
+  "pdfinvalidobjectparsingerror",
+  "pdfparsingerror",
+  "missingpdfheadererror",
+  "invalidpdfexception",
+  "missingpdfexception",
+  "formaterror",
+  "unexpected end of file",
+  "unexpected eof",
+  "reading 'pages'",
+  "reading 'catalog'",
+  "root object",
+] as const;
+
+/** El navegador se quedo sin memoria al abrir o escribir un archivo enorme. */
+const OUT_OF_MEMORY_HINTS = [
+  "allocation failed",
+  "invalid array length",
+  "out of memory",
+  "invalid typed array length",
+] as const;
+
 export function toPdfError(error: unknown): PdfError {
   if (error instanceof PdfError) return error;
   if (error instanceof EncryptedPDFError) return new PdfError("encrypted");
@@ -120,11 +168,10 @@ export function toPdfError(error: unknown): PdfError {
     if (text.includes("password") || text.includes("encrypt")) {
       return new PdfError("encrypted", error.message);
     }
-    if (
-      text.includes("invalid pdf") ||
-      text.includes("no pdf header") ||
-      text.includes("failed to parse")
-    ) {
+    if (OUT_OF_MEMORY_HINTS.some((hint) => text.includes(hint))) {
+      return new PdfError("tooLarge", error.message);
+    }
+    if (CORRUPT_HINTS.some((hint) => text.includes(hint))) {
       return new PdfError("corrupt", error.message);
     }
     return new PdfError("unknown", error.message);

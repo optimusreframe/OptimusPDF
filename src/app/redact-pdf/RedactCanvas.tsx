@@ -558,7 +558,7 @@ function RedactCanvasInner({
               aria-label={strings.paintColorLabel}
               value={paintColor}
               onChange={(event) => setPaintColor(event.target.value)}
-              className="h-9 w-12 cursor-pointer rounded-md border border-white/10 bg-transparent p-0.5"
+              className="h-9 w-12 cursor-pointer rounded-md border border-white/10 bg-transparent p-0.5 pointer-coarse:h-11"
             />
           </label>
         ) : null}
@@ -753,6 +753,8 @@ function RedactCanvasInner({
           <Button
             variant="secondary"
             size="sm"
+            // Puntero grueso: 44 px REALES de alto (con raton se queda en 36 px).
+            className="pointer-coarse:h-11"
             disabled={pageElements.length === 0}
             onClick={() =>
               history.pushState(
@@ -765,6 +767,7 @@ function RedactCanvasInner({
           <Button
             variant="ghost"
             size="sm"
+            className="pointer-coarse:h-11"
             disabled={currentElements.length === 0}
             onClick={() => history.pushState([])}
           >

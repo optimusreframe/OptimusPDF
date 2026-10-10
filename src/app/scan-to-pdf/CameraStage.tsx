@@ -16,6 +16,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { useFocusTarget } from "@/components/tool/useFocusTarget";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
@@ -98,6 +99,18 @@ function getCoarsePointer(): boolean {
   return window.matchMedia(COARSE_POINTER_QUERY).matches;
 }
 
+/** Nombres de los dos <input type=file> ocultos: distintos entre si y de los botones que los abren. */
+const INPUT_LABELS = {
+  es: {
+    files: "Selector de archivos de imagen",
+    camera: "Captura con la cámara del sistema",
+  },
+  en: {
+    files: "Image file picker",
+    camera: "Capture with the system camera",
+  },
+} as const;
+
 export type CameraStageProps = {
   filter: ScanFilter;
   /** Fotograma tomado de la vista en vivo, ya derecho desde el canvas. */
@@ -145,6 +158,30 @@ export function CameraStage({
   );
   const autoCapture = autoCaptureChoice ?? coarsePointer;
 
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  /*
+   * Foco con destino logico (mismo mecanismo que ToolShell): iniciar, detener y terminar la rafaga
+   * desmontan el boton pulsado; el foco pasa en el mismo commit al control que lo sustituye.
+   */
+  const { request: ask } = useFocusTarget<"live" | "idle" | "native" | "error">((target) => {
+    const control = (action: string) =>
+      rootRef.current?.querySelector<HTMLElement>(`[data-camera-action="${action}"]`) ?? null;
+    switch (target) {
+      case "live":
+        return { candidates: [control("capture"), control("stop")] };
+      case "idle":
+        return { candidates: [control("start"), control("native"), control("upload")] };
+      case "native":
+        return { candidates: [control("native"), control("start"), control("upload")] };
+      case "error":
+        return {
+          candidates: [
+            rootRef.current?.querySelector<HTMLElement>("[data-camera-error]") ?? null,
+            control("start"),
+          ],
+        };
+    }
+  });
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -199,12 +236,18 @@ export function CameraStage({
     setErrorCode(null);
     try {
       setStream(await startCameraStream());
+      ask("live");
     } catch (error) {
       setErrorCode(error instanceof CameraError ? error.code : "unknown");
     } finally {
       setStarting(false);
     }
-  }, []);
+  }, [ask]);
+
+  // Un error de camara recibe el foco (el boton de reintento sigue montado, pero estaba desactivado al pulsarlo).
+  useEffect(() => {
+    if (errorCode) ask("error");
+  }, [errorCode, ask]);
 
   const resetAutoCapture = useCallback(() => {
     stableFramesRef.current = 0;
@@ -373,10 +416,12 @@ export function CameraStage({
   }, [stop]);
 
   return (
-    <div>
+    <div ref={rootRef} data-camera-stage="">
       {errorCode ? (
         <div
           role="alert"
+          data-camera-error=""
+          tabIndex={-1}
           className="rounded-ios mb-4 flex items-start gap-3 border border-destructive/40 bg-destructive/10 p-4"
         >
           <AlertTriangle
@@ -408,7 +453,15 @@ export function CameraStage({
               {s.burstCount.replace("{count}", String(burstCount))}
             </p>
           </div>
-          <Button size="md" className="ml-auto" onClick={() => setBurst(false)}>
+          <Button
+            size="md"
+            className="ml-auto"
+            data-camera-action="burst-done"
+            onClick={() => {
+              setBurst(false);
+              ask("native");
+            }}
+          >
             <Check aria-hidden="true" className="size-4" />
             {s.burstDone}
           </Button>
@@ -446,11 +499,29 @@ export function CameraStage({
           </div>
 
           <div className="mt-3 flex items-center justify-between gap-3">
-            <Button variant="ghost" size="sm" onClick={stop}>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-camera-action="stop"
+              onClick={() => {
+                stop();
+                ask("idle");
+              }}
+            >
               <CameraOff aria-hidden="true" className="size-3.5" />
               {s.stopCamera}
             </Button>
-            <Button size="md" disabled={capturing} onClick={() => void capture()}>
+            <Button
+              size="md"
+              data-camera-action="capture"
+              // `aria-disabled` y no `disabled`: un boton que se desactiva pierde el foco (cae a <body>)
+              // justo al pulsarlo; asi sigue enfocado mientras se captura y no admite otro clic.
+              aria-disabled={capturing || undefined}
+              className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+              onClick={() => {
+                if (!capturing) void capture();
+              }}
+            >
               {capturing ? (
                 <Spinner className="size-4" />
               ) : (
@@ -487,9 +558,13 @@ export function CameraStage({
 
           <Button
             size="lg"
-            className="mt-6"
-            disabled={starting}
-            onClick={() => void start()}
+            className="mt-6 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+            data-camera-action="start"
+            // Ver el boton de captura: `aria-disabled` mantiene el foco mientras se abre la camara.
+            aria-disabled={starting || undefined}
+            onClick={() => {
+              if (!starting) void start();
+            }}
           >
             {starting ? <Spinner className="size-4" /> : null}
             {starting
@@ -505,7 +580,8 @@ export function CameraStage({
           <Button
             variant="secondary"
             size="sm"
-            className="mt-3"
+            className="mt-3 pointer-coarse:h-11"
+            data-camera-action="native"
             onClick={startBurst}
           >
             <Smartphone aria-hidden="true" className="size-3.5" />
@@ -518,7 +594,8 @@ export function CameraStage({
           <Button
             variant="secondary"
             size="sm"
-            className="mt-3"
+            className="mt-3 pointer-coarse:h-11"
+            data-camera-action="upload"
             onClick={() => inputRef.current?.click()}
           >
             <ImagePlus aria-hidden="true" className="size-3.5" />
@@ -532,6 +609,11 @@ export function CameraStage({
         type="file"
         accept={[...TOOL.accept, ...TOOL.extensions].join(",")}
         multiple
+        // N6: lo abre el boton visible; el input no es un segundo control para
+        // lectores de pantalla ni para Tab, pero lleva nombre propio (axe `label`).
+        aria-label={INPUT_LABELS[language].files}
+        aria-hidden="true"
+        tabIndex={-1}
         className="sr-only"
         onChange={(event) => {
           addFromDevice(event.target.files);
@@ -554,6 +636,9 @@ export function CameraStage({
         type="file"
         accept="image/*"
         capture="environment"
+        aria-label={INPUT_LABELS[language].camera}
+        aria-hidden="true"
+        tabIndex={-1}
         className="sr-only"
         onChange={(event) => {
           const input = event.target;

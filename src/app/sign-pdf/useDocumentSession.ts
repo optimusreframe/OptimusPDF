@@ -7,6 +7,7 @@ import type { CanvasSelection } from "@/app/sign-pdf/DocumentCanvas";
 import {
   detectFields,
   isFieldFilled,
+  isSuggestionOnly,
   type DetectedField,
 } from "@/lib/pdf/detectFields";
 import { normalizeFieldLabel } from "@/lib/pdf/sign";
@@ -374,17 +375,24 @@ export function useDocumentSession<T extends SessionOptions>({
     setReuseMatches(null);
   };
 
-  /** Campos de texto que aun no tienen valor (aviso NO bloqueante antes de descargar). */
+  /**
+   * Campos de texto que aun no tienen valor (aviso NO bloqueante antes de descargar).
+   * Las SUGERENCIAS sin tocar (heuristica vectorial/raster) no cuentan: no son campos
+   * del documento hasta que la persona escribe en ellas.
+   */
   const textFieldsMissing = options.textFields.filter(
-    (field) => !isFieldFilled(field, options.textValues[field.id]),
+    (field) =>
+      !isSuggestionOnly(field, options.textValues[field.id]) &&
+      !isFieldFilled(field, options.textValues[field.id]),
   ).length;
   /**
-   * Solo los campos que halló la deteccion (AcroForm/vectorial/raster):
-   * los manuales y los de una plantilla (`source: "manual"`) no son
-   * "detectados" y no deben contarse en el aviso "Se detectaron N campos".
+   * Solo los campos REALES que hallo la deteccion (AcroForm): los manuales y
+   * los de una plantilla (`source: "manual"`) no son "detectados" y las
+   * sugerencias tienen su propio interruptor en el lienzo, asi que ninguno
+   * cuenta en el aviso "Se detectaron N campos".
    */
   const detectedFieldsCount = options.textFields.filter(
-    (field) => field.source !== "manual",
+    (field) => field.source === "acroform",
   ).length;
 
   return {

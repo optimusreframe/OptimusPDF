@@ -37,6 +37,9 @@ export type SummarizerStrings = {
   consentCheckbox: string;
   consentButton: string;
   consentButtonCached: string;
+  /** Motivos junto al boton de resumir cuando esta desactivado. */
+  runNeedsFile: string;
+  runNeedsConsent: string;
   modelLabel: string;
   modelNames: Record<SummarizerModelKey, string>;
   modelHints: Record<SummarizerModelKey, string>;
@@ -135,6 +138,8 @@ const es: SummarizerStrings = {
   consentCheckbox: "Entiendo que se descargará el modelo y que el resumen lo escribe una IA que puede equivocarse",
   consentButton: "Descargar el modelo y resumir",
   consentButtonCached: "Resumir con el modelo ya descargado",
+  runNeedsFile: "Elige un PDF para poder resumirlo.",
+  runNeedsConsent: "Autoriza la descarga del modelo para poder resumir.",
 
   modelLabel: "Modelo",
   modelNames: {
@@ -247,6 +252,8 @@ const en: SummarizerStrings = {
     "I understand the model will be downloaded and that the summary is written by an AI that can be wrong",
   consentButton: "Download the model and summarise",
   consentButtonCached: "Summarise with the downloaded model",
+  runNeedsFile: "Choose a PDF to be able to summarise it.",
+  runNeedsConsent: "Authorise the model download to be able to summarise.",
 
   modelLabel: "Model",
   modelNames: {

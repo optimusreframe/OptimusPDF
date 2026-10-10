@@ -32,7 +32,7 @@ import {
 } from "@/app/sign-pdf/sequenceMath";
 import type { SignSession } from "@/app/sign-pdf/signSession";
 import { useBackgroundDetection } from "@/app/sign-pdf/useBackgroundDetection";
-import type { DetectedField } from "@/lib/pdf/detectFields";
+import { isSuggestionOnly, type DetectedField } from "@/lib/pdf/detectFields";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 import { thumbKey, useSequenceMeta } from "@/app/sign-pdf/useSequenceMeta";
 import { UNPLACED_RECT } from "@/app/sign-pdf/soloSignature";
@@ -112,7 +112,10 @@ function elementCounts(
   } else {
     for (const field of liveFields(doc, signers)) add(field.pageIndex);
   }
-  for (const field of doc.textFields) add(field.pageIndex);
+  for (const field of doc.textFields) {
+    // Una sugerencia sin tocar no es un elemento del documento (el lienzo la oculta o la ofrece aparte).
+    if (!isSuggestionOnly(field, doc.textValues[field.id])) add(field.pageIndex);
+  }
   return counts;
 }
 

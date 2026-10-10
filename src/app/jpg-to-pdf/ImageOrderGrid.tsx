@@ -183,7 +183,8 @@ function MiniButton({
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/12 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+      // size-6 con raton; 44 px con puntero grueso (dos botones por celda caben).
+      className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors pointer-coarse:size-11 hover:bg-white/12 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
     >
       {children}
     </button>

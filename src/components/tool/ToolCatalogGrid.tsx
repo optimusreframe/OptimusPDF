@@ -313,7 +313,7 @@ function CategoryChips() {
                       aria-hidden="true"
                       layoutId="category-chip-pill"
                       transition={springs.snappy}
-                      className="absolute inset-0 -z-10 rounded-full bg-white/10"
+                      className="absolute inset-0 -z-10 rounded-full bg-white/10 forced-colors:border-2 forced-colors:border-[Highlight]"
                     />
                   ) : null}
                   {t.categories[category].label}

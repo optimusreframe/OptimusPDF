@@ -153,6 +153,11 @@ export type RepairReport = {
   failedPages: number[];
   inputBytes: number;
   outputBytes: number;
+  /**
+   * `true` si el original estaba cifrado pero se abrio sin contrasena propia (PDF «solo propietario»:
+   * restringe editar/imprimir, no pide nada para abrirse) y se reparo una copia sin cifrar.
+   */
+  openedDecryptedCopy?: boolean;
 };
 
 export type RepairOutcome = {
@@ -586,6 +591,34 @@ async function rasterSalvage(
 export async function repairPdf(
   file: Blob,
   options: RepairOptions = {},
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal,
+): Promise<RepairOutcome> {
+  try {
+    return await repairPdfCore(file, options, onProgress, signal);
+  } catch (error) {
+    if (!(error instanceof RepairError && error.reason === "encrypted")) throw error;
+    // Un PDF cifrado que se abre sin contrasena de usuario («solo propietario») no necesita la
+    // contrasena de nadie: se descifra una copia y se repara esa, con aviso. Con contrasena de usuario
+    // (o una equivocada) sigue siendo «cifrado»: no hay nada que hacer sin ella.
+    let copy: Blob;
+    try {
+      const { decryptPdfCopy } = await import("@/lib/pdf/unlock");
+      const source =
+        file instanceof File ? file : new File([file], "documento.pdf", { type: "application/pdf" });
+      copy = await decryptPdfCopy(source, options.password ?? "");
+    } catch (inner) {
+      if (inner instanceof PdfError && inner.code === "cancelled") throw inner;
+      throw error;
+    }
+    const outcome = await repairPdfCore(copy, { ...options, password: undefined }, onProgress, signal);
+    return { ...outcome, report: { ...outcome.report, openedDecryptedCopy: true } };
+  }
+}
+
+async function repairPdfCore(
+  file: Blob,
+  options: RepairOptions,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
 ): Promise<RepairOutcome> {

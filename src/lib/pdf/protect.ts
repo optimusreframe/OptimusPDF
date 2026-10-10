@@ -64,7 +64,12 @@ export const DEFAULT_PROTECT_OPTIONS: ProtectOptions = {
 };
 
 /** Motivos por los que el formulario no es valido todavia. */
-export type ProtectFailure = "empty" | "tooShort" | "mismatch" | "nothingToDo";
+export type ProtectFailure =
+  | "empty"
+  | "tooShort"
+  | "unsupportedChars"
+  | "mismatch"
+  | "nothingToDo";
 
 /**
  * Error de validacion del formulario. Hereda de `PdfError` con codigo
@@ -99,11 +104,29 @@ function isNothingToDo(options: ProtectOptions): boolean {
   );
 }
 
+/**
+ * Caracteres de la contrasena que el cifrado del PDF no admite, sin repetir y en el orden en que
+ * aparecen. El cifrado que aplica la libreria (RC4/AES-128, revisiones R2-R4 del estandar) solo
+ * guarda la contrasena como bytes Latin-1: `PDFSecurity.processPasswordR2R3R4` lanza «Password
+ * contains one or more invalid characters» con cualquier unidad UTF-16 > U+00FF (euro, chino, emoji).
+ * La variante AES-256 de la libreria tampoco codifica UTF-8 (la normalizacion SASLprep esta
+ * desactivada), asi que no es una salida: se avisa ANTES de procesar.
+ */
+export function unsupportedPasswordChars(password: string): string[] {
+  const found: string[] = [];
+  for (const char of password) {
+    // `for...of` recorre por code points: un emoji es UN caracter, no dos mitades sueltas.
+    if ((char.codePointAt(0) ?? 0) > 0xff && !found.includes(char)) found.push(char);
+  }
+  return found;
+}
+
 export function validateProtectOptions(
   options: ProtectOptions,
 ): ProtectFailure | null {
   if (options.password.length === 0) return "empty";
   if (options.password.length < MIN_PASSWORD_LENGTH) return "tooShort";
+  if (unsupportedPasswordChars(options.password).length > 0) return "unsupportedChars";
   if (options.password !== options.confirm) return "mismatch";
   if (isNothingToDo(options)) return "nothingToDo";
   return null;

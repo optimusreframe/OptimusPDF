@@ -1,6 +1,7 @@
 import type { SignatureDraft } from "@/app/sign-pdf/SignatureComposer";
 import type { CaptureMap, SignerCapture } from "@/app/sign-pdf/captures";
 import type { DetectedField } from "@/lib/pdf/detectFields";
+import type { TextEdit } from "@/lib/pdf/editTypes";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
 import type { NormalizedRect } from "@/lib/pdf/watermark";
 
@@ -43,6 +44,12 @@ export type DocState = {
   fieldPageIndex: number;
   /** Huella del contenido que sella este estado; `""` = aun sin sellar. */
   sealedKey: string;
+  /**
+   * Ediciones del texto ORIGINAL de este documento (herramienta «Editar texto»,
+   * W6-A). Ausente = ninguna. Se aplican al PDF ANTES de estampar las firmas, y
+   * entran en la huella de las capturas (`stampKeyOf` en `textEdits.ts`).
+   */
+  textEdits?: TextEdit[];
 };
 
 export const EMPTY_DOC_STATE: DocState = {
