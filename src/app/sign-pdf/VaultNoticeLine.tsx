@@ -1,5 +1,6 @@
 "use client";
 
+import { StatusRegion } from "@/components/tool/liveRouting";
 import { cn } from "@/lib/cn";
 import type { VaultNotice } from "@/app/sign-pdf/vaultMessages";
 
@@ -17,9 +18,9 @@ export function VaultNoticeLine({
   className?: string;
 }) {
   return (
-    <p
-      role="status"
-      aria-live="polite"
+    <StatusRegion
+      as="p"
+      text={notice?.text ?? ""}
       className={cn(
         notice
           ? cn(
@@ -33,6 +34,6 @@ export function VaultNoticeLine({
       )}
     >
       {notice?.text ?? ""}
-    </p>
+    </StatusRegion>
   );
 }

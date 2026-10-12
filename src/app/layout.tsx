@@ -118,6 +118,7 @@ export default function RootLayout({
               {/* Reserva del alto de la tab bar fija en movil. */}
               <div
                 aria-hidden="true"
+                data-chrome="tabbar-spacer"
                 className="md:hidden"
                 style={{
                   height: "calc(4.5rem + env(safe-area-inset-bottom, 0px))",

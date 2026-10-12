@@ -81,6 +81,7 @@
   --color-accent-convert: oklch(60% 0.24 300);
   --color-accent-edit: oklch(76% 0.16 75);
   --color-accent-security: oklch(62% 0.22 25);
+  --color-accent-pro: oklch(76% 0.13 205);
 
   /* Lineas tecnicas */
   --color-hairline: color-mix(in oklab, white 10%, transparent);
@@ -324,6 +325,7 @@
     --color-accent-convert: oklch(48% 0.24 300);
     --color-accent-edit: oklch(55% 0.14 75);
     --color-accent-security: oklch(50% 0.21 25);
+    --color-accent-pro: oklch(48% 0.11 215);
 
     /* Lineas tecnicas: negro translucido en vez de blanco. */
     --color-hairline: color-mix(in oklab, black 12%, transparent);
@@ -378,6 +380,13 @@
     color: var(--color-foreground);
     -webkit-tap-highlight-color: transparent;
     -webkit-text-size-adjust: 100%;
+  }
+
+  /* Movil: la barra inferior fija (navegacion) no debe tapar el control que recibe el foco con Tab (WCAG 2.4.11). */
+  @media (max-width: 767px) {
+    html {
+      scroll-padding-bottom: 5.5rem;
+    }
   }
 
   body {
@@ -768,6 +777,15 @@
     main#content {
       padding-top: 0.25rem;
     }
+  }
+
+  /*
+   * PDF Pro (Wave 7): la suite ocupa la altura completa de la ventana. Mientras esta montada
+   * (`ProToolClient` escribe data-pro-suite en <html>) el pie y la reserva de la barra de pestañas
+   * movil no se pintan (los marca `data-chrome` en el layout y en Footer/MobileTabBar).
+   */
+  :root[data-pro-suite] [data-chrome] {
+    display: none;
   }
 
   /*

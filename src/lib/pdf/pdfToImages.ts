@@ -28,7 +28,11 @@ export const JPG_QUALITY_DEFAULT = 0.92;
 export const PDF_TO_IMAGE_SCALES = [1, 2, 3] as const;
 export type PdfToImageScale = (typeof PDF_TO_IMAGE_SCALES)[number];
 
+export type PdfToImageFormat = "jpg" | "png";
+
 export type PdfToImagesOptions = {
+  /** Formato de salida (por defecto JPG: la herramienta suelta no lo cambia). PNG ignora `quality`. */
+  format?: PdfToImageFormat;
   /** Calidad JPEG 0.5..1. */
   quality: number;
   /** Escala de render: 1x ~ 72 DPI, 2x ~ 144 DPI, 3x ~ 216 DPI. */
@@ -49,8 +53,8 @@ export const DEFAULT_PDF_TO_IMAGES_OPTIONS: PdfToImagesOptions = {
 
 export type PdfToImagesResult = {
   blob: Blob;
-  /** `jpg` cuando solo hay una pagina; `zip` cuando hay varias. */
-  kind: "jpg" | "zip";
+  /** `jpg`/`png` cuando solo hay una pagina; `zip` cuando hay varias. */
+  kind: "jpg" | "png" | "zip";
   /** Numero de imagenes generadas. */
   count: number;
 };
@@ -88,8 +92,10 @@ export async function pdfToImages(
   file: Blob,
   options: PdfToImagesOptions = DEFAULT_PDF_TO_IMAGES_OPTIONS,
   onProgress?: ProgressCallback,
+  signal?: AbortSignal,
 ): Promise<PdfToImagesResult> {
   const quality = clampQuality(options.quality);
+  const format: PdfToImageFormat = options.format === "png" ? "png" : "jpg";
   const scale = clampScale(options.scale);
   const prefix = options.namePrefix?.trim() || "pagina";
 
@@ -102,6 +108,8 @@ export async function pdfToImages(
     const images: { name: string; blob: Blob }[] = [];
 
     for (let position = 0; position < indices.length; position += 1) {
+      // Cancelacion real: entre pagina y pagina (cada pagina es una unidad corta).
+      if (signal?.aborted) throw new PdfError("cancelled");
       const pageNumber = indices[position] + 1;
       const page = await document.getPage(pageNumber);
       const canvas = await renderPageToCanvas(page, {
@@ -109,14 +117,17 @@ export async function pdfToImages(
         // Obligatorio: rasterizado fuera de pantalla.
         intent: "print",
       });
-      const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+      const blob =
+        format === "png"
+          ? await canvasToBlob(canvas, "image/png")
+          : await canvasToBlob(canvas, "image/jpeg", quality);
       // Libera la memoria del canvas antes de pasar a la siguiente pagina.
       canvas.width = 0;
       canvas.height = 0;
       page.cleanup();
 
       images.push({
-        name: `${prefix}-${padIndex(pageNumber, document.numPages)}.jpg`,
+        name: `${prefix}-${padIndex(pageNumber, document.numPages)}.${format}`,
         blob,
       });
       onProgress?.(((position + 1) / indices.length) * 0.9);
@@ -124,7 +135,7 @@ export async function pdfToImages(
 
     if (images.length === 1) {
       onProgress?.(1);
-      return { blob: images[0].blob, kind: "jpg", count: 1 };
+      return { blob: images[0].blob, kind: format, count: 1 };
     }
 
     const zip = new JSZip();

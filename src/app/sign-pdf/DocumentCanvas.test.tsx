@@ -2465,6 +2465,19 @@ describe("DocumentCanvas — paleta de herramientas (W2-B)", () => {
     expect(slots).toHaveLength(0);
     expect(texts).toHaveLength(0);
   });
+
+  it("movil: «Quitar todo de esta página» y «Borrar todo el documento» miden 44 px y quedan por encima de la paleta flotante", async () => {
+    render(<Harness tool="select" initialFields={[SLOT_FIELD]} initialTextFields={[NAME_FIELD]} />);
+    await waitForPreview();
+    for (const name of [strings.clearPageAll, strings.clearAllAll]) {
+      const classes = screen.getByRole("button", { name }).className.split(/\s+/);
+      // Con puntero grueso el boton mide 44 px de verdad (no basta con la zona ampliada, que la paleta tapaba).
+      expect(classes, name).toContain("pointer-coarse:h-11");
+      expect(classes, name).toContain("pointer-coarse:before:hidden");
+      // Al llevarlo a la vista (enfocarlo) el navegador lo deja por encima de la paleta `fixed` (9.25 rem + su alto).
+      expect(classes, name).toContain("max-md:scroll-mb-48");
+    }
+  });
 });
 
 const NAME_FIELD: DetectedField = {

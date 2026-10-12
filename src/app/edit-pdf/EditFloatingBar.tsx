@@ -70,6 +70,8 @@ export const COMPACT_BAR_QUERY = "(max-width: 767px), (pointer: coarse)";
 
 export type EditFloatingBarProps = {
   stageRef: RefObject<HTMLElement | null>;
+  /** (W7-U6) Region con desplazamiento propio en la que vive el lienzo (PDF Pro); ausente = la ventana. */
+  boundsRef?: RefObject<HTMLElement | null>;
   clipRef: RefObject<HTMLElement | null>;
   hostRef: RefObject<HTMLElement | null>;
   /** Elemento seleccionado, o `null` (la barra sale). */
@@ -202,6 +204,7 @@ export function ColorRow({
 
 export function EditFloatingBar({
   stageRef,
+  boundsRef,
   clipRef,
   hostRef,
   selectionId,
@@ -544,6 +547,7 @@ export function EditFloatingBar({
       label={strings.barLabel}
       description={strings.barShortcuts}
       aboveSticky
+      boundsRef={boundsRef}
       onEscape={onEscape}
       onTabBackward={onTabBackward}
       onTabForward={onTabForward}

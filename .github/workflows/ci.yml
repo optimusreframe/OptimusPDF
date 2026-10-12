@@ -42,7 +42,17 @@ jobs:
   e2e:
     name: E2E (Playwright, Chromium)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # La suite E2E ya tiene ~400 pruebas (herramientas, edicion, firma,
+    # accesibilidad): se reparte en 3 fragmentos en paralelo para que cada uno
+    # quepa con holgura en el limite. Los barridos de foco repiten cada flujo
+    # solo 3 veces en CI (30 en local: `FOCUS_REPS`).
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      FOCUS_REPS: 3
     steps:
       - uses: actions/checkout@v4
 
@@ -57,13 +67,13 @@ jobs:
       # playwright.config.ts, no hace falta bajar Firefox/WebKit.
       - run: npx playwright install --with-deps chromium
 
-      - run: npm run test:e2e
+      - run: npx playwright test --shard=${{ matrix.shard }}/3
 
       - name: Subir evidencia de Playwright (solo si falla)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             .evidence/playwright-report
             .evidence/playwright

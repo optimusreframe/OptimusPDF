@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Info, X } from "lucide-react";
+import { StatusRegion } from "@/components/tool/liveRouting";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { clearLocalEditData, type EditClearFailure } from "@/app/edit-pdf/clearLocalEditData";
@@ -29,6 +30,8 @@ export type EditPrivacyNoticeProps = {
   flow: EditFlowStrings;
   /** Se llama cuando se vaciaron los borradores (para que el autoguardado no lo contradiga). */
   onCleared?: () => void;
+  /** (W7-U6) Dentro de PDF Pro el texto completo no se abre solo: la fila (icono + «Borrar datos») basta. */
+  compact?: boolean;
 };
 
 /**
@@ -39,11 +42,13 @@ export type EditPrivacyNoticeProps = {
  * «Datos borrados» solo se afirma si terminaron BIEN; si falla se dice, y el boton
  * sigue sirviendo para reintentar.
  */
-export function EditPrivacyNotice({ flow, onCleared }: EditPrivacyNoticeProps) {
-  const [open, setOpen] = useState(() => !hasSeenNotice());
+export function EditPrivacyNotice({ flow, onCleared, compact = false }: EditPrivacyNoticeProps) {
+  const [open, setOpen] = useState(() => !compact && !hasSeenNotice());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [cleared, setCleared] = useState(false);
   const [failed, setFailed] = useState<EditClearFailure[]>([]);
+
+  const statusText = failed.length > 0 ? flow.privacyClearFailed : cleared ? flow.privacyCleared : "";
 
   const dismiss = () => {
     setOpen(false);
@@ -71,13 +76,14 @@ export function EditPrivacyNotice({ flow, onCleared }: EditPrivacyNoticeProps) {
           {flow.privacyClear}
         </Button>
         {/* Region de estado siempre montada: solo cambia su contenido. */}
-        <span
-          role="status"
+        <StatusRegion
+          as="span"
+          text={statusText}
           data-privacy-status=""
           className={failed.length > 0 ? "text-xs text-destructive-text" : "text-xs text-success-text"}
         >
-          {failed.length > 0 ? flow.privacyClearFailed : cleared ? flow.privacyCleared : ""}
-        </span>
+          {statusText}
+        </StatusRegion>
       </div>
 
       {open ? (

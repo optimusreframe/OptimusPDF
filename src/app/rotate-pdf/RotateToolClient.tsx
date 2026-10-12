@@ -21,6 +21,8 @@ import {
   fileKey,
   usePageThumbnails,
 } from "@/app/organize-pdf/pageToolkit";
+import { RotateAnglePanel } from "@/app/rotate-pdf/RotateAnglePanel";
+import { rotateAllPlan } from "@/app/rotate-pdf/rotatePlan";
 import { getRotateStrings, type RotateStrings } from "@/app/rotate-pdf/strings";
 
 const TOOL = getTool("rotate-pdf");
@@ -59,7 +61,7 @@ export function RotateToolClient() {
       const fresh = options.signature === fileKey(file);
       const plan =
         options.scope === "all"
-          ? { base: normalizeRotation(options.angle) }
+          ? rotateAllPlan(options.angle)
           : { base: 0, byPage: fresh ? options.byPage : {} };
       const blob = await rotatePdf(file, plan, onProgress);
       return { blob, filename: withSuffix(file.name, strings.filenameSuffix) };
@@ -103,19 +105,11 @@ export function RotateToolClient() {
           />
 
           {options.scope === "all" ? (
-            <>
-              <SegmentedControl<string>
-                label={strings.angleLabel}
-                value={String(options.angle)}
-                onChange={(value) => setOptions({ angle: Number(value) })}
-                options={[
-                  { value: "90", label: strings.angle90 },
-                  { value: "180", label: strings.angle180 },
-                  { value: "270", label: strings.angle270 },
-                ]}
-              />
-              <FieldNote>{strings.allHint}</FieldNote>
-            </>
+            <RotateAnglePanel
+              angle={options.angle}
+              onChange={(angle) => setOptions({ angle })}
+              strings={strings}
+            />
           ) : (
             <>
               <FieldNote>{strings.pageHint}</FieldNote>

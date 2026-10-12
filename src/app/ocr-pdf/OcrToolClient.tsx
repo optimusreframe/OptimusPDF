@@ -3,19 +3,13 @@
 import { useCallback } from "react";
 import { Clock, Download, ScanText } from "lucide-react";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { OcrOptionsPanel } from "@/app/ocr-pdf/OcrOptionsPanel";
 import { OCR_STRINGS } from "@/app/ocr-pdf/strings";
 import { useI18n } from "@/lib/i18n";
-import {
-  MAX_SAFE_FILE_SIZE,
-  withSuffix,
-  type ProgressCallback,
-} from "@/lib/pdf/core";
+import { withSuffix, type ProgressCallback } from "@/lib/pdf/core";
 import {
   DEFAULT_OCR_OPTIONS,
-  OCR_LANGUAGES,
   ocrPdf,
-  type OcrLanguage,
   type OcrOptions,
 } from "@/lib/pdf/ocr";
 import { getTool } from "@/lib/tools-registry";
@@ -88,32 +82,12 @@ export function OcrToolClient() {
         </section>
       )}
       renderOptions={({ files, options, setOptions }) => (
-        <>
-          <div>
-            <SegmentedControl<OcrLanguage>
-              label={s.languageLabel}
-              value={options.language}
-              onChange={(value) => setOptions({ language: value })}
-              options={OCR_LANGUAGES.map((code) => ({
-                value: code,
-                label: s.languageNames[code],
-              }))}
-            />
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              {s.languageHint}
-            </p>
-          </div>
-
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {s.downloadNotice}
-          </p>
-
-          {files[0] && files[0].size > MAX_SAFE_FILE_SIZE ? (
-            <p className="text-xs leading-relaxed text-destructive">
-              {s.largeFile}
-            </p>
-          ) : null}
-        </>
+        <OcrOptionsPanel
+          options={options}
+          setOptions={setOptions}
+          strings={s}
+          fileSize={files[0]?.size}
+        />
       )}
     />
   );

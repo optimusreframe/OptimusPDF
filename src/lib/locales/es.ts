@@ -6,6 +6,11 @@ export type ToolCopy = {
 };
 
 const tools: Record<ToolSlug, ToolCopy> = {
+  "pdf-pro": {
+    name: "PDF Pro",
+    description:
+      "Todo en uno: organiza, edita, firma, protege y convierte tu PDF sin salir de la página",
+  },
   "merge-pdf": {
     name: "Unir PDF",
     description:
@@ -187,6 +192,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
  * nombre de la herramienta.
  */
 const filenames: Partial<Record<ToolSlug, string>> = {
+  "pdf-pro": "documento-pro",
   "merge-pdf": "documento-unido",
   "split-pdf": "documento-dividido",
   "remove-pages": "documento-sin-paginas",
@@ -289,6 +295,9 @@ export const es = {
     mostUsedSeeAll: "Ver historial",
     liveCount: "disponibles ahora",
     soonCount: "en camino",
+    featuredBadge: "Nuevo",
+    featuredCta: "Abrir PDF Pro",
+    featuredLabel: "Destacada",
   },
   tool: {
     dropTitle: "Suelta tu archivo aquí",
@@ -335,6 +344,8 @@ export const es = {
     removeFile: "Quitar archivo",
     enterPassword: "Escribir la contraseña",
     openRepair: "Abrir Reparar PDF",
+    openInPro: "Abrir en PDF Pro",
+    continueInPro: "Seguir en PDF Pro",
     needPageSelected: "Deja marcada al menos una página para poder unir.",
     blockedRun: "{action} se activa cuando cambies o quites el archivo marcado.",
     largeFileTitle: "Archivo muy grande",
@@ -370,6 +381,7 @@ export const es = {
         "Este archivo no es un PDF, aunque su nombre termine en .pdf (puede ser una imagen u otro formato renombrado). Elige un PDF de verdad.",
       invalidType: "Ese formato no sirve para esta herramienta.",
       encryptedAction: "Abrir Desbloquear PDF",
+      reloadAction: "Recargar la página",
       encrypted:
         "El PDF está protegido con contraseña. Quítala primero con Desbloquear PDF.",
       corrupt: "El archivo parece dañado y no se puede leer.",
@@ -390,6 +402,8 @@ export const es = {
       inspectionIncomplete:
         "No pudimos comprobar con seguridad las restricciones de este PDF, así que no vamos a crear una copia que podría conservar protecciones sin avisarte.",
       nothingSelected: "Selecciona o marca algo antes de procesar.",
+      offline:
+        "No se pudo descargar un componente de la aplicación (sin conexión, o la red falló). Tu archivo está bien y no sale de tu dispositivo: conéctate y recarga la página (el borrador automático conserva tu trabajo).",
       ocrNetworkFailure:
         "No se pudo cargar el motor de OCR. Comprueba tu conexión e inténtalo de nuevo.",
       ocrEngineFailure:
@@ -432,7 +446,7 @@ export const es = {
     languageBody: "Cambia el idioma de toda la interfaz.",
     dataTitle: "Datos locales",
     dataBody:
-      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y firmas; PDF completo y capturas de firma). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña. El editor de PDF también guarda un borrador automático (IndexedDB) con el documento completo y tus ediciones, para retomarlo si cierras la pestaña; tampoco sale del dispositivo y «Borrar datos locales» lo elimina (no se guarda borrador de los PDF protegidos con contraseña).",
+      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y firmas; PDF completo y capturas de firma). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña. El editor de PDF también guarda un borrador automático (IndexedDB) con el documento completo y tus ediciones, para retomarlo si cierras la pestaña; tampoco sale del dispositivo y «Borrar datos locales» lo elimina (no se guarda borrador de los PDF protegidos con contraseña). PDF Pro hace lo mismo con su documento de trabajo (el PDF actual y la lista de cambios, en una base propia) y también lo elimina «Borrar datos locales».",
     clearData: "Borrar datos locales",
     cleared: "Datos locales borrados.",
     aboutTitle: "Sobre la aplicación",
@@ -475,6 +489,15 @@ export const es = {
       multiDocument: {
         label: "Varios documentos a la vez",
         hint: "Permite cargar varios PDF en Firmar PDF y firmarlos en una sola ronda. Apagado, la herramienta trabaja con un único documento, como antes.",
+      },
+    },
+    proFeaturesTitle: "PDF Pro: funciones",
+    proFeaturesBody:
+      "Preferencias de la suite PDF Pro, guardadas solo en este navegador: no se sincronizan con ninguna cuenta ni salen de tu dispositivo.",
+    proFeatures: {
+      proAutosave: {
+        label: "Guardar un borrador automático",
+        hint: "Mientras trabajas, PDF Pro guarda en tu navegador (IndexedDB) el PDF actual y la lista de cambios, para retomarlo si recargas o cierras la pestaña. No se guarda nada de los PDF protegidos con contraseña. Apagado, un cierre accidental pierde el trabajo sin guardar.",
       },
     },
     editPdfFeaturesTitle: "Editor de PDF: funciones nuevas",

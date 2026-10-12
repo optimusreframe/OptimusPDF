@@ -1,5 +1,6 @@
 "use client";
 
+import { StatusRegion } from "@/components/tool/liveRouting";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import type { DetectedField } from "@/lib/pdf/detectFields";
@@ -27,12 +28,15 @@ export function DetectionStatus({
   detectedCount: number;
   strings: SignStrings;
 }) {
+  const spoken = detecting
+    ? strings.detectingFields
+    : failed
+      ? strings.detectionFailedHint
+      : detectedCount > 0
+        ? strings.detectedFieldsSummary(detectedCount)
+        : "";
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="flex flex-col gap-3 empty:-mb-4"
-    >
+    <StatusRegion text={spoken} className="flex flex-col gap-3 empty:-mb-4">
       {detecting ? (
         <div className="surface-card rounded-ios flex items-center gap-3 p-4">
           <Spinner />
@@ -53,7 +57,7 @@ export function DetectionStatus({
           {strings.detectedFieldsSummary(detectedCount)}
         </p>
       ) : null}
-    </div>
+    </StatusRegion>
   );
 }
 
@@ -70,13 +74,14 @@ export function ExportEditsNotice({
   strings: SignStrings;
 }) {
   return (
-    <p
-      role="status"
+    <StatusRegion
+      as="p"
+      text={hasEdits ? strings.exportConfigEditsNote : ""}
       data-export-edits-notice=""
       className={hasEdits ? "text-footnote leading-relaxed text-muted-foreground" : "sr-only"}
     >
       {hasEdits ? strings.exportConfigEditsNote : ""}
-    </p>
+    </StatusRegion>
   );
 }
 
@@ -139,7 +144,7 @@ export function PendingFieldsNotice({
   strings: SignStrings;
 }) {
   return (
-    <div role="status" aria-live="polite" className="empty:-mt-4">
+    <StatusRegion text={missing > 0 ? strings.pendingTextFieldsWarning(missing) : ""} className="empty:-mt-4">
       {missing > 0 ? (
         <p className="flex items-start gap-2 text-footnote leading-relaxed text-foreground">
           <span
@@ -149,6 +154,6 @@ export function PendingFieldsNotice({
           {strings.pendingTextFieldsWarning(missing)}
         </p>
       ) : null}
-    </div>
+    </StatusRegion>
   );
 }

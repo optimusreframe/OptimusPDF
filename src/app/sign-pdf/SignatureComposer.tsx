@@ -15,6 +15,7 @@ import { MOBILE_FULLSCREEN_QUERY, Sheet } from "@/components/ui/Sheet";
 import { Slider } from "@/components/ui/Slider";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/cn";
+import { colorName } from "@/lib/colorNames";
 import { useI18n, useT } from "@/lib/i18n";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 
@@ -987,23 +988,30 @@ export function SignatureComposer({
                 {strings.clear}
               </Button>
               {fillCanvas ? (
-                <div role="radiogroup" aria-label={strings.inkLabel} className="flex gap-1.5">
+                <div role="radiogroup" aria-label={strings.inkLabel} className="flex gap-0">
                   {SIGNATURE_INKS.map((color) => (
                     <button
                       key={color}
                       type="button"
                       role="radio"
                       aria-checked={color === ink}
-                      aria-label={color}
+                      aria-label={colorName(color, language)}
+                      title={colorName(color, language)}
                       onClick={() => setInk(color)}
-                      className={cn(
-                        "size-6 rounded-full border-2 transition-all duration-200 ease-spring",
-                        color === ink
-                          ? "border-signal scale-110"
-                          : "border-white/20 hover:border-white/40",
-                      )}
-                      style={{ backgroundColor: color }}
-                    />
+                      className="group flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-signal"
+                    >
+                      {/* El boton mide 44 px (zona tactil real); la muestra visible es el circulo de dentro. */}
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "size-6 rounded-full border-2 transition-all duration-200 ease-spring",
+                          color === ink
+                            ? "border-signal scale-110"
+                            : "border-white/20 group-hover:border-white/40",
+                        )}
+                        style={{ backgroundColor: color }}
+                      />
+                    </button>
                   ))}
                 </div>
               ) : null}
@@ -1123,24 +1131,31 @@ export function SignatureComposer({
             <span className="ui-label mb-2 block text-muted-foreground">
               {strings.inkLabel}
             </span>
-            <div role="radiogroup" className="flex gap-2">
+            <div role="radiogroup" aria-label={strings.inkLabel} className="flex gap-0">
               {SIGNATURE_INKS.map((color) => (
                 <button
                   key={color}
                   type="button"
                   role="radio"
                   aria-checked={color === ink}
-                  aria-label={color}
+                  aria-label={colorName(color, language)}
+                  title={colorName(color, language)}
                   onClick={() => setInk(color)}
-                  className={cn(
-                    "size-9 rounded-full border-2 transition-all duration-200 ease-spring",
-                    color === ink
-                      ? "border-signal scale-110"
-                      : "border-white/20 hover:border-white/40",
-                  )}
-                  /* Tinta del documento: es dato del usuario, no un token del tema. */
-                  style={{ backgroundColor: color }}
-                />
+                  className="group flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-signal"
+                >
+                  {/* El boton mide 44 px (zona tactil real); la muestra visible es el circulo de dentro. */}
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "size-9 rounded-full border-2 transition-all duration-200 ease-spring",
+                      color === ink
+                        ? "border-signal scale-110"
+                        : "border-white/20 group-hover:border-white/40",
+                    )}
+                    /* Tinta del documento: es dato del usuario, no un token del tema. */
+                    style={{ backgroundColor: color }}
+                  />
+                </button>
               ))}
             </div>
           </div>

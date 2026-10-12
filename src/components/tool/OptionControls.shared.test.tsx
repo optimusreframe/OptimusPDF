@@ -99,6 +99,14 @@ describe("OptionControls — comportamiento conservado", () => {
     expect(onChange).toHaveBeenCalledWith("#000000");
   });
 
+  it("ColorSwatches: cada muestra se llama por su color («Azul»), nunca por su codigo hexadecimal", () => {
+    render(
+      <Shared.ColorSwatches label="Color" value="#000000" colors={["#000000", "#0d4bff", "#e11d48"]} onChange={() => {}} />,
+    );
+    expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Negro", "Azul", "Rojo"]);
+    expect(screen.getByRole("radio", { name: "Azul" }).getAttribute("title")).toBe("Azul");
+  });
+
   it("PositionGrid: 9 anclas, etiqueta accesible por ancla, deshabilitada no responde", () => {
     const onChange = vi.fn();
     const { rerender } = render(

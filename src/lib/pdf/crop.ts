@@ -18,7 +18,11 @@ import {
  * estandar de "recortar PDF" y la opcion mas conservadora.
  */
 
-export type CropScope = "all" | "current";
+/**
+ * `range` (PDF Pro): de `fromPage` a `toPage` (1-based, inclusive; 0 en `toPage` = hasta el final).
+ * La herramienta suelta solo ofrece `all` y `current`.
+ */
+export type CropScope = "all" | "current" | "range";
 
 export type CropOptions = {
   /** Seleccion 0..1 sobre la vista renderizada, origen arriba-izquierda. */
@@ -26,6 +30,9 @@ export type CropOptions = {
   scope: CropScope;
   /** Pagina mostrada en la vista previa (indice 0). */
   pageIndex: number;
+  /** Solo con `scope: "range"`. */
+  fromPage?: number;
+  toPage?: number;
 };
 
 export const DEFAULT_CROP_RECT: NormalizedRect = {
@@ -59,6 +66,20 @@ function sanitizeRect(rect: NormalizedRect): NormalizedRect {
   };
 }
 
+/** Indices (0-based) de las paginas a recortar. */
+export function cropTargets(options: CropOptions, pageCount: number): number[] {
+  if (options.scope === "current") {
+    return [Math.min(Math.max(0, options.pageIndex), pageCount - 1)];
+  }
+  if (options.scope === "range") {
+    const from = Math.min(Math.max(1, Math.floor(options.fromPage ?? 1) || 1), pageCount);
+    const rawTo = Math.floor(options.toPage ?? 0) || pageCount;
+    const to = Math.min(Math.max(from, rawTo), pageCount);
+    return Array.from({ length: to - from + 1 }, (_, step) => from - 1 + step);
+  }
+  return Array.from({ length: pageCount }, (_, index) => index);
+}
+
 export async function cropPdf(
   file: File,
   options: CropOptions,
@@ -72,10 +93,7 @@ export async function cropPdf(
     if (pages.length === 0) throw new PdfError("corrupt");
 
     const rect = sanitizeRect(options.rect);
-    const targets =
-      options.scope === "current"
-        ? [Math.min(Math.max(0, options.pageIndex), pages.length - 1)]
-        : pages.map((_, index) => index);
+    const targets = cropTargets(options, pages.length);
 
     for (let step = 0; step < targets.length; step += 1) {
       const page = pages[targets[step]];

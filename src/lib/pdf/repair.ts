@@ -10,7 +10,7 @@ import {
   throwIfAborted,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { canvasToBlob } from "@/lib/pdf/imagesToPdf";
+import { canvasToBlob } from "@/lib/pdf/canvasBlob";
 
 /**
  * Reparar PDF — recuperacion estructural best-effort, 100% en el navegador.

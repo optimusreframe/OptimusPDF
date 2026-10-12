@@ -13,6 +13,7 @@ import {
 } from "react";
 import { ImagePlus, Layers, Redo2, Undo2 } from "lucide-react";
 import Link from "next/link";
+import { useLiveSink } from "@/components/tool/liveRouting";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -27,7 +28,15 @@ import { EditFloatingBar, glyphNotice, type BarTextState } from "@/app/edit-pdf/
 import { EditNavBar, ZOOM_STEPS } from "@/app/edit-pdf/EditNavBar";
 import { EditSurface, type SurfaceHandle } from "@/app/edit-pdf/EditSurface";
 import { EditToolPalette, type PaletteTool } from "@/app/edit-pdf/EditToolPalette";
-import { TOOL_SHORTCUTS, buildPaletteTools, isTool, type Tool } from "@/app/edit-pdf/editTools";
+import {
+  ANNOTATE_TOOL_ORDER,
+  TOOL_ORDER,
+  TOOL_SHORTCUTS,
+  buildPaletteTools,
+  isTool,
+  shortcutsFor,
+  type Tool,
+} from "@/app/edit-pdf/editTools";
 import {
   ElementFloatingBar,
   barStateOf,
@@ -49,6 +58,7 @@ import {
   COVER_PADDING_PT,
   MIN_BOX_PT,
   NEW_TEXT_FONT_SIZE,
+  asNoteEdit,
   draftEditForBlock,
   excerpt,
   newTextEditAt,
@@ -153,7 +163,7 @@ const FOCUS_REGION_MAX_FRAMES = 20;
 type Creation = {
   pointerId: number;
   start: { x: number; y: number };
-  kind: "text" | DrawTool;
+  kind: "text" | "note" | DrawTool;
 };
 
 type ImageNotice = { text: string; error: boolean };
@@ -182,6 +192,21 @@ export type EditWorkspaceProps = {
   flattenLoss?: { forms: boolean; outlines: boolean } | null;
   /** Avisa de la pagina visible y del total (para guardarlos en el borrador). */
   onPageChange?: (pageIndex: number, pageCount: number) => void;
+  /**
+   * (W7-U6) El lienzo vive DENTRO de PDF Pro: ocupa la altura de su region (no desplaza la ventana), la hoja
+   * tiene su propio desplazamiento, la barra de zoom y paginas no se pega bajo la cabecera de la web y la paleta
+   * movil va debajo del lienzo y no fija a la ventana. Ausente = la herramienta suelta de siempre.
+   */
+  embedded?: boolean;
+  /**
+   * (W7-U6) `annotate` = modo Anotar de PDF Pro: paleta de anotacion (resaltador, figuras, marca, texto, nota,
+   * imagen), sin «Aplanar pagina» y sin el aviso del ajuste del texto existente. `edit` = el editor de siempre.
+   */
+  variant?: "edit" | "annotate";
+  /** (W7-U6) Herramientas de la paleta, en orden (por defecto, las de `variant`). */
+  toolIds?: readonly Tool[];
+  /** (W7-U6) Pide armar una herramienta (comandos de PDF Pro); cada `nonce` nuevo es una peticion nueva. */
+  toolRequest?: { tool: Tool; nonce: number } | null;
 };
 
 export function EditWorkspace({
@@ -195,8 +220,21 @@ export function EditWorkspace({
   onPageChange,
   onChooseAnother,
   flattenLoss = null,
+  embedded = false,
+  variant = "edit",
+  toolIds,
+  toolRequest = null,
 }: EditWorkspaceProps) {
   const s = strings.inline;
+  const annotate = variant === "annotate";
+  const toolOrder = useMemo<readonly Tool[]>(
+    () => toolIds ?? (annotate ? ANNOTATE_TOOL_ORDER : TOOL_ORDER),
+    [toolIds, annotate],
+  );
+  const toolShortcuts = useMemo(
+    () => (toolIds || annotate ? shortcutsFor(toolOrder) : TOOL_SHORTCUTS),
+    [toolIds, annotate, toolOrder],
+  );
   const { doc, pageCount, error } = useEditDocument(file);
   const [pageState, setPageState] = useState(Math.max(0, Math.floor(initialPage)));
   // Una pagina restaurada que ya no existe cae a la ultima.
@@ -224,15 +262,30 @@ export function EditWorkspace({
    * `n` cambia el nodo del texto para que un mensaje repetido («Texto borrado» dos veces) vuelva a leerse.
    */
   const [live, setLive] = useState({ text: "", n: 0 });
+  // Dentro de PDF Pro los mensajes salen por su UNICA region viva (A11Y-3) y esta region propia no se monta.
+  const liveSink = useLiveSink();
   const lastActionAt = useRef(0);
-  const setMessage = useCallback((text: string) => {
-    lastActionAt.current = Date.now();
-    setLive((previous) => ({ text, n: previous.n + 1 }));
-  }, []);
-  const announceFocus = useCallback((text: string) => {
-    if (Date.now() - lastActionAt.current < 500) return;
-    setLive((previous) => ({ text, n: previous.n + 1 }));
-  }, []);
+  const say = useCallback(
+    (text: string) => {
+      if (liveSink) liveSink(text);
+      else setLive((previous) => ({ text, n: previous.n + 1 }));
+    },
+    [liveSink],
+  );
+  const setMessage = useCallback(
+    (text: string) => {
+      lastActionAt.current = Date.now();
+      say(text);
+    },
+    [say],
+  );
+  const announceFocus = useCallback(
+    (text: string) => {
+      if (Date.now() - lastActionAt.current < 500) return;
+      say(text);
+    },
+    [say],
+  );
   const pageText = usePageText(existingText ? doc : null, pageIndex);
   const coarse = useMediaQuery("(pointer: coarse)");
   const desktop = useMediaQuery("(min-width: 768px)");
@@ -240,6 +293,8 @@ export function EditWorkspace({
 
   const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  /** (W7-U6) Region con desplazamiento propio (solo `embedded`). */
+  const scrollRef = useRef<HTMLDivElement>(null);
   const clipRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<SurfaceHandle>(null);
@@ -1135,13 +1190,19 @@ export function EditWorkspace({
         const host = hostRef.current?.getBoundingClientRect();
         const sticky = document.querySelector<HTMLElement>("[data-canvas-sticky]")?.getBoundingClientRect();
         const viewport = window.visualViewport;
+        const region = scrollRef.current?.getBoundingClientRect();
         center = host
-          ? visibleCenterNorm(host, {
-              top: sticky && sticky.height > 0 ? Math.max(0, sticky.bottom) : 0,
-              bottom: viewport ? viewport.offsetTop + viewport.height : window.innerHeight,
-              left: 0,
-              right: window.innerWidth,
-            })
+          ? visibleCenterNorm(
+              host,
+              region && region.height > 0
+                ? { top: region.top, bottom: region.bottom, left: region.left, right: region.right }
+                : {
+                    top: sticky && sticky.height > 0 ? Math.max(0, sticky.bottom) : 0,
+                    bottom: viewport ? viewport.offsetTop + viewport.height : window.innerHeight,
+                    left: 0,
+                    right: window.innerWidth,
+                  },
+            )
           : { x: 0.5, y: 0.5 };
       }
       const element = imageElementAt({
@@ -1171,11 +1232,23 @@ export function EditWorkspace({
       setTool(next);
       // Al cambiar de herramienta el aviso anterior («Imagen colocada»...) deja de ser verdad.
       setMessage(next === "select" ? "" : latest.current.strings.toolHints[next]);
-      if (next !== "select" && next !== "text") enter(null, "selected");
+      if (next !== "select" && next !== "text" && next !== "note") enter(null, "selected");
       if (next === "image") imageInputRef.current?.click();
     },
     [enter, setMessage],
   );
+
+  /* (W7-U6) Una herramienta pedida desde fuera (paleta de comandos de PDF Pro): se arma una vez por peticion. */
+  const lastToolRequest = useRef<number | null>(null);
+  useEffect(() => {
+    if (!toolRequest || lastToolRequest.current === toolRequest.nonce) return;
+    lastToolRequest.current = toolRequest.nonce;
+    if (!toolOrder.includes(toolRequest.tool)) return;
+    const tool = toolRequest.tool;
+    // En un fotograma: armar una herramienta cambia estado y no debe hacerse de forma sincrona dentro del efecto.
+    const frame = window.requestAnimationFrame(() => chooseTool(tool));
+    return () => window.cancelAnimationFrame(frame);
+  }, [toolRequest, toolOrder, chooseTool]);
 
   /* Un pellizco cancela lo que se estuviera dibujando con el primer dedo. */
   useEffect(() => {
@@ -1228,7 +1301,7 @@ export function EditWorkspace({
       return;
     }
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    if ((tool === "text" || isDrawTool(tool)) && metrics) {
+    if ((tool === "text" || tool === "note" || isDrawTool(tool)) && metrics) {
       event.preventDefault();
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -1237,7 +1310,7 @@ export function EditWorkspace({
       }
       const start = localPoint(event);
       creationRef.current = { pointerId: event.pointerId, start, kind: tool };
-      if (tool === "text") setDraftRect({ left: start.x, top: start.y, width: 0, height: 0 });
+      if (tool === "text" || tool === "note") setDraftRect({ left: start.x, top: start.y, width: 0, height: 0 });
       return;
     }
     if (tool === "image") return;
@@ -1256,7 +1329,7 @@ export function EditWorkspace({
     const creation = creationRef.current;
     if (!creation || creation.pointerId !== event.pointerId || !metrics) return;
     const point = localPoint(event);
-    if (creation.kind === "text") {
+    if (creation.kind === "text" || creation.kind === "note") {
       setDraftRect(newTextPxRect(metrics, creation.start, point));
       return;
     }
@@ -1303,9 +1376,11 @@ export function EditWorkspace({
     }
     if (!commit || !metrics) return;
     const point = localPoint(event);
-    if (creation.kind === "text") {
+    if (creation.kind === "text" || creation.kind === "note") {
       const rect = newTextPxRect(metrics, creation.start, point);
-      const draft = newTextEditAt(metrics, pageIndex, rect, newEditId("tx"));
+      const created = newTextEditAt(metrics, pageIndex, rect, newEditId("tx"));
+      // (W7-U6) Una nota es un texto nuevo sobre fondo de nota: el motor ya cubre y redibuja con `cover.color`.
+      const draft = creation.kind === "note" ? asNoteEdit(created) : created;
       setPending(draft);
       setFocus({ key: draft.id, mode: "editing" });
       setCoverInfo(null);
@@ -1385,7 +1460,7 @@ export function EditWorkspace({
    * Navegacion y zoom
    * ---------------------------------------------------------------- */
 
-  const { applyZoom, pinchProps } = useZoomGestures({ stageRef, hostRef, clipRef, zoom, setZoom });
+  const { applyZoom, pinchProps } = useZoomGestures({ stageRef, hostRef, clipRef, zoom, setZoom, scrollRef });
 
   /* ---------------------------------------------------------------- *
    * Aplanar pagina
@@ -1468,8 +1543,9 @@ export function EditWorkspace({
     const clip = clipRef.current?.getBoundingClientRect();
     const host = hostRef.current?.getBoundingClientRect();
     if (!clip || !host) return undefined;
-    const top = Math.max(host.top, 0);
-    const bottom = Math.min(host.bottom, window.innerHeight);
+    const region = scrollRef.current?.getBoundingClientRect();
+    const top = Math.max(host.top, region && region.height > 0 ? region.top : 0);
+    const bottom = Math.min(host.bottom, region && region.height > 0 ? region.bottom : window.innerHeight);
     return {
       clientX: clip.left + clip.width / 2,
       clientY: bottom > top ? (top + bottom) / 2 : host.top + host.height / 2,
@@ -1479,7 +1555,8 @@ export function EditWorkspace({
   const zoomOut = () =>
     applyZoom([...ZOOM_STEPS].reverse().find((step) => step < zoom - 0.01) ?? 1, zoomAnchor());
 
-  const stripOpen = pageCount > 1 && (stripPref ?? desktop);
+  // Dentro de PDF Pro la region es mas baja: la tira de paginas empieza cerrada (se abre desde la barra).
+  const stripOpen = pageCount > 1 && (stripPref ?? (desktop && !embedded));
 
   /* ---------------------------------------------------------------- *
    * Teclado global del lienzo
@@ -1494,7 +1571,7 @@ export function EditWorkspace({
     const target = event.target instanceof Element ? event.target : null;
     if (target && isEditableElement(target)) return;
     const key = event.key.toLowerCase();
-    const shortcut = TOOL_SHORTCUTS[key];
+    const shortcut = toolShortcuts[key];
     if (shortcut && !event.shiftKey) {
       event.preventDefault();
       chooseTool(shortcut);
@@ -1614,7 +1691,7 @@ export function EditWorkspace({
     }
   };
 
-  const tools: PaletteTool[] = buildPaletteTools(strings, style.checkMark);
+  const tools: PaletteTool[] = buildPaletteTools(strings, style.checkMark, toolOrder);
 
   /* ---------------------------------------------------------------- *
    * Mensajes de estado
@@ -1623,7 +1700,9 @@ export function EditWorkspace({
   const analysis = pageText.analysis;
   /** La pagina no tiene capa de texto (escaneo): solo se puede AÑADIR sobre ella. */
   const scannedPage = existingText && !!analysis && !analysis.failed && !analysis.hasTextLayer;
-  const statusText = !existingText
+  // (W7-U6) En Anotar el texto existente va apagado por diseno: no es un aviso.
+  const existingOffNotice = !existingText && !annotate;
+  const statusText = existingOffNotice
     ? flow.existingTextOff
     : pageText.status === "analyzing"
       ? s.analyzing
@@ -1637,7 +1716,7 @@ export function EditWorkspace({
   const glyphText = barState ? glyphNotice(barState, s) : "";
 
   /* Lo que la hoja avisa por si sola (escaneo, fallo, ajuste apagado, caracteres sin glifo) se dice en la region unica. */
-  const announceAuto = analysis?.failed || scannedPage || !existingText ? statusText : "";
+  const announceAuto = analysis?.failed || scannedPage || existingOffNotice ? statusText : "";
   useEffect(() => {
     if (!announceAuto) return;
     const frame = window.requestAnimationFrame(() => announceFocus(announceAuto));
@@ -1675,8 +1754,10 @@ export function EditWorkspace({
     <div
       ref={rootRef}
       data-edit-workspace=""
+      data-variant={variant}
+      data-embedded={embedded ? "" : undefined}
       onKeyDown={onRootKeyDown}
-      className="space-y-3 max-md:pb-24"
+      className={embedded ? "flex h-full min-h-0 flex-col gap-2" : "space-y-3 max-md:pb-24"}
     >
       <EditNavBar
         zoom={zoom}
@@ -1690,8 +1771,9 @@ export function EditWorkspace({
         stripId={stripId}
         strings={strings}
         s={s}
+        embedded={embedded}
         flatten={
-          pageCount > 0
+          pageCount > 0 && !annotate
             ? {
                 label: flattenHere ? flow.unflattenAction : flow.flattenAction,
                 active: flattenHere !== undefined,
@@ -1770,10 +1852,11 @@ export function EditWorkspace({
             {flow.scannedAction}
           </Button>
         ) : null}
-        {!existingText ? (
+        {existingOffNotice ? (
           <Link
             href="/settings"
             data-settings-link=""
+            {...(embedded ? { target: "_blank", rel: "noopener noreferrer" } : {})}
             className={buttonClasses("secondary", "sm", "pointer-coarse:h-11 pointer-coarse:before:hidden")}
           >
             {flow.settingsLink}
@@ -1785,7 +1868,7 @@ export function EditWorkspace({
       ) : null}
 
       {/* En movil la barra de paginas no tiene sitio para otro boton de 44 px: la accion va en su fila. */}
-      {pageCount > 0 ? (
+      {pageCount > 0 && !annotate ? (
         <div className="md:hidden" data-page-actions="">
           <Button
             variant="ghost"
@@ -1820,7 +1903,13 @@ export function EditWorkspace({
         }}
       />
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-start">
+      <div
+        className={
+          embedded
+            ? "flex min-h-0 flex-1 flex-col gap-2 md:flex-row md:items-stretch"
+            : "flex flex-col gap-3 md:flex-row md:items-start"
+        }
+      >
         <EditToolPalette
           tool={tool}
           tools={tools}
@@ -1846,9 +1935,26 @@ export function EditWorkspace({
             },
           ]}
           label={s.paletteLabel}
-          className="z-20 max-md:fixed max-md:inset-x-0 max-md:bottom-[calc(9.25rem+env(safe-area-inset-bottom,0px))] max-md:grid max-md:grid-cols-5 max-md:rounded-none max-md:px-1 max-md:[&_[role=separator]]:hidden md:sticky md:top-24 md:w-12 md:shrink-0"
+          className={
+            embedded
+              ? "z-20 shrink-0 max-md:order-last max-md:grid max-md:grid-cols-[repeat(auto-fit,minmax(2.75rem,1fr))] max-md:justify-items-center max-md:[&_[role=separator]]:hidden md:min-h-0 md:max-h-full md:w-12 md:self-start md:overflow-y-auto md:overscroll-contain"
+              : "z-20 max-md:fixed max-md:inset-x-0 max-md:bottom-[calc(9.25rem+env(safe-area-inset-bottom,0px))] max-md:grid max-md:grid-cols-5 max-md:rounded-none max-md:px-1 max-md:[&_[role=separator]]:hidden md:sticky md:top-24 md:w-12 md:shrink-0"
+          }
         />
 
+        <div
+          ref={embedded ? scrollRef : undefined}
+          data-edit-scroll={embedded ? "" : undefined}
+          // Una zona con scroll tiene que poder recorrerse con el teclado: parada de tabulador con nombre.
+          role={embedded ? "region" : undefined}
+          aria-label={embedded ? s.scrollAreaLabel : undefined}
+          tabIndex={embedded ? 0 : undefined}
+          className={
+            embedded
+              ? "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-ios focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+              : "contents"
+          }
+        >
         <div ref={stageRef} className="surface-card rounded-ios relative min-w-0 flex-1 p-3">
           <EditSurface
             doc={doc}
@@ -1960,6 +2066,7 @@ export function EditWorkspace({
 
           <EditFloatingBar
             stageRef={stageRef}
+            boundsRef={embedded ? scrollRef : undefined}
             clipRef={clipRef}
             hostRef={hostRef}
             selectionId={gesturing ? null : focusKey}
@@ -1988,6 +2095,7 @@ export function EditWorkspace({
 
           <ElementFloatingBar
             stageRef={stageRef}
+            boundsRef={embedded ? scrollRef : undefined}
             clipRef={clipRef}
             hostRef={hostRef}
             selectionId={gesturing || armed ? null : selectedElementId}
@@ -2012,11 +2120,14 @@ export function EditWorkspace({
             }}
           />
         </div>
+        </div>
       </div>
 
-      <div role="status" aria-live="polite" data-workspace-live="" className="sr-only">
-        <span key={live.n}>{live.text}</span>
-      </div>
+      {liveSink ? null : (
+        <div role="status" aria-live="polite" data-workspace-live="" className="sr-only">
+          <span key={live.n}>{live.text}</span>
+        </div>
+      )}
 
       <ConfirmSheet
         open={flattenAsk?.open === true}

@@ -1,0 +1,156 @@
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { Header } from "@/components/layout/Header";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
+import { CATEGORY_ORDER, getToolsByCategory } from "@/lib/tools-registry";
+import { es } from "@/lib/locales/es";
+
+/** Menus con PDF Pro: primer item (cabecera tablet y barra lateral), sin categoria nueva, buscador. */
+
+let pathname = "/";
+vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+
+beforeAll(() => {
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
+});
+
+afterEach(() => {
+  cleanup();
+  pathname = "/";
+});
+
+function renderHeader() {
+  render(
+    <LanguageProvider>
+      <Header />
+    </LanguageProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Herramientas" }));
+}
+
+function renderSidebar() {
+  return render(
+    <LanguageProvider>
+      <Sidebar />
+    </LanguageProvider>,
+  );
+}
+
+describe("Header — menu Herramientas", () => {
+  it("PDF Pro es el PRIMER enlace de herramienta del menu, antes de cualquier categoria", () => {
+    renderHeader();
+    const menu = document.getElementById(screen.getByRole("button", { name: "Herramientas" }).getAttribute("aria-controls")!)!;
+    const toolLinks = within(menu).getAllByRole("link");
+    expect(toolLinks[0].getAttribute("href")).toBe("/pdf-pro");
+    const firstCategoryHeading = within(menu).getAllByRole("heading", { level: 3 })[0];
+    expect(toolLinks[0].compareDocumentPosition(firstCategoryHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("muestra nombre, descripcion y la etiqueta «Nuevo»", () => {
+    renderHeader();
+    const link = screen.getByRole("link", { name: /PDF Pro/ });
+    expect(link.textContent).toContain("PDF Pro");
+    expect(link.textContent).toContain(es.tools["pdf-pro"].description);
+    expect(link.textContent).toContain(es.home.featuredBadge);
+  });
+
+  it("esta en su propia lista con nombre accesible y NO dentro de una categoria", () => {
+    renderHeader();
+    expect(screen.getByRole("list", { name: es.home.featuredLabel })).toBeTruthy();
+    for (const category of CATEGORY_ORDER) {
+      const heading = screen.getByRole("heading", { name: es.categories[category].label });
+      const section = heading.closest("section")!;
+      expect(section.querySelector("a[href='/pdf-pro']")).toBeNull();
+      expect(within(section).getAllByRole("link")).toHaveLength(getToolsByCategory(category).length);
+    }
+  });
+
+  it("solo hay seis secciones de categoria (ninguna nueva)", () => {
+    renderHeader();
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(6);
+  });
+
+  it("elegir PDF Pro cierra el menu", () => {
+    renderHeader();
+    const trigger = screen.getByRole("button", { name: "Herramientas" });
+    fireEvent.click(screen.getByRole("link", { name: /PDF Pro/ }));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("el objetivo tactil del enlace destacado mide al menos 44 px de alto minimo", () => {
+    renderHeader();
+    expect(screen.getByRole("link", { name: /PDF Pro/ }).className).toMatch(/min-h-11/);
+  });
+});
+
+describe("Sidebar — barra lateral", () => {
+  it("PDF Pro es el PRIMER enlace de la navegacion, antes de «Inicio»", () => {
+    renderSidebar();
+    const nav = screen.getByRole("navigation", { name: es.nav.primaryNav });
+    const links = within(nav).getAllByRole("link");
+    expect(links[0].getAttribute("href")).toBe("/pdf-pro");
+    expect(links[0].textContent).toBe("PDF Pro");
+    expect(links[1].getAttribute("href")).toBe("/");
+  });
+
+  it("las categorias siguen siendo las seis de siempre como anclas de Home", () => {
+    renderSidebar();
+    for (const category of CATEGORY_ORDER) {
+      expect(screen.getByRole("link", { name: es.categories[category].label }).getAttribute("href")).toBe(`/#${category}`);
+    }
+    const nav = screen.getByRole("navigation", { name: es.nav.primaryNav });
+    expect(within(nav).getAllByRole("link").filter((l) => l.getAttribute("href")?.startsWith("/#"))).toHaveLength(6);
+  });
+
+  it("en /pdf-pro la entrada esta marcada como pagina actual", () => {
+    pathname = "/pdf-pro";
+    renderSidebar();
+    expect(screen.getByRole("link", { name: "PDF Pro" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: es.nav.home }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("en otra herramienta no esta marcada", () => {
+    pathname = "/merge-pdf";
+    renderSidebar();
+    expect(screen.getByRole("link", { name: "PDF Pro" }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("en Home solo «Inicio» esta marcada", () => {
+    renderSidebar();
+    expect(screen.getByRole("link", { name: "PDF Pro" }).getAttribute("aria-current")).toBeNull();
+    expect(screen.getByRole("link", { name: es.nav.home }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("el icono de la entrada lleva el acento propio de PDF Pro", () => {
+    renderSidebar();
+    expect(screen.getByRole("link", { name: "PDF Pro" }).querySelector("svg")?.getAttribute("class")).toMatch(/text-accent-pro/);
+  });
+
+  it("el buscador (Spotlight) ofrece PDF Pro la primera al escribir «pdf»", () => {
+    renderSidebar();
+    const search = screen.getByRole("searchbox", { name: "Buscar herramienta…" });
+    fireEvent.change(search, { target: { value: "pdf" } });
+    const results = document.getElementById(search.getAttribute("aria-controls")!)!;
+    expect(within(results).getAllByRole("link")[0].getAttribute("href")).toBe("/pdf-pro");
+  });
+
+  it("el buscador encuentra PDF Pro por su nombre exacto", () => {
+    renderSidebar();
+    const search = screen.getByRole("searchbox", { name: "Buscar herramienta…" });
+    fireEvent.change(search, { target: { value: "pro" } });
+    const results = document.getElementById(search.getAttribute("aria-controls")!)!;
+    expect(within(results).getByRole("link", { name: "PDF Pro" })).toBeTruthy();
+  });
+
+  it("colapsada, la entrada sigue siendo un enlace con nombre accesible (title)", () => {
+    window.localStorage.setItem("optimuspdf.sidebarCollapsed", "1");
+    // El store de colapso se lee una vez por modulo: se acciona el boton real.
+    renderSidebar();
+    const button = screen.getByRole("button", { name: /Colapsar|Expandir/ });
+    if (button.getAttribute("aria-expanded") === "true") fireEvent.click(button);
+    const link = screen.getByRole("link", { name: "PDF Pro" });
+    expect(link.getAttribute("title")).toBe("PDF Pro");
+    fireEvent.click(screen.getByRole("button", { name: es.nav.expandSidebar }));
+  });
+});

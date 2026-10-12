@@ -141,6 +141,8 @@ export function createInputGuard(deps: InputGuardDeps = {}): InputGuard {
             return { status: "encrypted", needsPassword: true };
           }
         }
+        // Un componente que no se pudo descargar (sin conexion) NO es un archivo danado: se dice como es.
+        if (code === "offline") return { status: "unsupported", code };
         return { status: "problem", code: "corrupt" };
       }
     }

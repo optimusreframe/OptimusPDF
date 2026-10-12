@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { AlertTriangle, Info, X } from "lucide-react";
+import { useRoutedAnnouncement } from "@/components/tool/liveRouting";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 
@@ -32,11 +33,16 @@ export type EditNoticesProps = {
 };
 
 export function EditNotices({ notices, dismissLabel, className }: EditNoticesProps) {
+  const spoken = notices.map((notice) => notice.text).join(" ");
+  // Dentro de PDF Pro el anuncio sale por su unica region viva (A11Y-3): aqui no se monta una propia.
+  const routed = useRoutedAnnouncement(spoken);
   return (
     <div data-edit-notices="" className={className}>
-      <p role="status" className="sr-only">
-        {notices.map((notice) => notice.text).join(" ")}
-      </p>
+      {routed ? null : (
+        <p role="status" className="sr-only">
+          {spoken}
+        </p>
+      )}
       {notices.length > 0 ? (
         <ul className="space-y-2">
           {notices.map((notice) => {

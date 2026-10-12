@@ -57,6 +57,8 @@ export type UseZoomGesturesOptions = {
   setZoom: (zoom: number) => void;
   /** Apaga los gestos (p. ej. sin documento). */
   enabled?: boolean;
+  /** (W7-U6) Region con desplazamiento propio (PDF Pro): el ajuste vertical va a ella y no a la ventana. */
+  scrollRef?: RefObject<HTMLElement | null>;
 };
 
 export type UseZoomGestures = {
@@ -79,6 +81,7 @@ export function useZoomGestures({
   zoom,
   setZoom,
   enabled = true,
+  scrollRef,
 }: UseZoomGesturesOptions): UseZoomGestures {
   const zoomRef = useRef(zoom);
   const pendingRef = useRef<Pending | null>(null);
@@ -124,14 +127,17 @@ export function useZoomGestures({
     const dy = rect.top + pending.fy * rect.height - pending.clientY;
     const clip = clipRef.current;
     if (clip && Math.abs(dx) > 0.5) clip.scrollLeft += dx;
-    if (Math.abs(dy) > 0.5 && typeof window.scrollBy === "function") {
+    const scroller = scrollRef?.current ?? null;
+    if (Math.abs(dy) > 0.5 && scroller && typeof scroller.scrollBy === "function") {
+      scroller.scrollBy({ top: dy, behavior: "instant" });
+    } else if (Math.abs(dy) > 0.5 && typeof window.scrollBy === "function") {
       try {
         window.scrollBy(0, dy);
       } catch {
         // jsdom no implementa el desplazamiento.
       }
     }
-  }, [zoom, hostRef, clipRef]);
+  }, [zoom, hostRef, clipRef, scrollRef]);
 
   /* Ctrl + rueda: el navegador acercaria TODA la pagina; aqui acerca la hoja. */
   useEffect(() => {

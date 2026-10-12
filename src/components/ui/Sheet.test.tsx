@@ -735,3 +735,34 @@ describe("Sheet: devolver el foco al cerrar (restoreFocusOnClose)", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Destino" }));
   });
 });
+
+describe("Sheet: foco inicial (initialFocus)", () => {
+  function Form({ selector }: { selector?: string }) {
+    return (
+      <Sheet open onClose={() => {}} title="Formulario" closeLabel="Cerrar" initialFocus={selector}>
+        <form data-form="">
+          <input aria-label="Nombre" defaultValue="informe.pdf" />
+          <button type="button">Aceptar</button>
+        </form>
+      </Sheet>
+    );
+  }
+
+  it("sin selector el foco va al panel (comportamiento de siempre)", () => {
+    render(<Form />);
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+  });
+
+  it("con selector el foco va al primer campo y su texto queda seleccionado", () => {
+    render(<Form selector="[data-form] input" />);
+    const input = screen.getByLabelText("Nombre") as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe("informe.pdf".length);
+  });
+
+  it("un selector que no existe cae al panel (nunca deja el foco en <body>)", () => {
+    render(<Form selector="[data-nada]" />);
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+  });
+});

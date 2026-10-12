@@ -85,10 +85,19 @@ export function evictThumbs(
   return next;
 }
 
+/** Ajustes opcionales de la tira (PDF Pro usa miniaturas mas grandes y mas en memoria). */
+export type PageThumbsOptions = {
+  /** Ancho maximo (px) del bitmap de la miniatura. Por defecto `THUMB_WIDTH`. */
+  width?: number;
+  /** Miniaturas que se conservan en memoria. Por defecto `MAX_THUMBS`. */
+  max?: number;
+};
+
 export function usePageThumbs(
   doc: PDFDocumentProxy | null,
   active: number,
   enabled = true,
+  options: PageThumbsOptions = {},
 ): PageThumbs {
   const [cache, setCache] = useState<Cache | null>(null);
   const docRef = useRef<PDFDocumentProxy | null>(null);
@@ -99,6 +108,12 @@ export function usePageThumbs(
   const generationRef = useRef(0);
   const runningRef = useRef(false);
   const pumpRef = useRef<() => void>(() => undefined);
+  const widthRef = useRef(options.width ?? THUMB_WIDTH);
+  const maxRef = useRef(options.max ?? MAX_THUMBS);
+  useEffect(() => {
+    widthRef.current = options.width ?? THUMB_WIDTH;
+    maxRef.current = options.max ?? MAX_THUMBS;
+  });
 
   const pump = useCallback(() => {
     if (runningRef.current) return;
@@ -119,7 +134,7 @@ export function usePageThumbs(
           if (page === undefined) return;
           try {
             const handle = await current.getPage(page + 1);
-            const url = await renderPageToDataUrl(handle, { maxWidth: THUMB_WIDTH });
+            const url = await renderPageToDataUrl(handle, { maxWidth: widthRef.current });
             handle.cleanup();
             if (generation !== generationRef.current) return;
             cacheRef.current = evictThumbs(
@@ -127,6 +142,7 @@ export function usePageThumbs(
               activeRef.current,
               visibleRef.current,
               page,
+              maxRef.current,
             );
             setCache({ doc: current, thumbs: cacheRef.current });
           } catch {
@@ -158,6 +174,7 @@ export function usePageThumbs(
     activeRef.current = active;
     pump();
   }, [active, pump]);
+
 
   const setVisible = useCallback(
     (pages: ReadonlySet<number> | null) => {

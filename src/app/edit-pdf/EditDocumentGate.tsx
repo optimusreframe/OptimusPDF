@@ -19,6 +19,7 @@ import type { EditFlowStrings } from "@/app/edit-pdf/flowStrings";
 import type { EditStrings } from "@/app/edit-pdf/strings";
 import { useEditDrafts } from "@/app/edit-pdf/useEditDrafts";
 import { useEditPrepare } from "@/app/edit-pdf/useEditPrepare";
+import type { Tool } from "@/app/edit-pdf/editTools";
 import type { UseEditSession } from "@/app/edit-pdf/useEditSession";
 
 /*
@@ -190,15 +191,12 @@ export function EditDocumentGate({
   );
 }
 
-function ReadyEditor({
-  document,
-  session,
-  strings,
-  flow,
-  existingText,
-  onError,
-  onCancelFile,
-}: {
+/**
+ * El editor con todo lo que lo rodea (avisos de cifrado, firmas y formularios, borradores, privacidad) sobre un
+ * documento YA preparado. Lo usan la herramienta suelta (tras `EditDocumentGate`) y los modos Editar y Anotar de
+ * PDF Pro (que ya tienen la copia sin cifrar y las firmas comprobadas): un solo componente, sin duplicar codigo.
+ */
+export type ReadyEditorProps = {
   document: PreparedDocument;
   session: UseEditSession;
   strings: EditStrings;
@@ -206,7 +204,41 @@ function ReadyEditor({
   existingText: boolean;
   onError: (code: PdfErrorCode) => void;
   onCancelFile: () => void;
-}) {
+  /** (W7-U6) Dentro de PDF Pro: ocupa la altura de su region, sin pie ni paginas de mas. */
+  embedded?: boolean;
+  /** (W7-U6) `annotate` = modo Anotar (paleta de anotacion, sin aplanar). */
+  variant?: "edit" | "annotate";
+  /** (W7-U6) Pagina (base 0) con la que arranca si no se restaura un borrador. */
+  initialPage?: number;
+  /** (W7-U6) Pagina visible y total (PDF Pro la recuerda para volver al visor). */
+  onPageChange?: (page: number, count: number) => void;
+  /** (W7-U6) El aviso de formularios es un enlace a otra pagina en la herramienta suelta; en PDF Pro no hay enlace. */
+  hideFormLink?: boolean;
+  /** (W7-U6) Avisos extra (p. ej. «el PDF supera 100 MB») que se suman a los del documento. */
+  extraNotices?: EditNotice[];
+  /** (W7-U6) El modo de PDF Pro recibe aqui como borrar el borrador al aplicar o descartar. */
+  draftRef?: { current: { discard: () => Promise<void> } | null };
+  /** (W7-U6) Herramienta que pide la paleta de comandos de PDF Pro («Añadir imagen»...). */
+  toolRequest?: { tool: Tool; nonce: number } | null;
+};
+
+export function ReadyEditor({
+  document,
+  session,
+  strings,
+  flow,
+  existingText,
+  onError,
+  onCancelFile,
+  embedded = false,
+  variant = "edit",
+  initialPage,
+  onPageChange,
+  hideFormLink = false,
+  extraNotices = [],
+  draftRef,
+  toolRequest,
+}: ReadyEditorProps) {
   const [position, setPosition] = useState({ page: 0, count: 0 });
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
   const [startedFresh, setStartedFresh] = useState(false);
@@ -217,13 +249,22 @@ function ReadyEditor({
     session,
     pageCount: position.count > 0 ? position.count : null,
     currentPage: position.page,
-    fallbackPage: getRememberedPage(document.file),
+    fallbackPage: initialPage ?? getRememberedPage(document.file),
   });
+
+  const discardDraft = drafts.discard;
+  useEffect(() => {
+    if (!draftRef) return;
+    draftRef.current = { discard: discardDraft };
+    return () => {
+      draftRef.current = null;
+    };
+  }, [draftRef, discardDraft]);
 
   const dismiss = (id: string) => setDismissed((previous) => new Set(previous).add(id));
 
   const notices = (() => {
-    const list: EditNotice[] = [];
+    const list: EditNotice[] = [...extraNotices];
     if (document.wasEncrypted) {
       list.push({ id: "protected", tone: "info", text: flow.protectedCopy });
     }
@@ -237,7 +278,7 @@ function ReadyEditor({
         id: "form",
         tone: "info",
         text: flow.formNotice,
-        action: { label: flow.formLink, href: "/sign-pdf" },
+        ...(hideFormLink ? {} : { action: { label: flow.formLink, href: "/sign-pdf" } }),
         onDismiss: () => dismiss("form"),
       });
     }
@@ -276,26 +317,32 @@ function ReadyEditor({
   })();
 
   return (
-    <div className="space-y-3">
+    <div className={embedded ? "flex h-full min-h-0 flex-col gap-2" : "space-y-3"} data-edit-ready="">
       <EditNotices notices={notices} dismissLabel={flow.dismiss} />
       {drafts.checked ? (
-        <EditWorkspace
-          file={document.file}
-          session={session}
-          strings={strings}
-          flow={flow}
-          existingText={existingText}
-          initialPage={drafts.initialPage}
-          onChooseAnother={onCancelFile}
-          flattenLoss={document.flattenLoss}
-          onPageChange={(page, count) => {
-            setRememberedPage(document.file, page);
-            setPosition((previous) =>
-              previous.page === page && previous.count === count ? previous : { page, count },
-            );
-          }}
-          onError={onError}
-        />
+        <div className={embedded ? "min-h-0 flex-1" : undefined}>
+          <EditWorkspace
+            file={document.file}
+            session={session}
+            strings={strings}
+            flow={flow}
+            existingText={existingText}
+            initialPage={drafts.initialPage}
+            onChooseAnother={onCancelFile}
+            flattenLoss={document.flattenLoss}
+            embedded={embedded}
+            variant={variant}
+            toolRequest={toolRequest}
+            onPageChange={(page, count) => {
+              setRememberedPage(document.file, page);
+              setPosition((previous) =>
+                previous.page === page && previous.count === count ? previous : { page, count },
+              );
+              onPageChange?.(page, count);
+            }}
+            onError={onError}
+          />
+        </div>
       ) : (
         <GateCard busy>
           <p role="status" className="flex items-center gap-2 text-subheadline text-muted-foreground">
@@ -304,7 +351,7 @@ function ReadyEditor({
           </p>
         </GateCard>
       )}
-      <EditPrivacyNotice flow={flow} />
+      <EditPrivacyNotice flow={flow} compact={embedded} />
     </div>
   );
 }

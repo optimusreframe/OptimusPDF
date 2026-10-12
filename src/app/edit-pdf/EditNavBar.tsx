@@ -72,6 +72,8 @@ export type EditNavBarProps = {
    * `active` = la pagina ya esta marcada y el boton la desmarca.
    */
   flatten?: { label: string; active: boolean; onClick: () => void };
+  /** (W7-U6) Dentro de PDF Pro la barra no se pega bajo la cabecera de la web: va fija encima de la region con desplazamiento. */
+  embedded?: boolean;
 };
 
 export function EditNavBar({
@@ -88,6 +90,7 @@ export function EditNavBar({
   s,
   hint,
   flatten,
+  embedded = false,
 }: EditNavBarProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const total = Math.max(1, pageCount);
@@ -101,8 +104,14 @@ export function EditNavBar({
 
   return (
     <div
-      data-canvas-sticky=""
-      className="material-thick shadow-elevation-2 rounded-ios sticky top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] z-30 flex flex-wrap items-center justify-between gap-y-1 p-1 md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3"
+      data-canvas-sticky={embedded ? undefined : ""}
+      data-nav-embedded={embedded ? "" : undefined}
+      className={cn(
+        "material-thick shadow-elevation-2 rounded-ios z-30 flex flex-wrap items-center justify-between gap-y-1 p-1",
+        embedded
+          ? "relative"
+          : "sticky top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3",
+      )}
     >
       <div role="group" aria-label={s.zoomGroupLabel} className="flex items-center gap-0.5 pointer-coarse:gap-0">
         <NavButton

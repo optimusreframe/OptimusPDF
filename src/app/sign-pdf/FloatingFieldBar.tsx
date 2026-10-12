@@ -86,6 +86,12 @@ export type FloatingBarProps = {
    * (`false`) la barra se calcula exactamente como antes de la Wave 5.
    */
   aboveSticky?: boolean;
+  /**
+   * (W7-U6) Region con desplazamiento PROPIO en la que vive el lienzo (el modo Editar/Anotar de PDF Pro, que no
+   * desplaza la ventana). Con ella, la zona segura es la de esa region (su caja visible) y los desplazamientos de
+   * acople van a ella y no a la ventana. Ausente = exactamente el comportamiento de siempre.
+   */
+  boundsRef?: RefObject<HTMLElement | null>;
   /** (W5-U5) Descripcion accesible (se lee una vez al entrar en la barra), p. ej. los atajos del elemento. */
   description?: string;
   children: ReactNode;
@@ -178,6 +184,7 @@ export function FloatingFieldBar({
   onTabForward,
   onFocusLeave,
   aboveSticky = false,
+  boundsRef,
   description,
   children,
 }: FloatingBarProps) {
@@ -299,13 +306,24 @@ export function FloatingFieldBar({
         safeTop = Math.max(safeTop, stickyRect.bottom);
       }
     }
-    let safeBottom = viewportHeight;
+    // (W7-U6) Region con desplazamiento propio: su caja visible manda sobre la ventana y sobre las barras de la pagina.
+    const boundsEl = boundsRef?.current ?? null;
+    const boundsRect = boundsEl ? boundsEl.getBoundingClientRect() : null;
+    const hasBounds = !!boundsRect && boundsRect.height > 0 && boundsRect.width > 0;
+    if (hasBounds) safeTop = boundsRect.top;
+    const scrollPageBy = (top: number) => {
+      if (hasBounds && boundsEl && typeof boundsEl.scrollBy === "function") boundsEl.scrollBy({ top, behavior: "instant" });
+      else window.scrollBy({ top, behavior: "instant" });
+    };
+    let safeBottom = hasBounds ? Math.min(viewportHeight, boundsRect.bottom) : viewportHeight;
     /** Parte baja de la ventana sin barras fijas (la paleta movil aun cuenta como zona libre). */
-    let viewBottom = viewportHeight;
+    let viewBottom = safeBottom;
+    const safeLeft = hasBounds ? boundsRect.left : 0;
+    const safeWidth = hasBounds ? boundsRect.width : viewportWidth;
     const mobile = viewportWidth < 768;
     // (W5-U5) Con el teclado virtual abierto las barras fijas de abajo quedan DETRAS de el: ya no restan sitio.
     const keyboardOpen = aboveSticky && viewportHeight < window.innerHeight - 80;
-    if (mobile) {
+    if (mobile && !hasBounds) {
       const inset = probeRef.current?.offsetHeight ?? 0;
       safeBottom = keyboardOpen ? viewportHeight - 4 : viewportHeight - MOBILE_FIXED_BOTTOM_REM * REM - inset;
       viewBottom = safeBottom;
@@ -333,9 +351,9 @@ export function FloatingFieldBar({
       bar: { width, height },
       page: pageRect,
       safe: {
-        x: 0,
+        x: safeLeft,
         y: safeTop,
-        width: viewportWidth,
+        width: safeWidth,
         height: Math.max(0, safeBottom - safeTop),
       },
       stage: {
@@ -353,7 +371,7 @@ export function FloatingFieldBar({
       if (overflow > 0 && revealScrollRef.current !== revealKey && viewportHeightRef.current.settled) {
         revealScrollRef.current = revealKey;
         const delta = Math.max(0, Math.min(overflow, anchorRect.y - 4 - safeTop));
-        if (delta > 0) window.scrollBy({ top: delta, behavior: "instant" });
+        if (delta > 0) scrollPageBy(delta);
       }
     }
     if (aboveSticky && placed.side === "overlay" && height > 0) {
@@ -370,7 +388,7 @@ export function FloatingFieldBar({
         // (D1) El ancla ya incluye el asa de mover y los tiradores: solo se deja un margen minimo bajo la nav.
         const room = anchorRect.y - 4 - safeTop;
         const delta = Math.max(0, Math.min(need, room));
-        if (delta > 0) window.scrollBy({ top: delta, behavior: "instant" });
+        if (delta > 0) scrollPageBy(delta);
       }
       setPlacement((current) =>
         current && current.fixed && current.left === Math.round(placed.x * 2) / 2 && current.top === dockTop
@@ -394,7 +412,7 @@ export function FloatingFieldBar({
           anchor: anchorRect,
           anchorPad: ANCHOR_PAD,
           bar: { width, height },
-          safe: { x: 0, y: safeTop, width: viewportWidth, height: Math.max(0, safeBottom - safeTop) },
+          safe: { x: safeLeft, y: safeTop, width: safeWidth, height: Math.max(0, safeBottom - safeTop) },
           stage: { left: Math.max(stageRect.left, 8), right: Math.min(stageRect.right, viewportWidth - 8) },
           gap: BAR_GAP,
           neighbors,
@@ -414,7 +432,7 @@ export function FloatingFieldBar({
         ? current
         : next,
     );
-  }, [hostRef, stageRef, clipRef, selKind, selId, prefer, aboveSticky]);
+  }, [hostRef, stageRef, clipRef, boundsRef, selKind, selId, prefer, aboveSticky]);
 
   useEffect(() => {
     computeRef.current = compute;

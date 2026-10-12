@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type Ref } from "react";
 import { Plus } from "lucide-react";
+import { StatusRegion } from "@/components/tool/liveRouting";
 import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { cn } from "@/lib/cn";
@@ -253,12 +254,16 @@ export function CoverageNotices({
   strings,
   className,
 }: CoverageNoticesProps) {
+  const spoken = issues
+    .map((issue) =>
+      strings.coverageMissing(
+        signerLabel(signers, issue.signerId, strings),
+        docLabel(docs.find((candidate) => candidate.id === issue.docId)?.name ?? issue.docId),
+      ),
+    )
+    .join(" ");
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={cn(issues.length > 0 ? "space-y-2" : "sr-only", className)}
-    >
+    <StatusRegion text={spoken} className={cn(issues.length > 0 ? "space-y-2" : "sr-only", className)}>
       {issues.map((issue) => {
         const doc = docLabel(docs.find((candidate) => candidate.id === issue.docId)?.name ?? issue.docId);
         return (
@@ -280,6 +285,6 @@ export function CoverageNotices({
           </div>
         );
       })}
-    </div>
+    </StatusRegion>
   );
 }

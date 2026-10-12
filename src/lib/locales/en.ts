@@ -2,6 +2,11 @@ import type { ToolCategory, ToolSlug } from "@/lib/tools-registry";
 import type { Dictionary, ToolCopy } from "@/lib/locales/es";
 
 const tools: Record<ToolSlug, ToolCopy> = {
+  "pdf-pro": {
+    name: "PDF Pro",
+    description:
+      "All in one: organize, edit, sign, protect and convert your PDF without leaving the page",
+  },
   "merge-pdf": {
     name: "Merge PDF",
     description:
@@ -171,6 +176,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
 };
 
 const filenames: Partial<Record<ToolSlug, string>> = {
+  "pdf-pro": "pro-document",
   "merge-pdf": "merged-document",
   "split-pdf": "split-document",
   "remove-pages": "trimmed-document",
@@ -273,6 +279,9 @@ export const en: Dictionary = {
     mostUsedSeeAll: "See history",
     liveCount: "available now",
     soonCount: "on the way",
+    featuredBadge: "New",
+    featuredCta: "Open PDF Pro",
+    featuredLabel: "Featured",
   },
   tool: {
     dropTitle: "Drop your file here",
@@ -319,6 +328,8 @@ export const en: Dictionary = {
     removeFile: "Remove file",
     enterPassword: "Enter the password",
     openRepair: "Open Repair PDF",
+    openInPro: "Open in PDF Pro",
+    continueInPro: "Continue in PDF Pro",
     needPageSelected: "Keep at least one page checked to be able to merge.",
     blockedRun: "{action} turns on when you change or remove the flagged file.",
     largeFileTitle: "Very large file",
@@ -354,6 +365,7 @@ export const en: Dictionary = {
         "This file is not a PDF, even though its name ends in .pdf (it may be an image or another format that was renamed). Choose a real PDF.",
       invalidType: "That format does not work with this tool.",
       encryptedAction: "Open Unlock PDF",
+      reloadAction: "Reload the page",
       encrypted:
         "This PDF is password protected. Remove the password first with Unlock PDF.",
       corrupt: "The file looks damaged and cannot be read.",
@@ -373,6 +385,8 @@ export const en: Dictionary = {
         "This would invalidate the document's signatures: confirm it first.",
       inspectionIncomplete:
         "We could not safely check this PDF's restrictions, so we will not build a copy that might keep protections without telling you.",
+      offline:
+        "A component of the app couldn't be downloaded (you're offline, or the network failed). Your file is fine and never leaves your device: connect and reload the page (the automatic draft keeps your work).",
       nothingSelected: "Select or mark something before processing.",
       ocrNetworkFailure:
         "Could not load the OCR engine. Check your connection and try again.",
@@ -416,7 +430,7 @@ export const en: Dictionary = {
     languageBody: "Change the language of the whole interface.",
     dataTitle: "Local data",
     dataBody:
-      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and signatures; the full PDF and signature captures). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password. The PDF editor also saves an automatic draft (IndexedDB) with the whole document and your edits, so you can pick it up if you close the tab; it never leaves your device either and \"Clear local data\" removes it (no draft is kept for password-protected PDFs).",
+      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and signatures; the full PDF and signature captures). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password. The PDF editor also saves an automatic draft (IndexedDB) with the whole document and your edits, so you can pick it up if you close the tab; it never leaves your device either and \"Clear local data\" removes it (no draft is kept for password-protected PDFs). PDF Pro does the same with its working document (the current PDF and the list of changes, in its own database) and \"Clear local data\" removes that too.",
     clearData: "Clear local data",
     cleared: "Local data cleared.",
     aboutTitle: "About the app",
@@ -459,6 +473,15 @@ export const en: Dictionary = {
       multiDocument: {
         label: "Several documents at once",
         hint: "Lets you load several PDFs in Sign PDF and sign them in a single round. When off, the tool works with one document at a time, as before.",
+      },
+    },
+    proFeaturesTitle: "PDF Pro: features",
+    proFeaturesBody:
+      "Preferences for the PDF Pro suite, kept only in this browser — they are never synced to an account or sent anywhere.",
+    proFeatures: {
+      proAutosave: {
+        label: "Save an automatic draft",
+        hint: "While you work, PDF Pro saves in your browser (IndexedDB) the current PDF and the list of changes, so you can pick it up if you reload or close the tab. Nothing is saved for password-protected PDFs. When off, an accidental close loses the unsaved work.",
       },
     },
     editPdfFeaturesTitle: "PDF editor: new features",

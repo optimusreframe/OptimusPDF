@@ -1,4 +1,5 @@
-import JSZip from "jszip";
+import type JSZip from "jszip";
+import { loadJSZip } from "@/lib/pdf/lazyZip";
 import { slugify, stripExtension } from "@/lib/pdf/core";
 import {
   BIDI_CONTROLS,
@@ -285,7 +286,8 @@ export async function exportVaultEntry(
     const sourceDocument = includeDocument ? clampText(entry.sourceDocument) : "";
     const filename = vaultFilename(signerName, sourceDocument);
 
-    const inner = new JSZip();
+    const Zip = await loadJSZip();
+    const inner = new Zip();
     inner.file(
       MANIFEST_NAME,
       JSON.stringify({
@@ -332,7 +334,7 @@ export async function exportVaultEntry(
       ),
     );
 
-    const outer = new JSZip();
+    const outer = new Zip();
     outer.file(MANIFEST_NAME, outerManifest);
     outer.file(ENCRYPTED_NAME, cipher);
     const blob = await outer.generateAsync({ type: "blob" });
@@ -431,7 +433,8 @@ function isBlobLike(value: unknown): value is Blob {
 
 async function loadZip(bytes: Uint8Array): Promise<JSZip> {
   try {
-    return await JSZip.loadAsync(bytes);
+    const Zip = await loadJSZip();
+    return await Zip.loadAsync(bytes);
   } catch {
     throw new ImportFailure("invalid");
   }

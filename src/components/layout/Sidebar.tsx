@@ -31,6 +31,7 @@ import {
   CATEGORY_ICON,
   CATEGORY_ORDER,
   TOOLS,
+  getFeaturedTools,
   toolHref,
 } from "@/lib/tools-registry";
 
@@ -139,15 +140,18 @@ export function Sidebar() {
   const isHome = pathname === "/";
   const isRecent = pathname.startsWith("/recent");
   const isSettings = pathname.startsWith("/settings");
+  const featuredActive = getFeaturedTools().find((tool) => pathname.startsWith(toolHref(tool.slug)));
   /* Una sola entrada activa: en Home manda la seccion visible; si aun no
      hay ninguna (arriba del todo), "Inicio". */
   const activeKey = isHome
     ? (activeSection ?? "home")
-    : isRecent
-      ? "recent"
-      : isSettings
-        ? "settings"
-        : null;
+    : featuredActive
+      ? featuredActive.slug
+      : isRecent
+        ? "recent"
+        : isSettings
+          ? "settings"
+          : null;
 
   return (
     <aside
@@ -254,6 +258,17 @@ export function Sidebar() {
         className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3"
       >
         <ul className="space-y-0.5">
+          {getFeaturedTools().map((tool) => (
+            <SidebarLink
+              key={tool.slug}
+              href={toolHref(tool.slug)}
+              icon={tool.icon}
+              label={t.tools[tool.slug].name}
+              active={activeKey === tool.slug}
+              collapsed={collapsed}
+              iconClassName={ACCENT_TEXT[tool.accent]}
+            />
+          ))}
           <SidebarLink
             href="/"
             icon={House}
@@ -357,6 +372,7 @@ function SidebarLink({
   active = false,
   collapsed,
   onClick,
+  iconClassName,
 }: {
   href: string;
   icon: LucideIcon;
@@ -364,6 +380,8 @@ function SidebarLink({
   active?: boolean;
   collapsed: boolean;
   onClick?: () => void;
+  /** Color propio del icono en reposo (la entrada destacada lleva el acento de PDF Pro). */
+  iconClassName?: string;
 }) {
   return (
     <li>
@@ -392,7 +410,7 @@ function SidebarLink({
         ) : null}
         <Icon
           aria-hidden="true"
-          className={cn("size-[18px] shrink-0", active && "text-signal")}
+          className={cn("size-[18px] shrink-0", active ? "text-signal" : iconClassName)}
         />
         {collapsed ? null : <span className="truncate">{label}</span>}
       </Link>

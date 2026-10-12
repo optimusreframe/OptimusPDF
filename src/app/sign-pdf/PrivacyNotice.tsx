@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Info, X } from "lucide-react";
+import { StatusRegion } from "@/components/tool/liveRouting";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { clearValueHistory } from "@/lib/valueHistory";
@@ -54,6 +55,9 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
   /** Almacenes que no se pudieron vaciar en el ultimo intento (vacio = bien). */
   const [failed, setFailed] = useState<ClearFailure[]>([]);
 
+  const statusText =
+    failed.length > 0 ? strings.vaultClearFailed(failed) : cleared ? strings.privacyDataCleared : "";
+
   const dismiss = () => {
     setOpen(false);
     markNoticeSeen();
@@ -82,20 +86,17 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
           {strings.privacyClearData}
         </Button>
         {/* Region de estado siempre montada: solo cambia su contenido. */}
-        <span
-          role="status"
+        <StatusRegion
+          as="span"
+          text={statusText}
           className={
             failed.length > 0
               ? "text-xs text-destructive-text"
               : "text-xs text-success-text"
           }
         >
-          {failed.length > 0
-            ? strings.vaultClearFailed(failed)
-            : cleared
-              ? strings.privacyDataCleared
-              : ""}
-        </span>
+          {statusText}
+        </StatusRegion>
       </div>
 
       {open ? (

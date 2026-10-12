@@ -51,6 +51,8 @@ type Theme = "light" | "dark";
 /** Ruta + como cargarle un archivo (null = sin zona de carga). */
 const ROUTES: Array<{ route: string; files: "pdf" | "two-pdf" | "image" | null }> = [
   { route: "/", files: null },
+  // Wave 7: la suite de PDF Pro (estado vacio y con un documento abierto).
+  { route: "/pdf-pro", files: "pdf" },
   { route: "/merge-pdf", files: "two-pdf" },
   { route: "/compress-pdf", files: "pdf" },
   { route: "/organize-pdf", files: "pdf" },
@@ -179,7 +181,9 @@ test.describe("axe-core: 0 violaciones de contraste, aria-valid-attr-value, labe
  * 2. Tab: enlace de salto y ningun foco perdido en <body>
  * ------------------------------------------------------------------ */
 test.describe("teclado: saltar al contenido y 64 Tab sin foco en <body>", () => {
-  for (const { route, files } of ROUTES) {
+  // PDF Pro abre un documento y deja el foco EN su titulo (no en el inicio de la pagina): el primer Tab ya no es
+  // «Saltar al contenido», asi que su recorrido con teclado se prueba aparte (`pdf-pro-foundation.spec.ts`).
+  for (const { route, files } of ROUTES.filter((entry) => entry.route !== "/pdf-pro")) {
     for (const width of [1280, 375]) {
       test(`${route} · ${width}px`, async ({ browser }) => {
         test.setTimeout(120_000);

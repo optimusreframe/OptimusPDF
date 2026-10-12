@@ -1,5 +1,7 @@
 import type { Dictionary } from "@/lib/i18n";
 import type { PdfErrorCode } from "@/lib/pdf/core";
+import type { ErrorBannerAction } from "@/components/tool/ErrorBanner";
+import { reloadPage } from "@/lib/reloadPage";
 
 /**
  * Texto del banner de error (Wave 6 · U1/U5), en UN solo sitio: `ToolShell` y las
@@ -49,4 +51,13 @@ export function errorCopy(
 /** «{action} se activa cuando…»: el motivo nombra el boton REAL de la herramienta («Procesar», «Revisar documento»…). */
 export function blockedRunText(t: Dictionary, action: string): string {
   return t.tool.blockedRun.replace("{action}", action);
+}
+
+/**
+ * Acciones del banner para un error. `offline` (un componente de la aplicacion no se pudo descargar y el empaquetador
+ * cachea el `import()` fallido) solo se arregla recargando la pagina: el boton lo hace. Otros codigos no llevan accion.
+ */
+export function errorActions(t: Dictionary, code: PdfErrorCode | null | undefined): ErrorBannerAction[] | undefined {
+  if (code !== "offline") return undefined;
+  return [{ id: "reload", label: t.tool.errors.reloadAction, onClick: reloadPage, primary: true }];
 }

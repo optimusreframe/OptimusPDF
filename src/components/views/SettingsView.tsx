@@ -17,6 +17,13 @@ import {
 import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { clearAllEditDrafts } from "@/app/edit-pdf/editDrafts";
+import { clearLocalProData } from "@/app/pdf-pro/proDrafts";
+import { clearHandoff } from "@/app/pdf-pro/proHandoff";
+import {
+  PRO_FEATURE_FLAGS,
+  setProFeatureFlag,
+  useProFeatureFlags,
+} from "@/app/pdf-pro/proFeatureFlags";
 import {
   EDIT_PDF_FEATURE_FLAGS,
   EDIT_PDF_FEATURE_FLAG_AVAILABLE,
@@ -34,9 +41,10 @@ export function SettingsView() {
   const { theme, setTheme } = useTheme();
   const [cleared, setCleared] = useState(false);
   /** Almacenes que no se pudieron vaciar en el ultimo intento (vacio = bien). */
-  const [failed, setFailed] = useState<(ClearFailure | "editDrafts")[]>([]);
+  const [failed, setFailed] = useState<(ClearFailure | "editDrafts" | "proDrafts")[]>([]);
   const signPdfFlags = useSignPdfFeatureFlags();
   const editPdfFlags = useEditPdfFeatureFlags();
+  const proFlags = useProFeatureFlags();
 
   return (
     <div className="mx-auto max-w-[800px] px-4 pt-10 pb-16 md:px-6 md:pt-16">
@@ -129,6 +137,26 @@ export function SettingsView() {
 
         <GlassCard className="p-6">
           <h2 className="text-headline text-foreground">
+            {t.settings.proFeaturesTitle}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t.settings.proFeaturesBody}
+          </p>
+          <div className="mt-5 space-y-4">
+            {PRO_FEATURE_FLAGS.map((flag) => (
+              <Checkbox
+                key={flag}
+                label={t.settings.proFeatures[flag].label}
+                hint={t.settings.proFeatures[flag].hint}
+                checked={proFlags[flag]}
+                onChange={(enabled) => setProFeatureFlag(flag, enabled)}
+              />
+            ))}
+          </div>
+        </GlassCard>
+
+        <GlassCard className="p-6">
+          <h2 className="text-headline text-foreground">
             {t.settings.dataTitle}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -142,20 +170,24 @@ export function SettingsView() {
                 clearRecentEntries();
                 clearValueHistory();
                 clearAllTemplates();
+                clearHandoff();
                 // Async (IndexedDB): no se afirma "borrado" hasta que de verdad
                 // terminaron BIEN los borradores y el baul de firmas (que se
                 // borra aunque su flag este apagado). Si falla alguno se dice
                 // cual y el boton sigue sirviendo para reintentar. Los borradores
-                // del editor (otra base de IndexedDB) se vacian a la vez.
+                // del editor y de PDF Pro (otras bases de IndexedDB) se vacian a la vez.
                 setCleared(false);
                 setFailed([]);
                 void Promise.all([
                   clearLocalSignData(),
                   clearAllEditDrafts(),
-                ]).then(([failures, editDrafts]) => {
-                  const all: (ClearFailure | "editDrafts")[] = editDrafts.ok
-                    ? failures
-                    : [...failures, "editDrafts"];
+                  clearLocalProData(),
+                ]).then(([failures, editDrafts, proFailures]) => {
+                  const all: (ClearFailure | "editDrafts" | "proDrafts")[] = [
+                    ...failures,
+                    ...(editDrafts.ok ? [] : (["editDrafts"] as const)),
+                    ...proFailures,
+                  ];
                   setFailed(all);
                   setCleared(all.length === 0);
                 });

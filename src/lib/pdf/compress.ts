@@ -20,7 +20,7 @@ import {
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { canvasToBlob } from "@/lib/pdf/imagesToPdf";
+import { canvasToBlob } from "@/lib/pdf/canvasBlob";
 
 /**
  * Motor de compresion.

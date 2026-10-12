@@ -36,6 +36,7 @@ export function MobileTabBar() {
     <nav
       aria-label={t.nav.primaryNav}
       data-scrolled={scrolled ? "true" : "false"}
+      data-chrome="tabbar"
       className="material-thick scroll-edge-top fixed inset-x-0 bottom-0 z-40 md:hidden"
       style={{
         borderWidth: 0,

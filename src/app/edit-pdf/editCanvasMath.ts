@@ -508,6 +508,29 @@ export function newTextEditAt(
 }
 
 /* ------------------------------------------------------------------ *
+ * Notas (W7-U6, modo Anotar de PDF Pro)
+ * ------------------------------------------------------------------ */
+
+/** Fondo de una nota («post-it» amarillo claro) y su tinta oscura: contraste AA. */
+export const NOTE_COVER_COLOR = "#fff3a3";
+export const NOTE_TEXT_COLOR = "#3b3000";
+/** Margen (pt) del fondo de la nota alrededor de la caja del texto. */
+export const NOTE_PADDING_PT = 3;
+
+/**
+ * Convierte un texto nuevo en una NOTA: el mismo cuadro de texto, con fondo de nota. El motor de texto ya cubre y
+ * redibuja con `cover.color` (la cobertura de un texto nuevo cae sobre su propia caja), asi que no hace falta un
+ * tipo de elemento nuevo ni tocar la exportacion.
+ */
+export function asNoteEdit(edit: TextEdit): TextEdit {
+  return {
+    ...edit,
+    color: NOTE_TEXT_COLOR,
+    cover: { color: NOTE_COVER_COLOR, padding: NOTE_PADDING_PT },
+  };
+}
+
+/* ------------------------------------------------------------------ *
  * Muestreo del fondo sobre el canvas ya renderizado
  * ------------------------------------------------------------------ */
 

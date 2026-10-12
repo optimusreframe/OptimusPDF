@@ -16,7 +16,7 @@ export default defineConfig({
   testDir: "./e2e/specs",
   outputDir: ".evidence/playwright",
   fullyParallel: false,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? 2 : undefined,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI
     ? [["line"], ["html", { outputFolder: ".evidence/playwright-report", open: "never" }]]
@@ -34,10 +34,16 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: `npm run dev -- -p ${PORT}`,
+    // En CI se prueba la build de PRODUCCION (`next build` + `next start`): el
+    // servidor de desarrollo pinta el indicador `nextjs-portal`, que
+    // intercepta clics sobre el dock movil de PDF Pro y hacia fallar 7 de 75
+    // pruebas Pro solo en CI. En local se mantiene `npm run dev` (rapido).
+    command: process.env.CI
+      ? `npm run build && npm run start -- -p ${PORT}`
+      : `npm run dev -- -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: process.env.CI ? 600_000 : 120_000,
   },
   projects: [
     {

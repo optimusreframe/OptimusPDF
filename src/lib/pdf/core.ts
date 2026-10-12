@@ -44,6 +44,11 @@ export type PdfErrorCode =
   | "inspectionIncomplete"
   | "nothingSelected"
   /**
+   * Un componente de la aplicacion (trozo de codigo de un motor, el worker de pdf.js) no se pudo descargar: sin
+   * conexion o la red fallo. Distinto de «archivo danado»: el archivo esta bien, falta bajar una pieza una vez.
+   */
+  | "offline"
+  /**
    * Fallo de red al descargar los activos de tesseract.js (worker/core/
    * traineddata) para el reconocimiento OCR. Distinto de "unknown": aqui
    * SI sabemos la causa probable (CDN inalcanzable, bloqueador de
@@ -150,6 +155,10 @@ const CORRUPT_HINTS = [
   "reading 'pages'",
   "reading 'catalog'",
   "root object",
+  // jszip (docx, xlsx, pptx): contenedor zip roto o truncado.
+  "corrupted zip",
+  "end of central directory",
+  "not a zip",
 ] as const;
 
 /** El navegador se quedo sin memoria al abrir o escribir un archivo enorme. */
@@ -160,11 +169,33 @@ const OUT_OF_MEMORY_HINTS = [
   "invalid typed array length",
 ] as const;
 
+/** Fallos de CARGA de un trozo de codigo (`import()` dinamico, worker): la red, no el archivo. */
+const CHUNK_LOAD_HINTS = [
+  "failed to fetch dynamically imported module",
+  "error loading dynamically imported module",
+  "importing a module script failed",
+  "loading chunk",
+  "loading css chunk",
+  "chunkloaderror",
+  "setting up fake worker failed",
+] as const;
+
+/** Mensajes genericos de red: solo cuentan como «sin conexion» si el navegador dice que no hay red. */
+const NETWORK_HINTS = ["failed to fetch", "networkerror", "load failed", "network error"] as const;
+
 export function toPdfError(error: unknown): PdfError {
   if (error instanceof PdfError) return error;
   if (error instanceof EncryptedPDFError) return new PdfError("encrypted");
   if (error instanceof Error) {
     const text = `${error.name} ${error.message}`.toLowerCase();
+    if (CHUNK_LOAD_HINTS.some((hint) => text.includes(hint))) return new PdfError("offline", error.message);
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.onLine === false &&
+      NETWORK_HINTS.some((hint) => text.includes(hint))
+    ) {
+      return new PdfError("offline", error.message);
+    }
     if (text.includes("password") || text.includes("encrypt")) {
       return new PdfError("encrypted", error.message);
     }
@@ -193,6 +224,8 @@ export function toPdfError(error: unknown): PdfError {
  */
 export function classifyOcrError(error: unknown): PdfErrorCode {
   if (error instanceof PdfError) return error.code;
+  // Sin conexion el motor falla de formas muy variadas (importScripts, WASM, datos de idioma): la causa es la red.
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return "ocrNetworkFailure";
   if (error instanceof Error) {
     const text = `${error.name} ${error.message}`.toLowerCase();
     const networkHints = [
@@ -703,7 +736,7 @@ export async function savePdfToBlob(document: PDFDocument): Promise<Blob> {
  * `pdfjs-dist/build/pdf.worker.min.mjs` y debe refrescarse al subir de
  * version la libreria.
  */
-export const PDF_WORKER_SRC = "/pdf.worker.min.mjs";
+export const PDF_WORKER_SRC = `/pdf.worker.min.mjs?v=${process.env.NEXT_PUBLIC_PDFJS_VERSION ?? "0"}`;
 
 /**
  * Fuentes de reemplazo de pdf.js (Liberation TTF y Foxit PFB) para los PDF
@@ -722,10 +755,16 @@ let pdfjsPromise: Promise<PdfJsModule> | null = null;
 /** Carga perezosa de pdf.js con el worker ya configurado. */
 export async function getPdfJs(): Promise<PdfJsModule> {
   if (!pdfjsPromise) {
-    pdfjsPromise = import("pdfjs-dist").then((module) => {
-      module.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
-      return module;
-    });
+    pdfjsPromise = import("pdfjs-dist")
+      .then((module) => {
+        module.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
+        return module;
+      })
+      .catch((error: unknown) => {
+        // Un fallo de red al cargar pdf.js NO se cachea: al volver la conexion el siguiente intento funciona.
+        pdfjsPromise = null;
+        throw error;
+      });
   }
   return pdfjsPromise;
 }

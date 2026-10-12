@@ -145,6 +145,14 @@ export function useI18n(): LanguageContextValue {
   return context;
 }
 
+/**
+ * El idioma activo, o español si el componente se pinta fuera de `<LanguageProvider>` (piezas compartidas que solo
+ * necesitan el idioma para un nombre accesible y que se prueban sueltas). No lanza.
+ */
+export function useOptionalLanguage(): Language {
+  return useContext(LanguageContext)?.language ?? "es";
+}
+
 /** Atajo para leer solo el diccionario. */
 export function useT(): Dictionary {
   return useI18n().t;

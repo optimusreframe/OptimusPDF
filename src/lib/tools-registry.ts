@@ -19,6 +19,7 @@ import {
   Hash,
   Image,
   Languages,
+  Layers,
   LayoutGrid,
   Lock,
   LockOpen,
@@ -52,7 +53,9 @@ export type ToolAccent =
   | "optimize"
   | "convert"
   | "edit"
-  | "security";
+  | "security"
+  /** Acento propio de PDF Pro (la herramienta destacada; ninguna categoria lo usa). */
+  | "pro";
 
 export type ToolStatus = "live" | "soon";
 
@@ -68,9 +71,19 @@ export type Tool = {
   extensions: string[];
   /** Acepta varios archivos a la vez. */
   multiple: boolean;
+  /**
+   * Herramienta DESTACADA (Wave 7): no pertenece a ninguna seccion de categoria
+   * (`getToolsByCategory` no la devuelve); Home la pinta como tarjeta grande
+   * antes del catalogo y los menus (cabecera, barra lateral) la ponen primera.
+   * Sigue contando como cualquier otra para el buscador, «Mas usadas» y los
+   * recuentos. `category` solo sirve de etiqueta de busqueda.
+   */
+  featured?: boolean;
 };
 
 export const TOOL_SLUGS = [
+  // Destacada (sin categoria propia): la suite todo-en-uno va PRIMERA.
+  "pdf-pro",
   // Organizar
   "merge-pdf",
   "split-pdf",
@@ -155,6 +168,7 @@ export const ACCENT_TEXT: Record<ToolAccent, string> = {
   convert: "text-accent-convert",
   edit: "text-accent-edit",
   security: "text-accent-security",
+  pro: "text-accent-pro",
 };
 
 export const ACCENT_BG_SOFT: Record<ToolAccent, string> = {
@@ -163,6 +177,7 @@ export const ACCENT_BG_SOFT: Record<ToolAccent, string> = {
   convert: "bg-accent-convert/12",
   edit: "bg-accent-edit/12",
   security: "bg-accent-security/12",
+  pro: "bg-accent-pro/12",
 };
 
 export const ACCENT_RING: Record<ToolAccent, string> = {
@@ -171,6 +186,7 @@ export const ACCENT_RING: Record<ToolAccent, string> = {
   convert: "ring-accent-convert/25",
   edit: "ring-accent-edit/25",
   security: "ring-accent-security/25",
+  pro: "ring-accent-pro/25",
 };
 
 const PDF_MIME = ["application/pdf"];
@@ -181,6 +197,15 @@ const IMAGE_EXT = [".jpg", ".jpeg", ".png", ".webp"];
 type ToolDefinition = Omit<Tool, "slug" | "accent">;
 
 const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
+  "pdf-pro": {
+    icon: Layers,
+    category: "edit",
+    status: "live",
+    accept: PDF_MIME,
+    extensions: PDF_EXT,
+    multiple: false,
+    featured: true,
+  },
   "merge-pdf": {
     icon: Combine,
     category: "organize",
@@ -484,7 +509,7 @@ export const TOOLS: Tool[] = TOOL_SLUGS.map((slug) => {
   const definition = DEFINITIONS[slug];
   return {
     slug,
-    accent: CATEGORY_ACCENT[definition.category],
+    accent: definition.featured ? "pro" : CATEGORY_ACCENT[definition.category],
     ...definition,
   };
 });
@@ -499,8 +524,17 @@ export function getTool(slug: ToolSlug): Tool {
   return tool;
 }
 
+/** Slug de la herramienta destacada: PDF Pro, la suite todo-en-uno. */
+export const PRO_SLUG: ToolSlug = "pdf-pro";
+
+/** Herramientas de una categoria. Las destacadas no pertenecen a ninguna seccion. */
 export function getToolsByCategory(category: ToolCategory): Tool[] {
-  return TOOLS.filter((tool) => tool.category === category);
+  return TOOLS.filter((tool) => tool.category === category && !tool.featured);
+}
+
+/** Herramientas destacadas (hoy solo PDF Pro), en el orden del registro. */
+export function getFeaturedTools(): Tool[] {
+  return TOOLS.filter((tool) => tool.featured);
 }
 
 export function getLiveTools(): Tool[] {
@@ -517,11 +551,12 @@ export function toolHref(slug: ToolSlug): string {
  */
 export function getRelatedTools(slug: ToolSlug, limit = 3): Tool[] {
   const current = getTool(slug);
+  // La destacada ya se ofrece aparte («Abrir en PDF Pro»): no ocupa un hueco de «Sigue con estas».
   const sameCategory = TOOLS.filter(
-    (tool) => tool.category === current.category && tool.slug !== slug,
+    (tool) => tool.category === current.category && tool.slug !== slug && !tool.featured,
   );
   const rest = TOOLS.filter(
-    (tool) => tool.category !== current.category && tool.status === "live",
+    (tool) => tool.category !== current.category && tool.status === "live" && !tool.featured,
   );
   return [...sameCategory, ...rest].slice(0, limit);
 }

@@ -25,6 +25,8 @@ export type SegmentedControlProps<T extends string> = {
   label?: string;
   className?: string;
   size?: "sm" | "md";
+  /** El nombre accesible se queda (`aria-label`) pero no se pinta encima: para filas compactas. */
+  hideLabel?: boolean;
 };
 
 /**
@@ -56,6 +58,7 @@ export function SegmentedControl<T extends string>({
   label,
   className,
   size = "md",
+  hideLabel = false,
 }: SegmentedControlProps<T>) {
   const index = Math.max(
     0,
@@ -144,7 +147,7 @@ export function SegmentedControl<T extends string>({
 
   return (
     <div className={cn("w-full", className)}>
-      {label ? (
+      {label && !hideLabel ? (
         <span className="ui-label mb-2 block text-muted-foreground">
           {label}
         </span>

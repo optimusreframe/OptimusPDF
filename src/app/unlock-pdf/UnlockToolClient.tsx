@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Info,
   KeyRound,
@@ -14,14 +8,13 @@ import {
   ShieldAlert,
   ShieldCheck,
   Signature,
-  type LucideIcon,
 } from "lucide-react";
-import { cn } from "@/lib/cn";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { PasswordField } from "@/app/protect-pdf/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Spinner } from "@/components/ui/Spinner";
+import { ProtectionNotice } from "@/app/unlock-pdf/ProtectionNotice";
 import { UNLOCK_STRINGS, type UnlockStrings } from "@/app/unlock-pdf/strings";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -114,44 +107,6 @@ function FileWatcher({
     onFile(file ?? null, setOptions);
   }, [file, onFile, setOptions]);
   return null;
-}
-
-/** Bloque explicativo con icono, del mismo formato para los cuatro casos. */
-function ProtectionNotice({
-  icon: Icon,
-  tone,
-  title,
-  body,
-  children,
-}: {
-  icon: LucideIcon;
-  tone: "security" | "warning" | "neutral";
-  title: string;
-  body: string;
-  children?: ReactNode;
-}) {
-  const iconClass =
-    tone === "warning"
-      ? "text-destructive"
-      : tone === "security"
-        ? "text-accent-security"
-        : "text-muted-foreground";
-
-  return (
-    <div className="flex items-start gap-3">
-      <Icon
-        aria-hidden="true"
-        className={cn("mt-0.5 size-5 shrink-0", iconClass)}
-      />
-      <div className="min-w-0">
-        <h3 className="text-headline text-foreground">{title}</h3>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          {body}
-        </p>
-        {children}
-      </div>
-    </div>
-  );
 }
 
 /** Estado con spinner: inspeccionando o comprobando una contrasena. */

@@ -21,6 +21,7 @@ import {
   useTransform,
   type AnimationPlaybackControls,
 } from "motion/react";
+import { LiveSinkProvider } from "@/components/tool/liveRouting";
 import { useIsClient } from "@/hooks/useIsClient";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -57,6 +58,12 @@ export type SheetProps = {
    * Es una funcion (no una prop booleana) porque la hoja que sale conserva las props con que se renderizo por ultima vez.
    */
   restoreFocusOnClose?: () => boolean;
+  /**
+   * Selector CSS (dentro de la hoja) del control que recibe el foco al abrirla; sin el, o si no existe, lo recibe el
+   * propio panel. Los formularios lo usan para abrir con el cursor en su primer campo (en un campo de texto,
+   * ademas, queda seleccionado su contenido).
+   */
+  initialFocus?: string;
 };
 
 /**
@@ -152,6 +159,7 @@ function SheetPanel({
   className,
   mobileFullscreen = false,
   restoreFocusOnClose,
+  initialFocus,
 }: Omit<SheetProps, "open">) {
   const [isPresent, safeToRemove] = usePresence();
   const reduced = useReducedMotionPref();
@@ -360,7 +368,10 @@ function SheetPanel({
   });
   useEffect(() => {
     const previouslyFocused = document.activeElement;
-    panelRef.current?.focus({ preventScroll: true });
+    const panel = panelRef.current;
+    const target = initialFocus ? panel?.querySelector<HTMLElement>(initialFocus) : null;
+    (target ?? panel)?.focus({ preventScroll: true });
+    if (target instanceof HTMLInputElement && target.type === "text") target.select();
     return () => {
       // Se lee al CERRAR (no al montar): lo decide la accion que cierra la hoja.
       if (restoreFocusRef.current && !restoreFocusRef.current()) return;
@@ -371,6 +382,8 @@ function SheetPanel({
         previouslyFocused.focus({ preventScroll: true });
       }
     };
+    // Solo al abrir: el foco inicial se decide una vez (`initialFocus` no cambia durante la vida de la hoja).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -657,7 +670,9 @@ function SheetPanel({
               paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))",
             }}
           >
-            {children}
+            {/* Una region fuera del dialogo no llega a un lector de pantalla con `aria-modal`: aqui dentro cada
+                mensaje vive en su propia region (sin el sumidero de PDF Pro). */}
+            <LiveSinkProvider value={null}>{children}</LiveSinkProvider>
           </div>
         </div>
         {extended ? (

@@ -6,9 +6,13 @@ import type { ResizeHandle } from "@/app/edit-pdf/editCanvasMath";
 /** Copy del editor inline de texto existente (Wave 5 · U4a). */
 export type EditInlineStrings = {
   stageLabel: string;
+  /** (W7-U6) Nombre de la zona con scroll propio del editor dentro de PDF Pro (accesible con el teclado). */
+  scrollAreaLabel: string;
   paletteLabel: string;
   toolSelect: string;
   toolText: string;
+  /** (W7-U6) Nota de texto del modo Anotar de PDF Pro: un cuadro de texto sobre fondo de nota. */
+  toolNote: string;
   undo: string;
   redo: string;
   zoomGroupLabel: string;
@@ -91,7 +95,7 @@ export type EditInlineStrings = {
 
   /* ---- Imagen, formas, resaltado y marca (W5-U4b) ---- */
   /** Pista de cada herramienta armada (region viva `role=status`); «select» va vacia. */
-  toolHints: Record<"select" | "text" | "image" | "rect" | "ellipse" | "line" | "highlight" | "check", string>;
+  toolHints: Record<"select" | "text" | "note" | "image" | "rect" | "ellipse" | "line" | "highlight" | "check", string>;
   imagePick: string;
   imageTooLarge: (maxMb: number) => string;
   imageTooManyPixels: (maxMegapixels: number) => string;
@@ -163,9 +167,11 @@ const es: EditStrings = {
 
   inline: {
     stageLabel: "Lienzo de edición de la página",
+    scrollAreaLabel: "Zona de desplazamiento de la página",
     paletteLabel: "Herramientas de edición",
     toolSelect: "Seleccionar",
     toolText: "Añadir texto",
+    toolNote: "Nota",
     undo: "Deshacer",
     redo: "Rehacer",
     zoomGroupLabel: "Zoom",
@@ -286,6 +292,7 @@ const es: EditStrings = {
     toolHints: {
       select: "",
       text: "Haz clic o arrastra en la página para añadir un cuadro de texto. Esc cancela.",
+      note: "Haz clic o arrastra en la página para añadir una nota: un cuadro de texto con fondo de nota. Esc cancela.",
       image: "Elige un PNG o un JPG para colocarlo; también puedes soltarlo sobre la página. Esc cancela.",
       rect: "Arrastra sobre la página para dibujar el rectángulo, o toca para soltar uno. Esc cancela.",
       ellipse: "Arrastra para dibujar la elipse, o toca para soltar una. Esc cancela.",
@@ -360,9 +367,11 @@ const en: EditStrings = {
 
   inline: {
     stageLabel: "Page editing canvas",
+    scrollAreaLabel: "Page scroll area",
     paletteLabel: "Editing tools",
     toolSelect: "Select",
     toolText: "Add text",
+    toolNote: "Note",
     undo: "Undo",
     redo: "Redo",
     zoomGroupLabel: "Zoom",
@@ -483,6 +492,7 @@ const en: EditStrings = {
     toolHints: {
       select: "",
       text: "Click or drag on the page to add a text box. Esc cancels.",
+      note: "Click or drag on the page to add a note: a text box on a note-colored background. Esc cancels.",
       image: "Pick a PNG or a JPG to place it; you can also drop it onto the page. Esc cancels.",
       rect: "Drag across the page to draw the rectangle, or tap to drop one. Esc cancels.",
       ellipse: "Drag to draw the ellipse, or tap to drop one. Esc cancels.",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type Ref } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 import { motion } from "motion/react";
 import { Check, Download, Info, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -34,6 +34,8 @@ export type DownloadScreenProps = {
   summary?: string;
   /** Avisos de la exportacion, ya traducidos (opcional): lista accesible. */
   notices?: { title: string; items: string[] };
+  /** Accion para seguir con el resultado en otro sitio («Seguir en PDF Pro»), bajo «Descargar». */
+  continueAction?: ReactNode;
 };
 
 /**
@@ -52,6 +54,7 @@ export function DownloadScreen({
   report,
   summary,
   notices,
+  continueAction,
 }: DownloadScreenProps) {
   const { t, language } = useI18n();
   const reportId = useId();
@@ -151,6 +154,8 @@ export function DownloadScreen({
           <Download aria-hidden="true" className="size-5" />
           {t.tool.download}
         </Button>
+
+        {continueAction}
 
         <Button
           variant="ghost"

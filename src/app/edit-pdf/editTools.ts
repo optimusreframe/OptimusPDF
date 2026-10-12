@@ -6,6 +6,7 @@ import {
   Minus,
   MousePointer2,
   Square,
+  StickyNote,
   Type,
   X,
 } from "lucide-react";
@@ -22,7 +23,7 @@ import type { CheckMark } from "@/lib/pdf/editPdf";
  * empieza a editarlo, como siempre.
  */
 
-export type Tool = "select" | "text" | "image" | DrawTool;
+export type Tool = "select" | "text" | "note" | "image" | DrawTool;
 
 /** Orden de la paleta. Seleccionar (la primera) es la herramienta por defecto. */
 export const TOOL_ORDER: readonly Tool[] = [
@@ -36,10 +37,27 @@ export const TOOL_ORDER: readonly Tool[] = [
   "check",
 ];
 
-/** Letra de cada herramienta (V seleccionar, T texto, I imagen, R rectangulo, E elipse, L linea, H resaltado, M marca). */
+/**
+ * (W7-U6) Paleta del modo ANOTAR de PDF Pro: resaltador, figuras, marca, texto, imagen y nota. «Seleccionar»
+ * sigue siendo la primera. La herramienta suelta de Editar PDF NO la usa (conserva `TOOL_ORDER`).
+ */
+export const ANNOTATE_TOOL_ORDER: readonly Tool[] = [
+  "select",
+  "highlight",
+  "rect",
+  "ellipse",
+  "line",
+  "check",
+  "text",
+  "note",
+  "image",
+];
+
+/** Letra de cada herramienta (V seleccionar, T texto, N nota, I imagen, R rectangulo, E elipse, L linea, H resaltado, M marca). */
 export const TOOL_KEYS: Readonly<Record<Tool, string>> = {
   select: "v",
   text: "t",
+  note: "n",
   image: "i",
   rect: "r",
   ellipse: "e",
@@ -53,16 +71,27 @@ export const TOOL_SHORTCUTS: Readonly<Record<string, Tool>> = Object.fromEntries
   TOOL_ORDER.map((tool) => [TOOL_KEYS[tool], tool]),
 );
 
+/** Letra -> herramienta para una lista concreta de herramientas (los modos de PDF Pro). */
+export function shortcutsFor(order: readonly Tool[]): Readonly<Record<string, Tool>> {
+  return Object.fromEntries(order.map((tool) => [TOOL_KEYS[tool], tool]));
+}
+
 export function isTool(id: string): id is Tool {
-  return (TOOL_ORDER as readonly string[]).includes(id);
+  // La nota solo esta en la paleta del modo Anotar, pero es una herramienta valida del lienzo.
+  return id === "note" || (TOOL_ORDER as readonly string[]).includes(id);
 }
 
 /** Lista de la paleta; el boton de la marca ensena el simbolo activo (visto o aspa). */
-export function buildPaletteTools(strings: EditStrings, checkMark: CheckMark): PaletteTool[] {
+export function buildPaletteTools(
+  strings: EditStrings,
+  checkMark: CheckMark,
+  order: readonly Tool[] = TOOL_ORDER,
+): PaletteTool[] {
   const s = strings.inline;
   const labels: Record<Tool, string> = {
     select: s.toolSelect,
     text: s.toolText,
+    note: s.toolNote,
     image: strings.typeLabels.image,
     rect: strings.typeLabels.rect,
     ellipse: strings.typeLabels.ellipse,
@@ -73,6 +102,7 @@ export function buildPaletteTools(strings: EditStrings, checkMark: CheckMark): P
   const icons = {
     select: MousePointer2,
     text: Type,
+    note: StickyNote,
     image: ImagePlus,
     rect: Square,
     ellipse: Circle,
@@ -80,7 +110,7 @@ export function buildPaletteTools(strings: EditStrings, checkMark: CheckMark): P
     highlight: Highlighter,
     check: checkMark === "cross" ? X : Check,
   } as const;
-  return TOOL_ORDER.map((tool) => ({
+  return order.map((tool) => ({
     id: tool,
     icon: icons[tool],
     label: labels[tool],

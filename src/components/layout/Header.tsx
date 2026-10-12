@@ -14,6 +14,7 @@ import { springs, withCrossFadeOpacity } from "@/lib/motion";
 import {
   ACCENT_TEXT,
   CATEGORY_ORDER,
+  getFeaturedTools,
   getToolsByCategory,
   toolHref,
 } from "@/lib/tools-registry";
@@ -129,6 +130,36 @@ export function Header() {
                 style={{ transformOrigin: "top left" }}
                 className="absolute top-full left-0 z-50 mt-2 max-h-[min(70vh,40rem)] w-[640px] max-w-[calc(100vw-3rem)] overflow-y-auto overscroll-contain rounded-ios border border-hairline bg-elevated p-2 shadow-elevation-3"
               >
+                <ul aria-label={t.home.featuredLabel} className="mb-3">
+                  {getFeaturedTools().map((tool) => {
+                    const Icon = tool.icon;
+                    return (
+                      <li key={tool.slug}>
+                        <Link
+                          href={toolHref(tool.slug)}
+                          onClick={() => setOpen(false)}
+                          className="flex min-h-11 items-center gap-3 rounded-ios-sm bg-accent-pro/10 px-3 py-2 transition-colors duration-[var(--duration-fast)] hover:bg-accent-pro/16 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+                        >
+                          <Icon
+                            aria-hidden="true"
+                            className={cn("size-5 shrink-0", ACCENT_TEXT[tool.accent])}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-subheadline font-semibold text-foreground">
+                              {t.tools[tool.slug].name}
+                            </span>
+                            <span className="block truncate text-caption text-muted-foreground">
+                              {t.tools[tool.slug].description}
+                            </span>
+                          </span>
+                          <Badge variant="signal" className="shrink-0">
+                            {t.home.featuredBadge}
+                          </Badge>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
                 <div className="grid grid-cols-2 gap-x-2 gap-y-3">
                   {CATEGORY_ORDER.map((category) => (
                     <section key={category} aria-labelledby={`${menuId}-${category}`}>

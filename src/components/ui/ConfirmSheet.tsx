@@ -12,6 +12,8 @@ export type ConfirmSheetProps = {
   confirmLabel: string;
   cancelLabel: string;
   closeLabel: string;
+  /** Ver `Sheet.restoreFocusOnClose`: `false` = la accion ya movio el foco a otro sitio y la hoja no se lo quita. */
+  restoreFocusOnClose?: () => boolean;
 };
 
 /**
@@ -29,9 +31,10 @@ export function ConfirmSheet({
   confirmLabel,
   cancelLabel,
   closeLabel,
+  restoreFocusOnClose,
 }: ConfirmSheetProps) {
   return (
-    <Sheet open={open} onClose={onClose} title={title} closeLabel={closeLabel}>
+    <Sheet open={open} onClose={onClose} title={title} closeLabel={closeLabel} restoreFocusOnClose={restoreFocusOnClose}>
       <p className="pb-4 text-subheadline text-muted-foreground">{body}</p>
       <div className="flex flex-col gap-2 pb-2">
         <Button

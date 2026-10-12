@@ -142,13 +142,27 @@ function safeFieldName(field: PDFField): string | undefined {
   }
 }
 
+/** Un widget de campo de texto AcroForm con el identificador estable (`acro-N`) que usan la deteccion y el relleno. */
+export type AcroFormTextWidget = {
+  id: string;
+  field: PDFTextField;
+  /** Posicion del widget dentro de `field.acroField.getWidgets()`. */
+  widgetIndex: number;
+  pageIndex: number;
+  /** Rectangulo 0..1 sobre la vista (origen arriba-izquierda). */
+  rect: NormalizedRect;
+};
+
 /**
  * Recorre `/AcroForm/Fields` con la misma tolerancia que `unlock.ts` ya
  * aplica a este arbol: un campo o un widget que no se puede leer se
- * salta, nunca tira abajo el resto de la deteccion.
+ * salta, nunca tira abajo el resto de la deteccion. Es la UNICA fuente de los
+ * ids `acro-N`: la deteccion (`detectAcroFormFields`) y el relleno de formularios
+ * (`fillForm.ts`, que escribe `/V` en el campo que corresponde a cada id) la comparten,
+ * asi un id detectado siempre se puede volver a encontrar en el PDF.
  */
-export function detectAcroFormFields(document: PDFDocument): DetectedField[] {
-  const results: DetectedField[] = [];
+export function walkAcroFormTextWidgets(document: PDFDocument): AcroFormTextWidget[] {
+  const results: AcroFormTextWidget[] = [];
 
   let fields: PDFField[];
   try {
@@ -172,7 +186,8 @@ export function detectAcroFormFields(document: PDFDocument): DetectedField[] {
       continue;
     }
 
-    for (const widget of widgets) {
+    for (let widgetIndex = 0; widgetIndex < widgets.length; widgetIndex += 1) {
+      const widget = widgets[widgetIndex];
       try {
         const pageRef = widget.P()?.toString();
         const pageIndex = pageRef ? pageRefs.indexOf(pageRef) : -1;
@@ -183,11 +198,10 @@ export function detectAcroFormFields(document: PDFDocument): DetectedField[] {
         counter += 1;
         results.push({
           id: `acro-${counter}`,
+          field,
+          widgetIndex,
           pageIndex,
           rect: userBoxToNormalizedRect(geometry, rect),
-          label: safeFieldName(field),
-          source: "acroform",
-          confidence: "high",
         });
       } catch {
         // Un widget con datos invalidos no debe tirar a los demas.
@@ -196,6 +210,17 @@ export function detectAcroFormFields(document: PDFDocument): DetectedField[] {
   }
 
   return results;
+}
+
+export function detectAcroFormFields(document: PDFDocument): DetectedField[] {
+  return walkAcroFormTextWidgets(document).map((widget) => ({
+    id: widget.id,
+    pageIndex: widget.pageIndex,
+    rect: widget.rect,
+    label: safeFieldName(widget.field),
+    source: "acroform",
+    confidence: "high",
+  }));
 }
 
 /* ------------------------------------------------------------------ *

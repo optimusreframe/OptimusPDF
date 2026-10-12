@@ -2,8 +2,9 @@
 
 import { useCallback, useState } from "react";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { CropCanvas } from "@/app/crop-pdf/CropCanvas";
+import { CropScopePanel } from "@/app/crop-pdf/CropScopePanel";
+import { cropCanRun } from "@/app/crop-pdf/cropRules";
 import { CROP_STRINGS } from "@/app/crop-pdf/strings";
 import { useI18n } from "@/lib/i18n";
 import { withSuffix, type ProgressCallback } from "@/lib/pdf/core";
@@ -11,7 +12,6 @@ import {
   DEFAULT_CROP_OPTIONS,
   cropPdf,
   type CropOptions,
-  type CropScope,
 } from "@/lib/pdf/crop";
 import { getTool } from "@/lib/tools-registry";
 
@@ -40,12 +40,7 @@ export function CropToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_CROP_OPTIONS}
       process={process}
-      canRun={(_files, options) =>
-        // El motor rechaza un lado menor de 8 pt: aqui, menos del 3 % de la pagina.
-        options.rect.width < 0.03 || options.rect.height < 0.03
-          ? { ok: false, reason: strings.selectionTooSmall }
-          : { ok: true }
-      }
+      canRun={(_files, options) => cropCanRun(options, strings)}
       renderMain={({ files, options, setOptions }) => (
         <CropCanvas
           file={files[0] ?? null}
@@ -59,20 +54,7 @@ export function CropToolClient() {
         />
       )}
       renderOptions={({ options, setOptions }) => (
-        <section className="space-y-3">
-          <SegmentedControl<CropScope>
-            label={strings.scopeLabel}
-            value={options.scope}
-            options={[
-              { value: "all", label: strings.scopeAll },
-              { value: "current", label: strings.scopeCurrent },
-            ]}
-            onChange={(scope) => setOptions({ scope })}
-          />
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {strings.scopeHint}
-          </p>
-        </section>
+        <CropScopePanel options={options} setOptions={setOptions} strings={strings} />
       )}
     />
   );

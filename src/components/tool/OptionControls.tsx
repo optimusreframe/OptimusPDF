@@ -3,6 +3,8 @@
 import { useId, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { colorName } from "@/lib/colorNames";
+import { useOptionalLanguage } from "@/lib/i18n";
 import { HIT_44 } from "@/components/ui/touchTarget";
 
 /**
@@ -246,6 +248,7 @@ export function ColorSwatches({
   colors,
   onChange,
 }: ColorSwatchesProps) {
+  const language = useOptionalLanguage();
   return (
     <div>
       <span className="ui-label mb-2 block text-muted-foreground">
@@ -260,14 +263,16 @@ export function ColorSwatches({
       >
         {colors.map((color) => {
           const active = color.toLowerCase() === value.toLowerCase();
+          // El nombre es el del color («Azul»), no su codigo hexadecimal.
+          const name = colorName(color, language);
           return (
             <button
               key={color}
               type="button"
               role="radio"
               aria-checked={active}
-              aria-label={color}
-              title={color}
+              aria-label={name}
+              title={name}
               onClick={() => onChange(color)}
               className={cn(
                 "size-9 rounded-full border-2 transition-all duration-200 ease-spring",

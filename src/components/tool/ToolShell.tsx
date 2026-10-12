@@ -5,16 +5,18 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
   type RefObject,
 } from "react";
+import Link from "next/link";
 import { AnimatePresence } from "motion/react";
-import { Info, SlidersHorizontal, X } from "lucide-react";
+import { Info, Layers, SlidersHorizontal, X } from "lucide-react";
 import { useScrollEdge } from "@/components/layout/useScrollEdge";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { ErrorBanner, type ErrorBannerAction } from "@/components/tool/ErrorBanner";
 import { blockedRunText, errorCopy } from "@/components/tool/errorCopy";
 import { FileDropzone } from "@/components/tool/FileDropzone";
@@ -29,8 +31,10 @@ import type { BatchReport } from "@/lib/pdf/batchReport";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { addRecentEntry } from "@/lib/recent";
+import { setHandoff } from "@/app/pdf-pro/proHandoff";
 import {
   downloadBlob,
+  isPdfFile,
   matchesAccept,
   toPdfError,
   type PdfErrorCode,
@@ -641,6 +645,20 @@ export function ToolShell<TOptions>({
 
   const showWorkspace = phase === "files" || phase === "options";
 
+  // «Abrir en PDF Pro» (Wave 7): con un PDF cargado, y «Seguir en PDF Pro» con el PDF resultado.
+  // El archivo pasa por la memoria de la pestana (`proHandoff`), nunca se sube ni se guarda.
+  const proCandidate = tool.slug !== "pdf-pro" ? files.find((file) => isPdfFile(file)) : undefined;
+  const proResult = useMemo(
+    () =>
+      phase === "done" &&
+      result &&
+      tool.slug !== "pdf-pro" &&
+      (result.blob.type === "application/pdf" || /\.pdf$/i.test(result.filename))
+        ? new File([result.blob], result.filename, { type: "application/pdf" })
+        : null,
+    [phase, result, tool.slug],
+  );
+
   // Primer archivo inservible (vacio, no PDF, danado, cifrado sin salida): bloquea «Procesar».
   const blockingFile = policy ? files.find((file) => isBlocking(checks.get(file), policy)) : undefined;
   const blockingCheck = blockingFile ? checks.get(blockingFile) : undefined;
@@ -1074,6 +1092,17 @@ export function ToolShell<TOptions>({
                   {files.length}
                 </span>
               ) : null}
+              {proCandidate && !blocked && !checking ? (
+                <Link
+                  href={toolHref("pdf-pro")}
+                  onClick={() => setHandoff(proCandidate, tool.slug, files.filter((file) => isPdfFile(file)).length)}
+                  title={files.length > 1 ? `${t.tool.openInPro}: ${proCandidate.name}` : undefined}
+                  className={buttonClasses("ghost", "sm", "ml-auto")}
+                >
+                  <Layers aria-hidden="true" className="size-4" />
+                  {t.tool.openInPro}
+                </Link>
+              ) : null}
             </div>
             <div ref={fileListRef}>
               <FileList
@@ -1229,6 +1258,18 @@ export function ToolShell<TOptions>({
             report={result.report}
             summary={result.summary}
             notices={result.notices}
+            continueAction={
+              proResult ? (
+                <Link
+                  href={toolHref("pdf-pro")}
+                  onClick={() => setHandoff(proResult, tool.slug)}
+                  className={buttonClasses("secondary", "md", "mt-2")}
+                >
+                  <Layers aria-hidden="true" className="size-4" />
+                  {t.tool.continueInPro}
+                </Link>
+              ) : null
+            }
           />
           {renderDone ? renderDone({ result, options }) : null}
         </>

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV === "development";
@@ -52,7 +53,20 @@ const contentSecurityPolicy = `
   upgrade-insecure-requests;
 `;
 
+/**
+ * Version de pdf.js: la URL del worker lleva `?v=<version>` (`PDF_WORKER_SRC`), asi se puede cachear un año sin que
+ * una actualizacion de la libreria sirva un worker de otra version.
+ */
+function pdfjsVersion(): string {
+  try {
+    return (JSON.parse(readFileSync("node_modules/pdfjs-dist/package.json", "utf8")) as { version: string }).version;
+  } catch {
+    return "0";
+  }
+}
+
 const nextConfig: NextConfig = {
+  env: { NEXT_PUBLIC_PDFJS_VERSION: pdfjsVersion() },
   async redirects() {
     return [
       // "/tools" era una copia exacta del catalogo que ya vive en "/"
@@ -68,6 +82,15 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      // Sin conexion: el worker de pdf.js (uno por documento abierto) y sus fuentes de reemplazo salen de la cache.
+      {
+        source: "/pdf.worker.min.mjs",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/standard_fonts/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=2592000" }],
+      },
       {
         source: "/(.*)",
         headers: [

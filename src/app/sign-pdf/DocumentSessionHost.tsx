@@ -69,6 +69,8 @@ export type DocumentSessionHostProps = {
   strings: SignStrings;
   /** Motivo por el que la descarga conjunta no esta disponible (varios documentos); `null` = sin aviso. */
   holdMessage: string | null;
+  /** Clases del contenedor de los flujos; por defecto el apilado de la herramienta suelta (`space-y-6`). */
+  className?: string;
   children: (context: DocumentSessionContext) => ReactNode;
 };
 
@@ -89,6 +91,7 @@ export function DocumentSessionHost({
   bridge,
   strings,
   holdMessage,
+  className = "space-y-6",
   children,
 }: DocumentSessionHostProps) {
   const docOrder = useMemo(() => docIdsOf(files), [files]);
@@ -362,7 +365,7 @@ export function DocumentSessionHost({
   ) : null;
 
   return (
-    <div className="space-y-6">
+    <div className={className}>
       {children({
         docId: activeId,
         file: activeFile,

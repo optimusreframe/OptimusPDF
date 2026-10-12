@@ -36,6 +36,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { StatusRegion } from "@/components/tool/liveRouting";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { Spinner } from "@/components/ui/Spinner";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -73,6 +74,7 @@ import {
   refitSoloRect,
 } from "@/app/sign-pdf/soloSignature";
 import { pageAspectOf } from "@/app/sign-pdf/pageAspect";
+import { useCanvasCompact } from "@/app/sign-pdf/canvasCompact";
 import { usePageImage } from "@/app/sign-pdf/usePageImage";
 import { useSignTextEditing, type SignTextEditConfig } from "@/app/sign-pdf/useSignTextEditing";
 import { ValueSuggestions } from "@/app/sign-pdf/ValueSuggestions";
@@ -166,6 +168,12 @@ const BORDERED_SM_COARSE = "pointer-coarse:before:-inset-y-[5px]";
  * ampliada del `::before` ya no hace falta y vuelve a la caja del boton.
  */
 const COARSE_TALL = "pointer-coarse:h-11 pointer-coarse:before:hidden";
+
+/**
+ * En movil la paleta de herramientas es `fixed` (9.25 rem sobre el borde inferior + su alto, hasta dos filas): al
+ * enfocar un control de la pagina, el navegador lo desplaza hasta dejarlo por encima de ella (WCAG 2.4.11).
+ */
+const ABOVE_FLOATING_PALETTE = "max-md:scroll-mb-48";
 
 const MAX_ZOOM = 3;
 /** Niveles de los botones de zoom (el pellizco admite cualquier valor entre 1 y `MAX_ZOOM`). */
@@ -494,6 +502,7 @@ function DocumentCanvasInner({
   sequence,
   textEdit,
 }: DocumentCanvasProps) {
+  const compact = useCanvasCompact();
   /** Recuento de paginas que da la pasada de miniaturas (la vista grande trae el suyo). */
   const [thumbPageCount, setThumbPageCount] = useState(0);
   const [thumbs, setThumbs] = useState<string[]>([]);
@@ -2226,14 +2235,24 @@ function DocumentCanvasInner({
         ? strings.soloPageSummary(pageSlots.length, pageTextFields.length)
         : strings.canvasPageSummary(pageSlots.length, pageTextFields.length);
 
+  const pendingUndoText = !pendingUndo
+    ? ""
+    : pendingUndo.kind === "slot"
+      ? solo
+        ? strings.soloSignatureDeletedNotice
+        : strings.fieldDeletedNotice
+      : pendingUndo.kind === "type"
+        ? strings.typeChangeClearedNotice(textTypeLabel(pendingUndo.toType))
+        : strings.textFieldDeletedNotice;
+
   return (
     <div ref={rootRef}>
       {/* Region viva SIEMPRE montada: herramienta activa, duplicados, saltos de campo. */}
-      <div role="status" aria-live="polite" className="sr-only" data-canvas-announcer="">
+      <StatusRegion text={announcement} className="sr-only" data-canvas-announcer="">
         {announcement}
-      </div>
+      </StatusRegion>
 
-      <div className="mb-4">
+      <div className={compact ? "sr-only" : "mb-4"} data-canvas-intro="">
         <h3 className="text-headline text-foreground">{strings.documentTitle}</h3>
         <p className="mt-1 text-footnote leading-relaxed text-muted-foreground">
           {solo ? strings.soloDocumentHint : strings.documentHint}
@@ -2357,7 +2376,12 @@ function DocumentCanvasInner({
       ) : (
         <div
           data-canvas-sticky=""
-          className="material-thick shadow-elevation-2 rounded-ios sticky top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] z-30 mb-3 flex flex-wrap items-center justify-between gap-x-1 gap-y-1 p-1 md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3"
+          className={cn(
+            "material-thick shadow-elevation-2 rounded-ios sticky z-30 mb-3 flex flex-wrap items-center justify-between gap-x-1 gap-y-1 p-1",
+            compact
+              ? "top-1"
+              : "top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3",
+          )}
         >
           {pinchZoomEnabled ? zoomGroup : <span />}
           <div className="flex items-center gap-1">
@@ -2473,7 +2497,7 @@ function DocumentCanvasInner({
           <Button
             variant="secondary"
             size="sm"
-            className={BORDERED_SM_COARSE}
+            className={cn(COARSE_TALL, ABOVE_FLOATING_PALETTE)}
             disabled={clearPageDisabled}
             onClick={clearPage}
           >
@@ -2486,6 +2510,7 @@ function DocumentCanvasInner({
           <Button
             variant="ghost"
             size="sm"
+            className={cn(COARSE_TALL, ABOVE_FLOATING_PALETTE)}
             disabled={clearAllDisabled}
             onClick={() => setConfirmClearAllOpen(true)}
           >
@@ -2884,18 +2909,10 @@ function DocumentCanvasInner({
       ) : null}
 
       {/* Region de estado siempre montada: solo cambia su contenido. */}
-      <div role="status" aria-live="polite">
+      <StatusRegion text={pendingUndoText}>
         {pendingUndo ? (
           <div className="animate-rise-in mt-3 flex items-center justify-between gap-3 rounded-ios-sm border border-white/14 bg-elevated px-3.5 py-2.5">
-            <span className="text-footnote text-muted-foreground">
-              {pendingUndo.kind === "slot"
-                ? solo
-                  ? strings.soloSignatureDeletedNotice
-                  : strings.fieldDeletedNotice
-                : pendingUndo.kind === "type"
-                  ? strings.typeChangeClearedNotice(textTypeLabel(pendingUndo.toType))
-                  : strings.textFieldDeletedNotice}
-            </span>
+            <span className="text-footnote text-muted-foreground">{pendingUndoText}</span>
             <Button
               ref={undoButtonRef}
               variant="ghost"
@@ -2910,7 +2927,7 @@ function DocumentCanvasInner({
             </Button>
           </div>
         ) : null}
-      </div>
+      </StatusRegion>
 
       {sequence?.hideThumbs ? (
         /* Vista continua: la tira de miniaturas de TODOS los documentos la pinta `DocumentSequence` en este hueco. */

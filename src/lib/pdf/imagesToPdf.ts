@@ -1,5 +1,18 @@
-import { PDFDocument, type PDFImage } from "@cantoo/pdf-lib";
-import JSZip from "jszip";
+import {
+  PDFDocument,
+  concatTransformationMatrix,
+  drawObject,
+  popGraphicsState,
+  pushGraphicsState,
+  type PDFImage,
+} from "@cantoo/pdf-lib";
+import { loadJSZip } from "@/lib/pdf/lazyZip";
+import {
+  orientationMatrix,
+  orientedSize,
+  readJpegOrientation,
+  type ExifOrientation,
+} from "@/lib/pdf/jpegOrientation";
 import { uniqueZipName, zipNameKey } from "@/lib/pdf/entryNames";
 import {
   PdfError,
@@ -62,22 +75,8 @@ const MARGINS: Record<ImageMargin, number> = {
  * pieza de canvas compartida por los tres motores de conversion
  * (`imagesToPdf`, `pdfToImages` y `scanToPdf`).
  */
-export function canvasToBlob(
-  canvas: HTMLCanvasElement,
-  type: string,
-  quality?: number,
-): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) resolve(blob);
-        else reject(new PdfError("unknown", "canvas.toBlob returned null"));
-      },
-      type,
-      quality,
-    );
-  });
-}
+import { canvasToBlob } from "@/lib/pdf/canvasBlob";
+export { canvasToBlob };
 
 type ImageKind = "jpeg" | "png" | "other";
 
@@ -136,19 +135,25 @@ async function rasterizeToPng(source: Blob): Promise<Uint8Array> {
   return readFileBytes(png);
 }
 
-/** Incrusta una imagen en el documento eligiendo el embebedor correcto. */
+type EmbeddedImage = { image: PDFImage; orientation: ExifOrientation };
+
+/**
+ * Incrusta una imagen en el documento eligiendo el embebedor correcto. Un JPEG se incrusta tal cual (pdf-lib no mira
+ * EXIF): se devuelve su orientacion para dibujarlo girado. Las demas rutas ya salen derechas: el navegador aplica la
+ * orientacion al decodificar (`createImageBitmap`, `imageOrientation: "from-image"` por defecto).
+ */
 async function embedImage(
   document: PDFDocument,
   source: Blob,
-): Promise<PDFImage> {
+): Promise<EmbeddedImage> {
   const bytes = await readFileBytes(source);
   if (bytes.byteLength === 0) throw new PdfError("invalidType");
 
   const kind = detectImageKind(bytes);
   try {
-    if (kind === "jpeg") return await document.embedJpg(bytes);
-    if (kind === "png") return await document.embedPng(bytes);
-    return await document.embedPng(await rasterizeToPng(source));
+    if (kind === "jpeg") return { image: await document.embedJpg(bytes), orientation: readJpegOrientation(bytes) };
+    if (kind === "png") return { image: await document.embedPng(bytes), orientation: 1 };
+    return { image: await document.embedPng(await rasterizeToPng(source)), orientation: 1 };
   } catch (error) {
     if (error instanceof PdfError) throw error;
     // pdf-lib lanza errores de parseo propios cuando el archivo miente
@@ -196,9 +201,12 @@ function addImagePage(
   document: PDFDocument,
   image: PDFImage,
   layout: ImageLayout,
+  orientation: ExifOrientation = 1,
 ): void {
-  const imageWidth = Math.max(1, image.width);
-  const imageHeight = Math.max(1, image.height);
+  // Dimensiones de la imagen YA girada: mandan en la orientacion automatica y en «Ajustar».
+  const shown = orientedSize(Math.max(1, image.width), Math.max(1, image.height), orientation);
+  const imageWidth = shown.width;
+  const imageHeight = shown.height;
   const { pageWidth, pageHeight, margin } = resolvePageBox(
     layout,
     imageWidth,
@@ -212,12 +220,15 @@ function addImagePage(
   const height = imageHeight * scale;
 
   const page = document.addPage([pageWidth, pageHeight]);
-  page.drawImage(image, {
-    x: (pageWidth - width) / 2,
-    y: (pageHeight - height) / 2,
-    width,
-    height,
-  });
+  const box = { x: (pageWidth - width) / 2, y: (pageHeight - height) / 2, width, height };
+  if (orientation === 1) {
+    page.drawImage(image, box);
+    return;
+  }
+  // Imagen con orientacion EXIF: se dibuja con la matriz que la gira (y la refleja si hace falta).
+  const name = page.node.newXObject("Image", image.ref);
+  const [a, b, c, d, e, f] = orientationMatrix(orientation, Math.max(1, image.width), Math.max(1, image.height), box);
+  page.pushOperators(pushGraphicsState(), concatTransformationMatrix(a, b, c, d, e, f), drawObject(name), popGraphicsState());
 }
 
 /**
@@ -234,8 +245,8 @@ export async function buildPdfFromImages(
 
   const document = await PDFDocument.create();
   for (let index = 0; index < sources.length; index += 1) {
-    const image = await embedImage(document, sources[index]);
-    addImagePage(document, image, layout);
+    const { image, orientation } = await embedImage(document, sources[index]);
+    addImagePage(document, image, layout, orientation);
     onProgress?.(((index + 1) / sources.length) * progressTo);
   }
   return document;
@@ -327,7 +338,8 @@ export async function imagesToPdf(
       return { blob, kind: "pdf", count: 1 };
     }
 
-    const zip = new JSZip();
+    const Zip = await loadJSZip();
+    const zip = new Zip();
     const used = new Set<string>();
 
     for (let position = 0; position < indices.length; position += 1) {

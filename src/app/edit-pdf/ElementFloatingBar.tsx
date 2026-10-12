@@ -69,6 +69,8 @@ export function barStateOf(item: EditShapeItem | EditImageItem): ElementBarState
 
 export type ElementFloatingBarProps = {
   stageRef: RefObject<HTMLElement | null>;
+  /** (W7-U6) Region con desplazamiento propio en la que vive el lienzo (PDF Pro); ausente = la ventana. */
+  boundsRef?: RefObject<HTMLElement | null>;
   clipRef: RefObject<HTMLElement | null>;
   hostRef: RefObject<HTMLElement | null>;
   /** Elemento seleccionado, o `null` (la barra sale). */
@@ -95,6 +97,7 @@ type Picker = "stroke" | "fill" | "highlight";
 
 export function ElementFloatingBar({
   stageRef,
+  boundsRef,
   clipRef,
   hostRef,
   selectionId,
@@ -395,6 +398,7 @@ export function ElementFloatingBar({
       label={strings.elementBarLabel}
       description={strings.barShortcuts}
       aboveSticky
+      boundsRef={boundsRef}
       onEscape={onEscape}
       onTabBackward={onTabBackward}
       onTabForward={onTabForward}

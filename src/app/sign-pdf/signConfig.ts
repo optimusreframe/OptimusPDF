@@ -1,4 +1,5 @@
-import JSZip from "jszip";
+import type JSZip from "jszip";
+import { loadJSZip } from "@/lib/pdf/lazyZip";
 import {
   MAX_SAFE_FILE_SIZE,
   PdfError,
@@ -192,7 +193,8 @@ export async function exportSignConfig(
   manifest: Omit<SignConfigManifest, "version">,
 ): Promise<Blob> {
   try {
-    const zip = new JSZip();
+    const Zip = await loadJSZip();
+    const zip = new Zip();
     zip.file(PDF_ENTRY_NAME, new Uint8Array(await file.arrayBuffer()));
     zip.file(
       MANIFEST_FILENAME,
@@ -227,7 +229,8 @@ export async function importSignConfig(
     // Bytes explicitos, no el `File` tal cual: `JSZip.loadAsync` resuelve
     // un Blob/File real via `FileReader`, que solo existe en el navegador
     // (mismo limite ya documentado en `pdfsToZip.ts`).
-    const zip = await JSZip.loadAsync(await zipFile.arrayBuffer()).catch(
+    const Zip = await loadJSZip();
+    const zip = await Zip.loadAsync(await zipFile.arrayBuffer()).catch(
       () => {
         throw new PdfError("invalidConfig");
       },
@@ -439,7 +442,8 @@ export async function exportSignConfigSet(
     const manifestIds = new Map(
       documents.map((doc, index) => [doc.id, `doc-${index + 1}`] as const),
     );
-    const zip = new JSZip();
+    const Zip = await loadJSZip();
+    const zip = new Zip();
     for (const [index, doc] of documents.entries()) {
       zip.file(
         configDocumentEntry(index),
@@ -616,7 +620,8 @@ export async function importSignConfigSet(
     if (zipFile.size > MAX_TOTAL_BYTES + 1024 * 1024) {
       throw new PdfError("invalidConfig");
     }
-    const zip = await JSZip.loadAsync(await zipFile.arrayBuffer()).catch(() => {
+    const Zip = await loadJSZip();
+    const zip = await Zip.loadAsync(await zipFile.arrayBuffer()).catch(() => {
       throw new PdfError("invalidConfig");
     });
     const entries = Object.values(zip.files);

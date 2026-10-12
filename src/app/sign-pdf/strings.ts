@@ -431,7 +431,7 @@ export type SignStrings = {
     name: string,
     missing: readonly ("signature" | "initials")[],
   ) => string;
-  vaultClearFailed: (stores: readonly ("vault" | "drafts" | "editDrafts")[]) => string;
+  vaultClearFailed: (stores: readonly ("vault" | "drafts" | "editDrafts" | "proDrafts")[]) => string;
 
   /* --- Varios documentos (W4-U1) --- */
   documentsLabel: string;
@@ -1022,7 +1022,9 @@ const es: SignStrings = {
           ? "firmas guardadas"
           : store === "editDrafts"
             ? "borradores del editor"
-            : "borradores",
+            : store === "proDrafts"
+              ? "borradores de PDF Pro"
+              : "borradores",
       )
       .join(" y ")}). Cierra las demás pestañas de OptimusPDF e inténtalo de nuevo.`,
 
@@ -1605,7 +1607,9 @@ const en: SignStrings = {
           ? "saved signatures"
           : store === "editDrafts"
             ? "editor drafts"
-            : "drafts",
+            : store === "proDrafts"
+              ? "PDF Pro drafts"
+              : "drafts",
       )
       .join(" and ")}). Close the other OptimusPDF tabs and try again.`,
 

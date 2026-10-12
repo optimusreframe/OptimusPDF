@@ -422,7 +422,7 @@ function buildPlacements(
  * hay huecos de imagen se acepta rellenar-y-descargar con al menos un
  * campo de texto lleno.
  */
-function multiReady(
+export function multiReady(
   options: SignToolOptions,
   documentKey: string | null,
 ): boolean {
@@ -1413,80 +1413,26 @@ export function SignToolClient() {
           />
 
           {withSequence(options.mode === "single" ? (
-            <>
-              <VaultNoticeLine notice={vaultNotice} />
-              <SoloFlow
-                key={docId}
-                file={file}
-                options={options}
-                setOptions={setOptions}
-                onCreateSignature={() => setComposerOpen(true)}
-                onOpenSaved={
-                  vaultEnabled
-                    ? () => {
-                        setVaultNotice(null);
-                        setVaultOpen(true);
-                      }
-                    : undefined
-                }
-                hasSaved={
-                  vaultEnabled &&
-                  vault.status === "ready" &&
-                  vault.entries.some((entry) => entry.signature !== null)
-                }
-                strings={strings}
-                editStrings={EDIT_STRINGS[language].inline}
-              />
-              <SignatureComposer
-                open={composerOpen}
-                onClose={() => setComposerOpen(false)}
-                strings={strings}
-                // La firma nueva se coloca sola en el lienzo (o, si ya habia una
-                // colocada, se ajusta a su proporcion): ver `DocumentCanvas`.
-                onSave={(draft: SignatureDraft) =>
-                  setOptions({ signaturePng: draft.dataUrl, ratio: draft.ratio })
-                }
-                onRemember={
-                  vaultEnabled
-                    ? (draft, who) => {
-                        void rememberDrafts(strings, {
-                          signerName: who.signerName,
-                          sourceDocument: file.name,
-                          signature: draft,
-                          initials: null,
-                        }).then(setVaultNotice);
-                      }
-                    : undefined
-                }
-              />
-              {vaultEnabled ? (
-                <SignatureVaultSheet
-                  open={vaultOpen}
-                  onClose={() => setVaultOpen(false)}
-                  strings={strings}
-                  need="signature"
-                  onCreateNew={() => {
-                    setVaultOpen(false);
-                    setComposerOpen(true);
-                  }}
-                  // Misma ruta que `onSave` del compositor: la firma elegida se
-                  // coloca sola en el lienzo (autocolocado de `DocumentCanvas`).
-                  onUse={(entry) => {
-                    if (!entry.signature) return;
-                    setOptions({
-                      signaturePng: vaultImageToDataUrl(entry.signature),
-                      ratio: entry.signature.ratio,
-                    });
-                    void touchVaultEntry(entry.id);
-                    setVaultOpen(false);
-                    setVaultNotice({
-                      text: strings.vaultApplied(entry.signerName),
-                      tone: "success",
-                    });
-                  }}
-                />
-              ) : null}
-            </>
+            <SoloSignatureSurface
+              flowKey={docId}
+              file={file}
+              options={options}
+              setOptions={setOptions}
+              strings={strings}
+              editStrings={EDIT_STRINGS[language].inline}
+              vaultEnabled={vaultEnabled}
+              hasSaved={
+                vaultEnabled &&
+                vault.status === "ready" &&
+                vault.entries.some((entry) => entry.signature !== null)
+              }
+              composerOpen={composerOpen}
+              onComposerOpenChange={setComposerOpen}
+              vaultOpen={vaultOpen}
+              onVaultOpenChange={setVaultOpen}
+              vaultNotice={vaultNotice}
+              onVaultNoticeChange={setVaultNotice}
+            />
           ) : (
             <MultiFlow
               key={docId}
@@ -1918,6 +1864,12 @@ export type MultiFlowProps = {
   seen?: SeenStore<SignToolOptions>;
   /** Varios documentos: control mismas/distintas, bloques por firmante y ceremonia por bloques. Ausente = un documento, la interfaz de siempre. */
   multi?: MultiDocs;
+  /**
+   * Guarda el borrador v1 de Firmar en IndexedDB mientras se trabaja (por defecto, si). El modo Firmar de
+   * PDF Pro lo apaga: ahi el borrador es el del propio documento de PDF Pro y la sesion de firma se descarta
+   * al salir (no se guardan dos borradores del mismo trabajo).
+   */
+  persistDraft?: boolean;
 };
 
 export function MultiFlow({
@@ -1929,6 +1881,7 @@ export function MultiFlow({
   editStrings,
   seen,
   multi,
+  persistDraft = true,
 }: MultiFlowProps) {
   const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
   const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
@@ -2151,6 +2104,7 @@ export function MultiFlow({
     // Un PDF que se abrio con contrasena (copia descifrada) NUNCA se guarda como borrador:
     // dejaria su contenido sin el cifrado en el navegador (Wave 6 · U3).
     const hasProgress =
+      persistDraft &&
       !inSession &&
       !isDecryptedCopy(file) &&
       (options.signers.length > 0 ||
@@ -2222,6 +2176,7 @@ export function MultiFlow({
     file,
     documentKey,
     inSession,
+    persistDraft,
     options.mode,
     options.signers,
     options.fields,
@@ -2769,6 +2724,125 @@ export function MultiFlow({
         ) : null}
       </div>
     </div>
+  );
+}
+
+export type SoloSignatureSurfaceProps = {
+  /** Clave del documento: el flujo se remonta al cambiar de documento (el compositor y el baul no). */
+  flowKey: string;
+  file: File | null;
+  options: SignToolOptions;
+  setOptions: (patch: Partial<SignToolOptions>) => void;
+  strings: SignStrings;
+  editStrings?: EditInlineStrings;
+  seen?: SeenStore<SignToolOptions>;
+  /** Baul de firmas encendido (ajuste `signatureVault`). */
+  vaultEnabled: boolean;
+  /** Hay alguna firma guardada que ofrecer. */
+  hasSaved: boolean;
+  composerOpen: boolean;
+  onComposerOpenChange: (open: boolean) => void;
+  vaultOpen: boolean;
+  onVaultOpenChange: (open: boolean) => void;
+  vaultNotice: VaultNotice | null;
+  onVaultNoticeChange: (notice: VaultNotice | null) => void;
+};
+
+/**
+ * «Solo yo» con todo lo que cuelga de la firma propia: el flujo sobre el lienzo, el compositor de la
+ * firma y la hoja del baul, con sus avisos. El estado (hojas abiertas, aviso del baul) lo pone quien
+ * lo monta: la herramienta suelta (`SignToolClient`) y el modo Firmar de PDF Pro (`SignEmbedded`)
+ * comparten ESTE mismo cuerpo, sin copiarlo.
+ */
+export function SoloSignatureSurface({
+  flowKey,
+  file,
+  options,
+  setOptions,
+  strings,
+  editStrings,
+  seen,
+  vaultEnabled,
+  hasSaved,
+  composerOpen,
+  onComposerOpenChange,
+  vaultOpen,
+  onVaultOpenChange,
+  vaultNotice,
+  onVaultNoticeChange,
+}: SoloSignatureSurfaceProps) {
+  return (
+    <>
+      <VaultNoticeLine notice={vaultNotice} />
+      <SoloFlow
+        key={flowKey}
+        file={file}
+        options={options}
+        setOptions={setOptions}
+        onCreateSignature={() => onComposerOpenChange(true)}
+        onOpenSaved={
+          vaultEnabled
+            ? () => {
+                onVaultNoticeChange(null);
+                onVaultOpenChange(true);
+              }
+            : undefined
+        }
+        hasSaved={hasSaved}
+        strings={strings}
+        editStrings={editStrings}
+        seen={seen}
+      />
+      <SignatureComposer
+        open={composerOpen}
+        onClose={() => onComposerOpenChange(false)}
+        strings={strings}
+        // La firma nueva se coloca sola en el lienzo (o, si ya habia una
+        // colocada, se ajusta a su proporcion): ver `DocumentCanvas`.
+        onSave={(draft: SignatureDraft) =>
+          setOptions({ signaturePng: draft.dataUrl, ratio: draft.ratio })
+        }
+        onRemember={
+          vaultEnabled
+            ? (draft, who) => {
+                void rememberDrafts(strings, {
+                  signerName: who.signerName,
+                  sourceDocument: file?.name ?? "",
+                  signature: draft,
+                  initials: null,
+                }).then(onVaultNoticeChange);
+              }
+            : undefined
+        }
+      />
+      {vaultEnabled ? (
+        <SignatureVaultSheet
+          open={vaultOpen}
+          onClose={() => onVaultOpenChange(false)}
+          strings={strings}
+          need="signature"
+          onCreateNew={() => {
+            onVaultOpenChange(false);
+            onComposerOpenChange(true);
+          }}
+          // Misma ruta que `onSave` del compositor: la firma elegida se
+          // coloca sola en el lienzo (autocolocado de `DocumentCanvas`).
+          onUse={(entry) => {
+            if (!entry.signature) return;
+            setOptions({
+              signaturePng: vaultImageToDataUrl(entry.signature),
+              ratio: entry.signature.ratio,
+            });
+            void touchVaultEntry(entry.id);
+            onVaultOpenChange(false);
+            onVaultNoticeChange({
+              text: strings.vaultApplied(entry.signerName),
+              tone: "success",
+            });
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

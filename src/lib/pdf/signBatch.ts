@@ -1,4 +1,4 @@
-import JSZip from "jszip";
+import { loadJSZip } from "@/lib/pdf/lazyZip";
 import type { BatchReport } from "@/lib/pdf/batchReport";
 import {
   PdfError,
@@ -7,7 +7,7 @@ import {
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { MAX_ZIP_FILES, MAX_ZIP_TOTAL_BYTES } from "@/lib/pdf/pdfsToZip";
+import { MAX_ZIP_FILES, MAX_ZIP_TOTAL_BYTES } from "@/lib/pdf/zipLimits";
 import {
   signedFilename,
   uniqueNames,
@@ -186,7 +186,8 @@ export async function signBatch<D extends SignBatchDocument>(
   // Varios documentos: ZIP con los buenos (aunque haya fallado alguno).
   const entryNames = uniqueNames(signed.map((item) => item.filename));
   try {
-    const zip = new JSZip();
+    const Zip = await loadJSZip();
+    const zip = new Zip();
     signed.forEach((item, position) => {
       zip.file(entryNames[position], item.bytes, { createFolders: false });
     });

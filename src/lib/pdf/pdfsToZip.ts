@@ -31,8 +31,8 @@ import {
  * 500 MB acumulados son generosos para el caso de uso real (agrupar varios
  * documentos) sin dejar pasar un caso patologico.
  */
-export const MAX_ZIP_FILES = 100;
-export const MAX_ZIP_TOTAL_BYTES = 500 * 1024 * 1024; // 500 MB
+import { MAX_ZIP_FILES, MAX_ZIP_TOTAL_BYTES } from "@/lib/pdf/zipLimits";
+export { MAX_ZIP_FILES, MAX_ZIP_TOTAL_BYTES };
 
 export { uniqueZipName, zipNameKey, type UniqueZipNameOptions } from "@/lib/pdf/entryNames";
 

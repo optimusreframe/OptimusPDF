@@ -3,12 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
-import { LevelCards } from "@/app/compress-pdf/LevelCards";
+import { CompressSummary } from "@/app/compress-pdf/CompressSummary";
+import { CompressOptionsPanel } from "@/app/compress-pdf/CompressOptionsPanel";
 import { COMPRESS_STRINGS } from "@/app/compress-pdf/strings";
-import { Checkbox } from "@/components/ui/Checkbox";
 import { useI18n, localeTag } from "@/lib/i18n";
 import {
-  MAX_SAFE_FILE_SIZE,
   formatFileSize,
   withSuffix,
   type ProgressCallback,
@@ -16,7 +15,6 @@ import {
 import {
   DEFAULT_COMPRESS_OPTIONS,
   compressPdf,
-  reductionPercent,
   type CompressOptions,
 } from "@/lib/pdf/compress";
 import { getTool } from "@/lib/tools-registry";
@@ -90,10 +88,6 @@ export function CompressToolClient() {
     [s.filenameSuffix],
   );
 
-  const reduction = stats
-    ? reductionPercent(stats.originalSize, stats.compressedSize)
-    : 0;
-
   return (
     <>
       <ToolShell<CompressOptions>
@@ -130,101 +124,26 @@ export function CompressToolClient() {
           </>
         )}
         renderOptions={({ files, options, setOptions }) => (
-          <>
-            <LevelCards
-              label={s.levelLabel}
-              value={options.level}
-              onChange={(level) => setOptions({ level })}
-              options={[
-                {
-                  value: "extreme",
-                  name: s.extremeName,
-                  hint: s.extremeHint,
-                },
-                {
-                  value: "recommended",
-                  name: s.recommendedName,
-                  hint: s.recommendedHint,
-                },
-                { value: "low", name: s.lowName, hint: s.lowHint },
-              ]}
-            />
-
-            <Checkbox
-              label={s.flattenModeLabel}
-              hint={s.flattenModeHint}
-              checked={options.mode === "flatten"}
-              onChange={(checked) =>
-                setOptions({ mode: checked ? "flatten" : "recompress" })
-              }
-            />
-
-            {options.mode === "flatten" &&
-            files[0] &&
-            files[0].size > MAX_SAFE_FILE_SIZE ? (
-              <p className="text-xs leading-relaxed text-destructive">
-                {s.largeFile}
-              </p>
-            ) : null}
-          </>
+          <CompressOptionsPanel
+            options={options}
+            setOptions={setOptions}
+            strings={s}
+            fileSize={files[0]?.size}
+          />
         )}
       />
 
       {stats ? (
         <div className="mx-auto w-full max-w-[1200px] px-4 pb-16 md:px-6">
-          <section className="glass rounded-ios p-5">
-            <h2 className="ui-label text-muted-foreground">
-              {s.summaryTitle}
-            </h2>
-            <p className="mt-1 truncate text-sm font-medium text-foreground">
-              {stats.filename}
-            </p>
-            <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-ios border border-white/10 bg-white/5 p-4">
-                <dt className="text-footnote text-muted-foreground">
-                  {s.beforeLabel}
-                </dt>
-                <dd className="mt-1 text-lg font-bold text-foreground tabular-nums">
-                  {formatFileSize(stats.originalSize, locale)}
-                </dd>
-              </div>
-              <div className="rounded-ios border border-white/10 bg-white/5 p-4">
-                <dt className="text-footnote text-muted-foreground">
-                  {s.afterLabel}
-                </dt>
-                <dd className="mt-1 text-lg font-bold text-foreground tabular-nums">
-                  {formatFileSize(stats.compressedSize, locale)}
-                </dd>
-              </div>
-              <div className="rounded-ios border border-white/10 bg-white/5 p-4">
-                <dt className="text-footnote text-muted-foreground">
-                  {s.reductionLabel}
-                </dt>
-                <dd
-                  className={
-                    reduction > 0
-                      ? "mt-1 text-lg font-bold text-success tabular-nums"
-                      : reduction < 0
-                        ? "mt-1 text-lg font-bold text-destructive tabular-nums"
-                        : "mt-1 text-lg font-bold text-foreground tabular-nums"
-                  }
-                >
-                  {reduction > 0
-                    ? `−${reduction}%`
-                    : reduction < 0
-                      ? `+${Math.abs(reduction)}%`
-                      : "0%"}
-                </dd>
-              </div>
-            </dl>
-            <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-              {!stats.alreadyOptimized
-                ? s.gainHint
-                : stats.mode === "flatten"
-                  ? s.flattenNoGainHint
-                  : s.noGainHint}
-            </p>
-          </section>
+          <CompressSummary
+            strings={s}
+            locale={locale}
+            filename={stats.filename}
+            originalSize={stats.originalSize}
+            compressedSize={stats.compressedSize}
+            mode={stats.mode}
+            alreadyOptimized={stats.alreadyOptimized}
+          />
         </div>
       ) : null}
     </>

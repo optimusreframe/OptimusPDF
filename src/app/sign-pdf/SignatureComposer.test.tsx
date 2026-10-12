@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   SignatureComposer,
   drawStrokeSegment,
@@ -560,5 +560,59 @@ describe("SignatureComposer — el trazo tactil no arrastra la hoja", () => {
     open();
     expect(canvas().hasAttribute("data-sheet-no-drag")).toBe(true);
     expect(canvas().className).toContain("touch-none");
+  });
+});
+
+describe("SignatureComposer — muestras de tinta accesibles (A11Y-5 y A11Y-6)", () => {
+  const swatches = () =>
+    within(screen.getAllByRole("radiogroup").find((group) => group.getAttribute("aria-label") === strings.inkLabel)!).getAllByRole("radio");
+  /** Tres muestras con nombre de color distinto (en el idioma activo), ninguna con un codigo hexadecimal. */
+  const expectColorNames = (radios: HTMLElement[]) => {
+    const names = radios.map((swatch) => swatch.getAttribute("aria-label") ?? "");
+    expect(names).toHaveLength(3);
+    expect(new Set(names).size).toBe(3);
+    for (const name of names) expect(name).not.toMatch(/#|^[0-9a-f]{6}$/i);
+    expect(names.join("|")).toMatch(/Negro|Black/);
+    expect(names.join("|")).toMatch(/Azul marino|Navy blue/);
+  };
+
+  it("modo dibujar: las muestras se llaman por su color (nunca por su codigo) y cada boton mide 44 px", () => {
+    open();
+    expectColorNames(swatches());
+    for (const swatch of swatches()) {
+      expect(swatch.getAttribute("aria-label")).not.toMatch(/^#/);
+      // El boton ES la zona tactil: size-11 = 44 px (la muestra visible es el circulo de dentro).
+      expect(swatch.className.split(/\s+/)).toContain("size-11");
+      expect(swatch.querySelector("span[aria-hidden='true']")).not.toBeNull();
+    }
+  });
+
+  it("modo escribir: lo mismo, y elegir una muestra la marca", () => {
+    open();
+    fireEvent.click(screen.getByRole("tab", { name: strings.modeType }));
+    const radios = swatches();
+    expectColorNames(radios);
+    for (const swatch of radios) expect(swatch.className.split(/\s+/)).toContain("size-11");
+    fireEvent.click(radios[1]);
+    expect(swatches()[1].getAttribute("aria-checked")).toBe("true");
+    expect(swatches()[0].getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("movil en pantalla completa (la barra bajo el lienzo): las muestras tambien miden 44 px y se llaman por su color", () => {
+    matching = [COARSE, FULLSCREEN];
+    open("signature");
+    expect(canvas().className).toContain("h-full");
+    expectColorNames(swatches());
+    for (const swatch of swatches()) {
+      expect(swatch.className.split(/\s+/)).toContain("size-11");
+      expect(swatch.querySelector("span[aria-hidden='true']")).not.toBeNull();
+    }
+    fireEvent.click(swatches()[2]);
+    expect(swatches()[2].getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("el grupo de tintas tiene nombre accesible", () => {
+    open();
+    expect(screen.getAllByRole("radiogroup").some((group) => group.getAttribute("aria-label") === strings.inkLabel)).toBe(true);
   });
 });

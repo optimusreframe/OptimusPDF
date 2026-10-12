@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { FileText, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { onSectionRequest } from "@/components/layout/activeSection";
+import { FeaturedToolCard } from "@/components/tool/FeaturedToolCard";
 import { ToolCatalogGrid, filterTools } from "@/components/tool/ToolCatalogGrid";
 import { useRecentEntries } from "@/hooks/useRecentEntries";
 import { useT } from "@/lib/i18n";
@@ -16,6 +17,7 @@ import {
   ACCENT_TEXT,
   TOOL_SLUGS,
   TOOLS,
+  getFeaturedTools,
   getTool,
   toolHref,
   type ToolSlug,
@@ -189,6 +191,14 @@ export function HomeView() {
           </kbd>
         )}
       </form>
+
+      {!searching ? (
+        <section className="mb-10" aria-label={t.home.featuredLabel}>
+          {getFeaturedTools().map((tool) => (
+            <FeaturedToolCard key={tool.slug} tool={tool} />
+          ))}
+        </section>
+      ) : null}
 
       {!searching && mostUsed.length > 0 ? (
         <section className="mb-12" aria-labelledby="most-used-title">

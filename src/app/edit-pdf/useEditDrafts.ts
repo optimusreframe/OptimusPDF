@@ -42,6 +42,11 @@ export type EditDraftsState = {
   dismissRestored: () => void;
   /** Huella del documento (id del borrador), o `null`. */
   id: string | null;
+  /**
+   * (W7-U6) Borra el borrador de este documento y descarta lo pendiente SIN tocar la sesion: lo usa PDF Pro al
+   * aplicar o descartar, para que el autoguardado no lo resucite al desmontarse el editor.
+   */
+  discard: () => Promise<void>;
 };
 
 /** Si buscar el borrador tarda mas, se abre el documento sin el (IndexedDB bloqueada). */
@@ -166,6 +171,12 @@ export function useEditDrafts({
     setDismissed(file);
   }, [discard, file, id]);
 
+  const discardDraft = useCallback(async () => {
+    if (id) {
+      await discard(id).catch(() => deleteEditDraft(id));
+    }
+  }, [discard, id]);
+
   return {
     checked,
     initialPage: current?.initialPage ?? 0,
@@ -174,5 +185,6 @@ export function useEditDrafts({
     startFresh,
     dismissRestored: () => setDismissed(file),
     id,
+    discard: discardDraft,
   };
 }
