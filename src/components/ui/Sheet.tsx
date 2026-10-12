@@ -231,6 +231,23 @@ function SheetPanel({
    * Entrada / salida
    * ---------------------------------------------------------------- */
 
+  const restoreFocusRef = useRef(restoreFocusOnClose);
+  useEffect(() => {
+    restoreFocusRef.current = restoreFocusOnClose;
+  });
+  const previousFocusRef = useRef<Element | null>(null);
+  const focusRestoredRef = useRef(false);
+  /** Devuelve el foco a quien abrio la hoja (una sola vez por cierre). Lo decide la accion que cierra la hoja. */
+  const restoreFocus = useCallback(() => {
+    if (focusRestoredRef.current) return;
+    focusRestoredRef.current = true;
+    // Se lee al CERRAR (no al montar): lo decide la accion que cierra la hoja.
+    if (restoreFocusRef.current && !restoreFocusRef.current()) return;
+    const previouslyFocused = previousFocusRef.current;
+    if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+      previouslyFocused.focus({ preventScroll: true });
+    }
+  }, []);
   const mountedRef = useRef(false);
   // Entrada (y re-entrada si el padre vuelve a abrir mientras salia).
   // Layout effect: el primer frame ya debe estar fuera de pantalla.
@@ -265,6 +282,10 @@ function SheetPanel({
   // a ese registro se ignora.
   useEffect(() => {
     if (isPresent) return;
+    // El foco vuelve a quien abrio la hoja AHORA, con el panel todavia en el DOM: si se hiciera al desmontar (limpieza
+    // del efecto de foco), React quitaria el panel con el foco dentro y el foco pasaria por <body> hasta que corriera
+    // esa limpieza (otra tarea: con CPU lenta se veia un fotograma; un lector de pantalla lo anuncia).
+    restoreFocus();
     // Si ya salimos por un gesto/cierre propio, solo hay que desmontar;
     // si no, salida por el mismo camino de la entrada.
     if (dismissedRef.current) {
@@ -362,26 +383,21 @@ function SheetPanel({
     };
   }, []);
 
-  const restoreFocusRef = useRef(restoreFocusOnClose);
+  // Si el padre vuelve a abrir mientras salia, el foco vuelve a la hoja.
   useEffect(() => {
-    restoreFocusRef.current = restoreFocusOnClose;
-  });
+    if (isPresent && focusRestoredRef.current) {
+      focusRestoredRef.current = false;
+      panelRef.current?.focus({ preventScroll: true });
+    }
+  }, [isPresent]);
   useEffect(() => {
-    const previouslyFocused = document.activeElement;
+    previousFocusRef.current = document.activeElement;
     const panel = panelRef.current;
     const target = initialFocus ? panel?.querySelector<HTMLElement>(initialFocus) : null;
     (target ?? panel)?.focus({ preventScroll: true });
     if (target instanceof HTMLInputElement && target.type === "text") target.select();
-    return () => {
-      // Se lee al CERRAR (no al montar): lo decide la accion que cierra la hoja.
-      if (restoreFocusRef.current && !restoreFocusRef.current()) return;
-      if (
-        previouslyFocused instanceof HTMLElement &&
-        previouslyFocused.isConnected
-      ) {
-        previouslyFocused.focus({ preventScroll: true });
-      }
-    };
+    // Respaldo: si la hoja se desmonta sin pasar por la salida (el padre la quita de golpe), se devuelve aqui.
+    return () => restoreFocus();
     // Solo al abrir: el foco inicial se decide una vez (`initialFocus` no cambia durante la vida de la hoja).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

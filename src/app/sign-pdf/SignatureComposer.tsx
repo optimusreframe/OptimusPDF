@@ -159,6 +159,24 @@ const FONT_FALLBACK_NOTICE = {
 } as const;
 
 /**
+ * Lista `font` sin las familias «X Fallback»: la cara de AJUSTE DE METRICAS que `next/font` declara junto a cada
+ * fuente web (`@font-face { font-family: "Caveat Fallback"; src: local(Arial) }`). No es una fuente de la firma, solo
+ * evita saltos de maquetacion mientras baja la real, y en un equipo sin Arial (Linux, Android, ChromeOS, el runner de
+ * CI) queda en estado "error" PARA SIEMPRE: `document.fonts.check()` devuelve entonces false para toda la pila aunque
+ * Caveat ya este cargada y el aviso de «la fuente no cargo» salia siempre. La disponibilidad se comprueba sobre las
+ * familias reales; si Caveat misma falla (red caida) sigue en la lista y `check` sigue siendo false: nunca una firma
+ * silenciosamente distinta. Si no hay nada que quitar (o no queda nada) devuelve `font` tal cual.
+ */
+export function withoutMetricFallbacks(font: string): string {
+  const match = /^(.*?\d(?:px|pt|em|rem))\s+(.+)$/.exec(font);
+  if (!match) return font;
+  const families = match[2].match(/"[^"]*"|'[^']*'|[^,]+/g)?.map((family) => family.trim()).filter(Boolean) ?? [];
+  const kept = families.filter((family) => !/^["']?[^"',]+ Fallback["']?$/.test(family));
+  if (kept.length === 0 || kept.length === families.length) return font;
+  return `${match[1]} ${kept.join(", ")}`;
+}
+
+/**
  * `true` si el canvas ya puede dibujar `text` con `font` sin caer en la fuente
  * de respaldo. Sin la API de fuentes (jsdom, navegadores muy viejos) no hay
  * nada que esperar.
@@ -167,7 +185,7 @@ export function signatureFontReady(font: string, text: string): boolean {
   const fonts = typeof document === "undefined" ? undefined : document.fonts;
   if (!fonts || typeof fonts.check !== "function") return true;
   try {
-    return fonts.check(font, text);
+    return fonts.check(withoutMetricFallbacks(font), text);
   } catch {
     return true;
   }
@@ -185,10 +203,11 @@ export function loadSignatureFont(
 ): Promise<boolean> {
   const fonts = typeof document === "undefined" ? undefined : document.fonts;
   if (!fonts || typeof fonts.load !== "function") return Promise.resolve(true);
+  const realFont = withoutMetricFallbacks(font);
   return new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => resolve(false), timeoutMs);
     fonts
-      .load(font, text)
+      .load(realFont, text)
       .then(() => fonts.ready)
       .then(() => {
         clearTimeout(timer);

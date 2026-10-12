@@ -52,8 +52,10 @@ export function CommandPalette({ open, onClose, commands, dynamicCommands, annou
       closeLabel={t.common.close}
       // El comando pudo llevar el foco a otra parte (una pagina, un panel): entonces no se le quita.
       restoreFocusOnClose={() => {
+        // La hoja devuelve el foco al EMPEZAR a salir (con su panel aun en el DOM): ahi el foco esta en el campo, en el
+        // propio panel (`run` se lo lleva) o en <body>; solo fuera de la hoja lo movio un comando.
         const active = document.activeElement;
-        return !active || active === document.body || active.closest("[data-pro-palette]") !== null;
+        return !active || active === document.body || active.closest('[data-pro-palette], [role="dialog"]') !== null;
       }}
     >
       <PaletteBody

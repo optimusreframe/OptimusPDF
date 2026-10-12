@@ -14,7 +14,7 @@ const PDF = path.join(__dirname, "..", "fixtures", "core-rotated-pages.pdf");
 const NAME = "Maria Gonzalez";
 const RUNS = 20;
 
-async function exportOnce(browser: Browser, delayMs: number, waitForFont: boolean) {
+async function exportOnce(browser: Browser, delayMs: number, waitForFont: boolean, withoutArial = false) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.addInitScript(() => {
     localStorage.setItem("optimuspdf.language", "es");
@@ -29,6 +29,16 @@ async function exportOnce(browser: Browser, delayMs: number, waitForFont: boolea
     } as typeof original;
   });
   const page = await context.newPage();
+  if (withoutArial) {
+    // Emula un equipo sin Arial (el runner Linux de CI, Android, ChromeOS): una cara `local(Arial)` (la «Caveat
+    // Fallback» que Next genera por defecto) quedaria en estado "error" y `document.fonts.check()` devolveria false
+    // para toda la pila aunque Caveat estuviera cargada. En macOS Arial existe, asi que se rompe a proposito.
+    await page.route("**/_next/static/**/*.css", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.text()).replaceAll("local(Arial)", "local(__sin_arial_instalado__)");
+      await route.fulfill({ response, body });
+    });
+  }
   // Solo se retrasa la fuente.
   await page.route("**/_next/static/media/*.woff2", async (route) => {
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -75,6 +85,13 @@ test.describe("firma escrita: la fuente exportada es la de la vista previa", () 
     expect(base.outcome).toBe("exported");
     reference = base.size!;
     expect(reference.width).toBeGreaterThan(100);
+  });
+
+  test("equipo sin Arial: con Caveat cargada se guarda sin aviso de fuente y con el mismo tamano", async ({ browser }) => {
+    const { outcome, size } = await exportOnce(browser, 0, true, true);
+    expect(outcome, "con la fuente cargada no debe salir el aviso de «la fuente no cargo»").toBe("exported");
+    expect(Math.abs(size!.width - reference.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(size!.height - reference.height)).toBeLessThanOrEqual(1);
   });
 
   for (const delay of [0, 1000, 6000]) {

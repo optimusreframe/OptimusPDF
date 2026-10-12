@@ -518,6 +518,33 @@ async function waitStill(page: Page): Promise<void> {
     .toBeGreaterThanOrEqual(4);
 }
 
+/**
+ * Espera a que el estado recien montado ESTE ASENTADO antes de auditarlo: ninguna animacion/transicion finita en curso
+ * (axe mediria el color a medio fundido: `#838383` sobre `#f7f7f7`, 3,5:1, en el runner de CI con la CPU lenta) y ningun
+ * indicador de carga con `role="status"` (la hoja aun sin pintar monta un `<svg role="status">` que NO es una region
+ * viva propia del modo, sino un estado transitorio). No falla por si misma: si algo no se asienta en 15 s (un spinner
+ * eterno es un defecto real), la auditoria lo informa tal cual.
+ */
+async function settleState(page: Page): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const finiteRunning = document
+            .getAnimations()
+            .filter((animation) => animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime as number)).length;
+          const loading = Array.from(document.querySelectorAll('svg[role="status"]')).filter((element) => {
+            const style = getComputedStyle(element);
+            return style.display !== "none" && style.visibility !== "hidden" && element.closest('[hidden],[aria-hidden="true"],[inert]') === null;
+          }).length;
+          return finiteRunning + loading;
+        }),
+      { intervals: [100], timeout: 15_000 },
+    )
+    .toBe(0)
+    .catch(() => undefined);
+}
+
 /** Cierra menus y hojas (todas las apiladas): Escape y, si la hoja no se va, su boton «Cerrar». */
 async function closeOverlays(page: Page, env: Env): Promise<void> {
   const dialogs = page.getByRole("dialog");
@@ -1163,6 +1190,7 @@ async function sweep(
         await ensurePhase(state.phase);
         await toBase(page, env, state.phase);
         await state.enter(page);
+        await settleState(page);
         await page.waitForTimeout(150);
         findings.push(...(await check(page, env, state)));
         visited.push(state.id);

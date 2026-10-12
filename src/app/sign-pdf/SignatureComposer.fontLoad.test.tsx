@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import {
   SIGNATURE_FONT_TIMEOUT_MS,
   SignatureComposer,
+  signatureFontReady,
+  withoutMetricFallbacks,
   type SignatureDraft,
 } from "@/app/sign-pdf/SignatureComposer";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
@@ -289,5 +291,93 @@ describe("SignatureComposer — la firma escrita espera a su fuente (N1)", () =>
     fireEvent.click(saveButton());
     expect(screen.getByRole("alert").textContent).toBe(strings.emptyWarning);
     expect(saveButton().hasAttribute("disabled")).toBe(false);
+  });
+});
+
+/*
+ * Equipo sin Arial (Linux, Android, ChromeOS, el runner de CI): `next/font` declara junto a Caveat la cara de ajuste
+ * de metricas «Caveat Fallback» (`src: local(Arial)`), que sin Arial queda en estado "error" para siempre y hace que
+ * `document.fonts.check()` devuelva false para TODA la pila aunque Caveat este cargada. El aviso de «la fuente no
+ * cargo» salia siempre. La disponibilidad se comprueba solo sobre las familias reales.
+ */
+describe("SignatureComposer — la cara de ajuste de metricas de next/font no cuenta como fuente de la firma", () => {
+  const FAMILY_STACK = `'${FAMILY}', '${FAMILY} Fallback'`;
+
+  function installFontsWithBrokenMetricFace(caveatLoaded: boolean): FakeFonts {
+    let resolveLoad: () => void = () => {};
+    // Mismo objeto que lee el lienzo simulado (`fonts.loaded`) para medir con Caveat o con el respaldo.
+    const state: FakeFonts = {
+      loaded: caveatLoaded,
+      loadCalls: [],
+      release: () => {
+        state.loaded = true;
+        resolveLoad();
+      },
+      fail: () => {},
+    };
+    fonts = state;
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: {
+        // La cara «… Fallback» esta en error: cualquier pila que la nombre da false, este Caveat cargada o no.
+        check: (font: string) => (font.includes("Fallback") ? false : font.includes(FAMILY) ? state.loaded : true),
+        load: (font: string) => {
+          if (font.includes("Fallback")) return Promise.reject(new Error("NetworkError"));
+          if (state.loaded) return Promise.resolve([]);
+          return new Promise<unknown[]>((resolve) => {
+            resolveLoad = () => resolve([]);
+          });
+        },
+        ready: Promise.resolve(),
+      },
+    });
+    return state;
+  }
+
+  beforeEach(() => {
+    document.documentElement.style.setProperty("--font-caveat", FAMILY_STACK);
+  });
+  afterEach(() => {
+    document.documentElement.style.setProperty("--font-caveat", `'${FAMILY}'`);
+  });
+
+  it("withoutMetricFallbacks quita solo las familias «X Fallback» y respeta el resto", () => {
+    expect(withoutMetricFallbacks('96px "Caveat", "Caveat Fallback", cursive')).toBe('96px "Caveat", cursive');
+    expect(withoutMetricFallbacks("96px 'Caveat', 'Caveat Fallback'")).toBe("96px 'Caveat'");
+    expect(withoutMetricFallbacks('12px "Segoe Script", "Bradley Hand", cursive')).toBe('12px "Segoe Script", "Bradley Hand", cursive');
+    // Si solo hubiera esa cara no se deja la lista vacia.
+    expect(withoutMetricFallbacks('96px "Caveat Fallback"')).toBe('96px "Caveat Fallback"');
+    expect(withoutMetricFallbacks("cursive")).toBe("cursive");
+  });
+
+  it("Caveat cargada + cara de ajuste en error: la fuente se considera lista y se guarda al instante sin aviso", () => {
+    installFontsWithBrokenMetricFace(true);
+    openTyped();
+    fireEvent.click(saveButton());
+    expect(noticeText()).toBe("");
+    expect(saved).not.toBeNull();
+    expect(drawnFonts[0]).toContain(FAMILY);
+  });
+
+  it("Caveat aun sin cargar + cara de ajuste en error: SIGUE esperando y nunca exporta con el respaldo", async () => {
+    const font = installFontsWithBrokenMetricFace(false);
+    openTyped();
+    fireEvent.click(saveButton());
+    expect(saved).toBeNull();
+    expect(drawnFonts).toEqual([]);
+    expect(saveButton().getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      font.release();
+    });
+    expect(noticeText()).toBe("");
+    expect(saved).not.toBeNull();
+    expect(exportedSize().width).toBe(exportedWidth(CAVEAT_TEXT_WIDTH));
+  });
+
+  it("signatureFontReady: false si Caveat misma no esta (aunque la pila lleve la cara de ajuste)", () => {
+    installFontsWithBrokenMetricFace(false);
+    expect(signatureFontReady(`96px ${FAMILY_STACK}, cursive`, "Maria")).toBe(false);
+    installFontsWithBrokenMetricFace(true);
+    expect(signatureFontReady(`96px ${FAMILY_STACK}, cursive`, "Maria")).toBe(true);
   });
 });

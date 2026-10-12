@@ -202,9 +202,17 @@ async function run(page: Page, kind: "desktop" | "mobile", cdp?: CDPSession) {
   /* 4. Aplanar la pagina 1 (con confirmacion que explica las consecuencias). */
   const toggle = page.locator("[data-flatten-toggle]:visible");
   await expect(toggle).toHaveCount(1);
-  if (touch) await toggle.tap();
-  else await toggle.click();
   const dialog = page.getByRole("dialog");
+  // Con la CPU lenta (runner de CI) el toque cae mientras el panel aun se recoloca tras poner la imagen y se pierde
+  // (la captura del fallo muestra el boton visible y ninguna hoja): se repite el toque hasta que la hoja aparece,
+  // sin volver a pulsar si ya esta abierta (pulsar de nuevo cambiaria el estado).
+  await expect(async () => {
+    if ((await dialog.count()) === 0) {
+      if (touch) await toggle.tap({ timeout: 3000 });
+      else await toggle.click({ timeout: 3000 });
+    }
+    await expect(dialog).toBeVisible({ timeout: 2500 });
+  }).toPass({ timeout: 20_000 });
   await expect(dialog).toContainText("¿Aplanar la página 1?");
   await expect(dialog).toContainText("se convierte en una imagen");
   await expect(dialog).toContainText("no se puede deshacer");

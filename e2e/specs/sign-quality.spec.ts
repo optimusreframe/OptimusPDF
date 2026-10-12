@@ -74,22 +74,42 @@ async function suggestionState(page: Page) {
   };
 }
 
+/** `true` si el lienzo de dibujo ya tiene algun pixel de tinta (oscuro): el trazo llego al lienzo. */
+async function canvasHasInk(canvas: Locator): Promise<boolean> {
+  return canvas.evaluate((element) => {
+    const context = (element as HTMLCanvasElement).getContext("2d");
+    if (!context) return false;
+    const { data } = context.getImageData(0, 0, (element as HTMLCanvasElement).width, (element as HTMLCanvasElement).height);
+    for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 0 && data[i] < 160) return true;
+    return false;
+  });
+}
+
 async function drawSignature(page: Page) {
   const dialog = page.getByRole("dialog");
   const canvas = dialog.locator("canvas");
-  let box = await canvas.boundingBox();
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    await page.waitForTimeout(100);
-    const next = await canvas.boundingBox();
-    if (box && next && next.x === box.x && next.y === box.y) break;
-    box = next;
+  // La hoja entra con un muelle: con CPU lenta (runner de CI) un trazo hecho mientras aun se mueve cae FUERA del lienzo
+  // (el arrastre selecciona texto y «Usar esta firma» avisa de que no hay nada). Se espera a que la caja no cambie en
+  // varias lecturas seguidas y, si aun asi no hubo tinta, se vuelve a dibujar.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    let box = await canvas.boundingBox();
+    let same = 0;
+    for (let read = 0; read < 60 && same < 3; read += 1) {
+      await page.waitForTimeout(100);
+      const next = await canvas.boundingBox();
+      same = box && next && next.x === box.x && next.y === box.y && next.width === box.width && next.height === box.height ? same + 1 : 0;
+      box = next;
+    }
+    if (!box) throw new Error("no se encontro el lienzo de firma");
+    await page.mouse.move(box.x + 20, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + 20, { steps: 8 });
+    await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    if (await canvasHasInk(canvas)) break;
   }
-  if (!box) throw new Error("no se encontro el lienzo de firma");
-  await page.mouse.move(box.x + 20, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, box.y + 20, { steps: 8 });
-  await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20, { steps: 8 });
-  await page.mouse.up();
+  expect(await canvasHasInk(canvas), "el trazo debe dejar tinta en el lienzo antes de guardar").toBe(true);
   await dialog.getByRole("button", { name: "Usar esta firma" }).click();
   await expect(dialog).toBeHidden({ timeout: 15_000 });
 }
@@ -114,6 +134,42 @@ for (const dpr of [1, 2]) {
       expect(await image.getAttribute("src")).toMatch(/^blob:/);
 
       await image.scrollIntoViewIfNeeded();
+
+      // (1) El BITMAP que pone la aplicacion (lo que de verdad decide la nitidez) frente al pdf.js nativo del mismo
+      // navegador a su mismo tamano en pixeles: mismo motor y mismas opciones, asi que ha de ser identico. No depende
+      // del compositor (posicion fraccionaria, barra de desplazamiento clasica de Linux). En macOS sale SSIM 1, dif. 0.
+      const natural = await decodePngGray(
+        Buffer.from(
+          await image.evaluate(async (el: HTMLImageElement) => {
+            const blob = await (await fetch(el.src)).blob();
+            const url = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.readAsDataURL(blob);
+            });
+            return url.split(",")[1];
+          }),
+          "base64",
+        ),
+      );
+      const nativeReference = await renderNativeReference(page, bytes, 1, natural.width);
+      const nh = Math.min(natural.height, nativeReference.height);
+      const ny0 = Math.round(nh * 0.04);
+      const nhh = Math.round(nh * 0.5);
+      const bitmap = compareImages(crop(natural, 0, ny0, natural.width, nhh), crop(nativeReference, 0, ny0, nativeReference.width, nhh), {
+        margin: 10,
+        maxShift: 2,
+      });
+      expect(bitmap.ssim, `bitmap: ${JSON.stringify(bitmap)}`).toBeGreaterThan(0.999);
+      expect(bitmap.meanAbsDiff).toBeLessThan(0.5);
+      expect(bitmap.sharpnessRatio).toBeGreaterThan(0.98);
+
+      // (2) Lo que se VE (captura de la hoja ya compuesta). Depende de la plataforma (en el runner Linux sale
+      // SSIM 0,989 a DPR 1 y dif. media 1,48 a DPR 2; causa probable: remuestreo del compositor / barra de
+      // desplazamiento clasica de Linux sobre la hoja, no reproducible en macOS), asi que el umbral se fija MEDIDO con controles negativos (en macOS):
+      // desplazar 0,25 px da SSIM 0,962 (DPR 1) / 0,979 (DPR 2) y dif. 4,7 / 3,9; reescalar a 0,75, medio tamano o
+      // un JPEG de 900 px estirado dan SSIM 0,85-0,95, dif. >= 5,2 y nitidez 0,37-0,64. Se exige lo que ningun
+      // control cumple y el runner si: SSIM > 0,98, dif. < 2,5 y nitidez > 0,9 (CI: 0,989 / 1,48).
       const shot = await decodePngGray(await image.screenshot({ type: "png" }));
       const reference = await renderNativeReference(page, bytes, 1, shot.width);
       const h = Math.min(shot.height, reference.height);
@@ -123,9 +179,9 @@ for (const dpr of [1, 2]) {
         margin: 10,
         maxShift: 2,
       });
-      expect(result.ssim).toBeGreaterThan(0.995);
-      expect(result.meanAbsDiff).toBeLessThan(1);
-      expect(result.sharpnessRatio).toBeGreaterThan(0.95);
+      expect(result.ssim, `captura: ${JSON.stringify(result)}`).toBeGreaterThan(0.98);
+      expect(result.meanAbsDiff).toBeLessThan(2.5);
+      expect(result.sharpnessRatio).toBeGreaterThan(0.9);
       expect(errors).toEqual([]);
     });
 

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../helpers/tool-flow";
 import { makeViewerPdf } from "../helpers/viewer-pdfs";
@@ -24,10 +27,14 @@ test.setTimeout(120_000);
  * Ayudas
  * ------------------------------------------------------------------ */
 
-async function openDoc(page: Page, bytes: Buffer, name = "documento.pdf"): Promise<number> {
+/** `bytes` viaja por el protocolo (cuenta en la medida); con `{ filePath }` el navegador lee el archivo del disco. */
+async function openDoc(page: Page, bytes: Buffer | { filePath: string }, name = "documento.pdf"): Promise<number> {
   await page.goto("/pdf-pro");
   const started = Date.now();
-  await page.locator('input[type="file"]').first().setInputFiles({ name, mimeType: "application/pdf", buffer: bytes });
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles("filePath" in bytes ? bytes.filePath : { name, mimeType: "application/pdf", buffer: bytes });
   await expect(page.getByRole("heading", { level: 1, name: new RegExp(name.replace(".", "\\.")) })).toBeVisible();
   await expect(page.locator('article[data-state="ready"]').first()).toBeVisible({ timeout: 60_000 });
   return Date.now() - started;
@@ -228,20 +235,28 @@ test.describe("visor continuo · escritorio", () => {
     expect(openMs).toBeLessThan(5000);
   });
 
-  // Presupuesto: 6 s, no 3. `setInputFiles` transfiere el buffer de 40 MB de Node al navegador DENTRO de la medida y,
-  // con la maquina cargada, esa transferencia sola pasa de 2 s (fallo 4 de 6 corridas con 3 s). La apertura por ruta
-  // (sin transferencia) mide ~0,8 s; la medida fina de «primera pagina pintada» vive en `pdf-pro-perf.spec.ts`.
+  // Presupuesto: 6 s. El PDF se abre POR RUTA DE DISCO: pasar el buffer de 40 MB por el protocolo de Playwright
+  // (`setInputFiles({ buffer })`) cuenta DENTRO de la medida y en el runner de CI (2 trabajadores, CPU lenta) tardaba
+  // por si solo 8,5-9,1 s (medido igual en local con la CPU a 1/4: 8,5 s) aunque abrir el documento cuesta ~1 s.
+  // La medida fina de «primera pagina pintada» (< 3 s) vive en `pdf-pro-perf.spec.ts`.
   test("PDF de ~40 MB: abre en menos de 6 s y se desplaza", async ({ page }) => {
     const bytes = await makeViewerPdf(120, { noiseKb: 330 });
     expect(bytes.length).toBeGreaterThan(38_000_000);
-    const openMs = await openDoc(page, bytes, "pesado.pdf");
-    await page.waitForTimeout(1000);
-    const heap = await heapMB(page, true);
-    console.log(`[perf] PDF de ${(bytes.length / 1e6).toFixed(1)} MB: abrir ${openMs} ms; heap JS ${heap.toFixed(1)} MB tras recoger basura`);
-    expect(openMs).toBeLessThan(6000);
-    expect(heap, "heap JS con un PDF de ~40 MB").toBeLessThan(150);
-    await goTo(page, 90);
-    await expect(page.locator('article[data-page-index="89"]')).toHaveAttribute("data-state", "ready");
+    const dir = mkdtempSync(path.join(tmpdir(), "pro-viewer-"));
+    const filePath = path.join(dir, "pesado.pdf");
+    writeFileSync(filePath, bytes);
+    try {
+      const openMs = await openDoc(page, { filePath }, "pesado.pdf");
+      await page.waitForTimeout(1000);
+      const heap = await heapMB(page, true);
+      console.log(`[perf] PDF de ${(bytes.length / 1e6).toFixed(1)} MB: abrir ${openMs} ms; heap JS ${heap.toFixed(1)} MB tras recoger basura`);
+      expect(openMs).toBeLessThan(6000);
+      expect(heap, "heap JS con un PDF de ~40 MB").toBeLessThan(150);
+      await goTo(page, 90);
+      await expect(page.locator('article[data-page-index="89"]')).toHaveAttribute("data-state", "ready");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("miniaturas perezosas: solo las que se ven, y mas lejos solo al desplazarse", async ({ page }) => {

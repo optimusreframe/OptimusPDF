@@ -608,7 +608,8 @@ function ProSuiteBody({
                 <span className="font-semibold">{strings.drafts.foundTitle}. </span>
                 {strings.drafts.foundBody(draftOffer.steps, formatProDate(draftOffer.savedAt, language))}
               </p>
-              <div className="flex gap-2">
+              {/* `flex-wrap`: con una tipografia ancha (DejaVu en Linux) los dos botones no caben en 375 px y «Descartar» salia cortado. */}
+              <div className="flex flex-wrap gap-2">
                 <Button size="md" onClick={onRestoreDraft} aria-disabled={draftBusy || undefined}>
                   {draftBusy ? strings.drafts.restoring : strings.drafts.restore}
                 </Button>
