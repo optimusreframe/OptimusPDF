@@ -4,6 +4,15 @@ import type { NextConfig } from "next";
 const isDev = process.env.NODE_ENV === "development";
 
 /**
+ * `upgrade-insecure-requests` solo tiene sentido sobre https. WebKit (Safari y el WebKit de Playwright) lo aplica
+ * TAMBIEN a `http://localhost`: reescribe cada subrecurso a `https://localhost:<puerto>` (sin TLS), con lo que el CSS y
+ * los scripts no cargan y la pagina queda en blanco. Chrome y Firefox exentan los origenes de bucle local. Por eso la
+ * directiva se omite en desarrollo y, al construir, con `CSP_SKIP_UPGRADE_INSECURE=1` (pruebas E2E en WebKit contra una
+ * build de produccion servida por http). Un despliegue normal (sin esa variable) emite la directiva igual que siempre.
+ */
+const skipUpgradeInsecure = isDev || process.env.CSP_SKIP_UPGRADE_INSECURE === "1";
+
+/**
  * Dominios externos reales usados por este proyecto (verificados a mano
  * contra el codigo instalado y peticiones HTTP reales, no supuestos):
  *
@@ -49,8 +58,7 @@ const contentSecurityPolicy = `
   base-uri 'self';
   form-action 'self';
   frame-ancestors 'none';
-  manifest-src 'self';
-  upgrade-insecure-requests;
+  manifest-src 'self';${skipUpgradeInsecure ? "" : "\n  upgrade-insecure-requests;"}
 `;
 
 /**

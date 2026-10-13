@@ -303,7 +303,10 @@ for (const viewport of VIEWPORTS) {
       expect(await getPageText(bytes, 1)).toContain("Informe trimestral");
       const rendered = await renderPageToPixels(bytes, 1, 1);
       let yellow = 0;
-      const target = { r: 255, g: 250, b: 225, a: 255 };
+      // El color del INTERIOR del resaltado (amarillo con 40 % de opacidad sobre el blanco de la pagina). Antes se
+      // buscaba (255, 250, 225), que solo coincide con los pixeles antialias del borde: segun la fraccion de punto en
+      // que cae el borde (cambia de un motor a otro en 0,3 pt) salian 85 o 0 coincidencias aunque el resaltado estaba.
+      const target = { r: 255, g: 249, b: 200, a: 255 };
       for (let y = 0; y < rendered.height; y += 3) {
         for (let x = 0; x < rendered.width; x += 3) {
           if (colorDistance(rendered.pixelAt(x, y), target) < 14) yellow += 1;

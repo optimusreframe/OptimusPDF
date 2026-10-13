@@ -48,6 +48,50 @@ describe("proHistoryStore", () => {
     }
   });
 
+  it("si el navegador rechaza Blob en IndexedDB (Safari en modo privado), reintenta con bytes y no vuelve a probar Blob", async () => {
+    const original = IDBObjectStore.prototype.put;
+    let blobAttempts = 0;
+    IDBObjectStore.prototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (value && typeof value === "object" && (value as { data?: unknown }).data instanceof Blob) {
+        blobAttempts += 1;
+        throw new DOMException("Blob storage is not available", "UnknownError");
+      }
+      return original.call(this, value, key);
+    } as typeof IDBObjectStore.prototype.put;
+    try {
+      const store = make({ sessionId: "safari-privado" });
+      const first = fakeBytes(5000, 3);
+      first[4999] = 77;
+      await store.put("a", first);
+      expect(blobAttempts).toBe(1);
+      const back = await store.get("a");
+      expect(back?.byteLength).toBe(5000);
+      expect(back![4999]).toBe(77);
+
+      await store.put("b", fakeBytes(300, 9));
+      expect(blobAttempts, "tras fallar una vez, los demas pasos ya no intentan Blob").toBe(1);
+      expect((await store.get("b"))?.byteLength).toBe(300);
+    } finally {
+      IDBObjectStore.prototype.put = original;
+    }
+  });
+
+  it("sin espacio de verdad (QuotaExceededError) no se reintenta: rechaza para que el documento degrade con aviso", async () => {
+    const original = IDBObjectStore.prototype.put;
+    let attempts = 0;
+    IDBObjectStore.prototype.put = function () {
+      attempts += 1;
+      throw new DOMException("sin espacio", "QuotaExceededError");
+    } as typeof IDBObjectStore.prototype.put;
+    try {
+      const store = make({ sessionId: "sin-espacio" });
+      await expect(store.put("a", fakeBytes(5000))).rejects.toMatchObject({ name: "QuotaExceededError" });
+      expect(attempts).toBe(1);
+    } finally {
+      IDBObjectStore.prototype.put = original;
+    }
+  });
+
   it("un id que no existe devuelve null; remove y clear no fallan con ids inexistentes", async () => {
     const store = make();
     expect(await store.get("nada")).toBeNull();

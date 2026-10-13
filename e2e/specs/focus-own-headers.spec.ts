@@ -19,17 +19,33 @@ const FAKE_CAMERA_Y4M = path.resolve(__dirname, "..", "fixtures", "fake-camera.y
 
 // La camara falsa (la misma de scan-to-pdf.spec.ts) vale para todo el archivo: `launchOptions` no se puede fijar
 // por bloque. Las demas herramientas no piden camara, asi que no les afecta.
+// Cada motor tiene su camara de prueba: Chromium usa los argumentos de abajo, WebKit trae dispositivos simulados
+// propios (basta darle el permiso) y Firefox, sus preferencias `media.navigator.*`. Playwright no admite el permiso
+// «camera» en Firefox (lanza «Unknown permission»), asi que ahi se omite.
 test.use({
   locale: "es-ES",
   viewport: { width: 1280, height: 800 },
-  permissions: ["camera"],
-  launchOptions: {
-    args: [
-      "--use-fake-device-for-media-stream",
-      "--use-fake-ui-for-media-stream",
-      `--use-file-for-fake-video-capture=${FAKE_CAMERA_Y4M}`,
-    ],
+  permissions: async ({ browserName }, provide) => {
+    await provide(browserName === "firefox" ? [] : ["camera"]);
   },
+  launchOptions: [
+    async ({ browserName }, provide) => {
+      if (browserName === "chromium") {
+        await provide({
+          args: [
+            "--use-fake-device-for-media-stream",
+            "--use-fake-ui-for-media-stream",
+            `--use-file-for-fake-video-capture=${FAKE_CAMERA_Y4M}`,
+          ],
+        });
+      } else if (browserName === "firefox") {
+        await provide({ firefoxUserPrefs: { "media.navigator.streams.fake": true, "media.navigator.permission.disabled": true } });
+      } else {
+        await provide({});
+      }
+    },
+    { scope: "worker" },
+  ],
 });
 test.setTimeout(240_000);
 
@@ -402,9 +418,14 @@ test.describe("scan-to-pdf · el foco nunca pasa por <body>", () => {
   test(`error de camara: el aviso recibe el foco ×${REPS}`, async ({ page }) => {
     await installProbe(page);
     await page.addInitScript(() => {
-      navigator.mediaDevices.getUserMedia = async () => {
-        throw new DOMException("denegado", "NotAllowedError");
-      };
+      // En el prototipo, no en la instancia: WebKit descarta lo que se le asigna a `navigator.mediaDevices`.
+      Object.defineProperty(MediaDevices.prototype, "getUserMedia", {
+        configurable: true,
+        writable: true,
+        value: async () => {
+          throw new DOMException("denegado", "NotAllowedError");
+        },
+      });
     });
     for (let rep = 0; rep < REPS; rep += 1) {
       await page.goto("/scan-to-pdf");

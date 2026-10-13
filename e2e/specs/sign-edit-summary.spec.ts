@@ -3,6 +3,7 @@ import { PDFDocument, PDFName, StandardFonts } from "@cantoo/pdf-lib";
 import JSZip from "jszip";
 import { makeReceiptPdf } from "../../src/lib/pdf/testing/signSyntheticPdfs";
 import { downloadFile } from "../helpers/downloads";
+import { isBenignEngineNoise } from "../helpers/engine";
 import { getPageText } from "../helpers/pdf-inspection";
 import { SIGN_STRINGS } from "../../src/app/sign-pdf/strings";
 import { SIGN_EMBEDDED_STRINGS, withEmbeddedWording } from "../../src/app/sign-pdf/signEmbeddedStrings";
@@ -43,9 +44,11 @@ const SUMMARY_REMAINS = "1 texto editado: no se pudo quitar el original (más ab
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    if (message.type() === "error" && !isBenignEngineNoise(message.text())) errors.push(message.text());
   });
-  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("pageerror", (error) => {
+    if (!isBenignEngineNoise(error.message)) errors.push(error.message);
+  });
   return errors;
 }
 

@@ -114,6 +114,28 @@ describe("constantes", () => {
 });
 
 describe("guardar y cargar", () => {
+  it("el guardado pequeno (el que sobrevive a `beforeunload`) pide confirmar la transaccion YA, y el borrador queda guardado", async () => {
+    // WebKit: sin `commit()` la transaccion se confirma al quedar ocioso el bucle de eventos y una recarga desde
+    // `beforeunload` se llevaba por delante la orden (~1 de cada 5 en el WebKit de Playwright).
+    const commit = vi.spyOn(IDBTransaction.prototype, "commit");
+    const p = params(7);
+    await expect(saveProDraft(p)).resolves.toEqual({ ok: true });
+    expect(commit).toHaveBeenCalled();
+    const loaded = await loadProDraft(idOf(7));
+    expect(loaded.ok).toBe(true);
+  });
+
+  it("en un navegador sin `IDBTransaction.commit` (antiguo) se guarda igual: se confirma sola", async () => {
+    const original = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "commit");
+    Object.defineProperty(IDBTransaction.prototype, "commit", { configurable: true, value: undefined });
+    try {
+      await expect(saveProDraft(params(8))).resolves.toEqual({ ok: true });
+      expect((await loadProDraft(idOf(8))).ok).toBe(true);
+    } finally {
+      if (original) Object.defineProperty(IDBTransaction.prototype, "commit", original);
+    }
+  });
+
   it("round-trip: bytes, historial ligero, pagina y nombre", async () => {
     const p = params(1);
     await expect(saveProDraft(p)).resolves.toEqual({ ok: true });

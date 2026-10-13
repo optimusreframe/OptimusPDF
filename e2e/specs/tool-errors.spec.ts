@@ -780,7 +780,8 @@ test.describe("movil tactil 375x812 · objetivos y hoja", () => {
   });
 
   for (const slug of ["split-pdf", "compress-pdf", "crop-pdf"] as const) {
-    test(`${slug}: con la hoja de opciones abierta, el «Procesar» de la barra de fondo NO esta en el arbol de accesibilidad`, async ({ page }) => {
+    test(`${slug}: con la hoja de opciones abierta, el «Procesar» de la barra de fondo NO esta en el arbol de accesibilidad`, async ({ page, browserName }) => {
+      test.skip(browserName !== "chromium", "el arbol de accesibilidad real se pide por CDP (Accessibility.getFullAXTree), solo Chromium");
       await open(page, slug);
       await upload(page, { name: "doc.pdf", mimeType: "application/pdf", buffer: await buildGood(3) });
       const opciones = page.getByRole("button", { name: T.openOptions, exact: true });

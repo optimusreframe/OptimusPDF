@@ -7,6 +7,7 @@
  */
 import { expect, test as base, type Locator, type Page } from "@playwright/test";
 import { downloadFile } from "./downloads";
+import { isBenignEngineNoise } from "./engine";
 
 /** Errores de consola y excepciones no capturadas de la pagina durante la prueba. */
 export const test = base.extend<{ consoleErrors: string[] }>({
@@ -14,9 +15,11 @@ export const test = base.extend<{ consoleErrors: string[] }>({
     async ({ page }, use) => {
       const errors: string[] = [];
       page.on("console", (message) => {
-        if (message.type() === "error") errors.push(`console: ${message.text()}`);
+        if (message.type() === "error" && !isBenignEngineNoise(message.text())) errors.push(`console: ${message.text()}`);
       });
-      page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+      page.on("pageerror", (error) => {
+        if (!isBenignEngineNoise(error.message)) errors.push(`pageerror: ${error.message}`);
+      });
       await use(errors);
       expect(errors, "la pagina no debe escribir errores en la consola").toEqual([]);
     },

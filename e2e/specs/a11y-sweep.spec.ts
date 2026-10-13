@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import path from "node:path";
+import { tabKey } from "../helpers/engine";
 
 /**
  * W6-C · Barrido de accesibilidad del sistema (reutilizable).
@@ -200,7 +201,7 @@ test.describe("teclado: saltar al contenido y 64 Tab sin foco en <body>", () => 
           // --- 64 Tab desde el inicio del documento
           const trail: Array<{ name: string; body: boolean; last: boolean; geometry: { x: number; y: number; w: number; h: number; vw: number } }> = [];
           for (let i = 0; i < 64; i += 1) {
-            await page.keyboard.press("Tab");
+            await page.keyboard.press(tabKey(page));
             trail.push(
               await page.evaluate(() => {
                 const sel =
@@ -241,10 +242,10 @@ test.describe("teclado: saltar al contenido y 64 Tab sin foco en <body>", () => 
 
           // --- Enter sobre el enlace: el foco va a <main> y el siguiente Tab cae dentro
           await load(page, route);
-          await page.keyboard.press("Tab");
+          await page.keyboard.press(tabKey(page));
           await page.keyboard.press("Enter");
           expect(await page.evaluate(() => document.activeElement?.id)).toBe("content");
-          await page.keyboard.press("Tab");
+          await page.keyboard.press(tabKey(page));
           expect(await page.evaluate(() => !!document.querySelector("main#content")?.contains(document.activeElement))).toBe(true);
         } finally {
           await context.close();

@@ -325,6 +325,27 @@ describe("planCaptureChunks", () => {
 });
 
 describe("planPageSlices", () => {
+  it("un documento corto que se pasa de la pagina por el redondeo del alto NO saca una pagina extra (Retina, escala 2)", () => {
+    // Pagina A4 con margen pequeno: 769,89 pt de area util = 1026,52 px CSS; el alto medido es entero (1027) y a escala 2
+    // el canvas mide 2054 filas frente a 2053,04 de banda: un resto de 1 fila que antes era una segunda pagina en blanco.
+    expect(planPageSlices(2054, 1026.52 * 2)).toHaveLength(2); // sin tolerancia (comportamiento previo)
+    expect(planPageSlices(2054, 1026.52 * 2, 2)).toEqual([{ y: 0, height: 2053 }]);
+    // Escala 1,5 (DPR 1 + 0,5): el resto ya se perdia por redondeo y sigue igual con o sin tolerancia.
+    expect(planPageSlices(1540, 1026.52 * 1.5, 1.5)).toEqual([{ y: 0, height: 1540 }]);
+  });
+
+  it("un resto MAYOR que la tolerancia es contenido real y se conserva como pagina", () => {
+    expect(planPageSlices(2058, 1026.52 * 2, 2)).toEqual([
+      { y: 0, height: 2053 },
+      { y: 2053, height: 5 },
+    ]);
+    expect(planPageSlices(2500, 1000, 2)).toHaveLength(3);
+  });
+
+  it("nunca descarta la unica banda aunque sea mas baja que la tolerancia", () => {
+    expect(planPageSlices(1, 1000, 2)).toEqual([{ y: 0, height: 1 }]);
+  });
+
   it("reparte el canvas en bandas contiguas sin solape ni hueco", () => {
     const slices = planPageSlices(2500, 1000);
     expect(slices).toEqual([

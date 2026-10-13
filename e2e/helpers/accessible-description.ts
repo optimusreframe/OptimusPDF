@@ -1,4 +1,5 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { engineOf } from "./engine";
 
 /**
  * Descripcion accesible de un boton tal como la calcula Chromium (arbol de accesibilidad real, por CDP), no tal como la
@@ -30,6 +31,11 @@ export async function expectDescriptionWithoutRepeats(page: Page, buttonName = "
   const title = squash(await notices.getByRole("heading").first().innerText());
   const items = (await notices.locator("li").allInnerTexts()).map(squash);
   expect(items.length, "la pantalla trae al menos un aviso (si no, la prueba no mide nada)").toBeGreaterThan(0);
+  if (engineOf(page) !== "chromium") {
+    // El arbol de accesibilidad solo se puede pedir por CDP (Chromium): fuera de el solo se comprueba la parte de DOM.
+    test.info().annotations.push({ type: "sin-cobertura", description: "descripcion accesible del boton (CDP): solo Chromium" });
+    return "";
+  }
   const description = squash(await accessibleDescriptionOf(page, buttonName));
   expect(description, "el boton tiene descripcion accesible").not.toBe("");
   const occurrences = (needle: string) => description.split(needle).length - 1;

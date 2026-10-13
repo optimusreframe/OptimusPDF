@@ -50,6 +50,9 @@ async function exportOnce(browser: Browser, delayMs: number, waitForFont: boolea
       .locator('input[type="file"][accept*="pdf"]')
       .first()
       .setInputFiles(PDF);
+    // Con la hoja ya pintada: un clic justo despues de subir el archivo (mientras el documento aun se carga) se pierde
+    // en WebKit y la hoja de firma no se abre.
+    await page.locator('img[alt]:not([alt=""])').first().waitFor();
     await page.getByRole("button", { name: "Crear firma" }).first().click();
     await page.getByRole("tab", { name: "Escribir" }).click();
     if (waitForFont) {

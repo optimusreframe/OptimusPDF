@@ -46,7 +46,11 @@ export type ProHistoryStoreOptions = {
   sessionId?: string;
   /** Plazo para abrir la base antes de darla por no disponible. */
   openTimeoutMs?: number;
-  /** `false` evita guardar como Blob (entornos donde IndexedDB no lo clona). */
+  /**
+   * `false` evita guardar como Blob (entornos donde IndexedDB no lo clona). Con `true` (por defecto) el almacen prueba
+   * Blob y, si el navegador lo rechaza (Safari en modo privado o con la sesion efimera, y el WebKit de Playwright:
+   * la transaccion falla sin error), reintenta ese paso con bytes y no vuelve a usar Blob en esta sesion.
+   */
   useBlob?: boolean;
   /**
    * Desde que tamaño un snapshot se guarda TROCEADO por contenido (Wave 9, `proChunks`): solo se escriben los trozos
@@ -206,7 +210,8 @@ export function createProHistoryStore(options: ProHistoryStoreOptions = {}): Pro
   if (!proHistoryStoreSupported()) return null;
   const name = `${PRO_HISTORY_DB_PREFIX}${options.sessionId ?? randomSessionId()}`;
   const timeoutMs = options.openTimeoutMs ?? 4000;
-  const useBlob = options.useBlob ?? typeof Blob !== "undefined";
+  /** Se baja a `false` la primera vez que el navegador rechaza un Blob (ver `put`). */
+  let blobRows = options.useBlob ?? typeof Blob !== "undefined";
   const chunkMinBytes = options.chunkMinBytes ?? CHUNK_MIN_TOTAL_BYTES;
   let dbPromise: Promise<IDBDatabase> | null = null;
   let disposed = false;
@@ -314,18 +319,31 @@ export function createProHistoryStore(options: ProHistoryStoreOptions = {}): Pro
         }
       }
       const chunks = Math.max(1, Math.ceil(bytes.byteLength / CHUNK_BYTES));
-      const rows: ChunkRow[] = [];
-      for (let index = 0; index < chunks; index += 1) {
-        const part = bytes.subarray(index * CHUNK_BYTES, Math.min(bytes.byteLength, (index + 1) * CHUNK_BYTES));
-        rows.push({ id: `${id}:${index}`, data: useBlob ? new Blob([part as unknown as BlobPart]) : new Uint8Array(part) });
-        if (index + 1 < chunks) await yieldToMain();
+      const writeRows = async (asBlob: boolean): Promise<void> => {
+        const rows: ChunkRow[] = [];
+        for (let index = 0; index < chunks; index += 1) {
+          const part = bytes.subarray(index * CHUNK_BYTES, Math.min(bytes.byteLength, (index + 1) * CHUNK_BYTES));
+          rows.push({ id: `${id}:${index}`, data: asBlob ? new Blob([part as unknown as BlobPart]) : new Uint8Array(part) });
+          if (index + 1 < chunks) await yieldToMain();
+        }
+        if (disposed) throw new Error("almacen del historial cerrado");
+        const manifest: ManifestRow = { id, chunks, byteLength: bytes.byteLength };
+        await inTx("readwrite", (store) => {
+          for (const row of rows) store.put(row);
+          store.put(manifest);
+        });
+      };
+      if (!blobRows) return writeRows(false);
+      try {
+        await writeRows(true);
+      } catch (error) {
+        // Sin espacio de verdad o almacen cerrado: no se insiste (el documento de trabajo degrada con aviso).
+        if (disposed || (error instanceof DOMException && error.name === "QuotaExceededError")) throw error;
+        // Safari en modo privado / sesion efimera rechaza Blob en IndexedDB (la transaccion falla sin error). Con bytes
+        // si guarda: se reintenta este paso y los demas ya no prueban Blob.
+        blobRows = false;
+        await writeRows(false);
       }
-      if (disposed) throw new Error("almacen del historial cerrado");
-      const manifest: ManifestRow = { id, chunks, byteLength: bytes.byteLength };
-      await inTx("readwrite", (store) => {
-        for (const row of rows) store.put(row);
-        store.put(manifest);
-      });
     },
     async get(id) {
       const chunked: { value: ChunkedRead } = { value: { kind: "none" } };

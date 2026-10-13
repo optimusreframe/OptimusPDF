@@ -5,6 +5,7 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "../helpers/tool-flow";
 import { makeViewerPdf } from "../helpers/viewer-pdfs";
 import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
+import { engineOf, tabKey } from "../helpers/engine";
 
 /**
  * PDF Pro · shell y visor de desplazamiento continuo (Wave 7 · U3), navegador real y headless:
@@ -69,8 +70,13 @@ async function liveCounts(page: Page) {
   }));
 }
 
-/** Heap JS en uso (MB). Con `collect` se fuerza antes una recogida: sin ella cuenta basura aun no liberada. */
-async function heapMB(page: Page, collect = false): Promise<number> {
+/**
+ * Heap JS en uso (MB). Con `collect` se fuerza antes una recogida: sin ella cuenta basura aun no liberada.
+ * Solo Chromium lo expone (por CDP): en WebKit y Firefox devuelve `null` y las pruebas se saltan SOLO el presupuesto de
+ * memoria (el resto de lo que miden, virtualizacion y tiempos, se sigue comprobando).
+ */
+async function heapMB(page: Page, collect = false): Promise<number | null> {
+  if (engineOf(page) !== "chromium") return null;
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");
   if (collect) {
@@ -137,7 +143,7 @@ function describeViolations(violations: Awaited<ReturnType<typeof runAxe>>): str
 async function tabTrail(page: Page, count: number): Promise<string[]> {
   const trail: Array<{ name: string; body: boolean; last: boolean }> = [];
   for (let i = 0; i < count; i += 1) {
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(tabKey(page));
     trail.push(
       await page.evaluate(() => {
         const selector = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [tabindex], [contenteditable="true"]';
@@ -228,9 +234,9 @@ test.describe("visor continuo · escritorio", () => {
     const heapRaw = await heapMB(page);
     const heap = await heapMB(page, true);
     const counts = await liveCounts(page);
-    console.log(`[perf] 500 paginas: abrir ${openMs} ms; saltos: ${timings.join(" | ")}; pico de imagenes vivas ${peakImages}; heap JS ${heapRaw.toFixed(1)} MB (${heap.toFixed(1)} MB tras recoger basura); miniaturas con imagen ${counts.thumbs}`);
+    console.log(`[perf] 500 paginas: abrir ${openMs} ms; saltos: ${timings.join(" | ")}; pico de imagenes vivas ${peakImages}; heap JS ${heapRaw?.toFixed(1) ?? "n/d"} MB (${heap?.toFixed(1) ?? "n/d"} MB tras recoger basura); miniaturas con imagen ${counts.thumbs}`);
     expect(peakImages).toBeLessThanOrEqual(12);
-    expect(heap, "heap JS").toBeLessThan(150);
+    if (heap !== null) expect(heap, "heap JS").toBeLessThan(150);
     expect(counts.thumbs).toBeLessThanOrEqual(80);
     expect(openMs).toBeLessThan(5000);
   });
@@ -249,9 +255,9 @@ test.describe("visor continuo · escritorio", () => {
       const openMs = await openDoc(page, { filePath }, "pesado.pdf");
       await page.waitForTimeout(1000);
       const heap = await heapMB(page, true);
-      console.log(`[perf] PDF de ${(bytes.length / 1e6).toFixed(1)} MB: abrir ${openMs} ms; heap JS ${heap.toFixed(1)} MB tras recoger basura`);
+      console.log(`[perf] PDF de ${(bytes.length / 1e6).toFixed(1)} MB: abrir ${openMs} ms; heap JS ${heap?.toFixed(1) ?? "n/d"} MB tras recoger basura`);
       expect(openMs).toBeLessThan(6000);
-      expect(heap, "heap JS con un PDF de ~40 MB").toBeLessThan(150);
+      if (heap !== null) expect(heap, "heap JS con un PDF de ~40 MB").toBeLessThan(150);
       await goTo(page, 90);
       await expect(page.locator('article[data-page-index="89"]')).toHaveAttribute("data-state", "ready");
     } finally {
@@ -619,10 +625,11 @@ test.describe("visor continuo · movil 375 px tactil", () => {
     const counts = await liveCounts(page);
     expect(counts.articles).toBeLessThanOrEqual(16);
     expect(counts.images).toBeLessThanOrEqual(12);
-    console.log(`[perf] movil 500 paginas: heap JS ${(await heapMB(page)).toFixed(1)} MB`);
+    console.log(`[perf] movil 500 paginas: heap JS ${(await heapMB(page))?.toFixed(1) ?? "n/d"} MB`);
   });
 
-  test("pellizco emulado con dos toques: acerca y aleja anclado al punto", async ({ page }) => {
+  test("pellizco emulado con dos toques: acerca y aleja anclado al punto", async ({ page, browserName }) => {
+    test.skip(browserName !== "chromium", "el pellizco se emula con CDP (Input.dispatchTouchEvent), solo Chromium");
     await openDoc(page, await makeViewerPdf(10), "pellizco.pdf");
     const cdp = await page.context().newCDPSession(page);
     const touch = (type: "touchStart" | "touchMove" | "touchEnd", a?: [number, number], b?: [number, number]) =>

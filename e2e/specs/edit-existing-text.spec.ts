@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts, rgb } from "@cantoo/pdf-lib";
 import { downloadBytes } from "../helpers/downloads";
+import { isBenignEngineNoise, pointerClick } from "../helpers/engine";
 import { getPageCount, getPageText } from "../helpers/pdf-inspection";
 import { colorDistance, renderPageToPixels } from "../helpers/pdf-render-inspection";
 
@@ -66,9 +67,11 @@ test.describe("edit-pdf: edicion del texto existente", () => {
   test("editar en vivo, estilo, mover, deshacer/rehacer, borrar sobre color, texto nuevo y exportar", async ({ page }) => {
     const errors: string[] = [];
     page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
+      if (message.type() === "error" && !isBenignEngineNoise(message.text())) errors.push(message.text());
     });
-    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("pageerror", (error) => {
+      if (!isBenignEngineNoise(error.message)) errors.push(error.message);
+    });
 
     await openEditor(page);
     await expect(page.locator("[data-analysis-status]")).toHaveText("");
@@ -111,10 +114,10 @@ test.describe("edit-pdf: edicion del texto existente", () => {
     await expect(editor).toHaveText("Total pagado: 99,00");
 
     // 3. Estilo desde la barra flotante sin salir del editor (el foco sigue en el texto).
-    await page.getByRole("button", { name: "Aumentar el tamaño" }).click();
-    await page.getByRole("button", { name: "Negrita" }).click();
-    await page.getByRole("button", { name: "Elegir el color" }).click();
-    await page.getByRole("button", { name: "Color azul" }).click();
+    await pointerClick(page.getByRole("button", { name: "Aumentar el tamaño" }));
+    await pointerClick(page.getByRole("button", { name: "Negrita" }));
+    await pointerClick(page.getByRole("button", { name: "Elegir el color" }));
+    await pointerClick(page.getByRole("button", { name: "Color azul" }));
     await expect(editor).toBeFocused();
     await expect(page.getByRole("textbox", { name: "Tamaño en puntos" })).toHaveValue("15");
     await expect(page.getByRole("button", { name: "Negrita" })).toHaveAttribute("aria-pressed", "true");

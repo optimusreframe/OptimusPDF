@@ -2,8 +2,10 @@ import zlib from "node:zlib";
 import { expect, test, type CDPSession, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts, rgb } from "@cantoo/pdf-lib";
 import { downloadBytes } from "../helpers/downloads";
+import { isBenignEngineNoise } from "../helpers/engine";
 import { getPageCount, getPageText } from "../helpers/pdf-inspection";
 import { renderPageToPixels } from "../helpers/pdf-render-inspection";
+import { tabKey } from "../helpers/engine";
 
 /**
  * «Editar PDF» de punta a punta (Wave 5 · U5), en escritorio (1280 x 800, raton)
@@ -131,9 +133,11 @@ async function expectFocusNotOnBody(page: Page, label: string) {
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    if (message.type() === "error" && !isBenignEngineNoise(message.text())) errors.push(message.text());
   });
-  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("pageerror", (error) => {
+    if (!isBenignEngineNoise(error.message)) errors.push(error.message);
+  });
   return errors;
 }
 
@@ -282,7 +286,8 @@ test.describe("edit-pdf de punta a punta", () => {
 
   test.describe("movil 375 x 812 tactil", () => {
     test.use({ locale: "es-ES", viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
-    test("subir, editar texto existente, imagen y forma, aplanar, exportar, recargar y retomar", async ({ page, context }) => {
+    test("subir, editar texto existente, imagen y forma, aplanar, exportar, recargar y retomar", async ({ page, context, browserName }) => {
+      test.skip(browserName !== "chromium", "los arrastres tactiles usan CDP (Input.dispatchTouchEvent), solo Chromium");
       const cdp = await context.newCDPSession(page);
       await run(page, "mobile", cdp);
     });
@@ -383,7 +388,8 @@ test.describe("edit-pdf: PDF danado y exportacion cancelada", () => {
     await expect(page.getByRole("button", { name: /Seleccionar|Elegir/ }).first()).toBeVisible();
   });
 
-  test("cancelar la exportacion vuelve al editor con el trabajo intacto y un aviso NEUTRO (sin error ni «recuperamos»)", async ({ page, context }) => {
+  test("cancelar la exportacion vuelve al editor con el trabajo intacto y un aviso NEUTRO (sin error ni «recuperamos»)", async ({ page, context, browserName }) => {
+    test.skip(browserName !== "chromium", "frena la CPU con CDP (Emulation.setCPUThrottlingRate) para cazar la exportacion en curso: solo Chromium");
     await page.goto("/edit-pdf");
     await page.locator('input[type="file"]').first().setInputFiles({
       name: "largo.pdf",
@@ -451,7 +457,7 @@ test.describe("edit-pdf: teclado y barra flotante (escritorio)", () => {
     expect(await idOf()).toBe(startId);
 
     // Tab sale de la capa en UNA pulsacion (no recorre los 60 bloques).
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(tabKey(page));
     expect(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.elementKind ?? null)).not.toBe("text");
     // La descripcion accesible nombra los atajos, incluido Alt + flechas.
     const describedBy = await first.getAttribute("aria-describedby");

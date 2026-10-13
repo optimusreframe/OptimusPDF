@@ -12,6 +12,7 @@ import { SIGN_STRINGS } from "../../src/app/sign-pdf/strings";
 import { SIGN_EMBEDDED_STRINGS } from "../../src/app/sign-pdf/signEmbeddedStrings";
 import { FILL_EMBEDDED_STRINGS } from "../../src/app/sign-pdf/fillEmbeddedStrings";
 import { getModeStrings } from "../../src/app/pdf-pro/modes/modeStrings";
+import { clickUntil, stillBox } from "../helpers/engine";
 
 /**
  * PDF Pro · modos Firmar y Rellenar (Wave 7 · U7), navegador real y headless en 1280×800 y 375×812 tactil.
@@ -196,7 +197,12 @@ async function currentLabel(page: Page): Promise<string> {
 
 /** «Crear firma» -> compositor -> pestana Escribir -> nombre -> «Usar esta firma»: queda colocada en el lienzo. */
 async function createTypedSignature(page: Page, name: string): Promise<void> {
-  await page.getByRole("button", { name: SG.createSignature }).first().click();
+  // Un clic justo despues de abrir la herramienta puede perderse en WebKit (la pagina aun termina de montarse): se repite
+  // hasta que la hoja de firma esta abierta, como haria quien ve que no se abrio.
+  await expect(async () => {
+    if ((await page.getByRole("dialog").count()) === 0) await page.getByRole("button", { name: SG.createSignature }).first().click();
+    await expect(page.getByRole("dialog")).toBeVisible({ timeout: 2500 });
+  }).toPass({ timeout: 20_000 });
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("tab", { name: SG.modeType }).click();
   await dialog.getByLabel(SG.typeLabel, { exact: true }).fill(name);
@@ -207,7 +213,8 @@ async function createTypedSignature(page: Page, name: string): Promise<void> {
 /** Texto libre sobre la pagina visible con la herramienta Texto y su alternativa por boton. */
 async function addTextHere(page: Page, value: string): Promise<void> {
   await page.getByRole("toolbar", { name: SG.paletteLabel }).getByRole("button", { name: SG.fieldTypeText, exact: true }).click();
-  await page.getByRole("button", { name: SG.addTextFieldHere }).click();
+  const textboxes = await page.getByRole("textbox").count();
+  await clickUntil(page.getByRole("button", { name: SG.addTextFieldHere }), async () => (await page.getByRole("textbox").count()) > textboxes);
   const input = page.getByRole("textbox").last();
   await input.fill(value);
   // Escape cierra el editor y devuelve el foco al campo (nunca a <body>), conservando lo escrito.
@@ -507,14 +514,16 @@ for (const viewport of AXE_VIEWPORTS) {
       ["s", SE.switchSign, "Firmando"],
       ["f", SE.switchFill, "Rellenando"],
     ] as const) {
-      test(`pulsar ${key.toUpperCase()} con el foco en el visor entra en el modo y NO deja el foco en <body>`, async ({ page }) => {
+      test(`pulsar ${key.toUpperCase()} con el foco en el visor entra en el modo y NO deja el foco en <body>`, async ({ page, browserName }) => {
         // El visor solo recibe foco de teclado con un puntero fino: los atajos son de escritorio.
         test.skip(viewport.touch, "atajos de teclado: solo escritorio");
         await openProPdf(page, await buildForm(), "formulario.pdf");
         const scroller = page.locator("[data-pro-viewer-scroller]");
         await expect(scroller).toBeVisible();
-        await scroller.focus();
-        await expect(scroller).toBeFocused();
+        // Chromium deja enfocar el contenedor desplazable; Safari y Firefox no: ahi el foco del visor vive en sus paginas.
+        const inViewer = browserName === "chromium" ? scroller : page.locator('[data-pro-feed] [data-page-index="0"]');
+        await inViewer.focus();
+        await expect(inViewer).toBeFocused();
         await page.keyboard.press(key);
         await expect(page.locator("[data-pro-mode-host]")).toHaveAttribute("data-mode", "sign");
         await expect(page.locator("[data-pro-mode-name]")).toHaveText(name);
@@ -569,7 +578,8 @@ for (const viewport of AXE_VIEWPORTS) {
       await expectFocusNotBody(page, "tras descartar un modo limpio");
     });
 
-    test("la zona del modo se desplaza por si sola y la hoja se recorre con la rueda", async ({ page }) => {
+    test("la zona del modo se desplaza por si sola y la hoja se recorre con la rueda", async ({ page, browserName }) => {
+      test.skip(viewport.touch && browserName === "webkit", "Playwright no soporta mouse.wheel en WebKit movil (isMobile)");
       await openProPdf(page, await buildContract());
       await gotoTab(page, "sign");
       await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
@@ -581,7 +591,8 @@ for (const viewport of AXE_VIEWPORTS) {
       }));
       expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
       expect(metrics.bottom, "la zona cabe en la ventana").toBeLessThanOrEqual(metrics.innerHeight + 1);
-      const box = await page.locator("[data-pro-mode-scroll]").boundingBox();
+      // Quieta: con la zona aun acomodandose, la rueda cae sobre otro elemento y no desplaza nada (visto en WebKit).
+      const box = await stillBox(page.locator("[data-pro-mode-scroll]"));
       await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
       await page.mouse.wheel(0, 300);
       await expect.poll(() => page.locator("[data-pro-mode-scroll]").evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
@@ -790,7 +801,8 @@ test.describe("PDF Pro · modos Firmar y Rellenar · ingles", () => {
     await page.locator('[data-tab="sign"]').click();
     await expect(page.getByRole("region", { name: ee.regionLabel })).toBeVisible();
     await page.getByRole("toolbar", { name: en.paletteLabel }).getByRole("button", { name: en.fieldTypeText, exact: true }).click();
-    await page.getByRole("button", { name: en.addTextFieldHere }).click();
+    const textboxes = await page.getByRole("textbox").count();
+    await clickUntil(page.getByRole("button", { name: en.addTextFieldHere }), async () => (await page.getByRole("textbox").count()) > textboxes);
     await page.getByRole("textbox").last().fill("Hello");
     await page.keyboard.press("Escape");
     await page.locator("[data-pro-mode-apply]").click();

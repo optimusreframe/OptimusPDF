@@ -6,11 +6,38 @@ const PORT = Number(process.env.PW_PORT ?? 3000);
 const FAKE_CAMERA_Y4M = path.resolve(__dirname, "e2e/fixtures/fake-camera.y4m");
 
 /**
+ * Pruebas cruzadas OPCIONALES en WebKit (Safari) y Firefox. Por defecto NO existen (ni en local ni en CI): el
+ * conjunto que corre hoy es exactamente el de Chromium. Se activan con `PW_BROWSERS` (lista separada por comas):
+ *   all          -> webkit + webkit-mobile + firefox
+ *   webkit       -> Desktop Safari (WebKit de Playwright)
+ *   webkit-mobile-> iPhone 15 Pro (WebKit movil, tactil)
+ *   firefox      -> Desktop Firefox
+ * Cada proyecto cruzado corre solo los flujos principales (`CROSS_SPECS`); con `PW_CROSS_FULL=1` corre todos los
+ * specs (menos scan-to-pdf, que necesita la camara falsa de Chromium). Detalle y comandos: `docs/COMPATIBILIDAD-NAVEGADORES.md`.
+ */
+const CROSS = (process.env.PW_BROWSERS ?? "")
+  .split(",")
+  .map((token) => token.trim().toLowerCase())
+  .filter(Boolean);
+const wantsCross = (name: "webkit" | "webkit-mobile" | "firefox") => CROSS.includes("all") || CROSS.includes(name);
+const CROSS_SPECS =
+  /(pdf-pro-(foundation|viewer|viewer-damaged|pages|tools|export|export-persistent|modes-edit|modes-sign|create|journeys|unload|history-memory|memory|shared-content-edit)|pages-migration|pages-warnings|merge-pdf|split-pdf|organize-pdf|remove-extract-pages|edit-existing-text|edit-pdf-flow|sign-quality|sign-multi|signature-font|sign-edit-summary|exif-orientation|compress[\w-]*|protect-unlock|ocr-pdf|convert-out|image-conversion|a11y-sweep|tool-errors|focus-own-headers)\.spec\.ts$/;
+/** scan-to-pdf depende de `--use-fake-device-for-media-stream` (solo Chromium). */
+const crossMatch = process.env.PW_CROSS_FULL ? /(?<!scan-to-pdf)\.spec\.ts$/ : CROSS_SPECS;
+/**
+ * `webkit-mobile` (iPhone 15 Pro: agente de usuario de iOS, 393 px, DPR 3, tactil) deja fuera los specs con bloques de
+ * escritorio por diseno: rueda del raton (Playwright no la soporta en WebKit movil), arrastres con raton, la barra
+ * flotante de escritorio y las medidas de escritorio. Sus bloques moviles (375 px, tactil) ya corren en `webkit`.
+ */
+const MOBILE_EXCLUDED = /(compress[\w-]*|edit-pdf-flow|pdf-pro-viewer|pdf-pro-pages|pdf-pro-modes-sign|pdf-pro-memory|tool-errors)\.spec\.ts$/;
+
+/**
  * Suite E2E de navegador real para las rutas que dependen de pdfjs-dist /
  * canvas y no pueden ejercitarse en el entorno Node de Vitest
  * (compress, redact, compare, y el render compartido de core.ts via
- * pdf-to-jpg). Solo Chromium: mantiene el coste de CI bajo y es el motor
- * que ya se usa para el resto de verificacion manual de este proyecto.
+ * pdf-to-jpg). Por defecto (y en CI) solo Chromium: mantiene el coste de CI bajo
+ * y es el motor que ya se usa para el resto de verificacion manual de este
+ * proyecto. WebKit y Firefox son opcionales (ver `PW_BROWSERS` arriba).
  */
 export default defineConfig({
   testDir: "./e2e/specs",
@@ -42,7 +69,10 @@ export default defineConfig({
       ? `npm run build && npm run start -- -p ${PORT}`
       : `npm run dev -- -p ${PORT}`,
     url: `http://localhost:${PORT}`,
-    reuseExistingServer: !process.env.CI,
+    // WebKit aplica `upgrade-insecure-requests` tambien a http://localhost (pagina en blanco): ver next.config.ts.
+    env: wantsCross("webkit") || wantsCross("webkit-mobile") ? { CSP_SKIP_UPGRADE_INSECURE: "1" } : undefined,
+    // `PW_REUSE_SERVER=1` permite, incluso con CI=1, apuntar a una build de produccion ya levantada en PW_PORT.
+    reuseExistingServer: !process.env.CI || !!process.env.PW_REUSE_SERVER,
     timeout: process.env.CI ? 600_000 : 120_000,
   },
   projects: [
@@ -68,5 +98,14 @@ export default defineConfig({
       },
       testMatch: /scan-to-pdf\.spec\.ts$/,
     },
+    ...(wantsCross("webkit")
+      ? [{ name: "webkit", use: { ...devices["Desktop Safari"] }, testMatch: crossMatch }]
+      : []),
+    ...(wantsCross("webkit-mobile")
+      ? [{ name: "webkit-mobile", use: { ...devices["iPhone 15 Pro"] }, testMatch: crossMatch, testIgnore: MOBILE_EXCLUDED }]
+      : []),
+    ...(wantsCross("firefox")
+      ? [{ name: "firefox", use: { ...devices["Desktop Firefox"] }, testMatch: crossMatch }]
+      : []),
   ],
 });

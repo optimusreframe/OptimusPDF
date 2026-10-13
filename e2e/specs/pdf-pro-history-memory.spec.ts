@@ -166,15 +166,17 @@ test("los pasos fuera de la ventana van a IndexedDB; deshacer/rehacer los recupe
 test("si IndexedDB falla para el historial, se avisa (panel y region viva), deshacer sigue y los borradores no se tocan", async ({ page }) => {
   await page.addInitScript((prefix) => {
     // Solo las bases del historial fallan: los borradores (`optimuspdf-pro-drafts`) siguen funcionando.
-    const original = indexedDB.open.bind(indexedDB);
-    indexedDB.open = ((name: string, version?: number) => {
-      if (!name.startsWith(prefix)) return original(name, version);
+    // En el prototipo, no en la instancia: WebKit descarta lo que se le asigna a `indexedDB` (la prueba no fallaba
+    // el disco y el historial se guardaba con normalidad).
+    const original = IDBFactory.prototype.open;
+    IDBFactory.prototype.open = function (this: IDBFactory, name: string, version?: number) {
+      if (!name.startsWith(prefix)) return original.call(this, name, version);
       const request = { error: new DOMException("sin espacio", "QuotaExceededError") } as unknown as IDBOpenDBRequest & {
         onerror: ((event: Event) => void) | null;
       };
       setTimeout(() => request.onerror?.(new Event("error")), 0);
       return request;
-    }) as typeof indexedDB.open;
+    } as typeof IDBFactory.prototype.open;
   }, PREFIX);
   await openProPdf(page, { name: "sin-disco.pdf", pages: 2 });
   // Al segundo paso el Original sale de la ventana, el volcado falla y el aviso puede pisar al «Aplicado» al instante.

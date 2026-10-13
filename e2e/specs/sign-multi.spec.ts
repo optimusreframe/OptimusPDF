@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
 import JSZip from "jszip";
 import { downloadBytes } from "../helpers/downloads";
 import { getPageCount, getPageOperatorCounts } from "../helpers/pdf-inspection";
+import { stillBox } from "../helpers/engine";
 
 /**
  * Firmar VARIOS documentos a la vez (Wave 4): dos PDF, dos firmantes, huecos en
@@ -53,7 +54,8 @@ async function placeSlot(page: Page, signer: string, offsetY: number) {
   await page.getByRole("toolbar").first().getByRole("button", { name: "Firma" }).click();
   const surface = page.locator('img[alt]:not([alt=""])').first();
   await surface.scrollIntoViewIfNeeded();
-  const box = await surface.boundingBox();
+  // Quieta: tras cambiar de documento la hoja se repinta y WebKit tarda mas (un arrastre sobre la hoja vieja se pierde).
+  const box = await stillBox(surface);
   if (!box) throw new Error("no se encontro la pagina del lienzo");
   await page.mouse.move(box.x + 60, box.y + offsetY);
   await page.mouse.down();

@@ -516,6 +516,13 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
   );
 }
 
+/**
+ * `min-h-11` no basta en un `<select>` desplegable: Safari (WebKit) ignora `min-height` en el menu nativo y lo deja en
+ * ~23 px (por debajo de los 44 px tactiles). Los desplegables llevan ademas `h-11`; las listas (`size` > 1) no, para que
+ * `height` no les aplaste las filas.
+ */
+const DROPDOWN_HEIGHT_CLASS = "h-11";
+
 const CONTROL_CLASS =
   "min-h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-callout text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:opacity-60";
 
@@ -583,7 +590,7 @@ function ChoiceFields({
               </label>
               <select
                 id={controlId}
-                className={CONTROL_CLASS}
+                className={info.kind === "list" ? CONTROL_CLASS : `${CONTROL_CLASS} ${DROPDOWN_HEIGHT_CLASS}`}
                 disabled={info.readOnly}
                 multiple={multiple}
                 size={info.kind === "list" ? Math.min(Math.max(options.length, 2), 6) : undefined}

@@ -25,7 +25,10 @@ async function readDownload(download: Download): Promise<Buffer> {
   return fs.readFile(path);
 }
 
-/** Igual que `downloadBytes`, pero devuelve tambien el nombre que propone el navegador. */
+/**
+ * Igual que `downloadBytes`, pero devuelve tambien el nombre que propone el navegador. Se normaliza a NFC: WebKit en
+ * macOS propone el nombre en NFD (la «ñ» llega como «n» + tilde combinada), el mismo texto con otros bytes.
+ */
 export async function downloadFile(
   page: Page,
   action: () => Promise<void>,
@@ -34,5 +37,5 @@ export async function downloadFile(
     page.waitForEvent("download"),
     action(),
   ]);
-  return { bytes: await readDownload(download), filename: download.suggestedFilename() };
+  return { bytes: await readDownload(download), filename: download.suggestedFilename().normalize("NFC") };
 }

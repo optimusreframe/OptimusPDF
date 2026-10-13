@@ -263,7 +263,9 @@ for (const viewport of VIEWPORTS) {
     test("reordenar (arrastre real), girar, eliminar y duplicar: UN snapshot que conserva metadatos, formulario y marcadores, y se deshace de golpe", async ({
       page,
       context,
+      browserName,
     }) => {
+      test.skip(viewport.mobile && browserName !== "chromium", "el arrastre tactil usa CDP (Input.dispatchTouchEvent), solo Chromium");
       const bytes = Buffer.from(await makeRichPdf(RICH));
       await openProWith(page, env, bytes);
       await expectPageCount(page, 8);

@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { es } from "../../src/lib/locales/es";
 import { expect, openTool, runAndDownload, runButton, test, uploadFiles } from "../helpers/tool-flow";
+import { OCR_SCRIPT_FAILURE, isExternalNetworkUrl } from "../helpers/engine";
 import { getPageCount } from "../helpers/pdf-inspection";
 import { hasPdfHeader } from "../helpers/pdf-structure";
 import { makeImage, makePdf, pdfUpload } from "../helpers/test-files";
@@ -115,7 +116,7 @@ test.describe("pdf-to-text", () => {
   // como «8» o «é») y sin red a la CDN no terminaba nunca. Ahora el texto real manda y el OCR solo es para
   // paginas sin texto o que son una imagen. Se bloquea todo lo que no sea localhost (sin red al motor de OCR).
   test("una pagina con poco texto real conserva su texto exacto y termina aunque el OCR no pueda cargar (sin red)", async ({ page, context }) => {
-    await context.route((url) => url.hostname !== "localhost", (route) => route.abort());
+    await context.route(isExternalNetworkUrl, (route) => route.abort());
     await openTool(page, "pdf-to-text");
     await uploadFiles(
       page,
@@ -131,7 +132,7 @@ test.describe("pdf-to-text", () => {
   });
 
   test("paginas de un solo simbolo o palabra («&», «—», «1», «Fin.») conservan su texto con el OCR activado", async ({ page, context }) => {
-    await context.route((url) => url.hostname !== "localhost", (route) => route.abort());
+    await context.route(isExternalNetworkUrl, (route) => route.abort());
     await openTool(page, "pdf-to-text");
     await uploadFiles(page, pdfUpload("simbolos.pdf", await makePdf({ pages: 4, text: (index) => ["&", "—", "1", "Fin."][index] })));
     const { bytes } = await runAndDownload(page, { timeout: 15_000 });
@@ -141,7 +142,7 @@ test.describe("pdf-to-text", () => {
   });
 
   test("el aviso de una pagina sin OCR sale en espanol en una interfaz en espanol (txt y docx)", async ({ page, context, consoleErrors }) => {
-    await context.route((url) => url.hostname !== "localhost", (route) => route.abort());
+    await context.route(isExternalNetworkUrl, (route) => route.abort());
     const document = await PDFDocument.create();
     const image = await document.embedJpg(makeImage("jpeg", 300, 400, 7, 80));
     document.addPage([300, 400]).drawImage(image, { x: 0, y: 0, width: 300, height: 400 });
@@ -160,11 +161,11 @@ test.describe("pdf-to-text", () => {
     const word = await runAndDownload(page, { timeout: 40_000 });
     expect((await docxTexts(word.bytes)).texts.join(" ")).toContain("OCR no disponible para esta página");
     // Los intentos del motor de OCR avisan en consola de que su script no cargo: es lo que se provoca aqui.
-    consoleErrors.splice(0, consoleErrors.length, ...consoleErrors.filter((entry) => !/importScripts.*cdn\.jsdelivr\.net/.test(entry)));
+    consoleErrors.splice(0, consoleErrors.length, ...consoleErrors.filter((entry) => !OCR_SCRIPT_FAILURE.test(entry)));
   });
 
   test("PDF a Word con paginas de poco texto: el .docx conserva el texto exacto (y el «&» escapado)", async ({ page, context }) => {
-    await context.route((url) => url.hostname !== "localhost", (route) => route.abort());
+    await context.route(isExternalNetworkUrl, (route) => route.abort());
     await openTool(page, "pdf-to-word");
     await uploadFiles(page, pdfUpload("corto.pdf", await makePdf({ pages: 2, text: (index) => ["Tom & Jerry", "Fin"][index] })));
     const { bytes } = await runAndDownload(page, { timeout: 15_000 });
@@ -174,7 +175,7 @@ test.describe("pdf-to-text", () => {
   });
 
   test("una pagina que es solo una imagen (escaneo) sin red (peticion rechazada): error claro y se puede reintentar", async ({ page, context, consoleErrors }) => {
-    await context.route((url) => url.hostname !== "localhost", (route) => route.abort());
+    await context.route(isExternalNetworkUrl, (route) => route.abort());
     await openTool(page, "pdf-to-text");
     const document = await PDFDocument.create();
     const image = await document.embedJpg(makeImage("jpeg", 300, 400, 6, 80));
@@ -186,14 +187,14 @@ test.describe("pdf-to-text", () => {
     await expect(banner).toContainText(es.tool.errors.ocrNetworkFailure);
     await expect(runButton(page)).toBeEnabled();
     // El propio motor de OCR avisa en consola de que su script no pudo cargarse: es lo que se provoca aqui.
-    consoleErrors.splice(0, consoleErrors.length, ...consoleErrors.filter((entry) => !/importScripts.*cdn\.jsdelivr\.net/.test(entry)));
+    consoleErrors.splice(0, consoleErrors.length, ...consoleErrors.filter((entry) => !OCR_SCRIPT_FAILURE.test(entry)));
   });
 
   test("una pagina que es solo una imagen (escaneo) con la CDN del motor de OCR MUDA (peticion que nunca responde): error claro en menos de 40 s y se puede reintentar, sin colgarse", async ({ page, context }) => {
     test.setTimeout(90_000);
     // Agujero negro: la peticion al motor queda abierta para siempre (antes la conversion esperaba sin limite).
     await context.route(
-      (url) => url.hostname !== "localhost",
+      isExternalNetworkUrl,
       () => {},
     );
     await openTool(page, "pdf-to-text");

@@ -9,6 +9,7 @@ import {
   makeTablePdf,
 } from "../../src/lib/pdf/testing/signSyntheticPdfs";
 import { downloadBytes } from "../helpers/downloads";
+import { engineOf, isBenignEngineNoise } from "../helpers/engine";
 import { compareImages, crop, decodePngGray } from "../helpers/image-metrics";
 import { renderNativeReference } from "../helpers/native-reference";
 import { getPageOperatorCounts, getPageText } from "../helpers/pdf-inspection";
@@ -34,9 +35,11 @@ const FILE_INPUT = 'input[type="file"][accept*="pdf"]';
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    if (message.type() === "error" && !isBenignEngineNoise(message.text())) errors.push(message.text());
   });
-  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("pageerror", (error) => {
+    if (!isBenignEngineNoise(error.message)) errors.push(error.message);
+  });
   return errors;
 }
 
@@ -148,15 +151,25 @@ for (const dpr of [1, 2]) {
       // SSIM 0,967 / 0,986 (DPR 1 / DPR 2) y dif. 3,8-4,4 / 2,9; un lienzo opaco (LCD) en Linux, 0,989 / 0,997.
       const natural = await decodePngGray(
         Buffer.from(
-          await image.evaluate(async (el: HTMLImageElement) => {
-            const blob = await (await fetch(el.src)).blob();
-            const url = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(String(reader.result));
-              reader.readAsDataURL(blob);
-            });
-            return url.split(",")[1];
-          }),
+          await image.evaluate(async (el: HTMLImageElement, viaFetch: boolean) => {
+            if (viaFetch) {
+              const blob = await (await fetch(el.src)).blob();
+              const url = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result));
+                reader.readAsDataURL(blob);
+              });
+              return url.split(",")[1];
+            }
+            // WebKit no deja hacer fetch() de un blob: bajo `connect-src 'self'` (la aplicacion no lo necesita y el
+            // intento deja errores de CSP en la consola). Se lee el mismo bitmap del <img> por un canvas del tamano
+            // natural: PNG sin perdida y opaco.
+            const canvas = document.createElement("canvas");
+            canvas.width = el.naturalWidth;
+            canvas.height = el.naturalHeight;
+            canvas.getContext("2d")!.drawImage(el, 0, 0);
+            return canvas.toDataURL("image/png").split(",")[1];
+          }, engineOf(page) === "chromium"),
           "base64",
         ),
       );

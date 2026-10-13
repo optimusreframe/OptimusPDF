@@ -1,6 +1,7 @@
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { es } from "../../src/lib/locales/es";
 import { expect, openTool, runButton, test, uploadFiles } from "../helpers/tool-flow";
+import { OCR_SCRIPT_FAILURE, isExternalNetworkUrl } from "../helpers/engine";
 import { makeImage, pdfUpload } from "../helpers/test-files";
 
 /**
@@ -21,12 +22,12 @@ async function scan(): Promise<Buffer> {
 
 /** Los intentos del motor de OCR avisan en consola de que su script no cargo: es lo que se provoca aqui. */
 function allowOcrScriptFailure(consoleErrors: string[]) {
-  consoleErrors.splice(0, consoleErrors.length, ...consoleErrors.filter((entry) => !/importScripts.*cdn\.jsdelivr\.net/.test(entry)));
+  consoleErrors.splice(0, consoleErrors.length, ...consoleErrors.filter((entry) => !OCR_SCRIPT_FAILURE.test(entry)));
 }
 
 test.describe("ocr-pdf · el motor de OCR no carga", () => {
   test("sin red (peticion rechazada): error claro, no «Algo ha fallado», y se puede reintentar", async ({ page, context, consoleErrors }) => {
-    await context.route((url) => url.hostname !== "localhost", (route) => route.abort());
+    await context.route(isExternalNetworkUrl, (route) => route.abort());
     await openTool(page, "ocr-pdf");
     await uploadFiles(page, pdfUpload("escaneo.pdf", await scan()));
     await runButton(page).click();
@@ -42,7 +43,7 @@ test.describe("ocr-pdf · el motor de OCR no carga", () => {
 
   test("CDN colgada (peticion que nunca responde): error claro en unos 20 s, no esperar sin limite", async ({ page, context }) => {
     await context.route(
-      (url) => url.hostname !== "localhost",
+      isExternalNetworkUrl,
       () => {},
     );
     await openTool(page, "ocr-pdf");
@@ -61,7 +62,7 @@ test.describe("ocr-pdf · el motor de OCR no carga", () => {
 
   test("cancelar mientras espera al motor corta al instante y no deja error", async ({ page, context }) => {
     await context.route(
-      (url) => url.hostname !== "localhost",
+      isExternalNetworkUrl,
       () => {},
     );
     await openTool(page, "ocr-pdf");

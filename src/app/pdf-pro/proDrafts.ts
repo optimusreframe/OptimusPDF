@@ -526,6 +526,10 @@ function writeDraftTx(
         wroteBytes = true;
       }
       tx.objectStore(META_STORE).put(meta);
+      // Cierra la transaccion YA, en esta misma tarea: sin esto se confirma al quedar el bucle de eventos ocioso, y en
+      // WebKit una recarga o un cierre desde `beforeunload` se llevaba por delante la orden de confirmar (~1 de cada 5).
+      // `commit()` no existe en navegadores antiguos: ahi se confirma sola, como antes.
+      (tx as IDBTransaction & { commit?: () => void }).commit?.();
     } catch (error) {
       failure = error;
       try {

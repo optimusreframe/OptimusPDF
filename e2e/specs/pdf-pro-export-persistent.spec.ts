@@ -11,6 +11,7 @@ import { holdExport } from "../helpers/export-gate";
 import { LANGUAGE_STORAGE_KEY, type Language } from "../../src/lib/i18n";
 import { THEME_STORAGE_KEY } from "../../src/lib/theme";
 import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
+import { activate, hasSafariFocusModel } from "../helpers/engine";
 
 /**
  * PDF Pro · exportacion PERSISTENTE (Wave 9), navegador real y headless sobre la build de produccion.
@@ -416,7 +417,10 @@ test.describe("movil 375×812 tactil", () => {
     // El nombre del documento sigue visible (la fila extra no lo desplaza fuera de la barra).
     await expect(page.getByRole("heading", { level: 1, name: /acta\.pdf/ })).toBeVisible();
 
-    await cancel.tap();
+    // Safari no enfoca el boton con un toque (el foco se queda en el contenedor): para ejercitar el reparto del foco se
+    // activa con el teclado, como un usuario de lector de pantalla. En los demas motores, el toque de siempre.
+    if (hasSafariFocusModel(page)) await activate(cancel);
+    else await cancel.tap();
     await expect(chip).toBeHidden();
     await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
     await expect(page.getByRole("status")).toHaveText(E.card.cancelled);

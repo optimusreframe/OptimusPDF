@@ -5,6 +5,7 @@ import { downloadFile } from "../helpers/downloads";
 import { makePdf } from "../helpers/test-files";
 import { es } from "../../src/lib/locales/es";
 import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
+import { activate, tabKey } from "../helpers/engine";
 
 /**
  * PDF Pro · fundamentos (Wave 7 · U1+U2), navegador real y headless: Home destacada, abrir un PDF por
@@ -120,7 +121,7 @@ test.describe("PDF Pro — abrir un PDF", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
     const trail: Array<{ name: string; body: boolean; last: boolean }> = [];
     for (let i = 0; i < 40; i += 1) {
-      await page.keyboard.press("Tab");
+      await page.keyboard.press(tabKey(page));
       trail.push(
         await page.evaluate(() => {
           const sel = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [tabindex], [contenteditable="true"]';
@@ -229,12 +230,12 @@ test.describe("PDF Pro — documento de trabajo", () => {
     await openProPdf(page);
     const rotate = page.getByRole("button", { name: ROTATE, exact: true });
     await rotate.focus();
-    await rotate.click();
+    await activate(rotate);
     await expect(historyItems(page)).toHaveCount(2);
     await expect(rotate).toBeFocused();
     const undo = page.getByRole("button", { name: S.suite.undo });
     await undo.focus();
-    await undo.click();
+    await activate(undo);
     await expect(undo).toBeFocused();
     // Ya sin nada que deshacer: el boton es aria-disabled (Playwright no hace clic en uno asi), el foco se queda.
     await page.keyboard.press("Enter");
@@ -244,12 +245,12 @@ test.describe("PDF Pro — documento de trabajo", () => {
 
   test("cerrar con cambios pide confirmar y devuelve el foco a la zona de carga", async ({ page }) => {
     await openProPdf(page);
-    await page.getByRole("button", { name: ROTATE, exact: true }).click();
+    await activate(page.getByRole("button", { name: ROTATE, exact: true }));
     await expect(historyItems(page)).toHaveCount(2);
-    await page.getByRole("button", { name: S.suite.close }).click();
+    await activate(page.getByRole("button", { name: S.suite.close }));
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: S.suite.close }).click();
+    await activate(dialog.getByRole("button", { name: S.suite.close }));
     await expect(page.getByRole("heading", { name: es.tool.dropTitle })).toBeVisible();
     // (El selector oculto comparte nombre con el boton: se ancla al <button>.)
     await expect(page.locator("button", { hasText: es.tool.dropButton })).toBeFocused();

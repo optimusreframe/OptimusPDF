@@ -182,10 +182,16 @@ export type PageSlice = {
  * Corta el canvas de un trozo en bandas de una pagina. Los limites se
  * redondean a partir del indice para que el error de coma flotante no se
  * acumule y no queden lineas repetidas o perdidas entre paginas.
+ *
+ * `tailTolerance` (px de canvas, 0 por defecto): una ULTIMA banda de esa altura o menos (con mas de una banda) se
+ * descarta. El alto del documento se mide en px CSS enteros (`scrollHeight`), asi que puede pasarse de la pagina por
+ * hasta 1 px CSS de redondeo (p. ej. 1027 frente a 1026,52): a escala 2 (Retina, iPhone) eso es una banda de 1 px y
+ * salia una pagina extra casi en blanco al final de CUALQUIER documento corto. Quien llama pasa la escala (1 px CSS).
  */
 export function planPageSlices(
   canvasHeight: number,
   sliceHeight: number,
+  tailTolerance = 0,
 ): PageSlice[] {
   const total = Math.floor(canvasHeight);
   const slice = Math.max(1, sliceHeight);
@@ -199,6 +205,7 @@ export function planPageSlices(
     if (end - start < 1) continue;
     slices.push({ y: start, height: end - start });
   }
+  if (slices.length > 1 && slices[slices.length - 1].height <= tailTolerance) slices.pop();
   return slices;
 }
 
@@ -494,6 +501,76 @@ function waitForFrameLoad(frame: HTMLIFrameElement): Promise<void> {
   });
 }
 
+/** Cada cuanto se mira si el documento de un iframe anidado ya termino de cargar. */
+const NESTED_FRAME_POLL_MS = 25;
+
+/**
+ * Da a un iframe creado DENTRO del documento aislado una propiedad `onload` que se dispara desde la pagina.
+ *
+ * Por que: WebKit (Safari) no ejecuta NINGUN manejador de eventos sobre los elementos de un documento sin scripts
+ * (`sandbox` sin `allow-scripts`), ni `onload =` ni `addEventListener`, aunque el manejador lo asigne la propia
+ * pagina («Blocked script execution in 'about:srcdoc' because the document's frame is sandboxed...»). html2canvas
+ * clona el arbol en un iframe que crea dentro de ese documento y espera su `onload`: en Safari no llegaba nunca y la
+ * conversion se quedaba para siempre en el 11 %. Chrome y Firefox si los ejecutan.
+ *
+ * Como se resuelve (sin tocar el sandbox ni dar scripts al contenido): el iframe recibe su propia propiedad `onload`
+ * (una propiedad de JS sobre el objeto, no el atributo nativo). Al asignarle un manejador, un temporizador de la
+ * PAGINA mira `contentDocument.readyState` (legible porque el sandbox conserva `allow-same-origin`) y llama al
+ * manejador una sola vez cuando el documento esta `complete`, igual que haria el evento `load`.
+ */
+export function installPolledOnload(frame: HTMLIFrameElement): void {
+  let handler: ((event: Event) => unknown) | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  const stop = () => {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+  const loaded = (): boolean => {
+    try {
+      return frame.contentDocument?.readyState === "complete";
+    } catch {
+      return false;
+    }
+  };
+
+  Object.defineProperty(frame, "onload", {
+    configurable: true,
+    get: () => handler,
+    set: (value: unknown) => {
+      stop();
+      handler = typeof value === "function" ? (value as (event: Event) => unknown) : null;
+      if (!handler) return;
+      const startedAt = Date.now();
+      timer = setInterval(() => {
+        if (!loaded() && Date.now() - startedAt < FRAME_LOAD_TIMEOUT_MS) return;
+        stop();
+        const fire = handler;
+        handler = null;
+        fire?.call(frame, new Event("load"));
+      }, NESTED_FRAME_POLL_MS);
+    },
+  });
+}
+
+/**
+ * Hace que los iframes que html2canvas cree en `sandboxDocument` (el iframe de clonado) avisen de su carga aunque el
+ * motor no ejecute manejadores en ese documento. Ver `installPolledOnload`.
+ */
+export function makeNestedFramesLoadObservable(sandboxDocument: Document): void {
+  const createElement = sandboxDocument.createElement.bind(sandboxDocument) as (
+    tagName: string,
+    options?: ElementCreationOptions,
+  ) => HTMLElement;
+  (sandboxDocument as unknown as { createElement: typeof createElement }).createElement = (tagName, options) => {
+    const element = createElement(tagName, options);
+    if (tagName.toLowerCase() === "iframe") installPolledOnload(element as HTMLIFrameElement);
+    return element;
+  };
+}
+
 /** Espera a que las imagenes esten resueltas (o fallidas) antes de medir. */
 function waitForImages(document: Document): Promise<void> {
   const images = Array.from(document.images);
@@ -580,6 +657,10 @@ async function mountSandboxedFrame(
     if (!inner) {
       throw new PdfError("unknown", "Sandboxed document unavailable");
     }
+
+    // Safari no entrega `onload` a los iframes de este documento sin scripts: html2canvas lo necesita (ver
+    // `installPolledOnload`).
+    makeNestedFramesLoadObservable(inner);
 
     // El alto se ajusta al contenido en dos pasadas: la primera revela el
     // alto real y la segunda deja que las unidades `vh` se reevaluen con
@@ -734,7 +815,8 @@ export async function htmlToPdf(
         scrollY: 0,
       });
 
-      const slices = planPageSlices(canvas.height, sliceHeightPx * scale);
+      // Un ultimo resto de 1 px CSS (`scale` px de canvas) es el redondeo del alto medido, no contenido.
+      const slices = planPageSlices(canvas.height, sliceHeightPx * scale, scale);
       // Puntos PDF por pixel de canvas: el ancho encaja exacto en el area
       // util, asi que la misma relacion vale para el alto.
       const ptPerPx = geometry.contentWidth / Math.max(1, canvas.width);

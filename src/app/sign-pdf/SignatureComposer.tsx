@@ -176,6 +176,43 @@ export function withoutMetricFallbacks(font: string): string {
   return `${match[1]} ${kept.join(", ")}`;
 }
 
+/** Un rango de `unicode-range` («U+0000-00FF, U+0131, U+4??») cubre algun caracter de `text`. */
+export function unicodeRangeCovers(range: string, text: string): boolean {
+  const codePoints = Array.from(text, (character) => character.codePointAt(0) ?? 0);
+  if (codePoints.length === 0) return false;
+  for (const token of range.split(",")) {
+    const match = /^\s*U\+([0-9A-F?]{1,6})(?:-([0-9A-F]{1,6}))?\s*$/i.exec(token);
+    if (!match) continue;
+    const start = parseInt(match[1].replace(/\?/g, "0"), 16);
+    const end = match[2] !== undefined ? parseInt(match[2], 16) : parseInt(match[1].replace(/\?/g, "F"), 16);
+    if (codePoints.some((codePoint) => codePoint >= start && codePoint <= end)) return true;
+  }
+  return false;
+}
+
+/**
+ * Hay una cara de las familias REALES de `font` que cubre `text` y aun no esta cargada (`loading`, `unloaded` o
+ * `error`). Safari devuelve `true` en `document.fonts.check()` MIENTRAS la fuente se descarga y llama «error» al estado
+ * de una cara `font-display: swap` que sigue bajando (el WebKit de Playwright: «error» durante toda la espera y
+ * «loaded» al llegar): fiarse solo de `check` exportaba la firma con la fuente de respaldo, en silencio y distinta de la
+ * vista previa. Con la fuente caida de verdad tambien cuenta como pendiente: `loadSignatureFont` lo resuelve (rechaza o
+ * agota el plazo) y se avisa.
+ */
+function hasUnloadedFace(fonts: FontFaceSet, font: string, text: string): boolean {
+  if (typeof (fonts as unknown as Iterable<FontFace>)[Symbol.iterator] !== "function") return false;
+  const match = /^(.*?\d(?:px|pt|em|rem))\s+(.+)$/.exec(font);
+  const families = (match?.[2].match(/"[^"]*"|'[^']*'|[^,]+/g) ?? [])
+    .map((family) => family.trim().replace(/^["']|["']$/g, "").toLowerCase())
+    .filter(Boolean);
+  if (families.length === 0) return false;
+  for (const face of fonts as unknown as Iterable<FontFace>) {
+    const family = String(face.family).trim().replace(/^["']|["']$/g, "").toLowerCase();
+    if (!families.includes(family) || face.status === "loaded") continue;
+    if (unicodeRangeCovers(face.unicodeRange || "U+0-10FFFF", text)) return true;
+  }
+  return false;
+}
+
 /**
  * `true` si el canvas ya puede dibujar `text` con `font` sin caer en la fuente
  * de respaldo. Sin la API de fuentes (jsdom, navegadores muy viejos) no hay
@@ -185,7 +222,8 @@ export function signatureFontReady(font: string, text: string): boolean {
   const fonts = typeof document === "undefined" ? undefined : document.fonts;
   if (!fonts || typeof fonts.check !== "function") return true;
   try {
-    return fonts.check(withoutMetricFallbacks(font), text);
+    const real = withoutMetricFallbacks(font);
+    return fonts.check(real, text) && !hasUnloadedFace(fonts, real, text);
   } catch {
     return true;
   }
