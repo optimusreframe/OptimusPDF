@@ -3,6 +3,7 @@ import {
   PDFDict,
   PDFHexString,
   PDFName,
+  PDFNull,
   PDFNumber,
   PDFObject,
   PDFRef,
@@ -308,6 +309,212 @@ export function pruneOutline(
     tree.root.set(KEY.Count, PDFNumber.of(visibleTotal));
   }
   return removed;
+}
+
+/* ------------------------------------------------------------------ *
+ * Marcadores: importar de otro documento y agrupar (Wave 8 · Unir)
+ * ------------------------------------------------------------------ */
+
+/** Marcador leido de otro documento, ya resuelto a una hoja del documento DESTINO. */
+export type ImportedOutlineItem = {
+  title: string;
+  /** Hoja del documento destino a la que apunta. */
+  pageRef: PDFRef;
+  /** Cola del destino explicito (`/XYZ 0 792 0`, `/Fit`...), solo objetos directos sin referencias. */
+  destTail: PDFObject[];
+  closed: boolean;
+  children: ImportedOutlineItem[];
+};
+
+const DEST_TAIL_LIMIT = 8;
+
+/** Cola de un destino explicito del documento origen, si solo trae nombres, numeros o nulos. */
+function explicitDestTail(sourceContext: PDFContext, dest: PDFObject | undefined): PDFObject[] | undefined {
+  const value = dest instanceof PDFRef ? sourceContext.lookup(dest) : dest;
+  if (!(value instanceof PDFArray) || value.size() > DEST_TAIL_LIMIT) return undefined;
+  const tail: PDFObject[] = [];
+  for (let index = 1; index < value.size(); index += 1) {
+    const item = value.get(index);
+    if (item instanceof PDFName) tail.push(PDFName.of(item.decodeText()));
+    else if (item instanceof PDFNumber) tail.push(PDFNumber.of(item.asNumber()));
+    else if (item === PDFNull) tail.push(PDFNull);
+    else return undefined;
+  }
+  return tail;
+}
+
+/**
+ * Marcadores de OTRO documento que apuntan a paginas copiadas (`pageMap`: indice de pagina en el
+ * origen -> hoja ya copiada en el destino). Los que apuntan a paginas que no vienen desaparecen y
+ * sus hijos vivos suben de nivel (como al podar). Devuelve cuantos se descartaron en `dropped`.
+ */
+export function readImportableOutline(
+  sourceContext: PDFContext,
+  sourceCatalog: PDFDict,
+  sourcePageRefs: readonly PDFRef[],
+  pageMap: ReadonlyMap<number, PDFRef>,
+): { items: ImportedOutlineItem[]; dropped: number } {
+  const tree = readOutline(sourceContext, sourceCatalog);
+  if (!tree) return { items: [], dropped: 0 };
+  const indexOf = new Map<string, number>();
+  sourcePageRefs.forEach((ref, index) => indexOf.set(refKey(ref), index));
+  const named = collectNamedDests(sourceContext, sourceCatalog);
+  let dropped = 0;
+
+  const convert = (nodes: OutlineNode[]): ImportedOutlineItem[] => {
+    const out: ImportedOutlineItem[] = [];
+    for (const node of nodes) {
+      const children = convert(node.children);
+      const target = itemTarget(sourceContext, node.dict, named);
+      const sourceIndex = target.kind === "page" ? indexOf.get(refKey(target.ref)) : undefined;
+      const pageRef = sourceIndex === undefined ? undefined : pageMap.get(sourceIndex);
+      if (!pageRef) {
+        dropped += 1;
+        out.push(...children);
+        continue;
+      }
+      const direct = node.dict.get(KEY.Dest);
+      out.push({
+        title: outlineTitle(sourceContext, node),
+        pageRef,
+        destTail: (direct ? explicitDestTail(sourceContext, direct) : undefined) ?? [PDFName.of("Fit")],
+        closed: (numberValue(sourceContext, node.dict.get(KEY.Count)) ?? 0) < 0,
+        children,
+      });
+    }
+    return out;
+  };
+  return { items: convert(tree.items), dropped };
+}
+
+type BuiltItem = { ref: PDFRef; dict: PDFDict; children: BuiltItem[]; closed: boolean };
+
+/** Crea los diccionarios de los marcadores en el contexto DESTINO (sin enlazarlos aun). */
+function buildItems(context: PDFContext, items: readonly ImportedOutlineItem[]): BuiltItem[] {
+  return items.map((item) => {
+    const dict = context.obj({
+      Title: PDFHexString.fromText(item.title),
+      Dest: context.obj([item.pageRef, ...item.destTail]),
+    });
+    return { ref: context.register(dict), dict, children: buildItems(context, item.children), closed: item.closed };
+  });
+}
+
+/**
+ * Enlaza hermanos e hijos (`/Parent`, `/Prev`, `/Next`, `/First`, `/Last`, `/Count`) y devuelve
+ * cuantos marcadores quedan VISIBLES bajo `parent` (lo que pide `/Count` de un nodo abierto).
+ */
+function linkItems(parent: PDFDict, parentRef: PDFRef, items: readonly BuiltItem[]): number {
+  let visible = 0;
+  items.forEach((item, index) => {
+    item.dict.set(KEY.Parent, parentRef);
+    if (index > 0) item.dict.set(KEY.Prev, items[index - 1].ref);
+    if (index + 1 < items.length) item.dict.set(KEY.Next, items[index + 1].ref);
+    const below = linkItems(item.dict, item.ref, item.children);
+    if (item.children.length > 0) item.dict.set(KEY.Count, PDFNumber.of(item.closed ? -below : below));
+    visible += 1 + (item.closed ? 0 : below);
+  });
+  if (items.length > 0) {
+    parent.set(KEY.First, items[0].ref);
+    parent.set(KEY.Last, items[items.length - 1].ref);
+  }
+  return visible;
+}
+
+/** Raiz `/Outlines` del catalogo (se crea si no existe). */
+function ensureOutlineRoot(context: PDFContext, catalog: PDFDict): { root: PDFDict; rootRef: PDFRef } {
+  const existing = catalog.get(KEY.Outlines);
+  const root = asDict(context, existing);
+  if (root && existing instanceof PDFRef) return { root, rootRef: existing };
+  const fresh = context.obj({ Type: "Outlines", Count: 0 });
+  const rootRef = context.register(fresh);
+  catalog.set(KEY.Outlines, rootRef);
+  return { root: fresh, rootRef };
+}
+
+/** Marcadores de primer nivel que ya cuelgan de la raiz. */
+function topLevel(context: PDFContext, root: PDFDict): OutlineNode[] {
+  return readSiblings(context, root.get(KEY.First), new Set(), { left: MAX_OUTLINE_ITEMS });
+}
+
+/**
+ * Anade al FINAL de los marcadores un grupo con `title` (que lleva a `firstPageRef`) y, colgando
+ * de el, los `items` dados. Sin `items`, no hace nada. Devuelve cuantos marcadores se anadieron
+ * (sin contar el grupo).
+ */
+export function appendOutlineGroup(
+  context: PDFContext,
+  catalog: PDFDict,
+  title: string,
+  firstPageRef: PDFRef,
+  items: readonly ImportedOutlineItem[],
+): number {
+  if (items.length === 0) return 0;
+  const { root, rootRef } = ensureOutlineRoot(context, catalog);
+  const group: BuiltItem = {
+    dict: context.obj({
+      Title: PDFHexString.fromText(title),
+      Dest: context.obj([firstPageRef, PDFName.of("Fit")]),
+    }),
+    ref: context.nextRef(),
+    children: buildItems(context, items),
+    closed: false,
+  };
+  context.assign(group.ref, group.dict);
+  const siblings = topLevel(context, root);
+  const last = siblings[siblings.length - 1];
+  group.dict.set(KEY.Parent, rootRef);
+  if (last) {
+    last.dict.set(KEY.Next, group.ref);
+    group.dict.set(KEY.Prev, last.ref);
+  } else {
+    root.set(KEY.First, group.ref);
+  }
+  root.set(KEY.Last, group.ref);
+  const below = linkItems(group.dict, group.ref, group.children);
+  group.dict.set(KEY.Count, PDFNumber.of(below));
+  root.set(KEY.Count, PDFNumber.of((numberValue(context, root.get(KEY.Count)) ?? 0) + 1 + below));
+  let added = 0;
+  const count = (list: readonly ImportedOutlineItem[]) => {
+    for (const item of list) {
+      added += 1;
+      count(item.children);
+    }
+  };
+  count(items);
+  return added;
+}
+
+/**
+ * Agrupa los marcadores que YA tiene el documento bajo un unico marcador con `title` (que lleva a
+ * `firstPageRef`). Sin marcadores, no hace nada. Devuelve `true` si agrupo algo.
+ */
+export function wrapExistingOutline(
+  context: PDFContext,
+  catalog: PDFDict,
+  title: string,
+  firstPageRef: PDFRef,
+): boolean {
+  const rootObject = catalog.get(KEY.Outlines);
+  const root = asDict(context, rootObject);
+  if (!root || !(rootObject instanceof PDFRef)) return false;
+  const siblings = topLevel(context, root);
+  if (siblings.length === 0) return false;
+  const visible = numberValue(context, root.get(KEY.Count)) ?? siblings.length;
+  const group = context.obj({
+    Title: PDFHexString.fromText(title),
+    Dest: context.obj([firstPageRef, PDFName.of("Fit")]),
+    Parent: rootObject,
+    First: siblings[0].ref,
+    Last: siblings[siblings.length - 1].ref,
+    Count: Math.max(visible, siblings.length),
+  });
+  const groupRef = context.register(group);
+  for (const node of siblings) node.dict.set(KEY.Parent, groupRef);
+  root.set(KEY.First, groupRef);
+  root.set(KEY.Last, groupRef);
+  root.set(KEY.Count, PDFNumber.of(1 + Math.max(visible, siblings.length)));
+  return true;
 }
 
 /* ------------------------------------------------------------------ *

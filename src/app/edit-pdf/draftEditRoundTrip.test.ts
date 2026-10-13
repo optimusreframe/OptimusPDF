@@ -76,9 +76,13 @@ describe("draftEditForBlock + applyTextEdits: reeditar sin cambiar el texto no m
     const exported = await applyTextEdits(original, [edit]);
     const after = await items(exported.bytes);
 
+    // Wave 8 · F2: el original ya NO queda bajo la cobertura (se quita del flujo); el
+    // redibujado se compara con la posicion del original extraida ANTES de editar.
+    expect(exported.warningsByEdit[edit.id]).toContainEqual({ kind: "original-text-removed" });
+    const [first] = before.items.filter((item) => item.str === text);
     const redrawn = after.items.filter((item) => item.str === text);
-    expect(redrawn).toHaveLength(2); // el original (sigue bajo la cobertura) y el redibujado
-    const [first, second] = redrawn;
+    expect(redrawn).toHaveLength(1);
+    const [second] = redrawn;
     // El texto redibujado NO se parte en lineas.
     expect(after.items.filter((item) => text.startsWith(item.str.trim()) && item.str.trim() !== text)).toHaveLength(0);
     expect(Math.hypot(second.x - first.x, second.y - first.y)).toBeLessThan(0.75);
@@ -93,7 +97,10 @@ describe("draftEditForBlock + applyTextEdits: reeditar sin cambiar el texto no m
     const edit = draftEditForBlock(block, { coverColor: "#ffffff" });
     const exported = await applyTextEdits(original, [edit]);
     const after = await items(exported.bytes);
-    const [first, second] = after.items.filter((item) => item.str === "Total: 1.250,00");
+    // F2: el original se quita; se compara con el extraido antes de editar.
+    const [first] = before.items.filter((item) => item.str === "Total: 1.250,00");
+    const [second] = after.items.filter((item) => item.str === "Total: 1.250,00");
+    expect(after.items.filter((item) => item.str === "Total: 1.250,00")).toHaveLength(1);
     // A la derecha, el borde derecho se conserva: el inicio coincide salvo la diferencia
     // de ancho entre las metricas de pdf.js y las de pdf-lib (menos de 1,5 pt).
     expect(Math.abs(second.x - first.x)).toBeLessThan(1.5);

@@ -43,6 +43,8 @@ export type ExportWarningCounts = {
   fontSubstituted: number;
   glyphMissing: number;
   originalRemains: number;
+  /** (Wave 8 · F2) Textos cuyo original se elimino de verdad del PDF. */
+  originalRemoved: number;
   backgroundNotUniform: number;
   /** (W5-U5) Textos cuyo dibujo invade a otro bloque de texto (`overlap`). */
   overlap: number;
@@ -102,6 +104,7 @@ export function countWarnings(
     fontSubstituted: 0,
     glyphMissing: 0,
     originalRemains: 0,
+    originalRemoved: 0,
     backgroundNotUniform: 0,
     overlap: 0,
     mixedStyle: 0,
@@ -121,6 +124,7 @@ export function countWarnings(
     if (kinds.has("original-text-remains") && !(page !== undefined && flat.has(page))) {
       result.originalRemains += 1;
     }
+    if (kinds.has("original-text-removed")) result.originalRemoved += 1;
     if (kinds.has("background-not-uniform")) result.backgroundNotUniform += 1;
     if (kinds.has("overlap")) result.overlap += 1;
     if (kinds.has("cover-overlaps-neighbor")) result.coverOverlaps += 1;
@@ -242,6 +246,7 @@ export function exportNotices(
   if (warnings.fontSubstituted > 0) list.push(f.noticeFont(warnings.fontSubstituted));
   if (warnings.glyphMissing > 0) list.push(f.noticeGlyph(warnings.glyphMissing));
   if (remains > 0) list.push(f.noticeRemains(remains));
+  if (warnings.originalRemoved > 0) list.push(f.noticeRemoved(warnings.originalRemoved));
   if (warnings.backgroundNotUniform > 0) list.push(f.noticeBackground(warnings.backgroundNotUniform));
   if (warnings.mixedStyle > 0) list.push(f.noticeMixed(warnings.mixedStyle));
   if (warnings.overlap > 0) list.push(f.noticeOverlap(warnings.overlap));

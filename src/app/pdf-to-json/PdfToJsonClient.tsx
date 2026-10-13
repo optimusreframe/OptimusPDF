@@ -47,7 +47,7 @@ export function PdfToJsonClient() {
       defaultOptions={DEFAULT_PDF_TO_JSON_OPTIONS}
       process={process}
       renderMain={({ files }) => (
-        <section className="glass rounded-ios p-5">
+        <section className="surface-card rounded-ios p-5">
           <div className="flex items-start gap-3">
             <Braces
               aria-hidden="true"

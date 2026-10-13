@@ -643,17 +643,23 @@ describe("suscripcion", () => {
     expect(doc.getState()).toBe(doc.getState());
   });
 
-  it("cada cambio produce un estado nuevo y avisa a los suscritos una sola vez", async () => {
+  it("cada cambio produce un estado nuevo y avisa a los suscritos sin tormentas de avisos", async () => {
     const doc = await opened();
     const listener = vi.fn();
     const stop = doc.subscribe(listener);
     const before = doc.getState();
     await doc.commit(fakeBytes(10), "A", "operation", { pageCount: 3 });
-    expect(listener).toHaveBeenCalledTimes(1);
+    // Un commit avisa a lo sumo 3 veces: entra el paso en vuelo (`stepInFlight`), se confirma el snapshot y sale
+    // el paso en vuelo. Nunca mas (cada aviso es un render de la suite).
+    expect(listener.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(listener.mock.calls.length).toBeLessThanOrEqual(3);
     expect(doc.getState()).not.toBe(before);
+    // Tras terminar, el paso en vuelo se ha soltado y nada mas avisa por su cuenta.
+    expect(doc.getState().stepInFlight).toBe(false);
+    const settled = listener.mock.calls.length;
     stop();
     doc.undo();
-    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(settled);
   });
 
   it("close suelta los bytes y deja el estado vacio", async () => {

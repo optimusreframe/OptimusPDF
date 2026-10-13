@@ -41,7 +41,7 @@ import type { CatalogFontKey, SourceFontInfo, TextAlign } from "@/lib/pdf/editTy
  * Barra flotante del texto seleccionado (W5-U4a), sobre `FloatingFieldBar`:
  * fuente del catalogo, tamano, color, negrita/cursiva, alineacion, duplicar y
  * borrar, mas los avisos que dependen del bloque (fuente parecida, fondo no
- * uniforme y «el texto original puede seguir existiendo»).
+ * uniforme y «al exportar, el texto original se elimina del PDF»).
  */
 
 export type BarTextState = {

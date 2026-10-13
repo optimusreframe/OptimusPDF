@@ -22,7 +22,7 @@ export type ValueSuggestionsProps = {
  * `top`/`bottom` -- el `zIndex` de que quede por encima de los demas
  * campos lo pone el propio `TextFieldBox` mientras esta en edicion.
  *
- * Fondo opaco blanco/negro (NO el token `glass`, verificado en un
+ * Fondo opaco blanco/negro (NO `surface-card` ni un material, verificado en un
  * navegador real): este dropdown se pinta sobre la propia pagina del PDF,
  * cuyo color de fondo puede ser cualquiera (tipicamente blanco), no sobre
  * el chasis oscuro de la app -- un velo translucido pensado para ese

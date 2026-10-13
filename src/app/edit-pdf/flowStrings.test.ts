@@ -60,15 +60,25 @@ describe("flowStrings es/en", () => {
     expect(en.flattenConfirmBody).toMatch(/can't be undone/);
   });
 
-  it("los textos del interruptor en Ajustes dicen la verdad: apagado solo desactiva el texto existente", () => {
+  it("los textos del interruptor en Ajustes dicen la verdad: apagado solo desactiva el texto existente y al exportar se quita el original", () => {
     for (const locale of [esLocale, enLocale]) {
       const flags = locale.settings.editPdfFeatures;
       expect(flags.editExistingText.hint).not.toMatch(/como antes|as before/i);
-      expect(flags.stripOriginalText.hint).toMatch(/Aplanar página|Flatten page/);
+      // La limpieza ya no es un interruptor: siempre esta activa al exportar.
+      expect(Object.keys(flags)).toEqual(["editExistingText"]);
+      // Nada de lo viejo: ni «cubre y dibuja encima» ni «puede seguir existiendo» ni «proximamente».
+      expect(flags.editExistingText.hint).not.toMatch(
+        /cubre el original|covers the original|puede seguir|may still|pr[oó]ximamente|coming soon/i,
+      );
     }
     expect(esLocale.settings.editPdfFeatures.editExistingText.hint).toMatch(/añadir texto, imágenes y formas/);
     expect(enLocale.settings.editPdfFeatures.editExistingText.hint).toMatch(/add text, images and shapes/);
-    expect(esLocale.settings.editPdfFeatures.stripOriginalText.hint).toMatch(/llegará en una versión posterior/);
+    expect(esLocale.settings.editPdfFeatures.editExistingText.hint).toMatch(
+      /al exportar, el texto original se elimina del archivo.*si no se puede quitar, se avisa/,
+    );
+    expect(enLocale.settings.editPdfFeatures.editExistingText.hint).toMatch(
+      /on export, the original text is removed from the file.*if it can't be removed, you're told/,
+    );
   });
 
   it("la descripcion de la herramienta refleja lo que hace, sin prometer OCR ni limpieza", () => {

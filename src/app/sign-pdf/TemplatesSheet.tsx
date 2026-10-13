@@ -62,7 +62,7 @@ export function TemplatesSheet({
         <ul className="space-y-2 pb-2">
           {templates.map((template) => (
             <li key={template.id}>
-              <div className="glass rounded-ios-sm flex flex-wrap items-center gap-3 p-3">
+              <div className="surface-card rounded-ios-sm flex flex-wrap items-center gap-3 p-3">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-ios-sm bg-white/6">
                   <LayoutTemplate
                     aria-hidden="true"

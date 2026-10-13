@@ -2,6 +2,7 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import type { Language } from "@/lib/i18n";
 import { PdfError, readFileBytes, toPdfError, type PdfErrorCode } from "@/lib/pdf/core";
 import { isDecryptedCopy } from "@/lib/pdf/inputGuard";
+import { createProHistoryStore, type ProHistoryStore } from "@/app/pdf-pro/proHistoryStore";
 import { getProStrings } from "@/app/pdf-pro/proStrings";
 import type {
   ProDocument,
@@ -23,6 +24,13 @@ import type {
  * siempre el original (indice 0) y el actual; el historial descartado se avisa (`trimmedCount`).
  * Confirmar un cambio estando atras en el historial (tras deshacer) DESCARTA la rama de
  * rehacer, como en cualquier editor.
+ *
+ * Wave 8 · memoria del historial: solo una VENTANA CALIENTE de snapshots vive en RAM (el actual y sus vecinos,
+ * hasta `PRO_HOT_SNAPSHOT_BYTES`); el resto se vuelca a disco (`proHistoryStore`, IndexedDB) y queda en la lista
+ * con `offloaded: true` y `bytes` vacio. Deshacer/rehacer hacia un paso volcado lo recupera de forma perezosa
+ * (`restoring` en el estado) y luego mueve el cursor; el anuncio multipaso no cambia porque sale de las etiquetas.
+ * Si el volcado falla (sin IndexedDB, cuota) el documento queda marcado (`historyOffloadFailed`, aviso visible) y
+ * se recorta por bytes como antes. El presupuesto por bytes cuenta solo lo RESIDENTE.
  */
 
 /**
@@ -31,8 +39,16 @@ import type {
  * los que quepan en ~400 MB.
  */
 export const PRO_MAX_SNAPSHOTS = 50;
-/** Presupuesto de bytes de todos los snapshots en RAM (~400 MB). */
+/** Presupuesto de bytes de todos los snapshots RESIDENTES en RAM (~400 MB): red de seguridad si no hay disco. */
 export const PRO_MAX_SNAPSHOT_BYTES = 400 * 1024 * 1024;
+/**
+ * Ventana caliente (Wave 8): bytes de snapshots que se mantienen en RAM. El actual y el anterior estan SIEMPRE
+ * (deshacer un paso es instantaneo); el resto se añade por cercania al cursor (siguiente, anterior del anterior,
+ * ...) mientras quepa. Con PDF pequeños cabe el historial entero (nada se vuelca); con 40 MB, cuatro pasos; con
+ * 100 MB, el actual y el anterior. Lo demas se vuelca a disco.
+ */
+export const PRO_HOT_SNAPSHOT_BYTES = 192 * 1024 * 1024;
+const EMPTY_BYTES = new Uint8Array(0);
 
 export type ProWorkingDocOptions = {
   maxSnapshots?: number;
@@ -48,6 +64,13 @@ export type ProWorkingDocOptions = {
   inspectSignatures?: (file: File) => Promise<ProSignatureState>;
   /** Se llama con cada snapshot descartado por el presupuesto (gancho para volcarlo a disco). */
   onEvict?: (snapshot: ProSnapshot) => void;
+  /**
+   * Almacen en disco del historial (Wave 8). `undefined` = crear el de la sesion (`createProHistoryStore`);
+   * `null` = sin disco (solo memoria, recorte por bytes).
+   */
+  historyStore?: ProHistoryStore | null;
+  /** Bytes de la ventana caliente, actual incluido (por defecto `PRO_HOT_SNAPSHOT_BYTES`). */
+  hotBytes?: number;
 };
 
 export type ProOpenOptions = {
@@ -82,6 +105,8 @@ export const EMPTY_PRO_STATE: ProWorkingState = {
   announcement: null,
   activeModes: [],
   ownUndoActive: false,
+  restoring: false,
+  stepInFlight: false,
 };
 
 /** Huella SHA-256 hex, o `null` si no se puede calcular (sin `crypto.subtle`, contexto no seguro). */
@@ -119,7 +144,7 @@ function nextId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${idCounter.toString(36)}`;
 }
 
-type Evictable = { snapshots: ProSnapshot[]; cursor: number };
+type Evictable = { snapshots: readonly ProSnapshot[]; cursor: number };
 
 
 /**
@@ -139,43 +164,61 @@ export function groupRepeatedLabels(labels: readonly string[]): string[] {
   return grouped;
 }
 
+/** Bytes que un snapshot ocupa en RAM (0 si esta volcado a disco). */
+export function residentBytes(snapshot: Pick<ProSnapshot, "byteLength" | "offloaded">): number {
+  return snapshot.offloaded ? 0 : snapshot.byteLength;
+}
+
 /**
- * Aplica el presupuesto: mientras haya mas de `maxSnapshots` o mas de `maxBytes`, descarta el
- * snapshot mas ANTIGUO que no sea el original (indice 0) ni el actual (`cursor`), de modo que queda siempre el
- * ORIGINAL + la cadena contigua mas reciente. El siguiente snapshot anota las etiquetas de lo descartado
- * (`skippedLabels`) para que deshacer lo anuncie. Puro: devuelve la lista nueva, el cursor reajustado y lo descartado.
+ * Quita el snapshot `index` de la lista (sin mutar la original): el que queda justo despues hereda las etiquetas
+ * que deshacer saltara (lo suyo antiguo, el quitado y lo posterior), asi nunca se salta un paso en silencio.
+ */
+export function dropSnapshotAt(state: Evictable, index: number): Evictable & { dropped: ProSnapshot } {
+  const snapshots = [...state.snapshots];
+  const dropped = snapshots[index];
+  snapshots.splice(index, 1);
+  const cursor = index < state.cursor ? state.cursor - 1 : state.cursor;
+  const next = snapshots[index];
+  if (next) {
+    snapshots[index] = {
+      ...next,
+      skippedLabels: [...(dropped.skippedLabels ?? []), dropped.label, ...(next.skippedLabels ?? [])],
+    };
+  }
+  return { snapshots, cursor, dropped };
+}
+
+/**
+ * Aplica el presupuesto: mientras haya mas de `maxSnapshots` snapshots, o mas de `maxBytes` RESIDENTES en RAM,
+ * descarta el mas ANTIGUO que no sea el original (indice 0) ni el actual (`cursor`), de modo que queda siempre el
+ * ORIGINAL + la cadena contigua mas reciente. Por bytes solo se descartan snapshots residentes (uno volcado a disco
+ * no ocupa RAM). El siguiente snapshot anota las etiquetas de lo descartado (`skippedLabels`) para que deshacer lo
+ * anuncie. Puro: devuelve la lista nueva, el cursor reajustado y lo descartado.
  */
 export function enforceProBudget(
   state: Evictable,
   limits: { maxSnapshots: number; maxBytes: number },
 ): Evictable & { evicted: ProSnapshot[] } {
-  const snapshots = [...state.snapshots];
-  let cursor = state.cursor;
+  let current: Evictable = { snapshots: [...state.snapshots], cursor: state.cursor };
   const evicted: ProSnapshot[] = [];
-  const total = () => snapshots.reduce((sum, snapshot) => sum + snapshot.byteLength, 0);
-  while (snapshots.length > limits.maxSnapshots || total() > limits.maxBytes) {
+  const total = () => current.snapshots.reduce((sum, snapshot) => sum + residentBytes(snapshot), 0);
+  for (;;) {
+    const overCount = current.snapshots.length > limits.maxSnapshots;
+    const overBytes = total() > limits.maxBytes;
+    if (!overCount && !overBytes) break;
     let index = -1;
-    for (let i = 1; i < snapshots.length; i += 1) {
-      if (i !== cursor) {
-        index = i;
-        break;
-      }
+    for (let i = 1; i < current.snapshots.length; i += 1) {
+      if (i === current.cursor) continue;
+      if (!overCount && current.snapshots[i].offloaded) continue; // volcado: no libera RAM
+      index = i;
+      break;
     }
-    if (index < 0) break; // solo quedan el original y el actual: no hay mas que descartar
-    const dropped = snapshots[index];
-    evicted.push(dropped);
-    snapshots.splice(index, 1);
-    if (index < cursor) cursor -= 1;
-    // El que queda justo despues hereda lo que se salta al deshacer (lo suyo antiguo, el descartado y lo posterior).
-    const next = snapshots[index];
-    if (next) {
-      snapshots[index] = {
-        ...next,
-        skippedLabels: [...(dropped.skippedLabels ?? []), dropped.label, ...(next.skippedLabels ?? [])],
-      };
-    }
+    if (index < 0) break; // solo quedan el original y el actual (o nada residente que soltar)
+    const result = dropSnapshotAt(current, index);
+    evicted.push(result.dropped);
+    current = { snapshots: result.snapshots, cursor: result.cursor };
   }
-  return { snapshots, cursor, evicted };
+  return { snapshots: current.snapshots, cursor: current.cursor, evicted };
 }
 
 export class ProWorkingDoc {
@@ -196,6 +239,20 @@ export class ProWorkingDoc {
   private readonly fingerprintFn: (bytes: Uint8Array) => Promise<string | null>;
   private readonly inspectSignaturesFn: (file: File) => Promise<ProSignatureState>;
   private readonly onEvict?: (snapshot: ProSnapshot) => void;
+  /* ---- Wave 8: historial en disco ---- */
+  private readonly store: ProHistoryStore | null;
+  private readonly hotBytes: number;
+  /** Ids con bytes YA guardados en disco (soltar sus bytes de RAM es gratis). */
+  private readonly storedIds = new Set<string>();
+  /** Escrituras y lecturas en vuelo (no se repiten). */
+  private readonly putting = new Map<string, Promise<void>>();
+  private readonly fetching = new Set<string>();
+  /** Movimiento pendiente de recuperar bytes de disco: el ultimo pedido gana. */
+  private moveToken = 0;
+  private pendingTarget: number | null = null;
+  private restoring = false;
+  /** Pasos en vuelo (`trackStep`): operaciones corriendo y confirmaciones encoladas. */
+  private inFlight = 0;
 
   constructor(options: ProWorkingDocOptions = {}) {
     this.maxSnapshots = options.maxSnapshots ?? PRO_MAX_SNAPSHOTS;
@@ -206,6 +263,8 @@ export class ProWorkingDoc {
     this.fingerprintFn = options.fingerprint ?? fingerprintProBytes;
     this.inspectSignaturesFn = options.inspectSignatures ?? defaultInspectSignatures;
     this.onEvict = options.onEvict;
+    this.store = options.historyStore === undefined ? createProHistoryStore() : options.historyStore;
+    this.hotBytes = options.hotBytes ?? PRO_HOT_SNAPSHOT_BYTES;
   }
 
   /* ---------------- suscripcion (useSyncExternalStore) ---------------- */
@@ -234,6 +293,8 @@ export class ProWorkingDoc {
       announcement: this.announcement,
       activeModes: modes,
       ownUndoActive,
+      restoring: this.restoring,
+      stepInFlight: this.inFlight > 0,
     };
     for (const listener of [...this.listeners]) listener();
   }
@@ -271,6 +332,7 @@ export class ProWorkingDoc {
   async open(file: File, options: ProOpenOptions = {}): Promise<ProOpenResult> {
     const epoch = ++this.epoch;
     this.chain = Promise.resolve();
+    this.releaseHistory();
     try {
       const bytes = await readFileBytes(file);
       if (bytes.byteLength === 0) return { ok: false, code: "emptyFile" };
@@ -319,15 +381,40 @@ export class ProWorkingDoc {
     }
   }
 
-  /** Cierra el documento y suelta todos los bytes. */
+  /** Cierra el documento y suelta todos los bytes (tambien los volcados a disco). */
   close(): void {
     this.epoch += 1;
     this.chain = Promise.resolve();
+    this.releaseHistory();
     if (!this.document) return;
     this.document = null;
     this.fileCache = null;
     this.announcement = { id: ++this.announcementId, text: getProStrings(this.language).announce.closed };
     this.recompute();
+  }
+
+  /** Cierra el documento y BORRA la base de historial de esta sesion (al desmontar la suite). */
+  async dispose(): Promise<void> {
+    this.close();
+    await this.store?.dispose();
+  }
+
+  /**
+   * Cierra y BORRA solo la base de historial de esta sesion, SIN cerrar el documento (el estado y el borrador
+   * automatico quedan como estan). Es lo que corre al cerrar la pestana (`pagehide`): el historial es un cache de
+   * sesion que nadie volvera a leer, y asi no se queda en disco (Wave 8 · F2, privacidad).
+   */
+  async disposeHistoryStore(): Promise<void> {
+    await this.store?.dispose();
+  }
+
+  /** Olvida todo lo volcado a disco del documento actual (cerrar, abrir otro): sin fugas en IndexedDB. */
+  private releaseHistory(): void {
+    this.cancelPendingMove();
+    this.storedIds.clear();
+    this.putting.clear();
+    this.fetching.clear();
+    void this.store?.clear();
   }
 
   /* ---------------- historial ---------------- */
@@ -349,6 +436,8 @@ export class ProWorkingDoc {
       const pageCount =
         extra.pageCount !== undefined ? extra.pageCount : await this.countPages(bytes);
       if (epoch !== this.epoch || !this.document) return null;
+      // Un deshacer que aun esperaba sus bytes se cancela: el cambio confirmado manda.
+      this.cancelPendingMove();
       const document = this.document;
       const snapshot: ProSnapshot = {
         id: nextId("snap"),
@@ -362,20 +451,25 @@ export class ProWorkingDoc {
       };
       // Rama de rehacer fuera: lo que habia por delante del cursor ya no es alcanzable.
       const kept = document.snapshots.slice(0, document.cursor + 1);
-      const budget = enforceProBudget(
-        { snapshots: [...kept, snapshot], cursor: kept.length },
-        { maxSnapshots: this.maxSnapshots, maxBytes: this.maxBytes },
-      );
-      for (const dropped of budget.evicted) this.onEvict?.(dropped);
+      this.forgetStored(document.snapshots.slice(document.cursor + 1));
       // El `File` en cache era una copia ENTERA del snapshot anterior: se suelta (se rehace al pedirlo).
       this.fileCache = null;
       const strings = getProStrings(this.language);
+      // Con disco sano el presupuesto se aplica DESPUES de volcar (abajo): lo residente baja solo. Sin disco (o
+      // fallido) se recorta aqui mismo, como siempre, y el anuncio lo dice.
+      const diskless = !this.store || document.historyOffloadFailed === true;
+      const proposed: Evictable = { snapshots: [...kept, snapshot], cursor: kept.length };
+      const budget = diskless
+        ? enforceProBudget(proposed, { maxSnapshots: this.maxSnapshots, maxBytes: this.maxBytes })
+        : { ...proposed, evicted: [] as ProSnapshot[] };
+      for (const dropped of budget.evicted) this.onEvict?.(dropped);
       const trimmed = budget.evicted.length > 0;
       this.document = {
         ...document,
         snapshots: budget.snapshots,
         cursor: budget.cursor,
         trimmedCount: document.trimmedCount + budget.evicted.length,
+        ...(trimmed && !this.store ? { historyOffloadFailed: true } : {}),
       };
       this.announcement = {
         id: ++this.announcementId,
@@ -384,11 +478,40 @@ export class ProWorkingDoc {
           : strings.announce.applied(label),
       };
       this.recompute();
+      this.rebalance();
+      if (!diskless) {
+        // Se espera a que lo que sale de la ventana este en disco y entonces se aplica el presupuesto a lo que
+        // quede residente (red de seguridad: normalmente nada). Asi nunca se descarta un paso a medio volcar.
+        await this.settleOffloads();
+        if (epoch !== this.epoch || !this.document) return null;
+        this.applyBudget(strings.announce.historyTrimmed);
+      }
       return snapshot;
     };
-    const result = this.chain.then(run, run);
+    const result = this.trackStep(this.chain.then(run, run));
     this.chain = result.catch(() => null);
     return result;
+  }
+
+  /**
+   * Cuenta un paso EN VUELO (D7): mientras la promesa no termine, `stepInFlight` es `true` y cerrar o cambiar de
+   * documento pide confirmar aunque `dirty` aun sea `false`. `useProOperation` envuelve con esto cada operacion y
+   * `commit` cada confirmacion. Devuelve la misma promesa (resuelta o rechazada igual).
+   */
+  trackStep<T>(step: Promise<T>): Promise<T> {
+    this.inFlight += 1;
+    this.recompute();
+    const done = () => {
+      this.inFlight -= 1;
+      this.recompute();
+    };
+    step.then(done, done);
+    return step;
+  }
+
+  /** `true` mientras haya un paso en vuelo. */
+  get stepInFlight(): boolean {
+    return this.inFlight > 0;
   }
 
   /**
@@ -398,7 +521,62 @@ export class ProWorkingDoc {
   private move(to: number, announce: (labels: string) => string): boolean {
     const document = this.document;
     if (!document) return false;
-    if (to < 0 || to >= document.snapshots.length || to === document.cursor) return false;
+    if (to < 0 || to >= document.snapshots.length) return false;
+    if (to === document.cursor) {
+      // Volver al paso en el que ya se esta cancela un movimiento que esperaba bytes (si lo habia).
+      const hadPending = this.pendingTarget !== null;
+      this.cancelPendingMove();
+      if (hadPending) this.recompute();
+      return hadPending;
+    }
+    const target = document.snapshots[to];
+    if (!target.offloaded) {
+      this.cancelPendingMove();
+      this.applyMove(to, announce);
+      return true;
+    }
+    // Bytes en disco: se recuperan y DESPUES se mueve el cursor. El ultimo pedido gana (token).
+    const token = ++this.moveToken;
+    const epoch = this.epoch;
+    this.pendingTarget = to;
+    this.restoring = true;
+    this.recompute();
+    const run = async () => {
+      let bytes: Uint8Array | null = null;
+      try {
+        bytes = this.store ? await this.store.get(target.id) : null;
+      } catch {
+        bytes = null;
+      }
+      if (token !== this.moveToken || epoch !== this.epoch || !this.document) return;
+      this.pendingTarget = null;
+      this.restoring = false;
+      const index = this.document.snapshots.findIndex((snapshot) => snapshot.id === target.id);
+      if (index < 0) {
+        this.recompute();
+        return;
+      }
+      if (!bytes) {
+        this.loseStep(index);
+        return;
+      }
+      this.replaceSnapshot(index, { ...this.document.snapshots[index], bytes, offloaded: false });
+      this.applyMove(index, announce);
+    };
+    void run();
+    return true;
+  }
+
+  private cancelPendingMove(): void {
+    this.moveToken += 1;
+    this.pendingTarget = null;
+    this.restoring = false;
+  }
+
+  /** Mueve el cursor a un snapshot RESIDENTE y anuncia todos los pasos cruzados. */
+  private applyMove(to: number, announce: (labels: string) => string): void {
+    const document = this.document;
+    if (!document || to === document.cursor) return;
     const labels: string[] = [];
     if (to < document.cursor) {
       // Hacia atras: del mas nuevo al mas antiguo; de cada paso, su etiqueta y luego lo descartado antes de el.
@@ -417,23 +595,32 @@ export class ProWorkingDoc {
     this.fileCache = null;
     this.announcement = { id: ++this.announcementId, text: announce(groupRepeatedLabels(labels).join(", ")) };
     this.recompute();
-    return true;
+    this.rebalance();
+  }
+
+  /** Posicion desde la que se cuenta el siguiente deshacer/rehacer: el destino pendiente, si lo hay. */
+  private effectiveCursor(document: ProDocument): number {
+    return this.pendingTarget ?? document.cursor;
   }
 
   /** Vuelve un paso atras. `false` si no hay nada que deshacer. */
   undo(): boolean {
     const document = this.document;
-    if (!document || document.cursor <= 0) return false;
+    if (!document) return false;
+    const from = this.effectiveCursor(document);
+    if (from <= 0) return false;
     const strings = getProStrings(this.language);
-    return this.move(document.cursor - 1, (labels) => strings.announce.undone(labels));
+    return this.move(from - 1, (labels) => strings.announce.undone(labels));
   }
 
   /** Avanza un paso. `false` si no hay nada que rehacer. */
   redo(): boolean {
     const document = this.document;
-    if (!document || document.cursor >= document.snapshots.length - 1) return false;
+    if (!document) return false;
+    const from = this.effectiveCursor(document);
+    if (from >= document.snapshots.length - 1) return false;
     const strings = getProStrings(this.language);
-    return this.move(document.cursor + 1, (labels) => strings.announce.redone(labels));
+    return this.move(from + 1, (labels) => strings.announce.redone(labels));
   }
 
   /** Salta a un paso concreto del historial (indice dentro de `snapshots`). */
@@ -468,6 +655,225 @@ export class ProWorkingDoc {
     const current = document.snapshots[document.cursor];
     if (document.savedSnapshotId === current.id) return;
     this.document = { ...document, savedSnapshotId: current.id };
+    this.recompute();
+  }
+
+  /* ---------------- Wave 8: ventana caliente y disco ---------------- */
+
+  /**
+   * Ids que deben estar en RAM: el actual y el anterior siempre; los demas por cercania al cursor (siguiente,
+   * anterior del anterior, ...) mientras el total quepa en `hotBytes`.
+   */
+  private hotIds(document: ProDocument): Set<string> {
+    const ids = new Set<string>();
+    const { snapshots, cursor } = document;
+    let total = 0;
+    const take = (index: number, always: boolean) => {
+      const snapshot = snapshots[index];
+      if (!snapshot || ids.has(snapshot.id)) return;
+      if (!always && total + snapshot.byteLength > this.hotBytes) return;
+      ids.add(snapshot.id);
+      total += snapshot.byteLength;
+    };
+    take(cursor, true);
+    take(cursor - 1, true);
+    for (let distance = 1; cursor - distance >= 0 || cursor + distance < snapshots.length; distance += 1) {
+      take(cursor + distance, false);
+      take(cursor - distance - 1, false);
+    }
+    return ids;
+  }
+
+  private replaceSnapshot(index: number, snapshot: ProSnapshot): void {
+    const document = this.document;
+    if (!document) return;
+    const snapshots = [...document.snapshots];
+    snapshots[index] = snapshot;
+    this.document = { ...document, snapshots };
+  }
+
+  /** Borra del disco los registros de esos snapshots (los que no esten, se ignoran). */
+  private forgetStored(snapshots: readonly ProSnapshot[]): void {
+    const ids = snapshots.map((snapshot) => snapshot.id).filter((id) => this.storedIds.has(id) || this.putting.has(id));
+    for (const id of ids) this.storedIds.delete(id);
+    if (ids.length > 0) void this.store?.remove(ids);
+  }
+
+  /**
+   * Tras cada cambio de historial o de cursor: suelta de RAM lo que ya esta en disco y queda fuera de la ventana
+   * caliente, vuelca lo residente que sale de ella y trae por adelantado lo volcado que entra en ella. Nunca toca
+   * el actual. Sin disco (o con el disco fallido) no vuelca nada: el presupuesto por bytes manda, como antes.
+   */
+  private rebalance(): void {
+    const document = this.document;
+    if (!document) return;
+    const hot = this.hotIds(document);
+    const toPut: ProSnapshot[] = [];
+    const toFetch: ProSnapshot[] = [];
+    let dropped = false;
+    for (let index = 0; index < document.snapshots.length; index += 1) {
+      const snapshot = document.snapshots[index];
+      const isHot = hot.has(snapshot.id);
+      if (!snapshot.offloaded && !isHot) {
+        if (this.storedIds.has(snapshot.id)) {
+          this.replaceSnapshot(index, { ...snapshot, bytes: EMPTY_BYTES, offloaded: true });
+          // Tambien en el objeto viejo: una referencia rezagada (deps de un `useMemo`, props anteriores de React)
+          // retendria si no 100 MB una generacion entera. Quien ya tomo `bytes` conserva su Uint8Array.
+          (snapshot as { bytes: Uint8Array; offloaded?: boolean }).bytes = EMPTY_BYTES;
+          (snapshot as { bytes: Uint8Array; offloaded?: boolean }).offloaded = true;
+          dropped = true;
+        } else if (!this.putting.has(snapshot.id)) {
+          toPut.push(snapshot);
+        }
+      } else if (snapshot.offloaded && isHot && !this.fetching.has(snapshot.id) && !document.historyOffloadFailed) {
+        // Con el disco fallido no se trae nada por adelantado: lo residente crecería y el presupuesto por bytes
+        // descartaría pasos. Deshacer hacia un paso volcado sigue recuperándolo (de uno en uno).
+        toFetch.push(snapshot);
+      }
+    }
+    if (dropped) this.recompute();
+    if (toPut.length > 0) {
+      if (!this.store || document.historyOffloadFailed) {
+        this.degrade(false);
+      } else {
+        for (const snapshot of toPut) this.offload(snapshot);
+      }
+    }
+    for (const snapshot of toFetch) this.prefetch(snapshot);
+  }
+
+  private offload(snapshot: ProSnapshot): void {
+    const store = this.store;
+    if (!store) return;
+    const epoch = this.epoch;
+    const pending = store.put(snapshot.id, snapshot.bytes).then(
+      () => {
+        this.putting.delete(snapshot.id);
+        if (epoch !== this.epoch || !this.document) {
+          void store.remove([snapshot.id]); // el documento se cerro entretanto: sin restos
+          return;
+        }
+        const index = this.document.snapshots.findIndex((item) => item.id === snapshot.id);
+        if (index < 0) {
+          void store.remove([snapshot.id]); // descartado (rama de rehacer, presupuesto) mientras se escribia
+          return;
+        }
+        this.storedIds.add(snapshot.id);
+        // Puede haber vuelto a la ventana caliente (p. ej. se deshizo hasta el): entonces se queda en RAM.
+        this.rebalance();
+      },
+      () => {
+        this.putting.delete(snapshot.id);
+        if (epoch !== this.epoch || !this.document) return;
+        this.degrade(true);
+      },
+    );
+    this.putting.set(snapshot.id, pending);
+  }
+
+  /** Espera (con plazo) a las escrituras en vuelo; un disco colgado no bloquea una confirmacion para siempre. */
+  private async settleOffloads(timeoutMs = 10_000): Promise<void> {
+    if (this.putting.size === 0) return;
+    await Promise.race([
+      Promise.allSettled([...this.putting.values()]),
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+  }
+
+  /** Presupuesto de siempre sobre lo RESIDENTE (tras volcar). Si descarta algo, lo anuncia y lo borra del disco. */
+  private applyBudget(trimmedText: string): void {
+    const document = this.document;
+    if (!document) return;
+    const budget = enforceProBudget(
+      { snapshots: document.snapshots, cursor: document.cursor },
+      { maxSnapshots: this.maxSnapshots, maxBytes: this.maxBytes },
+    );
+    if (budget.evicted.length === 0) return;
+    for (const dropped of budget.evicted) this.onEvict?.(dropped);
+    this.forgetStored(budget.evicted);
+    this.document = {
+      ...document,
+      snapshots: budget.snapshots,
+      cursor: budget.cursor,
+      trimmedCount: document.trimmedCount + budget.evicted.length,
+    };
+    this.announcement = { id: ++this.announcementId, text: `${this.announcement?.text ?? ""} ${trimmedText}`.trim() };
+    this.recompute();
+  }
+
+  private prefetch(snapshot: ProSnapshot): void {
+    const store = this.store;
+    if (!store) return;
+    const epoch = this.epoch;
+    this.fetching.add(snapshot.id);
+    store.get(snapshot.id).then(
+      (bytes) => {
+        this.fetching.delete(snapshot.id);
+        if (!bytes || epoch !== this.epoch || !this.document) return;
+        const index = this.document.snapshots.findIndex((item) => item.id === snapshot.id);
+        if (index < 0 || !this.document.snapshots[index].offloaded) return;
+        if (!this.hotIds(this.document).has(snapshot.id)) return; // ya salio de la ventana: no se trae
+        this.replaceSnapshot(index, { ...this.document.snapshots[index], bytes, offloaded: false });
+        this.recompute();
+      },
+      () => {
+        this.fetching.delete(snapshot.id);
+      },
+    );
+  }
+
+  /**
+   * El disco no esta o fallo: el historial vive solo en RAM. Se marca el documento (aviso visible en el panel), se
+   * anuncia si se pide, y se aplica el presupuesto por bytes de siempre a lo residente.
+   */
+  private degrade(announce: boolean): void {
+    const document = this.document;
+    if (!document) return;
+    const strings = getProStrings(this.language);
+    const budget = enforceProBudget(
+      { snapshots: document.snapshots, cursor: document.cursor },
+      { maxSnapshots: this.maxSnapshots, maxBytes: this.maxBytes },
+    );
+    for (const evicted of budget.evicted) this.onEvict?.(evicted);
+    this.forgetStored(budget.evicted);
+    const alreadyFailed = document.historyOffloadFailed === true;
+    if (alreadyFailed && budget.evicted.length === 0) return;
+    this.document = {
+      ...document,
+      snapshots: budget.snapshots,
+      cursor: budget.cursor,
+      trimmedCount: document.trimmedCount + budget.evicted.length,
+      historyOffloadFailed: true,
+    };
+    if (announce && !alreadyFailed) {
+      const trimmed = budget.evicted.length > 0 ? ` ${strings.announce.historyTrimmed}` : "";
+      this.announcement = { id: ++this.announcementId, text: `${strings.announce.historyOffloadFailed}${trimmed}` };
+    } else if (budget.evicted.length > 0) {
+      // Se SUMA al anuncio recien hecho (el «Deshecho: …» o el «Aplicado: …» que provoco el reequilibrio): un lector de
+      // pantalla no debe perder el paso por el aviso de recorte.
+      this.announcement = {
+        id: ++this.announcementId,
+        text: `${this.announcement?.text ?? ""} ${strings.announce.historyTrimmed}`.trim(),
+      };
+    }
+    this.recompute();
+  }
+
+  /** Un paso volcado no se pudo recuperar: se retira del historial y se anuncia (nunca en silencio). */
+  private loseStep(index: number): void {
+    const document = this.document;
+    if (!document) return;
+    const strings = getProStrings(this.language);
+    const result = dropSnapshotAt({ snapshots: document.snapshots, cursor: document.cursor }, index);
+    this.storedIds.delete(result.dropped.id);
+    this.document = {
+      ...document,
+      snapshots: result.snapshots,
+      cursor: result.cursor,
+      trimmedCount: document.trimmedCount + 1,
+      historyOffloadFailed: true,
+    };
+    this.announcement = { id: ++this.announcementId, text: strings.announce.historyStepLost(result.dropped.label) };
     this.recompute();
   }
 

@@ -6,7 +6,6 @@ import {
   DEFAULT_EDIT_PDF_FEATURE_FLAGS,
   EDIT_PDF_FEATURE_FLAGS,
   EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY,
-  EDIT_PDF_FEATURE_FLAG_AVAILABLE,
   __resetEditPdfFeatureFlagsCacheForTests,
   getEditPdfFeatureFlag,
   setEditPdfFeatureFlag,
@@ -26,12 +25,9 @@ afterEach(() => {
 });
 
 describe("editFeatureFlags — valores por defecto", () => {
-  it("editExistingText ACTIVO y stripOriginalText DESACTIVADO", () => {
-    expect(DEFAULT_EDIT_PDF_FEATURE_FLAGS).toEqual({
-      editExistingText: true,
-      stripOriginalText: false,
-    });
-    expect([...EDIT_PDF_FEATURE_FLAGS]).toEqual(["editExistingText", "stripOriginalText"]);
+  it("editExistingText ACTIVO y es el unico interruptor (la limpieza del original ya no lo es)", () => {
+    expect(DEFAULT_EDIT_PDF_FEATURE_FLAGS).toEqual({ editExistingText: true });
+    expect([...EDIT_PDF_FEATURE_FLAGS]).toEqual(["editExistingText"]);
     const { result } = renderHook(() => useEditPdfFeatureFlags());
     expect(result.current).toEqual(DEFAULT_EDIT_PDF_FEATURE_FLAGS);
   });
@@ -63,7 +59,6 @@ describe("editFeatureFlags — persistencia", () => {
     expect(result.current).toBe(false);
     expect(JSON.parse(window.localStorage.getItem(EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY)!)).toEqual({
       editExistingText: false,
-      stripOriginalText: false,
     });
     act(() => setEditPdfFeatureFlag("editExistingText", true));
     expect(result.current).toBe(true);
@@ -111,23 +106,28 @@ describe("editFeatureFlags — persistencia", () => {
   });
 });
 
-describe("editFeatureFlags — stripOriginalText esta reservado, no disponible", () => {
-  it("no esta disponible y no se puede activar", () => {
-    expect(EDIT_PDF_FEATURE_FLAG_AVAILABLE).toEqual({ editExistingText: true, stripOriginalText: false });
-    const { result } = renderHook(() => useEditPdfFeatureFlag("stripOriginalText"));
-    act(() => setEditPdfFeatureFlag("stripOriginalText", true));
-    expect(result.current).toBe(false);
-    expect(window.localStorage.getItem(EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY)).toBeNull();
-  });
-
-  it("aunque el almacenamiento diga true (editado a mano), la lectura efectiva es false", () => {
+describe("editFeatureFlags — un stripOriginalText guardado por una version anterior", () => {
+  it("se ignora al leer: no aparece en el estado y no cambia editExistingText", () => {
     window.localStorage.setItem(
       EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY,
       JSON.stringify({ stripOriginalText: true }),
     );
     const { result } = renderHook(() => useEditPdfFeatureFlags());
-    expect(result.current.stripOriginalText).toBe(false);
-    expect(getEditPdfFeatureFlag("stripOriginalText")).toBe(false);
+    expect(result.current).toEqual({ editExistingText: true });
+    expect("stripOriginalText" in result.current).toBe(false);
+    expect(getEditPdfFeatureFlag("editExistingText")).toBe(true);
+  });
+
+  it("se descarta en la siguiente escritura, sin tocar lo demas", () => {
+    window.localStorage.setItem(
+      EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY,
+      JSON.stringify({ stripOriginalText: true, editExistingText: true }),
+    );
+    renderHook(() => useEditPdfFeatureFlags());
+    act(() => setEditPdfFeatureFlag("editExistingText", false));
+    expect(JSON.parse(window.localStorage.getItem(EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY)!)).toEqual({
+      editExistingText: false,
+    });
   });
 
   it("la referencia del snapshot es estable entre lecturas sin cambios (sin bucles de render)", () => {

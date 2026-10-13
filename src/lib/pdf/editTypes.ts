@@ -190,14 +190,41 @@ export type TextEdit = {
    * editor lo avisa y la lista de descarga debe contarlo igual. Solo existe cuando es `true`.
    */
   mixedStyle?: true;
+  /**
+   * ADITIVO (W8 · F2). Perfil de glifos del texto ORIGINAL del bloque (solo
+   * cuentas). Con el, la exportacion comprueba que los glifos quitados del
+   * flujo corresponden al bloque; si no cuadran, no quita nada y avisa
+   * `original-text-remains` (`ambiguous`). Ausente = sin esa comprobacion.
+   */
+  originalGlyphs?: { chars: number; ligatures: number };
 };
+
+/** (Wave 8 · F2) Por que el texto original no se pudo quitar del flujo. */
+export type OriginalTextRemainsReason =
+  | "type3"
+  | "vertical"
+  | "encoding"
+  | "widths"
+  | "invisible"
+  | "clip"
+  | "shared-xobject"
+  | "unreadable"
+  | "not-found"
+  | "ambiguous";
 
 /** Un aviso no bloqueante que la interfaz muestra junto al bloque. */
 export type EditWarning =
   | { kind: "font-substituted"; from: string; to: CatalogFontKey }
   | { kind: "glyph-missing"; chars: string[]; fallbackKey?: CatalogFontKey }
   | { kind: "background-not-uniform" }
-  | { kind: "original-text-remains" }
+  /**
+   * (Wave 8 · F2) El texto original NO se pudo quitar del flujo de contenido
+   * y sigue bajo la cobertura. `reason` (aditivo) dice por que; ver
+   * `RemoveFailReason` en `editTextRemove.ts`.
+   */
+  | { kind: "original-text-remains"; reason?: OriginalTextRemainsReason }
+  /** (Wave 8 · F2) El texto original del bloque se elimino de verdad del PDF. */
+  | { kind: "original-text-removed" }
   /** ADITIVO (W5-U2 · B-mayor 2): el texto nuevo invade a otro bloque de texto. */
   | { kind: "overlap"; with?: string }
   /**

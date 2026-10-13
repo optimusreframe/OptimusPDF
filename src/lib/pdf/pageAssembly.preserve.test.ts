@@ -10,11 +10,17 @@ import {
   makeRichPdf,
   marker,
 } from "@/lib/pdf/testing/pageAssemblyFixtures";
+import {
+  legacyMergePdfFiles,
+  legacyOrganizePdf,
+  legacyRemovePdfPages,
+} from "@/lib/pdf/testing/legacyPageEngines";
 
 /**
  * Hallazgo del descubrimiento de la Wave 7: `copyPages` a un documento nuevo pierde titulo,
- * autor, AcroForm y marcadores. Estas pruebas FALLAN si el motor en sitio los pierde, y comparan
- * con los motores actuales (`organize`, `merge`) para dejar medido el contraste.
+ * autor, AcroForm y marcadores. Estas pruebas FALLAN si el motor en sitio los pierde. Los
+ * «CONTRASTE» comparan los motores VIEJOS (oraculos en `testing/legacyPageEngines.ts`) con las
+ * herramientas sueltas ya migradas (Wave 8): lo que antes se perdia, ahora se conserva.
  */
 
 const existing = (sourceIndex: number, rotation = 0, copy = false): PageEntry => ({
@@ -78,15 +84,19 @@ describe("conservacion en sitio: metadatos", () => {
     expect(out.title).toBe("Informe anual");
   });
 
-  it("CONTRASTE: `organizePdf` (copyPages a un documento nuevo) pierde titulo y autor", async () => {
+  it("CONTRASTE: el `organizePdf` viejo (copyPages a un documento nuevo) perdia titulo y autor; el migrado los conserva", async () => {
     const bytes = await makeRichPdf(RICH);
-    const blob = await organizePdf(toFile(bytes), [
-      { kind: "existing", page: 2, rotation: 0 },
-      { kind: "existing", page: 1, rotation: 0 },
-    ]);
-    const out = await inspectPdf(new Uint8Array(await blob.arrayBuffer()));
-    expect(out.title).not.toBe("Informe anual");
-    expect(out.author).not.toBe("Ana Perez");
+    const plan = [
+      { kind: "existing" as const, page: 2, rotation: 0 },
+      { kind: "existing" as const, page: 1, rotation: 0 },
+    ];
+    const legacy = await inspectPdf(new Uint8Array(await (await legacyOrganizePdf(toFile(bytes), plan)).arrayBuffer()));
+    expect(legacy.title).not.toBe("Informe anual");
+    expect(legacy.author).not.toBe("Ana Perez");
+    const out = await inspectPdf(new Uint8Array(await (await organizePdf(toFile(bytes), plan)).arrayBuffer()));
+    expect(out.title).toBe("Informe anual");
+    expect(out.author).toBe("Ana Perez");
+    expect(out.markers).toEqual(legacy.markers);
   });
 });
 
@@ -188,11 +198,18 @@ describe("conservacion en sitio: formulario (AcroForm)", () => {
     expect(widgets).toEqual([1, 0]);
   });
 
-  it("CONTRASTE: unir con `mergePdfFiles` (copyPages) deja el documento sin AcroForm", async () => {
+  it("CONTRASTE: el `mergePdfFiles` viejo (copyPages) dejaba el documento sin AcroForm; el migrado conserva y renombra", async () => {
     const bytes = await makeRichPdf({ pages: 2, form: true });
+    const legacy = await inspectPdf(
+      new Uint8Array(await (await legacyMergePdfFiles([toFile(bytes), toFile(bytes)])).arrayBuffer()),
+    );
+    expect(legacy.fieldNames).toEqual([]);
     const blob = await mergePdfFiles([toFile(bytes), toFile(bytes)]);
-    const out = await inspectPdf(new Uint8Array(await blob.arrayBuffer()));
-    expect(out.fieldNames).toEqual([]);
+    const merged = new Uint8Array(await blob.arrayBuffer());
+    expect((await inspectPdf(merged)).fieldNames.sort()).toEqual(["campo-1", "campo-1_2", "campo-2", "campo-2_2"]);
+    const loaded = await PDFDocument.load(merged);
+    expect(loaded.getForm().getTextField("campo-1").getText()).toBe("valor-1");
+    expect(loaded.getForm().getTextField("campo-1_2").getText()).toBe("valor-1");
   });
 
   it("un documento sin formulario no gana uno al insertar paginas sin campos", async () => {
@@ -280,23 +297,28 @@ describe("conservacion en sitio: marcadores", () => {
     expect(out.outlineTitles.length).toBe(2);
   });
 
-  it("CONTRASTE: `organizePdf` (copyPages) pierde todos los marcadores", async () => {
+  it("CONTRASTE: el `organizePdf` viejo (copyPages) perdia todos los marcadores; el migrado conserva los de las paginas que quedan", async () => {
     const bytes = await makeRichPdf(RICH);
-    const blob = await organizePdf(toFile(bytes), [
-      { kind: "existing", page: 1, rotation: 0 },
-      { kind: "existing", page: 2, rotation: 0 },
-    ]);
-    const out = await inspectPdf(new Uint8Array(await blob.arrayBuffer()));
-    expect(out.outlineTitles).toEqual([]);
+    const plan = [
+      { kind: "existing" as const, page: 1, rotation: 0 },
+      { kind: "existing" as const, page: 2, rotation: 0 },
+    ];
+    const legacy = await inspectPdf(new Uint8Array(await (await legacyOrganizePdf(toFile(bytes), plan)).arrayBuffer()));
+    expect(legacy.outlineTitles).toEqual([]);
+    const out = await inspectPdf(new Uint8Array(await (await organizePdf(toFile(bytes), plan)).arrayBuffer()));
+    expect(out.outlineTitles).toEqual(["Capitulo 1", "Capitulo 2"]);
+    expect(out.outlineTargets).toEqual([0, 1]);
   });
 
-  it("CONTRASTE: `removePdfPages` (en sitio) conserva titulo y formulario; el motor nuevo ademas adelgaza el archivo", async () => {
+  it("CONTRASTE: el `removePdfPages` viejo (removePage) conservaba titulo y formulario pero no adelgazaba; el migrado si", async () => {
     const bytes = await makeRichPdf({ ...RICH, pages: 12 });
-    const legacyBlob = await removePdfPages(toFile(bytes), { remove: [2, 3, 4, 5, 6, 7, 8, 9] });
-    const legacy = new Uint8Array(await legacyBlob.arrayBuffer());
+    const remove = { remove: [2, 3, 4, 5, 6, 7, 8, 9] };
+    const legacy = new Uint8Array(await (await legacyRemovePdfPages(toFile(bytes), remove)).arrayBuffer());
     expect((await inspectPdf(legacy)).title).toBe("Informe anual");
-    const mine = (await applyPageAssembly(bytes, [existing(0), existing(1), existing(10), existing(11)])).bytes;
+    const mine = new Uint8Array(await (await removePdfPages(toFile(bytes), remove)).arrayBuffer());
+    expect((await inspectPdf(mine)).title).toBe("Informe anual");
     expect(mine.length).toBeLessThan(legacy.length);
+    expect((await inspectPdf(mine)).pageObjects).toBe(4);
   });
 });
 
@@ -450,13 +472,16 @@ describe("lo eliminado ya no esta dentro del archivo", () => {
     expect(out.pageObjects).toBe(3);
   });
 
-  it("CONTRASTE: `removePdfPages` deja el contenido de las paginas eliminadas dentro del archivo", async () => {
+  it("CONTRASTE: el `removePdfPages` viejo dejaba el contenido de las paginas eliminadas dentro del archivo; el migrado no", async () => {
     const bytes = await makeRichPdf({ pages: 6 });
-    const blob = await removePdfPages(toFile(bytes), { remove: [2, 3, 4, 5] });
-    const legacy = new Uint8Array(await blob.arrayBuffer());
-    const text = await allStreamsText(legacy);
-    // El motor actual no suelta los objetos sin referencia: el texto sigue en el archivo.
-    expect(text).toContain(marker(3));
+    const remove = { remove: [2, 3, 4, 5] };
+    const legacy = await allStreamsText(new Uint8Array(await (await legacyRemovePdfPages(toFile(bytes), remove)).arrayBuffer()));
+    // El motor viejo no soltaba los objetos sin referencia: el texto seguia en el archivo.
+    expect(legacy).toContain(marker(3));
+    const mine = await allStreamsText(new Uint8Array(await (await removePdfPages(toFile(bytes), remove)).arrayBuffer()));
+    expect(mine).toContain(marker(0));
+    expect(mine).toContain(marker(5));
+    for (const index of [1, 2, 3, 4]) expect(mine).not.toContain(marker(index));
   });
 });
 

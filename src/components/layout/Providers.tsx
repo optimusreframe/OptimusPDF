@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { MotionConfig } from "motion/react";
 import { LanguageProvider } from "@/lib/i18n";
 import { ThemeProvider } from "@/lib/theme";
+import { HistoryJanitor } from "@/components/layout/HistoryJanitor";
 
 /*
  * MotionConfig reducedMotion="user": cuando el sistema pide reducir
@@ -18,7 +19,10 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <MotionConfig reducedMotion="user">
       <ThemeProvider>
-        <LanguageProvider>{children}</LanguageProvider>
+        <LanguageProvider>
+          <HistoryJanitor />
+          {children}
+        </LanguageProvider>
       </ThemeProvider>
     </MotionConfig>
   );

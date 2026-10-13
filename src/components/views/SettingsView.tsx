@@ -26,7 +26,6 @@ import {
 } from "@/app/pdf-pro/proFeatureFlags";
 import {
   EDIT_PDF_FEATURE_FLAGS,
-  EDIT_PDF_FEATURE_FLAG_AVAILABLE,
   setEditPdfFeatureFlag,
   useEditPdfFeatureFlags,
 } from "@/app/edit-pdf/editFeatureFlags";
@@ -118,20 +117,15 @@ export function SettingsView() {
             {t.settings.editPdfFeaturesBody}
           </p>
           <div className="mt-5 space-y-4">
-            {EDIT_PDF_FEATURE_FLAGS.map((flag) => {
-              const available = EDIT_PDF_FEATURE_FLAG_AVAILABLE[flag];
-              return (
-                <Checkbox
-                  key={flag}
-                  label={t.settings.editPdfFeatures[flag].label}
-                  hint={t.settings.editPdfFeatures[flag].hint}
-                  // Una funcion aun no disponible se muestra deshabilitada y desmarcada.
-                  checked={available && editPdfFlags[flag]}
-                  disabled={!available}
-                  onChange={(enabled) => setEditPdfFeatureFlag(flag, enabled)}
-                />
-              );
-            })}
+            {EDIT_PDF_FEATURE_FLAGS.map((flag) => (
+              <Checkbox
+                key={flag}
+                label={t.settings.editPdfFeatures[flag].label}
+                hint={t.settings.editPdfFeatures[flag].hint}
+                checked={editPdfFlags[flag]}
+                onChange={(enabled) => setEditPdfFeatureFlag(flag, enabled)}
+              />
+            ))}
           </div>
         </GlassCard>
 

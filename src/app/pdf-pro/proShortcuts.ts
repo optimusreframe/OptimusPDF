@@ -26,6 +26,15 @@ const NON_TEXT_INPUT_TYPES = new Set([
 const TEXT_ROLES = new Set(["textbox", "searchbox", "combobox", "spinbutton"]);
 
 /** El elemento es un campo en el que se escribe (input de texto, textarea, contenteditable...). */
+/**
+ * Hay una hoja modal ABIERTA (no una que ya anima su salida: esa sigue en el DOM con `aria-modal` hasta un segundo
+ * y marcada con `data-sheet-closing`). Los atajos globales consultan esto para no ignorar un Ctrl/Cmd+S que llega
+ * justo tras cerrar una hoja (Wave 8 · backlog b).
+ */
+export function modalSheetOpen(root: ParentNode = window.document): boolean {
+  return root.querySelector('[aria-modal="true"]:not([data-sheet-closing])') !== null;
+}
+
 export function isTextEditingTarget(target: EventTarget | null): boolean {
   if (!target || typeof (target as Element).closest !== "function") return false;
   const element = target as HTMLElement;

@@ -490,8 +490,10 @@ describe("Editar", () => {
     expect(opts.notices.join(" ")).toContain(flow.summaryEditedTexts(1));
     const content = await pageContents(bytes, 0);
     expect(content).toContain("Tj");
-    // El aviso permanente: el texto original puede seguir existiendo bajo la edicion.
+    // Wave 8 · F2: el bloque "Titulo" es simulado (no existe en el PDF de prueba), asi que la
+    // exportacion no encuentra su texto en el flujo y avisa, con razon, que no pudo quitarlo.
     expect(opts.notices.join(" ")).toContain(flow.noticeRemains(1));
+    expect(opts.notices.join(" ")).not.toContain(flow.noticeRemoved(1));
   });
 
   it("aplicar sin cambios no es posible: el modo no ofrece resultado vacio (la exportacion lo rechaza)", async () => {

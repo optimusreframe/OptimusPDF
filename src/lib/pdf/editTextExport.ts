@@ -45,6 +45,7 @@ import {
   pickFontForText,
   sanitizeTextForFont,
 } from "@/lib/pdf/editFonts";
+import { removeOriginalText, type RemoveOutcome } from "@/lib/pdf/editTextRemove";
 import type {
   CatalogFontKey,
   EditWarning,
@@ -56,12 +57,15 @@ import type {
  * Exportacion de las ediciones de texto existente (Wave 5, fase F1:
  * "cubrir y redibujar") y "Aplanar pagina".
  *
- * F1 NO toca el flujo de contenido original: tapa el texto viejo con un
- * rectangulo del color del fondo y dibuja el nuevo encima. Por eso el texto
- * original SIGUE EXISTIENDO bajo la edicion (se puede seleccionar, copiar o
- * extraer) y cada bloque reemplazado emite el aviso `original-text-remains`.
- * La salida segura es `flattenPages`: rasteriza la pagina y la sustituye por
- * una imagen, de modo que el texto original deja de existir en el archivo.
+ * F1 tapaba el texto viejo con un rectangulo del color del fondo y dibujaba
+ * el nuevo encima, dejando el original en el flujo. Desde la Wave 8 (F2),
+ * ANTES de cubrir se quitan del flujo de contenido los glifos del bloque
+ * reemplazado (`editTextRemove.ts`): el bloque emite `original-text-removed`
+ * y el texto viejo deja de poder seleccionarse o extraerse. La cobertura se
+ * mantiene igualmente (fondos, restos visuales). Solo cuando no se puede
+ * quitar con seguridad (Type3, XObject compartido, flujo ilegible...) se
+ * conserva el aviso `original-text-remains` con su `reason`; la salida segura
+ * en ese caso sigue siendo `flattenPages`.
  *
  * COORDENADAS: todo (`box`, `coverBox`, `rotation`) esta en el ESPACIO DE
  * USUARIO del PDF (puntos, origen abajo-izquierda, sin `/Rotate`), igual que
@@ -636,6 +640,15 @@ export async function applyTextEdits(
       const page = pages[pageIndex];
       const pageEdits = byPage.get(pageIndex) ?? [];
 
+      // 0) F2: quitar del flujo el texto original de los bloques reemplazados.
+      const replacing = pageEdits.filter((edit) => edit.blockId !== undefined);
+      const removal = new Map<string, RemoveOutcome>();
+      if (replacing.length > 0) {
+        for (const outcome of removeOriginalText(document, page, replacing)) {
+          removal.set(outcome.editId, outcome);
+        }
+      }
+
       // 1) Coberturas de toda la pagina.
       for (const edit of pageEdits) {
         const shape = coverShape(edit);
@@ -646,9 +659,11 @@ export async function applyTextEdits(
             note(edit.id, { kind: "cover-overlaps-neighbor", with: hole.id });
           }
         }
-        // F1: el texto del bloque reemplazado sigue en el flujo original.
+        // F2: el texto del bloque reemplazado se quito del flujo, o se avisa por que no.
         if (edit.blockId !== undefined) {
-          note(edit.id, { kind: "original-text-remains" });
+          const outcome = removal.get(edit.id);
+          if (outcome?.removed) note(edit.id, { kind: "original-text-removed" });
+          else note(edit.id, { kind: "original-text-remains", reason: outcome?.reason ?? "unreadable" });
         }
         // Cobertura de un fondo que no era liso: puede notarse un borde.
         if (edit.cover.color !== null && edit.cover.uniform === false) {

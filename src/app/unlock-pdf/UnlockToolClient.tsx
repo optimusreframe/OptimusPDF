@@ -430,7 +430,7 @@ export function UnlockToolClient() {
               onFile={handleFile}
             />
 
-            <section className="glass rounded-ios p-5">
+            <section className="surface-card rounded-ios p-5">
               <ProtectionSummary s={s} file={file} inspection={inspection} />
 
               {showSignatureConsent && file !== null ? (

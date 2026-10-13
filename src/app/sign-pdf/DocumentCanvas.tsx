@@ -2523,7 +2523,7 @@ function DocumentCanvasInner({
         </div>
       </div>
 
-      {/* «Editar texto»: pista, deshacer/rehacer y el aviso de que el original puede seguir existiendo. */}
+      {/* «Editar texto»: pista, deshacer/rehacer y la nota de que al firmar se quita el texto original (salvo casos especiales). */}
       {textEdit && (editingText || textEditing.count > 0) ? (
         <div data-edit-text-panel="" className="surface-card rounded-ios mb-3 space-y-2 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">

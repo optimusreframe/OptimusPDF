@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { modalSheetOpen } from "@/app/pdf-pro/proShortcuts";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import {
   attachProUndoShortcuts,
@@ -305,5 +306,16 @@ describe("eventos reales de teclado sobre el DOM de React", () => {
     expect(cursor(doc)).toBe(2);
     fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
     expect(cursor(doc)).toBe(1);
+  });
+});
+
+describe("modalSheetOpen (Wave 8 · backlog b)", () => {
+  it("una hoja abierta cuenta; una que anima su salida (data-sheet-closing) NO; sin hojas, no", () => {
+    const root = document.createElement("div");
+    expect(modalSheetOpen(root)).toBe(false);
+    root.innerHTML = '<div role="dialog" aria-modal="true"></div>';
+    expect(modalSheetOpen(root)).toBe(true);
+    root.firstElementChild!.setAttribute("data-sheet-closing", "");
+    expect(modalSheetOpen(root)).toBe(false);
   });
 });

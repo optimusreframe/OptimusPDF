@@ -159,15 +159,16 @@ describe("paridad editor <-> descarga (W5-U5 · N4)", () => {
     expect(fontNotice({ ...edit, coverColor: "#ffffff", sourceFont: edit.sourceFont, mixedStyle: true }).similar).toBe(true);
     const session = applyOp(createEditSession(), { type: "add", item: textItem(edit) });
     const result = await exportEditedPdf(await sourcePdf(), session);
-    expect(result.warnings).toMatchObject({ fontSubstituted: 1, mixedStyle: 1, originalRemains: 1 });
+    // Wave 8 · F2: el original se quita del flujo, asi que ya no "permanece".
+    expect(result.warnings).toMatchObject({ fontSubstituted: 1, mixedStyle: 1, originalRemains: 0, originalRemoved: 1 });
     const es = EDIT_FLOW_STRINGS.es;
     const en = EDIT_FLOW_STRINGS.en;
     const context = { signatures: "none" as const, wasEncrypted: false, flattenedPages: 0 };
     expect(exportNotices(result.warnings, context, es)).toEqual(
-      expect.arrayContaining([es.noticeFont(1), es.noticeMixed(1), es.noticeRemains(1)]),
+      expect.arrayContaining([es.noticeFont(1), es.noticeMixed(1), es.noticeRemoved(1)]),
     );
     expect(exportNotices(result.warnings, context, en)).toEqual(
-      expect.arrayContaining([en.noticeFont(1), en.noticeMixed(1), en.noticeRemains(1)]),
+      expect.arrayContaining([en.noticeFont(1), en.noticeMixed(1), en.noticeRemoved(1)]),
     );
   });
 
@@ -187,13 +188,14 @@ describe("exportEditedPdf", () => {
     });
   });
 
-  it("texto editado: el PDF lleva el nuevo texto y se cuenta como editado, con el aviso del original", async () => {
+  it("texto editado: el PDF lleva el nuevo texto y se cuenta como editado; el original se elimino (F2)", async () => {
     const session = sessionWith({ type: "add", item: textItem(replaceEdit()) });
     const result = await exportEditedPdf(await sourcePdf(), session);
     const bytes = new Uint8Array(await result.blob.arrayBuffer());
     expect(await textOfPage(bytes, 1)).toContain("NUEVO");
     expect(result.counts).toMatchObject({ editedTexts: 1, addedTexts: 0, images: 0, shapes: 0, flattenedPages: 0 });
-    expect(result.warnings.originalRemains).toBe(1);
+    expect(result.warnings.originalRemains).toBe(0);
+    expect(result.warnings.originalRemoved).toBe(1);
   });
 
   it("texto nuevo + forma: ambos entran y los conteos los distinguen", async () => {
@@ -305,12 +307,13 @@ describe("resumen y avisos de la descarga", () => {
   });
 
   it("lista los avisos del motor, las firmas, la contrasena y el aplanado, sin repetir", () => {
-    const warnings = { fontSubstituted: 2, glyphMissing: 1, originalRemains: 1, backgroundNotUniform: 3, overlap: 2, mixedStyle: 1, coverOverlaps: 1, flattenDrops: null, skipped: 1 };
+    const warnings = { fontSubstituted: 2, glyphMissing: 1, originalRemains: 1, originalRemoved: 2, backgroundNotUniform: 3, overlap: 2, mixedStyle: 1, coverOverlaps: 1, flattenDrops: null, skipped: 1 };
     const items = exportNotices(warnings, { signatures: "active", wasEncrypted: true, flattenedPages: 1 }, es);
     expect(items).toEqual([
       es.noticeFont(2),
       es.noticeGlyph(1),
       es.noticeRemains(1),
+      es.noticeRemoved(2),
       es.noticeBackground(3),
       es.noticeMixed(1),
       es.noticeOverlap(2),
@@ -324,12 +327,12 @@ describe("resumen y avisos de la descarga", () => {
   });
 
   it("sin nada que avisar la lista esta vacia", () => {
-    const warnings = { fontSubstituted: 0, glyphMissing: 0, originalRemains: 0, backgroundNotUniform: 0, overlap: 0, mixedStyle: 0, coverOverlaps: 0, flattenDrops: null, skipped: 0 };
+    const warnings = { fontSubstituted: 0, glyphMissing: 0, originalRemains: 0, originalRemoved: 0, backgroundNotUniform: 0, overlap: 0, mixedStyle: 0, coverOverlaps: 0, flattenDrops: null, skipped: 0 };
     expect(exportNotices(warnings, { signatures: "none", wasEncrypted: false, flattenedPages: 0 }, es)).toEqual([]);
   });
 
   it("una comprobacion de firmas dudosa (unknown) tambien se avisa", () => {
-    const warnings = { fontSubstituted: 0, glyphMissing: 0, originalRemains: 0, backgroundNotUniform: 0, overlap: 0, mixedStyle: 0, coverOverlaps: 0, flattenDrops: null, skipped: 0 };
+    const warnings = { fontSubstituted: 0, glyphMissing: 0, originalRemains: 0, originalRemoved: 0, backgroundNotUniform: 0, overlap: 0, mixedStyle: 0, coverOverlaps: 0, flattenDrops: null, skipped: 0 };
     expect(exportNotices(warnings, { signatures: "unknown", wasEncrypted: false, flattenedPages: 0 }, en)).toEqual([
       en.noticeSignatures,
     ]);

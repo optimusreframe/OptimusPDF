@@ -66,7 +66,7 @@ export function RedactToolClient() {
             strings={s}
           />
 
-          <section className="glass rounded-ios p-5">
+          <section className="surface-card rounded-ios p-5">
             <div className="flex items-start gap-3">
               <EyeOff
                 aria-hidden="true"

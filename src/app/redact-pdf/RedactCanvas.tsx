@@ -598,7 +598,7 @@ function RedactCanvasInner({
         </div>
       ) : null}
 
-      <div className="glass rounded-ios flex justify-center p-3">
+      <div className="surface-card rounded-ios flex justify-center p-3">
         <div
           ref={hostRef}
           data-testid="redact-canvas-host"

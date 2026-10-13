@@ -14,6 +14,8 @@ export type ExportStrings = {
     running: string;
     cancel: string;
     cancelled: string;
+    /** Wave 8 (backlog a): la tarjeta se desmonto (otra pestaña, documento cerrado) con una exportacion en curso. */
+    cancelledOnLeave: string;
     done: (filename: string) => string;
     localOnly: string;
     requiresNetwork: string;
@@ -62,6 +64,7 @@ const es: ExportStrings = {
     running: "Exportando…",
     cancel: "Cancelar",
     cancelled: "Exportación cancelada.",
+    cancelledOnLeave: "La exportación se canceló al salir de Convertir: vuelve y pulsa Exportar de nuevo.",
     done: (filename) => `Exportado: ${filename}`,
     localOnly: "Solo en tu dispositivo",
     requiresNetwork: "Requiere conexión",
@@ -114,6 +117,7 @@ const en: ExportStrings = {
     running: "Exporting…",
     cancel: "Cancel",
     cancelled: "Export cancelled.",
+    cancelledOnLeave: "The export was cancelled when you left Convert: come back and press Export again.",
     done: (filename) => `Exported: ${filename}`,
     localOnly: "On your device only",
     requiresNetwork: "Requires a connection",

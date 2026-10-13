@@ -458,7 +458,7 @@ function VaultCard({
   const usable = need ? entry[need] !== null : true;
 
   return (
-    <div className="glass rounded-ios-sm space-y-3 p-3">
+    <div className="surface-card rounded-ios-sm space-y-3 p-3">
       <div className="flex items-center gap-3">
         <div className="flex shrink-0 flex-wrap gap-1.5">
           {entry.signature ? (

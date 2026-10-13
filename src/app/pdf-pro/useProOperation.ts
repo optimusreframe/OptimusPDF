@@ -73,10 +73,13 @@ export function useProOperation(explicit?: ProWorkingDoc) {
       runnerRef.current ??= createProRunner();
       update({ status: "running", progress: 0, error: null, cancelled: false, warnings: [], report: null });
 
-      const outcome = await runnerRef.current.run(operation, startSnapshot.bytes, options, {
-        lang: language,
-        onProgress: (progress) => update({ progress }),
-      });
+      // D7: mientras el motor trabaja el paso esta EN VUELO: cerrar o cambiar de documento pide confirmar.
+      const outcome = await doc.trackStep(
+        runnerRef.current.run(operation, startSnapshot.bytes, options, {
+          lang: language,
+          onProgress: (progress) => update({ progress }),
+        }),
+      );
 
       if (outcome.stale || (!outcome.ok && outcome.cancelled)) {
         update({ ...IDLE, cancelled: true });

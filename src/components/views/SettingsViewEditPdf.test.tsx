@@ -83,13 +83,19 @@ afterEach(() => vi.unstubAllGlobals());
 describe("Ajustes — interruptores del editor de PDF", () => {
   const copy = es.settings.editPdfFeatures;
 
-  it("aparecen con titulo, explicacion, etiqueta y pista", () => {
+  it("aparecen con titulo, explicacion, etiqueta y pista (un unico interruptor: editExistingText)", () => {
     renderSettings();
     expect(screen.getByText(es.settings.editPdfFeaturesTitle)).toBeTruthy();
     expect(screen.getByText(es.settings.editPdfFeaturesBody)).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: copy.editExistingText.label })).toBeTruthy();
     expect(screen.getByText(copy.editExistingText.hint)).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: copy.stripOriginalText.label })).toBeTruthy();
+    // La limpieza del texto original ya no es un interruptor: no hay ningun otro checkbox en este grupo.
+    expect(Object.keys(copy)).toEqual(["editExistingText"]);
+    expect(screen.queryByRole("checkbox", { name: /Limpiar el contenido original/ })).toBeNull();
+    expect(screen.queryByText(/pr[oó]ximamente/i)).toBeNull();
+    expect(screen.queryByText(/puede seguir existiendo/)).toBeNull();
+    expect(copy.editExistingText.hint).toMatch(/al exportar, el texto original se elimina del archivo/);
+    expect(copy.editExistingText.hint).toMatch(/si no se puede quitar, se avisa/);
   });
 
   it("editExistingText esta ACTIVO por defecto, se apaga y se PERSISTE", async () => {
@@ -115,27 +121,20 @@ describe("Ajustes — interruptores del editor de PDF", () => {
     expect(toggle.checked).toBe(false);
   });
 
-  it("stripOriginalText: DESACTIVADO, deshabilitado, con «proximamente» y el motivo; clic no hace nada", () => {
-    renderSettings();
-    const toggle = screen.getByRole("checkbox", { name: copy.stripOriginalText.label }) as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
-    expect(toggle.disabled).toBe(true);
-    expect(copy.stripOriginalText.label).toMatch(/pr[oó]ximamente/i);
-    expect(copy.stripOriginalText.hint).toMatch(/puede seguir existiendo/);
-    expect(copy.stripOriginalText.hint).toMatch(/Aplanar p[aá]gina/);
-    fireEvent.click(toggle);
-    expect(toggle.checked).toBe(false);
-    expect(window.localStorage.getItem(EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY)).toBeNull();
-  });
-
-  it("stripOriginalText sigue desmarcado aunque el almacenamiento diga true", () => {
+  it("un stripOriginalText guardado por una version anterior se ignora: no rompe ni aparece", () => {
     window.localStorage.setItem(
       EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY,
-      JSON.stringify({ stripOriginalText: true }),
+      JSON.stringify({ stripOriginalText: true, editExistingText: false }),
     );
     renderSettings();
-    const toggle = screen.getByRole("checkbox", { name: copy.stripOriginalText.label }) as HTMLInputElement;
+    const toggle = screen.getByRole("checkbox", { name: copy.editExistingText.label }) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(toggle.checked).toBe(true);
+    // Al escribir se descarta la clave vieja.
+    expect(JSON.parse(window.localStorage.getItem(EDIT_PDF_FEATURE_FLAGS_STORAGE_KEY)!)).toEqual({
+      editExistingText: true,
+    });
   });
 
   it("en ingles aparecen los textos en ingles", async () => {
@@ -147,7 +146,12 @@ describe("Ajustes — interruptores del editor de PDF", () => {
         await screen.findByRole("checkbox", { name: en.settings.editPdfFeatures.editExistingText.label }),
       ).toBeTruthy();
       expect(screen.getByText(en.settings.editPdfFeaturesTitle)).toBeTruthy();
-      expect(en.settings.editPdfFeatures.stripOriginalText.label).toMatch(/coming soon/i);
+      expect(Object.keys(en.settings.editPdfFeatures)).toEqual(["editExistingText"]);
+      expect(screen.queryByText(/coming soon/i)).toBeNull();
+      expect(screen.queryByText(/may still exist/i)).toBeNull();
+      expect(en.settings.editPdfFeatures.editExistingText.hint).toMatch(
+        /on export, the original text is removed from the file/,
+      );
     } finally {
       fireEvent.click(screen.getByRole("tab", { name: en.common.spanish }));
     }
@@ -155,7 +159,7 @@ describe("Ajustes — interruptores del editor de PDF", () => {
 
   it("los dos idiomas tienen etiqueta y pista para cada flag", () => {
     for (const dictionary of [es, en]) {
-      for (const flag of ["editExistingText", "stripOriginalText"] as const) {
+      for (const flag of ["editExistingText"] as const) {
         const item = dictionary.settings.editPdfFeatures[flag];
         expect(item.label.length).toBeGreaterThan(5);
         expect(item.hint.length).toBeGreaterThan(30);

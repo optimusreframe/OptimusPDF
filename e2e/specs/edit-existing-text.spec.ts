@@ -178,6 +178,9 @@ test.describe("edit-pdf: edicion del texto existente", () => {
     expect(await getPageCount(bytes)).toBe(2);
     const text1 = await getPageText(bytes, 1);
     expect(text1).toContain("Total pagado: 99,00");
+    // Wave 8 · F2: el importe original se ELIMINA del flujo (pdf.js ya no lo extrae).
+    expect(text1).not.toContain("1.250,00");
+    expect(text1).not.toContain("Total a pagar");
     expect(text1).toContain("Texto nuevo añadido");
     expect(text1).toContain("Informe trimestral"); // lo que no se toco sigue ahi
     const text2 = await getPageText(bytes, 2);

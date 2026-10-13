@@ -8,7 +8,8 @@ import { useProWorkingDoc } from "@/app/pdf-pro/useProWorkingDoc";
 
 /**
  * Cambiar de documento (abrir otro PDF, uno nuevo o un reciente) con cambios sin descargar pide confirmacion
- * (Wave 7 · U8). Sin cambios, la accion corre al instante. El borrador automatico conserva el trabajo.
+ * (Wave 7 · U8). Sin cambios, la accion corre al instante. El borrador automatico conserva el trabajo. Un paso en
+ * vuelo (operacion corriendo o confirmacion que aun no esta en el historial) cuenta como cambios pendientes (D7).
  */
 export function useReplaceGuard(): { request: (action: () => void) => void; node: ReactNode } {
   const { t, language } = useI18n();
@@ -20,7 +21,8 @@ export function useReplaceGuard(): { request: (action: () => void) => void; node
   const request = useCallback(
     (action: () => void) => {
       const state = doc.getState();
-      if (state.document && state.dirty) {
+      // Un paso en vuelo (operacion corriendo, confirmacion encolada) cuenta como cambios pendientes (D7).
+      if (state.document && (state.dirty || state.stepInFlight)) {
         pending.current = action;
         setOpen(true);
         return;

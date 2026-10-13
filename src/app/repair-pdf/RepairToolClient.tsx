@@ -173,7 +173,7 @@ export function RepairToolClient() {
           <>
             <FileWatcher file={files[0]} onFile={handleFile} />
 
-            <section className="glass rounded-ios space-y-6 p-5">
+            <section className="surface-card rounded-ios space-y-6 p-5">
               {/* Alcance real: visible siempre, tambien antes de procesar. */}
               <div className="flex items-start gap-3">
                 <Info

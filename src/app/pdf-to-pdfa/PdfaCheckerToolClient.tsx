@@ -351,7 +351,7 @@ export function PdfaCheckerToolClient() {
 
       {phase === "done" && report ? (
         <div className="animate-rise-in">
-          <section className="glass rounded-ios p-5">
+          <section className="surface-card rounded-ios p-5">
             <h2 className="ui-label text-muted-foreground">
               {strings.summaryTitle}
             </h2>
@@ -419,7 +419,7 @@ export function PdfaCheckerToolClient() {
             </ul>
           </section>
 
-          <section className="glass rounded-ios mt-6 p-5">
+          <section className="surface-card rounded-ios mt-6 p-5">
             <h2 className="ui-label text-muted-foreground">
               {strings.documentTitle}
             </h2>
@@ -520,7 +520,7 @@ function CheckRow({
 }) {
   const StatusIcon = STATUS_ICON[check.status];
   return (
-    <li className="glass rounded-ios flex items-start gap-3 p-4">
+    <li className="surface-card rounded-ios flex items-start gap-3 p-4">
       <StatusIcon
         aria-hidden="true"
         className={cn("mt-0.5 size-5 shrink-0", STATUS_TONE[check.status])}

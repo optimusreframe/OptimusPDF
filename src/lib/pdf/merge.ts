@@ -1,12 +1,13 @@
-import { PDFDocument, degrees, type PDFPage } from "@cantoo/pdf-lib";
+import { PDFDocument } from "@cantoo/pdf-lib";
 import {
   PdfError,
   loadPdf,
-  savePdfToBlob,
+  scaleProgress,
   toPdfError,
   type PageRef,
   type ProgressCallback,
 } from "@/lib/pdf/core";
+import { applyPageAssembly, type ExternalSource, type PageEntry } from "@/lib/pdf/pageAssembly";
 
 export type MergeOptions = {
   /**
@@ -17,9 +18,23 @@ export type MergeOptions = {
   pages?: PageRef[];
 };
 
+/** Nombre del archivo sin su extension `.pdf` (titulo del marcador que agrupa sus marcadores). */
+export function mergeOutlineTitle(file: File, index: number): string {
+  const base = file.name.replace(/\.pdf$/i, "").trim();
+  return base.length > 0 ? base : `Documento ${index + 1}`;
+}
+
 /**
- * Une varios PDF en uno solo con `copyPages`, respetando orden y
- * rotacion. Todo ocurre en la memoria del navegador.
+ * Une varios PDF en uno solo, respetando orden y rotacion. Todo ocurre en la memoria del navegador.
+ *
+ * Wave 8: sobre el motor en sitio (`pageAssembly`). El PRIMER archivo es el documento base y los
+ * demas entran como documentos externos, de modo que:
+ *  - los metadatos (titulo, autor, asunto...) son los del primer archivo (decision documentada);
+ *  - el formulario (AcroForm) se conserva: los campos de los demas archivos se registran y, si
+ *    repiten un nombre ya usado, se renombran (`campo_2`); nunca se fusionan valores;
+ *  - los marcadores de cada archivo se conservan bajo un marcador con el nombre del archivo
+ *    (solo si ese archivo tenia marcadores que apuntan a paginas unidas);
+ *  - las paginas no seleccionadas no quedan dentro del archivo (se sueltan los objetos huerfanos).
  */
 export async function mergePdfFiles(
   files: File[],
@@ -30,15 +45,13 @@ export async function mergePdfFiles(
   if (files.length < 2) throw new PdfError("needTwo");
 
   try {
-    const output = await PDFDocument.create();
     const sources: PDFDocument[] = [];
-
     for (let index = 0; index < files.length; index += 1) {
       sources.push(await loadPdf(files[index]));
-      onProgress?.(((index + 1) / files.length) * 0.5);
+      onProgress?.(((index + 1) / files.length) * 0.3);
     }
 
-    const plan: PageRef[] =
+    const refs: PageRef[] =
       options.pages && options.pages.length > 0
         ? options.pages.filter((page) => page.selected)
         : sources.flatMap((source, fileIndex) =>
@@ -50,46 +63,30 @@ export async function mergePdfFiles(
               selected: true,
             })),
           );
+    if (refs.length === 0) throw new PdfError("empty");
 
-    if (plan.length === 0) throw new PdfError("empty");
+    const plan: PageEntry[] = refs.map((ref) => {
+      if (!sources[ref.fileIndex]) throw new PdfError("unknown");
+      return ref.fileIndex === 0
+        ? { kind: "existing", sourceIndex: ref.pageIndex, rotation: ref.rotation }
+        : { kind: "external", sourceId: String(ref.fileIndex), sourceIndex: ref.pageIndex, rotation: ref.rotation };
+    });
 
-    // Una sola llamada a copyPages por documento origen: mucho mas
-    // eficiente que copiar pagina a pagina.
-    const indicesByFile = new Map<number, number[]>();
-    for (const ref of plan) {
-      const list = indicesByFile.get(ref.fileIndex) ?? [];
-      list.push(ref.pageIndex);
-      indicesByFile.set(ref.fileIndex, list);
+    const externals: Record<string, ExternalSource> = {};
+    const outlineGroups: Record<string, string> = {};
+    for (let index = 1; index < sources.length; index += 1) {
+      externals[String(index)] = sources[index];
+      outlineGroups[String(index)] = mergeOutlineTitle(files[index], index);
     }
 
-    const copiedByFile = new Map<number, PDFPage[]>();
-    for (const [fileIndex, pageIndices] of indicesByFile) {
-      const source = sources[fileIndex];
-      if (!source) throw new PdfError("unknown");
-      copiedByFile.set(fileIndex, await output.copyPages(source, pageIndices));
-    }
-
-    const cursors = new Map<number, number>();
-    for (let index = 0; index < plan.length; index += 1) {
-      const ref = plan[index];
-      const bucket = copiedByFile.get(ref.fileIndex);
-      if (!bucket) continue;
-      const cursor = cursors.get(ref.fileIndex) ?? 0;
-      const page = bucket[cursor];
-      cursors.set(ref.fileIndex, cursor + 1);
-      if (!page) continue;
-
-      if (ref.rotation % 360 !== 0) {
-        const current = page.getRotation().angle;
-        page.setRotation(degrees((current + ref.rotation + 360) % 360));
-      }
-      output.addPage(page);
-      onProgress?.(0.5 + ((index + 1) / plan.length) * 0.45);
-    }
-
-    const blob = await savePdfToBlob(output);
+    const result = await applyPageAssembly(sources[0], plan, externals, {
+      onProgress: (value) => onProgress?.(scaleProgress(value, 0.3, 1)),
+      maxExternalDocuments: Math.max(1, files.length),
+      outlineGroups,
+      wrapOutlineTitle: mergeOutlineTitle(files[0], 0),
+    });
     onProgress?.(1);
-    return blob;
+    return new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" });
   } catch (error) {
     throw toPdfError(error);
   }

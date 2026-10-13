@@ -221,6 +221,25 @@ function record(flow: string, analyses: Analysis[]): void {
   console.log(line);
 }
 
+/**
+ * Espera `count` fotogramas REALES (no milisegundos): en el runner de CI cargado `requestAnimationFrame` se atrasa y en
+ * 250 ms el bucle grabo 2 fotogramas, no los >5 que exigen las pruebas de sensibilidad del observador.
+ */
+const waitAnimationFrames = (page: Page, count: number): Promise<void> =>
+  page.evaluate(
+    (frames) =>
+      new Promise<void>((resolve) => {
+        let left = frames;
+        const tick = () => {
+          left -= 1;
+          if (left <= 0) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    count,
+  );
+
 /* ------------------------------------------------------------------ *
  * Prueba de sensibilidad del observador
  * ------------------------------------------------------------------ */
@@ -240,7 +259,7 @@ test.describe("observador de foco por fotograma", () => {
     });
     await startRecording(page);
     await page.evaluate(() => document.getElementById("frame-probe")?.remove());
-    await page.waitForTimeout(250);
+    await waitAnimationFrames(page, 14);
     const analysis = analyze(await stopRecording(page));
     expect(analysis.frames, "el bucle graba fotogramas").toBeGreaterThan(5);
     expect(analysis.bodyFrames, "el observador ve el foco en <body> tras retirar el control").toBeGreaterThan(5);
@@ -265,7 +284,7 @@ test.describe("observador de foco por fotograma", () => {
       document.getElementById("frame-b")!.focus();
       document.getElementById("frame-a")!.remove();
     });
-    await page.waitForTimeout(250);
+    await waitAnimationFrames(page, 14);
     const analysis = analyze(await stopRecording(page));
     expect(analysis.frames).toBeGreaterThan(5);
     expect(analysis.bodyFrames).toBe(0);

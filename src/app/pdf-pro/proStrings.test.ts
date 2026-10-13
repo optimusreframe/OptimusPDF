@@ -119,6 +119,7 @@ describe("claves que usa el codigo", () => {
       "largeDocument",
       "noDraftTooBig",
       "memoryHigh",
+      "historyOffloadUnavailable",
     ];
     for (const language of ["es", "en"] as const) {
       for (const code of codes) expect(proWarningText(language, { code }).length).toBeGreaterThan(10);

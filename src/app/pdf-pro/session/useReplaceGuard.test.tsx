@@ -79,3 +79,24 @@ describe("useReplaceGuard", () => {
     expect(action).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useReplaceGuard — paso en vuelo (Wave 8 · D7)", () => {
+  it("con una confirmacion aun en vuelo (sin cambios todavia) pide confirmar en vez de cambiar al instante", async () => {
+    const action = vi.fn();
+    const { doc } = await mountTab(<Harness action={action} />);
+    let release: (n: number) => void = () => {};
+    const slow = new Promise<number>((resolve) => {
+      release = resolve;
+    });
+    // El paso tarda en contar sus paginas: esta encolado pero aun no esta en el historial (`dirty` sigue en false).
+    const pending = doc.trackStep(slow);
+    expect(doc.getState().dirty).toBe(false);
+    expect(doc.getState().stepInFlight).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "cambiar" }));
+    expect(action).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    release(3);
+    await pending;
+    await waitFor(() => expect(doc.getState().stepInFlight).toBe(false));
+  });
+});

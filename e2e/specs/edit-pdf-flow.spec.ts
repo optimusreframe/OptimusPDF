@@ -700,7 +700,7 @@ for (const size of [
       await bar.locator('[data-bar-action="more"]').tap();
       const dialog = page.getByRole("dialog", { name: "Más opciones del texto" });
       await expect(dialog).toContainText("El fondo no es de un solo color");
-      await expect(dialog).toContainText("El texto original puede seguir existiendo");
+      await expect(dialog).toContainText("Al exportar, el texto original se elimina del PDF");
       await dialog.getByRole("button", { name: "Cerrar" }).first().tap();
       await expect(dialog).toHaveCount(0);
     });

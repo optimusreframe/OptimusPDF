@@ -490,11 +490,7 @@ export const en: Dictionary = {
     editPdfFeatures: {
       editExistingText: {
         label: "Edit the text already in the PDF",
-        hint: "Lets you click existing text and change it: the editor covers the original and draws the new text on top. When off, the text already in the PDF can't be touched, but the editor still lets you add text, images and shapes.",
-      },
-      stripOriginalText: {
-        label: "Clean the original content from the file (coming soon)",
-        hint: "Not available yet, so it can't be turned on: full content cleaning will arrive in a later version. Today the editor covers and redraws the text, but the original text may still exist under the edit, and someone copying or searching the PDF could find it. To remove it now, “Flatten page” (in the editor) turns that page into an image: the text no longer exists in the file.",
+        hint: "Lets you click existing text and change it: on export, the original text is removed from the file and the new text is drawn; if it can't be removed, you're told. When off, the text already in the PDF can't be touched, but the editor still lets you add text, images and shapes.",
       },
     },
   },

@@ -569,7 +569,8 @@ export function ScanToPdfClient() {
       {showWorkspace ? (
         <div
           inert={phase === "options"}
-          className="glass-bar fixed inset-x-0 z-30 flex items-center gap-3 border-t border-white/10 px-4 py-3 md:hidden"
+          data-workspace-bar=""
+          className="bg-surface contrast-more:border-foreground/45 fixed inset-x-0 z-30 flex items-center gap-3 border-t border-hairline px-4 py-3 md:hidden"
           style={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom, 0px))" }}
         >
           <Button

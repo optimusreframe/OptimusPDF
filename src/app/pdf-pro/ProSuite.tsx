@@ -19,7 +19,7 @@ import { ImportInsertSheet } from "@/app/pdf-pro/create/ImportInsertSheet";
 import { useProSave } from "@/app/pdf-pro/save/useProSave";
 import { limitWarnings } from "@/app/pdf-pro/session/proLimits";
 import { RecentSheet } from "@/app/pdf-pro/session/RecentSheet";
-import { isTextEditingTarget } from "@/app/pdf-pro/proShortcuts";
+import { isTextEditingTarget, modalSheetOpen } from "@/app/pdf-pro/proShortcuts";
 import { formatProDate, getProStrings, proWarningText } from "@/app/pdf-pro/proStrings";
 import { ProTabs, proPanelDomId, proTabDomId, type ProTabId } from "@/app/pdf-pro/ProTabs";
 import { ProTopBar } from "@/app/pdf-pro/ProTopBar";
@@ -249,7 +249,9 @@ function ProSuiteBody({
 
   const requestClose = useCallback(() => {
     guardMode(() => {
-      if (doc.getState().dirty) setConfirmClose(true);
+      // D7: un paso en vuelo (operacion corriendo o confirmacion encolada) cuenta como cambios pendientes.
+      const state = doc.getState();
+      if (state.dirty || state.stepInFlight) setConfirmClose(true);
       else onClose();
     });
   }, [doc, onClose, setConfirmClose, guardMode]);
@@ -364,7 +366,7 @@ function ProSuiteBody({
       // Escribiendo en un campo (incluido el de la propia paleta) el atajo no se secuestra.
       if (isTextEditingTarget(event.target)) return;
       // Con otra hoja modal abierta no se apila la paleta.
-      if (window.document.querySelector('[aria-modal="true"]')) return;
+      if (modalSheetOpen()) return;
       event.preventDefault();
       setPaletteOpen(true);
     };
@@ -382,7 +384,7 @@ function ProSuiteBody({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.repeat) return;
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
-      if (window.document.querySelector('[aria-modal="true"]')) return;
+      if (modalSheetOpen()) return;
       event.preventDefault();
       if (!event.shiftKey) {
         downloadRef.current();
@@ -409,7 +411,7 @@ function ProSuiteBody({
       if (key !== "e" && key !== "a" && key !== "s" && key !== "f") return;
       if (modeActiveRef.current) return;
       if (isTextEditingTarget(event.target) || isTextEditingTarget(window.document.activeElement)) return;
-      if (window.document.querySelector('[aria-modal="true"]')) return;
+      if (modalSheetOpen()) return;
       event.preventDefault();
       if (key === "e") enterMode("edit");
       else if (key === "a") enterMode("annotate");

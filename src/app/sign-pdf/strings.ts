@@ -206,7 +206,7 @@ export type SignStrings = {
   /** Pista de uso mientras la herramienta esta activa. */
   editTextHint: string;
   editTextCount: (count: number) => string;
-  /** Aviso permanente: lo editado cubre y redibuja; el original puede seguir en el archivo. */
+  /** Nota permanente: al firmar se quita el texto original de lo editado; en casos especiales no se puede y queda bajo la edicion. */
   editTextNote: string;
   editTextFlattenLink: string;
   editTextUndo: string;
@@ -755,7 +755,7 @@ const es: SignStrings = {
       ? "1 texto editado en este documento."
       : `${count} textos editados en este documento.`,
   editTextNote:
-    "El texto editado se dibuja sobre el original: el texto original puede seguir existiendo en el archivo. Para eliminarlo del todo, usa «Aplanar página» en Editar PDF antes de firmar.",
+    "Al firmar, el texto original de lo que editaste se elimina del archivo. En casos especiales (fuentes poco comunes, texto vertical u oculto, contenido compartido) no se puede y el original queda bajo la edición: Editar PDF te lo indica, y «Aplanar página» lo quita del todo.",
   editTextFlattenLink: "Abrir Editar PDF",
   editTextUndo: "Deshacer cambio de texto",
   editTextRedo: "Rehacer cambio de texto",
@@ -1347,7 +1347,7 @@ const en: SignStrings = {
   editTextCount: (count) =>
     count === 1 ? "1 text edited in this document." : `${count} texts edited in this document.`,
   editTextNote:
-    "Edited text is drawn over the original: the original text may still exist in the file. To remove it completely, use “Flatten page” in Edit PDF before signing.",
+    "When you sign, the original text of what you edited is removed from the file. In special cases (uncommon fonts, vertical or hidden text, shared content) it can't be removed and the original stays under the edit: Edit PDF tells you, and “Flatten page” removes it completely.",
   editTextFlattenLink: "Open Edit PDF",
   editTextUndo: "Undo text change",
   editTextRedo: "Redo text change",

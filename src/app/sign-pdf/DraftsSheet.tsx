@@ -117,7 +117,7 @@ export function DraftsSheet({ open, onClose, onResume, strings }: DraftsSheetPro
               const infoId = `${baseId}-${entryKey(entry)}`;
               return (
                 <li key={entryKey(entry)}>
-                  <div className="glass rounded-ios-sm flex flex-wrap items-center gap-3 p-3">
+                  <div className="surface-card rounded-ios-sm flex flex-wrap items-center gap-3 p-3">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-ios-sm bg-white/6">
                       {isSession ? (
                         <Files aria-hidden="true" className="size-4 text-signal" />

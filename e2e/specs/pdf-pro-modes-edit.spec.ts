@@ -251,7 +251,10 @@ for (const viewport of VIEWPORTS) {
       // 6) El PDF resultante, leido con pdf.js: texto nuevo, imagen, giro y paginas intactas.
       const bytes = await downloadCurrent(page, env);
       expect(await getPageCount(bytes)).toBe(3);
-      expect(await getPageText(bytes, 1)).toContain("Total pagado: 99,00");
+      const page1Text = await getPageText(bytes, 1);
+      expect(page1Text).toContain("Total pagado: 99,00");
+      // Wave 8 · F2: el importe original se ELIMINA del flujo (pdf.js ya no lo extrae).
+      expect(page1Text).not.toContain("1.250,00");
       expect(await getPageText(bytes, 2)).toContain("Pagina dos del informe");
       expect(await getPageText(bytes, 3)).toContain("Pagina tres del informe");
       expect((await getPageOperatorCounts(bytes, 1)).imagePaintOps).toBeGreaterThanOrEqual(1);

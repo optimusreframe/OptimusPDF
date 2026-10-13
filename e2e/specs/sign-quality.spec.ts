@@ -152,7 +152,7 @@ for (const dpr of [1, 2]) {
           "base64",
         ),
       );
-      const nativeReference = await renderNativeReference(page, bytes, 1, natural.width);
+      const nativeReference = await renderNativeReference(page, bytes, 1, natural.width, { sameCanvasAsApp: true });
       const nh = Math.min(natural.height, nativeReference.height);
       const ny0 = Math.round(nh * 0.04);
       const nhh = Math.round(nh * 0.5);
@@ -160,18 +160,23 @@ for (const dpr of [1, 2]) {
         margin: 10,
         maxShift: 2,
       });
-      expect(bitmap.ssim, `bitmap: ${JSON.stringify(bitmap)}`).toBeGreaterThan(0.999);
-      expect(bitmap.meanAbsDiff).toBeLessThan(0.5);
-      expect(bitmap.sharpnessRatio).toBeGreaterThan(0.98);
+      // En macOS sale SSIM 1 y dif. 0. En el runner Linux (rasterizado por software) la primera version de esta prueba,
+      // con la referencia creada por pdf.js con sus propios atributos de canvas, midio SSIM 0,989 / dif. 2,23 / nitidez
+      // 1,16 a DPR 1 y 0,997 / 1,45 / 1,06 a DPR 2 (la aplicacion sale MAS nitida: otro antialiasing, no otra escala:
+      // misma medida, desplazamiento 0). Con `sameCanvasAsApp` el canvas es el mismo y se espera ~1; los umbrales dejan
+      // margen para esa medida pero siguen excluyendo cualquier degradacion real (controles de abajo: SSIM <= 0,979,
+      // dif. >= 3,9, nitidez <= 0,8).
+      expect(bitmap.ssim, `bitmap: ${JSON.stringify(bitmap)}`).toBeGreaterThan(0.985);
+      expect(bitmap.meanAbsDiff).toBeLessThan(3);
+      expect(bitmap.sharpnessRatio).toBeGreaterThan(0.9);
 
-      // (2) Lo que se VE (captura de la hoja ya compuesta). Depende de la plataforma (en el runner Linux sale
-      // SSIM 0,989 a DPR 1 y dif. media 1,48 a DPR 2; causa probable: remuestreo del compositor / barra de
-      // desplazamiento clasica de Linux sobre la hoja, no reproducible en macOS), asi que el umbral se fija MEDIDO con controles negativos (en macOS):
+      // (2) Lo que se VE (captura de la hoja ya compuesta; en CI es identica al bitmap, dig. a dig.). Umbral fijado
+      // MEDIDO con controles negativos (en macOS):
       // desplazar 0,25 px da SSIM 0,962 (DPR 1) / 0,979 (DPR 2) y dif. 4,7 / 3,9; reescalar a 0,75, medio tamano o
       // un JPEG de 900 px estirado dan SSIM 0,85-0,95, dif. >= 5,2 y nitidez 0,37-0,64. Se exige lo que ningun
-      // control cumple y el runner si: SSIM > 0,98, dif. < 2,5 y nitidez > 0,9 (CI: 0,989 / 1,48).
+      // control cumple y el runner si: SSIM > 0,98, dif. < 3 y nitidez > 0,9 (CI: 0,989 / 2,23 a DPR 1).
       const shot = await decodePngGray(await image.screenshot({ type: "png" }));
-      const reference = await renderNativeReference(page, bytes, 1, shot.width);
+      const reference = await renderNativeReference(page, bytes, 1, shot.width, { sameCanvasAsApp: true });
       const h = Math.min(shot.height, reference.height);
       const y0 = Math.round(h * 0.04);
       const hh = Math.round(h * 0.5);
@@ -180,7 +185,7 @@ for (const dpr of [1, 2]) {
         maxShift: 2,
       });
       expect(result.ssim, `captura: ${JSON.stringify(result)}`).toBeGreaterThan(0.98);
-      expect(result.meanAbsDiff).toBeLessThan(2.5);
+      expect(result.meanAbsDiff).toBeLessThan(3);
       expect(result.sharpnessRatio).toBeGreaterThan(0.9);
       expect(errors).toEqual([]);
     });

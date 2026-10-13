@@ -44,7 +44,7 @@ export function PdfToWordClient() {
       process={process}
       renderMain={() => (
         <div className="space-y-4">
-          <section className="glass rounded-ios p-5">
+          <section className="surface-card rounded-ios p-5">
             <h3 className="text-headline text-foreground">
               {s.howItWorksTitle}
             </h3>

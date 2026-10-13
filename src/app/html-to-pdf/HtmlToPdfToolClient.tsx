@@ -44,7 +44,7 @@ export function HtmlToPdfToolClient() {
       progressMessage={s.progress}
       process={process}
       renderMain={() => (
-        <section className="glass rounded-ios p-5">
+        <section className="surface-card rounded-ios p-5">
           <h3 className="text-headline text-foreground">
             {s.howItWorksTitle}
           </h3>

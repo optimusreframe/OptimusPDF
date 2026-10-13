@@ -205,7 +205,7 @@ export function PageTile({
   return (
     <div
       className={cn(
-        "glass rounded-ios-sm group/tile relative overflow-hidden border p-2 transition-all duration-200 ease-spring",
+        "surface-card rounded-ios-sm group/tile relative overflow-hidden border p-2 transition-all duration-200 ease-spring",
         TONE_FRAME[tone],
         className,
       )}
@@ -256,7 +256,7 @@ export function PageTile({
         >
           <div
             className={cn(
-              "glass-bar pointer-events-auto flex items-center rounded-full border border-white/14 py-1",
+              "bg-elevated shadow-elevation-2 pointer-events-auto flex items-center rounded-full border border-hairline py-1",
               compactActions ? "gap-0.5 px-0.5" : "gap-1 px-1",
               "pointer-coarse:flex-wrap pointer-coarse:justify-center pointer-coarse:rounded-3xl",
             )}

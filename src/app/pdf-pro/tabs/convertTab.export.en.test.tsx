@@ -49,3 +49,13 @@ describe("Convertir en ingles", () => {
     expect(within(card("text")).getByText(E.card.ocrNetwork)).toBeTruthy();
   });
 });
+
+describe("Convertir · salir con una exportacion en curso (Wave 8 · backlog a)", () => {
+  it("desmontar la pestaña con una exportacion en marcha la cancela y lo AVISA en la region viva", async () => {
+    const { doc, unmount } = await mountTab(<ConvertTab />);
+    fireEvent.click(within(card("text")).getByRole("button", { name: E.formats.text.title }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    unmount();
+    expect(doc.getState().announcement?.text).toBe(E.card.cancelledOnLeave);
+  });
+});

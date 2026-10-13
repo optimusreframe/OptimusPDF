@@ -119,7 +119,7 @@ function ImageOrderGridInner({
                 setOverIndex(null);
               }}
               className={cn(
-                "glass rounded-ios-sm relative cursor-grab overflow-hidden p-2 active:cursor-grabbing",
+                "surface-card rounded-ios-sm relative cursor-grab overflow-hidden p-2 active:cursor-grabbing",
                 "transition-all duration-200 ease-spring",
                 dragIndex === position && "opacity-40",
                 overIndex === position &&

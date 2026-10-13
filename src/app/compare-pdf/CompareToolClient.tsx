@@ -267,7 +267,7 @@ export function CompareToolClient() {
 
       {phase === "done" && result ? (
         <div className="animate-rise-in">
-          <section className="glass rounded-ios p-5">
+          <section className="surface-card rounded-ios p-5">
             <h2 className="ui-label text-muted-foreground">
               {strings.summaryTitle}
             </h2>
@@ -317,7 +317,7 @@ export function CompareToolClient() {
 
           <div className="mt-6 space-y-4">
             {visiblePages.map((page) => (
-              <section key={page.pageNumber} className="glass rounded-ios p-4">
+              <section key={page.pageNumber} className="surface-card rounded-ios p-4">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <h3 className="text-subheadline font-semibold text-foreground">
                     {strings.pageLabel(page.pageNumber)}

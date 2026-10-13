@@ -112,9 +112,55 @@ async function focusNotBody(page: Page): Promise<void> {
     .toBe(true);
 }
 
-/** Etiquetas de las primeras `count` tarjetas («Página 3 de 8 (original 5)»). */
+/**
+ * La cuadricula esta VIRTUALIZADA (solo pinta las filas visibles mas 2 de margen; lo comprueban las pruebas de 100 y 500
+ * paginas): cuantas tarjetas caben en el DOM depende del alto y del ancho reales del panel, que en el runner de CI (Linux,
+ * otras tipografias) no son los de macOS. Un recuento de `option` no es el numero de paginas: el total lo anuncia cada
+ * tarjeta en `aria-setsize`.
+ */
+async function expectPageCount(page: Page, expected: number): Promise<void> {
+  await expect
+    .poll(async () => Number((await cards(page).first().getAttribute("aria-setsize").catch(() => null)) ?? 0), {
+      message: `la cuadricula anuncia ${expected} paginas (aria-setsize)`,
+    })
+    .toBe(expected);
+}
+
+/**
+ * Etiquetas de las primeras `count` tarjetas («Página 3 de 8 (original 5)»), en orden de pagina. Recorre la cuadricula
+ * desplazandola (y la deja donde estaba) para leer tambien las tarjetas que la virtualizacion no tiene pintadas.
+ */
 async function labels(page: Page, count = 12): Promise<string[]> {
-  return (await cards(page).evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""))).slice(0, count);
+  return grid(page).evaluate(async (element, wanted) => {
+    const scroller = element as HTMLElement;
+    const found = new Map<number, string>();
+    const frames = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const read = () => {
+      for (const option of Array.from(scroller.querySelectorAll('[role="option"]'))) {
+        const position = Number(option.getAttribute("aria-posinset"));
+        if (position > 0) found.set(position, option.getAttribute("aria-label") ?? "");
+      }
+    };
+    const original = scroller.scrollTop;
+    scroller.scrollTop = 0;
+    await frames();
+    read();
+    const total = Number(scroller.querySelector('[role="option"]')?.getAttribute("aria-setsize") ?? 0);
+    const need = Math.min(wanted, total);
+    for (let guard = 0; found.size < need && guard < 300; guard += 1) {
+      const before = scroller.scrollTop;
+      scroller.scrollTop = before + Math.max(80, scroller.clientHeight / 2);
+      await frames();
+      read();
+      if (scroller.scrollTop === before) break;
+    }
+    scroller.scrollTop = original;
+    await frames();
+    return Array.from(found.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map((entry) => entry[1])
+      .slice(0, wanted);
+  }, count);
 }
 
 /** `original N` de cada tarjeta, en orden (la que no lo dice es la N-esima original). */
@@ -166,13 +212,28 @@ async function dragWithTouch(
 
 /** Selecciona SOLO esa pagina (clic con raton: sustituye la seleccion en escritorio y en movil). */
 async function pickOnly(page: Page, n: number): Promise<void> {
-  await cardAt(page, n).click();
+  // Un clic que se pierde con la CPU lenta (la tarjeta se repinta al desplazarse) se repite hasta que queda seleccionada:
+  // el clic sustituye la seleccion, asi que repetirlo es inocuo.
+  await expect(async () => {
+    await cardAt(page, n).click({ timeout: 3000 });
+    await expect(cardAt(page, n)).toHaveAttribute("aria-selected", "true", { timeout: 1500 });
+  }).toPass({ timeout: 20_000 });
 }
 
-/** Anade una pagina a la seleccion: Ctrl/Cmd+clic con raton, un toque con el dedo (alterna). */
+/**
+ * Anade una pagina a la seleccion: Ctrl/Cmd+clic con raton, un toque con el dedo (alterna). Un toque que se pierde con la
+ * CPU lenta (medido con la CPU a 1/4: la extraccion salia sin la pagina 5) se repite hasta que la tarjeta queda
+ * seleccionada, y como alterna, solo se vuelve a tocar si NO esta seleccionada.
+ */
 async function pickAdd(page: Page, env: Env, n: number): Promise<void> {
-  if (env.mobile) await cardAt(page, n).tap();
-  else await cardAt(page, n).click({ modifiers: ["ControlOrMeta"] });
+  const card = cardAt(page, n);
+  await expect(async () => {
+    if ((await card.getAttribute("aria-selected")) !== "true") {
+      if (env.mobile) await card.tap({ timeout: 3000 });
+      else await card.click({ modifiers: ["ControlOrMeta"], timeout: 3000 });
+    }
+    await expect(card).toHaveAttribute("aria-selected", "true", { timeout: 1500 });
+  }).toPass({ timeout: 20_000 });
 }
 
 const RICH = {
@@ -204,7 +265,7 @@ for (const viewport of VIEWPORTS) {
     }) => {
       const bytes = Buffer.from(await makeRichPdf(RICH));
       await openProWith(page, env, bytes);
-      await expect(cards(page)).toHaveCount(8);
+      await expectPageCount(page, 8);
       await expect(chip(page)).toHaveText(P.status.noChanges);
       await noHorizontalOverflow(page);
 
@@ -229,13 +290,13 @@ for (const viewport of VIEWPORTS) {
       await pickOnly(page, 7);
       await pickAdd(page, env, 8);
       await button(page, P.actions.remove).click();
-      await expect(cards(page)).toHaveCount(6);
+      await expectPageCount(page, 6);
       await focusNotBody(page);
 
       // 4) Duplicar la primera.
       await pickOnly(page, 3);
       await button(page, P.actions.duplicate).click();
-      await expect(cards(page)).toHaveCount(7);
+      await expectPageCount(page, 7);
       await expect(cardAt(page, 4)).toContainText(P.card.copyOf(3));
       await expect(chip(page)).toHaveText(P.status.changes(5));
       await noHorizontalOverflow(page);
@@ -260,7 +321,7 @@ for (const viewport of VIEWPORTS) {
       // 6) Historial global: dos pasos (Original + este) y un solo «Deshacer» los revierte todos.
       await topBar(page).getByRole("button", { name: S.suite.undo }).click();
       await openPagesPanel(page, env);
-      await expect(cards(page)).toHaveCount(8);
+      await expectPageCount(page, 8);
       const undone = await downloadCurrent(page, env);
       expect((await inspectPdf(new Uint8Array(undone))).rotations).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
     });
@@ -273,7 +334,7 @@ for (const viewport of VIEWPORTS) {
       await cardAt(page, 1).click();
       await viaMore(page, P.actions.insertBlank);
       await page.getByRole("dialog").last().getByRole("button", { name: P.sheets.blankSubmit }).click();
-      await expect(cards(page)).toHaveCount(4);
+      await expectPageCount(page, 4);
 
       // Desde otro PDF: paginas 2 y 3 al final.
       const other = await makePdf({ pages: 4, label: "OTRO", size: [500, 700] });
@@ -286,7 +347,7 @@ for (const viewport of VIEWPORTS) {
       else await sheet.getByRole("option").nth(2).click({ modifiers: ["ControlOrMeta"] });
       await sheet.getByRole("radio", { name: P.sheets.positionEnd }).click();
       await sheet.getByRole("button", { name: P.sheets.pdfSubmit(2) }).click();
-      await expect(cards(page)).toHaveCount(6);
+      await expectPageCount(page, 6);
 
       // Una imagen al principio.
       await page.locator('[data-pages-input="images"]').setInputFiles({
@@ -297,7 +358,7 @@ for (const viewport of VIEWPORTS) {
       const images = page.getByRole("dialog").last();
       await images.getByRole("radio", { name: P.sheets.positionStart }).click();
       await images.getByRole("button", { name: P.sheets.imagesSubmit(1) }).click();
-      await expect(cards(page)).toHaveCount(7);
+      await expectPageCount(page, 7);
 
       // Unir otro PDF completo al final.
       const third = await makePdf({ pages: 2, label: "TERCERO", size: [450, 450] });
@@ -305,7 +366,7 @@ for (const viewport of VIEWPORTS) {
       const merge = page.getByRole("dialog").last();
       await expect(merge.getByRole("button", { name: P.sheets.mergeSubmit(1, 2) })).toBeEnabled();
       await merge.getByRole("button", { name: P.sheets.mergeSubmit(1, 2) }).click();
-      await expect(cards(page)).toHaveCount(9);
+      await expectPageCount(page, 9);
       await noHorizontalOverflow(page);
 
       await button(page, P.status.apply).click();
@@ -362,7 +423,7 @@ for (const viewport of VIEWPORTS) {
       await again.getByRole("button", { name: P.sheets.extractOpen }).click();
       await page.getByRole("button", { name: P.sheets.extractOpenConfirm }).click();
       // En movil la hoja del panel sigue abierta y el organizador ya muestra el documento nuevo.
-      await expect(cards(page)).toHaveCount(1);
+      await expectPageCount(page, 1);
       await closePanel(page, env);
       await expect(page.getByRole("heading", { level: 1, name: /libro-extraido\.pdf/ })).toBeVisible();
     });
@@ -382,15 +443,15 @@ for (const viewport of VIEWPORTS) {
       await page.keyboard.press("r");
       await expect(cardAt(page, 3)).toContainText("90°");
       await page.keyboard.press("d");
-      await expect(cards(page)).toHaveCount(7);
+      await expectPageCount(page, 7);
       await page.keyboard.press("Delete");
-      await expect(cards(page)).toHaveCount(6);
+      await expectPageCount(page, 6);
       await focusNotBody(page);
       // Ctrl+Z deshace dentro del organizador y no toca el historial del documento.
       await page.keyboard.press("Control+z");
-      await expect(cards(page)).toHaveCount(7);
+      await expectPageCount(page, 7);
       await page.keyboard.press("Control+Shift+z");
-      await expect(cards(page)).toHaveCount(6);
+      await expectPageCount(page, 6);
       await page.keyboard.press("Control+a");
       await expect(chip(page)).toContainText("cambio");
       await expect(page.locator("[data-pages-selection]")).toContainText("6 de 6");
@@ -465,7 +526,7 @@ for (const viewport of VIEWPORTS) {
       });
       await expect(cardAt(page, 60)).toBeVisible();
       expect(await cards(page).count()).toBeLessThan(40);
-      await cardAt(page, 60).click();
+      await pickOnly(page, 60);
       for (let i = 0; i < 3; i += 1) await button(page, P.actions.moveBefore).click();
       await expect(chip(page)).toHaveText(P.status.changes(3));
       await button(page, P.status.apply).click();
@@ -623,10 +684,10 @@ test.describe("PDF Pro · Páginas · casos", () => {
     await page.getByRole("tab", { name: S.suite.tabs.home }).click();
     await page.getByRole("tab", { name: S.suite.tabs.pages }).click();
     await expect(chip(page)).toHaveText(P.status.changes(1));
-    await expect(cards(page)).toHaveCount(3);
+    await expectPageCount(page, 3);
     await button(page, P.status.discard).click();
     await page.getByRole("button", { name: P.status.discardConfirm, exact: true }).click();
-    await expect(cards(page)).toHaveCount(4);
+    await expectPageCount(page, 4);
     await expect(chip(page)).toHaveText(P.status.noChanges);
   });
 
@@ -639,9 +700,9 @@ test.describe("PDF Pro · Páginas · casos", () => {
     await expect(chip(page)).toHaveText(P.status.noChanges);
     await cardAt(page, 2).click();
     await button(page, P.actions.remove).click();
-    await expect(cards(page)).toHaveCount(3);
+    await expectPageCount(page, 3);
     await topBar(page).getByRole("button", { name: S.suite.undo }).click();
-    await expect(cards(page)).toHaveCount(4);
+    await expectPageCount(page, 4);
     await expect(chip(page)).toHaveText(P.status.noChanges);
   });
 });

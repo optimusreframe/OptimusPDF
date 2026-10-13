@@ -167,7 +167,7 @@ export function CornerEditor({
       <div className="relative min-h-0 flex-1 px-4 py-4 md:px-6">
         <div
           ref={hostRef}
-          className="glass rounded-ios relative flex h-full w-full items-center justify-center overflow-hidden p-2 select-none"
+          className="surface-card rounded-ios relative flex h-full w-full items-center justify-center overflow-hidden p-2 select-none"
         />
         {ready ? null : (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -177,7 +177,7 @@ export function CornerEditor({
       </div>
 
       <footer
-        className="glass-bar flex items-center gap-3 border-t border-white/10 px-4 py-3 md:px-6"
+        className="bg-surface contrast-more:border-foreground/45 flex items-center gap-3 border-t border-hairline px-4 py-3 md:px-6"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
       >
         <Button

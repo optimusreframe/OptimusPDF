@@ -13,6 +13,7 @@ import {
   type RectElement,
 } from "@/lib/pdf/editPdf";
 import { coverForBlock } from "@/lib/pdf/editCover";
+import { glyphProfile } from "@/lib/pdf/editTextProfile";
 import type {
   CatalogFontKey,
   CoverOriented,
@@ -390,6 +391,12 @@ export function parseTextEdit(raw: unknown): TextEdit | null {
     edit.sourceFont = font;
   }
   if (raw.mixedStyle === true) edit.mixedStyle = true;
+  if (isRecord(raw.originalGlyphs)) {
+    const { chars, ligatures } = raw.originalGlyphs;
+    if (Number.isInteger(chars) && Number.isInteger(ligatures) && (chars as number) >= 0 && (chars as number) <= 100000 && (ligatures as number) >= 0 && (ligatures as number) <= (chars as number)) {
+      edit.originalGlyphs = { chars: chars as number, ligatures: ligatures as number };
+    }
+  }
   return edit;
 }
 
@@ -677,6 +684,7 @@ export function blockToTextEdit(
     rotation: block.rotation,
     cover: init.cover,
     ...(block.mixedStyle === true ? { mixedStyle: true as const } : {}),
+    originalGlyphs: glyphProfile(block.text),
   };
 }
 

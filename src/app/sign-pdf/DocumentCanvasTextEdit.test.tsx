@@ -456,7 +456,7 @@ describe("el aviso y el recuento", () => {
     expect(document.querySelector("[data-edit-text-panel]")).toBeNull();
   });
 
-  it("con ediciones fuera de la herramienta: recuento, aviso de que el original puede seguir y enlace a Editar PDF", async () => {
+  it("con ediciones fuera de la herramienta: recuento, nota de que al firmar se quita el original (salvo casos especiales) y enlace a Editar PDF", async () => {
     render(
       <Harness
         initialEdits={[
@@ -469,6 +469,16 @@ describe("el aviso y el recuento", () => {
     const panel = document.querySelector<HTMLElement>("[data-edit-text-panel]")!;
     expect(panel.textContent).toContain(strings.editTextCount(2));
     expect(panel.textContent).toContain(strings.editTextNote);
+    // La nota ya no dice que el original «puede seguir existiendo» sin mas: dice que se elimina y cuando no.
+    expect(strings.editTextNote).toMatch(/se elimina del archivo/);
+    expect(strings.editTextNote).toMatch(/casos especiales/);
+    expect(strings.editTextNote).toMatch(/Aplanar página/);
+    expect(strings.editTextNote).not.toMatch(/puede seguir existiendo|se dibuja sobre el original/);
+    const en = SIGN_STRINGS.en.editTextNote;
+    expect(en).toMatch(/is removed from the file/);
+    expect(en).toMatch(/special cases/);
+    expect(en).toMatch(/Flatten page/);
+    expect(en).not.toMatch(/may still exist|drawn over the original/);
     const link = within(panel).getByRole("link", { name: strings.editTextFlattenLink });
     expect(link.getAttribute("href")).toBe("/edit-pdf");
   });

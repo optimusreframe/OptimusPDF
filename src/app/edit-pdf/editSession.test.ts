@@ -17,6 +17,7 @@ import {
   imageAddOp,
   itemsOnPage,
   newTextEdit,
+  parseTextEdit,
   pendingChangeCount,
   redo,
   referencedAssets,
@@ -347,6 +348,18 @@ describe("editSession — ops sobre bloques existentes y texto nuevo", () => {
     expect(edit.text).toBe("Texto original");
     expect(edit.bold).toBe(true);
     expect(edit.fontSize).toBe(11);
+  });
+
+  it("blockToTextEdit anota el perfil de glifos del texto original (solo cuentas) y el borrador lo conserva", () => {
+    const edit = blockToTextEdit(block, { fontKey: "helvetica", cover: { color: "#ffffff", padding: 1 }, text: "Otro texto" });
+    expect(edit.originalGlyphs).toEqual({ chars: 13, ligatures: 0 }); // "Texto original" sin espacio
+    expect(JSON.stringify(edit)).not.toContain("Texto original"); // nunca el texto original en si
+    const back = parseTextEdit(JSON.parse(JSON.stringify(edit)));
+    expect(back?.originalGlyphs).toEqual({ chars: 13, ligatures: 0 });
+    // Un perfil corrupto se descarta sin invalidar la edicion.
+    const corrupt = parseTextEdit({ ...JSON.parse(JSON.stringify(edit)), originalGlyphs: { chars: -3, ligatures: "x" } });
+    expect(corrupt).not.toBeNull();
+    expect(corrupt?.originalGlyphs).toBeUndefined();
   });
 
   it("editar un bloque existente: findEditForBlock lo localiza y cuenta como cambio aunque quede vacio", () => {

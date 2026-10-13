@@ -476,7 +476,7 @@ export function PdfSummarizerToolClient() {
     return (
       <div className="mx-auto w-full max-w-[1200px] px-4 pt-8 pb-16 md:px-6 md:pt-12">
         {header}
-        <section className="glass rounded-ios flex items-start gap-3 p-5">
+        <section className="surface-card rounded-ios flex items-start gap-3 p-5">
           <Spinner className="mt-0.5 size-4 shrink-0" />
           <div className="min-w-0">
             <h2 className="text-headline text-foreground">
@@ -598,7 +598,7 @@ export function PdfSummarizerToolClient() {
             </section>
           )}
 
-          <section className="glass rounded-ios mt-6 p-5">
+          <section className="surface-card rounded-ios mt-6 p-5">
             <div className="flex items-start gap-3">
               <Sparkles
                 aria-hidden="true"
@@ -639,7 +639,7 @@ export function PdfSummarizerToolClient() {
             </div>
           </section>
 
-          <section className="glass rounded-ios mt-4 p-5">
+          <section className="surface-card rounded-ios mt-4 p-5">
             <h2 className="text-headline text-foreground">
               {t.tool.optionsTitle}
             </h2>
@@ -810,7 +810,7 @@ export function PdfSummarizerToolClient() {
             </p>
           ) : null}
 
-          <section className="glass rounded-ios mt-6 p-5">
+          <section className="surface-card rounded-ios mt-6 p-5">
             <h2 className="ui-label text-muted-foreground">
               {s.resultTitle}
             </h2>
@@ -854,7 +854,7 @@ export function PdfSummarizerToolClient() {
               {result.sections.map((section, index) => (
                 <article
                   key={`${section.firstPage}-${section.lastPage}-${index}`}
-                  className="glass rounded-ios p-4"
+                  className="surface-card rounded-ios p-4"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="neutral">

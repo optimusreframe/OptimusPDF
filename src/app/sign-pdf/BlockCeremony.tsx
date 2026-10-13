@@ -148,7 +148,7 @@ export function BlockCeremony({
     return (
       <section className="space-y-4">
         <h3 className="ui-label text-muted-foreground">{strings.ceremonyTitle}</h3>
-        <div className="glass rounded-ios flex items-center gap-3 p-6">
+        <div className="surface-card rounded-ios flex items-center gap-3 p-6">
           <Spinner />
           <p className="text-sm text-muted-foreground">{strings.checkingDocument}</p>
         </div>
@@ -307,7 +307,7 @@ export function BlockCeremony({
       </p>
 
       {current && stage === "handoff" ? (
-        <div className="glass rounded-ios p-6 text-center">
+        <div className="surface-card rounded-ios p-6 text-center">
           <span
             className="mx-auto flex size-12 items-center justify-center rounded-full"
             /* Color del firmante: dato del documento, no un token del tema. */
@@ -338,7 +338,7 @@ export function BlockCeremony({
       ) : null}
 
       {current && stage === "capture" ? (
-        <div className="glass rounded-ios p-5">
+        <div className="surface-card rounded-ios p-5">
           <h4
             ref={headingRef}
             tabIndex={-1}
@@ -398,7 +398,7 @@ export function BlockCeremony({
       ) : null}
 
       {current && stage === "review" ? (
-        <div className="glass rounded-ios p-5">
+        <div className="surface-card rounded-ios p-5">
           <h4
             ref={headingRef}
             tabIndex={-1}
@@ -495,7 +495,7 @@ export function BlockCeremony({
         strings={strings}
       />
 
-      <div className="glass rounded-ios p-5">
+      <div className="surface-card rounded-ios p-5">
         <h4
           // Sin turno a la vista (todos pasaron), el foco va al balance de la ronda.
           id={balanceId}

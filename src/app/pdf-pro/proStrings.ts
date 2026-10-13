@@ -34,6 +34,10 @@ export type ProStrings = {
     historyTrimmed: string;
     nothingToUndo: string;
     nothingToRedo: string;
+    /** Wave 8: no se pudo recuperar de disco un paso al deshacer/rehacer: se retira del historial. */
+    historyStepLost: (label: string) => string;
+    /** Wave 8: el volcado del historial a disco fallo; se recorta por bytes como antes. */
+    historyOffloadFailed: string;
   };
   labels: {
     original: string;
@@ -135,6 +139,9 @@ const es: ProStrings = {
     historyTrimmed: "El historial más antiguo se descartó para liberar memoria.",
     nothingToUndo: "No hay nada que deshacer",
     nothingToRedo: "No hay nada que rehacer",
+    historyStepLost: (label) => `No se pudo recuperar el paso «${label}»: se retiró del historial.`,
+    historyOffloadFailed:
+      "No se pudo guardar el historial en el disco del navegador: vive solo en memoria y los pasos más antiguos se descartarán.",
   },
   labels: { original: "Original", restored: "Borrador recuperado" },
   warnings: {
@@ -152,6 +159,8 @@ const es: ProStrings = {
       "Por su tamaño ({size}) no se guardará un borrador automático: descarga el PDF para no perder el trabajo.",
     memoryHigh:
       "El historial ocupa {size} de memoria. Si hace falta, los pasos más antiguos se descartarán para liberarla.",
+    historyOffloadUnavailable:
+      "No se pudo guardar el historial en el disco del navegador (sin espacio o sin IndexedDB): vive solo en memoria y los pasos más antiguos se descartarán al llenarse.",
   },
   operations: {
     rotateAll90: "Rotar todas las páginas 90°",
@@ -270,6 +279,9 @@ const en: ProStrings = {
     historyTrimmed: "The oldest history was dropped to free memory.",
     nothingToUndo: "Nothing to undo",
     nothingToRedo: "Nothing to redo",
+    historyStepLost: (label) => `The step "${label}" could not be recovered: it was removed from the history.`,
+    historyOffloadFailed:
+      "The history could not be stored on the browser's disk: it lives only in memory and the oldest steps will be dropped.",
   },
   labels: { original: "Original", restored: "Recovered draft" },
   warnings: {
@@ -287,6 +299,8 @@ const en: ProStrings = {
       "Because of its size ({size}) no automatic draft will be saved: download the PDF so you don't lose your work.",
     memoryHigh:
       "The history takes up {size} of memory. If needed, the oldest steps will be dropped to free it.",
+    historyOffloadUnavailable:
+      "The history could not be stored on the browser's disk (no space or no IndexedDB): it lives only in memory and the oldest steps will be dropped when it fills up.",
   },
   operations: {
     rotateAll90: "Rotate all pages 90°",

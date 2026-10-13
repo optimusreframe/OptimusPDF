@@ -1,5 +1,5 @@
 import { MAX_PRO_DRAFT_BYTES } from "@/app/pdf-pro/proDrafts";
-import { PRO_MAX_SNAPSHOT_BYTES } from "@/app/pdf-pro/proWorkingDoc";
+import { PRO_MAX_SNAPSHOT_BYTES, residentBytes } from "@/app/pdf-pro/proWorkingDoc";
 import type { ProDocument, ProWarning } from "@/app/pdf-pro/proTypes";
 
 /**
@@ -9,7 +9,9 @@ import type { ProDocument, ProWarning } from "@/app/pdf-pro/proTypes";
  *
  *  - ≥ 100 MB: aviso «documento grande» (el motor ya lo acepta: `MAX_SAFE_FILE_SIZE` avisa pero no bloquea).
  *  - > 150 MB: ademas, sin borrador automatico (`MAX_PRO_DRAFT_BYTES`).
- *  - historial ≥ 75 % del presupuesto de bytes de los snapshots: aviso de memoria (se descartaran los mas antiguos).
+ *  - historial RESIDENTE en RAM ≥ 75 % del presupuesto de bytes de los snapshots: aviso de memoria (se descartaran
+ *    los mas antiguos); lo volcado a disco (Wave 8) no cuenta.
+ *  - el volcado a disco fallo (`historyOffloadFailed`): aviso de que el historial vive solo en memoria.
  */
 
 export const PRO_LARGE_DOCUMENT_BYTES = 100 * 1024 * 1024;
@@ -35,10 +37,11 @@ export function limitWarnings(document: ProDocument | null): ProWarning[] {
   if (current.byteLength > PRO_NO_DRAFT_BYTES) {
     warnings.push({ code: "noDraftTooBig", params: { size: formatLimitSize(current.byteLength) } });
   }
-  const total = document.snapshots.reduce((sum, snapshot) => sum + snapshot.byteLength, 0);
+  const total = document.snapshots.reduce((sum, snapshot) => sum + residentBytes(snapshot), 0);
   if (total >= PRO_MEMORY_WARN_BYTES) {
     warnings.push({ code: "memoryHigh", params: { size: formatLimitSize(total) } });
   }
+  if (document.historyOffloadFailed) warnings.push({ code: "historyOffloadUnavailable" });
   return warnings;
 }
 

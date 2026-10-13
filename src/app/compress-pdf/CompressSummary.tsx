@@ -34,7 +34,7 @@ export function CompressSummary({
 }: CompressSummaryProps) {
   const reduction = reductionPercent(originalSize, compressedSize);
   return (
-    <section className={cn("glass rounded-ios p-5", className)}>
+    <section className={cn("surface-card rounded-ios p-5", className)}>
       <h2 className="ui-label text-muted-foreground">{s.summaryTitle}</h2>
       <p className="mt-1 truncate text-sm font-medium text-foreground">{filename}</p>
       <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">

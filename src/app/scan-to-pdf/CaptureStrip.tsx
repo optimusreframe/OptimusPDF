@@ -62,7 +62,7 @@ export function CaptureStrip({
             <li
               key={capture.id}
               data-capture-id={capture.id}
-              className="glass rounded-ios-sm relative overflow-hidden p-2"
+              className="surface-card rounded-ios-sm relative overflow-hidden p-2"
             >
               <span className="relative flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -41,7 +41,7 @@ export function PdfToExcelClient() {
       progressMessage={s.progress}
       process={process}
       renderMain={() => (
-        <section className="glass rounded-ios p-5">
+        <section className="surface-card rounded-ios p-5">
           <div className="flex items-start gap-3">
             <Table
               aria-hidden="true"

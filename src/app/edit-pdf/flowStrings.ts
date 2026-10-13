@@ -102,6 +102,8 @@ export type EditFlowStrings = {
   noticeFont: (count: number) => string;
   noticeGlyph: (count: number) => string;
   noticeRemains: (count: number) => string;
+  /** (Wave 8 · F2) El texto original de N textos editados se elimino de verdad del PDF. */
+  noticeRemoved: (count: number) => string;
   noticeBackground: (count: number) => string;
   noticeMixed: (count: number) => string;
   noticeOverlap: (count: number) => string;
@@ -242,8 +244,12 @@ const es: EditFlowStrings = {
       : `${count} textos tienen caracteres que su fuente no dibuja: se usó otra fuente o un «?».`,
   noticeRemains: (count) =>
     count === 1
-      ? "1 texto editado conserva el original bajo la edición y se puede seleccionar o copiar. Para quitarlo del todo, aplana esa página."
-      : `${count} textos editados conservan el original bajo la edición y se pueden seleccionar o copiar. Para quitarlos del todo, aplana esas páginas.`,
+      ? "No se pudo eliminar del PDF el texto original de 1 texto editado: sigue bajo la edición y se puede seleccionar o copiar. Para quitarlo del todo, aplana esa página."
+      : `No se pudo eliminar del PDF el texto original de ${count} textos editados: sigue bajo la edición y se puede seleccionar o copiar. Para quitarlo del todo, aplana esas páginas.`,
+  noticeRemoved: (count) =>
+    count === 1
+      ? "El texto original de 1 texto editado se eliminó del PDF: ya no se puede seleccionar, copiar ni buscar."
+      : `El texto original de ${count} textos editados se eliminó del PDF: ya no se puede seleccionar, copiar ni buscar.`,
   noticeBackground: (count) =>
     count === 1
       ? "1 texto está sobre un fondo que no es de un solo color: puede verse un borde alrededor."
@@ -382,8 +388,12 @@ const en: EditFlowStrings = {
       : `${count} texts have characters their font can't draw: another font or a “?” was used.`,
   noticeRemains: (count) =>
     count === 1
-      ? "1 edited text keeps the original under the edit and can be selected or copied. To remove it entirely, flatten that page."
-      : `${count} edited texts keep the original under the edit and can be selected or copied. To remove them entirely, flatten those pages.`,
+      ? "The original text of 1 edited text could not be removed from the PDF: it stays under the edit and can be selected or copied. To remove it entirely, flatten that page."
+      : `The original text of ${count} edited texts could not be removed from the PDF: it stays under the edit and can be selected or copied. To remove it entirely, flatten those pages.`,
+  noticeRemoved: (count) =>
+    count === 1
+      ? "The original text of 1 edited text was removed from the PDF: it can no longer be selected, copied or searched."
+      : `The original text of ${count} edited texts was removed from the PDF: it can no longer be selected, copied or searched.`,
   noticeBackground: (count) =>
     count === 1
       ? "1 text sits on a background that isn't a single colour: an outline may show around it."

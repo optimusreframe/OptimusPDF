@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "@/lib/i18n";
+import { purgeStaleProHistoryDatabases } from "@/app/pdf-pro/proHistoryStore";
 import { attachProUndoShortcuts } from "@/app/pdf-pro/proShortcuts";
 import { ProWorkingDoc, type ProModeRegistration, type ProWorkingDocOptions } from "@/app/pdf-pro/proWorkingDoc";
 import type { ProModeId, ProWorkingState } from "@/app/pdf-pro/proTypes";
@@ -25,6 +26,23 @@ import type { ProModeId, ProWorkingState } from "@/app/pdf-pro/proTypes";
  */
 const ProWorkingDocContext = createContext<ProWorkingDoc | null>(null);
 
+/**
+ * Wave 8: tamaño de la ventana caliente del historial (bytes) para diagnostico y pruebas E2E, en este navegador.
+ * Sin valor (o no numerico) manda `PRO_HOT_SNAPSHOT_BYTES`. Nunca lanza.
+ */
+export const PRO_HISTORY_HOT_BYTES_STORAGE_KEY = "optimuspdf.pro.historyHotBytes";
+
+export function readHistoryHotBytesOverride(): number | undefined {
+  try {
+    const raw = window.localStorage.getItem(PRO_HISTORY_HOT_BYTES_STORAGE_KEY);
+    if (raw === null) return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export type ProWorkingDocProviderProps = {
   children: ReactNode;
   /** Instancia ya creada (tests). Por defecto el proveedor crea la suya. */
@@ -36,7 +54,9 @@ export type ProWorkingDocProviderProps = {
 
 export function ProWorkingDocProvider({ children, doc, options, shortcuts = true }: ProWorkingDocProviderProps) {
   const { language } = useI18n();
-  const [owned] = useState(() => doc ?? new ProWorkingDoc({ language, ...options }));
+  const [owned] = useState(
+    () => doc ?? new ProWorkingDoc({ language, hotBytes: readHistoryHotBytesOverride(), ...options }),
+  );
   const instance = doc ?? owned;
 
   useEffect(() => {
@@ -47,6 +67,25 @@ export function ProWorkingDocProvider({ children, doc, options, shortcuts = true
     if (!shortcuts) return;
     return attachProUndoShortcuts(instance);
   }, [instance, shortcuts]);
+
+  // Wave 8: el historial volcado a disco es de ESTA sesion. Al desmontar se borra su base; al montar se barren las
+  // bases de sesiones muertas (pestañas cerradas sin desmontar). Una instancia prestada (`doc`) la gestiona su dueño.
+  useEffect(() => {
+    void purgeStaleProHistoryDatabases();
+    if (doc) return;
+    // Cerrar la pestana (pagehide no persistido: no es bfcache) borra la base de ESTA sesion en el acto (sin cerrar el documento: su borrador automatico queda como esta); si el
+    // navegador no llega a terminarlo, el barrido de `HistoryJanitor` la recoge en la siguiente visita a cualquier
+    // pagina. Los borradores viven en otra base (`optimuspdf-pro-drafts`) y no se tocan.
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      void owned.disposeHistoryStore();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      void owned.dispose();
+    };
+  }, [doc, owned]);
 
   return <ProWorkingDocContext.Provider value={instance}>{children}</ProWorkingDocContext.Provider>;
 }

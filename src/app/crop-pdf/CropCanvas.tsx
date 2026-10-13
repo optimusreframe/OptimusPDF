@@ -253,7 +253,7 @@ function CropCanvasInner({
         </div>
       </div>
 
-      <div className="glass rounded-ios flex justify-center p-3">
+      <div className="surface-card rounded-ios flex justify-center p-3">
         <div
           ref={hostRef}
           className="relative w-full max-w-[640px] touch-none select-none"

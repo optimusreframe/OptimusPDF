@@ -444,7 +444,7 @@ export function CameraStage({
         // bucle, asi que tiene que estar a mano vuelva el usuario donde
         // vuelva y sin importar cuanto haya scrolleado.
         <div
-          className="glass-bar fixed inset-x-0 top-0 z-50 flex items-center gap-3 border-b border-white/10 px-4 pb-3"
+          className="bg-surface contrast-more:border-foreground/45 fixed inset-x-0 top-0 z-50 flex items-center gap-3 border-b border-hairline px-4 pb-3"
           style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
         >
           <div className="min-w-0">
@@ -469,7 +469,7 @@ export function CameraStage({
       ) : null}
 
       {stream ? (
-        <div className="glass rounded-ios-lg relative overflow-hidden p-3">
+        <div className="surface-card rounded-ios-lg relative overflow-hidden p-3">
           <div className="relative overflow-hidden rounded-[16px] bg-black">
             <video
               ref={videoRef}
@@ -544,7 +544,7 @@ export function CameraStage({
           </div>
         </div>
       ) : (
-        <div className="glass rounded-ios-lg flex flex-col items-center px-6 py-12 text-center">
+        <div className="surface-card rounded-ios-lg flex flex-col items-center px-6 py-12 text-center">
           <span className="flex size-14 items-center justify-center rounded-full bg-signal/15">
             <Camera aria-hidden="true" className="size-6 text-signal" />
           </span>

@@ -256,7 +256,7 @@ const es: EditStrings = {
     coverColorLabel: "Color del fondo",
     backgroundNotUniform:
       "El fondo no es de un solo color: si se nota un borde, elige el color del fondo.",
-    originalRemains: "El texto original puede seguir existiendo bajo la edición.",
+    originalRemains: "Al exportar, el texto original se elimina del PDF; si no se puede, se avisa.",
     mixedStyleNotice:
       "Este bloque mezcla estilos (color, negrita, fuente…): al editarlo se unifican con el estilo dominante.",
     overlapNotice: "Este texto invade a otro.",
@@ -456,7 +456,7 @@ const en: EditStrings = {
     coverColorLabel: "Background colour",
     backgroundNotUniform:
       "The background is not a single colour: if an edge shows, pick the background colour.",
-    originalRemains: "The original text may still exist under the edit.",
+    originalRemains: "On export, the original text is removed from the PDF; if it cannot be, you are told.",
     mixedStyleNotice:
       "This block mixes styles (colour, bold, font…): editing it unifies them to the dominant style.",
     overlapNotice: "This text overlaps another one.",

@@ -47,6 +47,11 @@ export type ProSnapshot = {
    * en silencio.
    */
   skippedLabels?: readonly string[];
+  /**
+   * Wave 8: los bytes estan VOLCADOS a disco (IndexedDB) y `bytes` esta vacio hasta que se recuperen al deshacer o
+   * rehacer. El snapshot ACTUAL nunca esta volcado: `currentSnapshot().bytes` siempre es el PDF entero.
+   */
+  offloaded?: boolean;
 };
 
 /** Estado de las firmas digitales del PDF abierto (`unknown` nunca se lee como «sin firmas»). */
@@ -91,6 +96,11 @@ export type ProDocument = {
   openedAt: number;
   /** Presente si el documento se recupero de un borrador. */
   restored?: ProRestoredInfo;
+  /**
+   * Wave 8: el volcado del historial a disco fallo (sin IndexedDB, cuota agotada, paso perdido): el historial vive
+   * solo en memoria y se recorta por bytes como antes. Se muestra como aviso (`historyOffloadUnavailable`).
+   */
+  historyOffloadFailed?: boolean;
 };
 
 /** Lo que consumen los componentes (`useProWorkingDoc`). Referencia estable mientras nada cambia. */
@@ -107,6 +117,13 @@ export type ProWorkingState = {
   activeModes: readonly ProModeId[];
   /** Algun modo activo tiene su propio deshacer: Ctrl+Z global NO actua. */
   ownUndoActive: boolean;
+  /** Wave 8: se estan recuperando de disco los bytes del paso al que se va (deshacer/rehacer en curso). */
+  restoring: boolean;
+  /**
+   * Wave 8 (D7): hay un paso EN VUELO (una operacion corriendo o una confirmacion encolada que aun no esta en el
+   * historial). Cerrar o cambiar de documento ahora cuenta como cambios pendientes: se pide confirmar.
+   */
+  stepInFlight: boolean;
 };
 
 /** Avisos (ya estructurados; el texto sale de `proWarningText`). */
@@ -126,7 +143,9 @@ export type ProWarningCode =
   /** El documento pesa mas de 150 MB: no se guarda borrador automatico. */
   | "noDraftTooBig"
   /** El historial en memoria se acerca al presupuesto: los pasos mas antiguos se descartaran. */
-  | "memoryHigh";
+  | "memoryHigh"
+  /** Wave 8: no se pudo volcar el historial a disco: vive solo en memoria y se recortara por bytes. */
+  | "historyOffloadUnavailable";
 
 export type ProWarning = {
   code: ProWarningCode;

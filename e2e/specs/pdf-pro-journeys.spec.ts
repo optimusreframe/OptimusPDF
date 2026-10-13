@@ -397,7 +397,12 @@ async function expectContractState(bytes: Buffer, state: ContractState, where: s
     const original = state.order[index];
     const text = await getPageText(bytes, number, password);
     expect(text, `${where}, pagina ${number}: orden (CONTRATO-${original})`).toContain(`CONTRATO-${original}`);
-    expect(text, `${where}, pagina ${number}: clausula original`).toContain(`Clausula ${original}: importe pactado 1.250,00`);
+    // En la pagina 1 editada, F2 QUITA del PDF la clausula original (ya no queda extraible): se sustituye por el texto nuevo.
+    if (number === 1 && state.edited) {
+      expect(text, `${where}, pagina ${number}: la clausula original se elimino de verdad`).not.toContain(`Clausula ${original}: importe pactado 1.250,00`);
+    } else {
+      expect(text, `${where}, pagina ${number}: clausula original`).toContain(`Clausula ${original}: importe pactado 1.250,00`);
+    }
     if (state.watermark) expect(text, `${where}, pagina ${number}: marca de agua`).toContain(CONTRACT_WATERMARK);
     else expect(text, `${where}, pagina ${number}: sin marca de agua`).not.toContain(CONTRACT_WATERMARK);
     if (state.numbers) expect(text, `${where}, pagina ${number}: numeracion`).toContain(`Página ${number} de ${state.order.length}`);

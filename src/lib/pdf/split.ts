@@ -1,9 +1,7 @@
-import { PDFDocument } from "@cantoo/pdf-lib";
-import { uniqueZipName, zipNameKey } from "@/lib/pdf/entryNames";
 import {
   PdfError,
   loadPdf,
-  savePdfToBlob,
+  readFileBytes,
   scaleProgress,
   toPdfError,
   type ProgressCallback,
@@ -18,6 +16,13 @@ import {
  * Convencion de numeracion: la API publica habla en numeros de pagina
  * 1-based (los que ve la persona usuaria); los indices 0-based solo
  * existen dentro de este modulo, que es lo que espera pdf-lib.
+ *
+ * Wave 8: la ejecucion (`splitPdf`) la hace `pageAssemblyExport`: una sola
+ * parte sale del motor en sitio (`extractPages`: conserva titulo, autor,
+ * formulario, marcadores y enlaces de las paginas que quedan, y no arrastra
+ * las demas); varias partes, de `splitDocument` (cada parte es un documento
+ * nuevo con los metadatos y los campos de sus paginas). Antes `copyPages` a
+ * un documento nuevo perdia metadatos, formulario y marcadores.
  */
 
 /** Rango inclusivo en numeros de pagina 1-based. */
@@ -207,15 +212,6 @@ function dedupe(indices: number[]): number[] {
  * Ejecucion
  * ------------------------------------------------------------------ */
 
-/** `documento` + `[2,3,4]` -> `documento-3-5.pdf` (numeros 1-based). */
-function partFilename(baseName: string, indices: number[]): string {
-  const first = indices[0] + 1;
-  const last = indices[indices.length - 1] + 1;
-  return first === last
-    ? `${baseName}-${first}.pdf`
-    : `${baseName}-${first}-${last}.pdf`;
-}
-
 /**
  * Aplica un plan de division. Devuelve un unico PDF cuando el plan
  * produce un solo documento y un ZIP cuando produce varios.
@@ -227,49 +223,41 @@ export async function splitPdf(
   onProgress?: ProgressCallback,
 ): Promise<SplitOutput> {
   try {
-    const source = await loadPdf(file);
+    const bytes = await readFileBytes(file);
+    // `pageAssemblyExport` importa de este modulo (rangos y nombres): se carga aqui, al ejecutar,
+    // para no cerrar un ciclo de importaciones en la carga.
+    const { extractPages, splitDocument } = await import("@/lib/pdf/pageAssemblyExport");
+    const pageCount = (await loadPdf(bytes)).getPageCount();
     onProgress?.(0.12);
 
-    const pageCount = source.getPageCount();
     const groups = buildSplitGroups(plan, pageCount);
     // "nothingSelected", no "empty": el archivo ya se cargo bien -- lo que
     // falta es que el plan (rangos/paginas) resulte en algo que dividir.
     if (groups.length === 0) throw new PdfError("nothingSelected");
 
     if (groups.length === 1) {
-      const output = await PDFDocument.create();
-      const copied = await output.copyPages(source, groups[0]);
-      for (const page of copied) output.addPage(page);
-      const blob = await savePdfToBlob(output);
+      const result = await extractPages(bytes, groups[0], {
+        onProgress: (value) => onProgress?.(scaleProgress(value, 0.12, 1)),
+      });
       onProgress?.(1);
-      return { blob, kind: "pdf", parts: 1 };
+      return {
+        blob: new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" }),
+        kind: "pdf",
+        parts: 1,
+      };
     }
 
-    // jszip solo se descarga cuando la salida es realmente multiple.
-    const { default: JSZip } = await import("jszip");
-    const zip = new JSZip();
-    // Dos tramos iguales (p. ej. 1-2 y 1-2) darian el mismo nombre y jszip se quedaria con el ultimo.
-    const usedNames = new Set<string>();
-
-    for (let index = 0; index < groups.length; index += 1) {
-      const indices = groups[index];
-      const output = await PDFDocument.create();
-      const copied = await output.copyPages(source, indices);
-      for (const page of copied) output.addPage(page);
-      const bytes = await output.save({ useObjectStreams: true });
-      zip.file(
-        uniqueZipName(partFilename(baseName, indices), usedNames, { startAt: 2, key: zipNameKey }),
-        bytes,
-      );
-      onProgress?.(scaleProgress((index + 1) / groups.length, 0.12, 0.9));
-    }
-
-    const blob = await zip.generateAsync({
-      type: "blob",
-      compression: "DEFLATE",
+    const outcome = await splitDocument(bytes, groups, baseName, {
+      onProgress: (value) => onProgress?.(scaleProgress(value, 0.12, 1)),
     });
     onProgress?.(1);
-    return { blob, kind: "zip", parts: groups.length };
+    return {
+      blob: new Blob([outcome.bytes as unknown as BlobPart], {
+        type: outcome.kind === "zip" ? "application/zip" : "application/pdf",
+      }),
+      kind: outcome.kind,
+      parts: outcome.parts,
+    };
   } catch (error) {
     throw toPdfError(error);
   }

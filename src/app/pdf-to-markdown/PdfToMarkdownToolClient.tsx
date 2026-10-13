@@ -161,7 +161,7 @@ export function PdfToMarkdownToolClient() {
 
         return (
           <div className="space-y-4">
-            <section className="glass rounded-ios p-5">
+            <section className="surface-card rounded-ios p-5">
               <div className="flex items-start gap-3">
                 <FileCode
                   aria-hidden="true"
@@ -193,7 +193,7 @@ export function PdfToMarkdownToolClient() {
               </div>
             </section>
 
-            <section className="glass rounded-ios p-5">
+            <section className="surface-card rounded-ios p-5">
               <h3 className="text-headline text-foreground">
                 {s.previewTitle}
               </h3>

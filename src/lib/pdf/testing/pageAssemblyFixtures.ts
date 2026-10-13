@@ -471,6 +471,33 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfReport> {
   };
 }
 
+/**
+ * Huella de dibujo de cada pagina: flujos de contenido decodificados + MediaBox + CropBox +
+ * `/Rotate`. Dos paginas con la misma huella (y los mismos recursos, que pdf-lib copia tal cual)
+ * se rasterizan igual: es la comparacion «a pixel» que se puede hacer sin canvas en Node.
+ */
+export async function pageDrawFingerprints(bytes: Uint8Array): Promise<string[]> {
+  const document = await PDFDocument.load(bytes, { updateMetadata: false });
+  const context = document.context;
+  return document.getPages().map((page) => {
+    const contents = page.node.Contents();
+    const streams: PDFStream[] = [];
+    if (contents instanceof PDFStream) streams.push(contents);
+    else if (contents instanceof PDFArray) {
+      for (let index = 0; index < contents.size(); index += 1) {
+        const item = context.lookup(contents.get(index));
+        if (item instanceof PDFStream) streams.push(item);
+      }
+    }
+    const media = page.getMediaBox();
+    const crop = page.getCropBox();
+    const box = (b: { x: number; y: number; width: number; height: number }) =>
+      [b.x, b.y, b.width, b.height].map((n) => Math.round(n * 1000) / 1000).join(",");
+    const rotation = ((page.getRotation().angle % 360) + 360) % 360;
+    return `${box(media)}|${box(crop)}|${rotation}|${streams.map(decodeStream).join("\n")}`;
+  });
+}
+
 /** PDF sencillo de `pages` paginas con marcas (`marker`). */
 export function simplePdf(pages: number, options: RichPdfOptions = {}): Promise<Uint8Array> {
   return makeRichPdf({ ...options, pages });

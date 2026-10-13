@@ -294,6 +294,9 @@ function SheetPanel({
     }
     stopAnimation();
     entryRef.current.closing = true;
+    // Mientras anima la salida la hoja sigue en el DOM con `aria-modal`: se marca para que los atajos globales
+    // (Ctrl/Cmd+S, Ctrl/Cmd+K…) no la cuenten como modal abierta (Wave 8 · backlog b).
+    panelRef.current?.setAttribute("data-sheet-closing", "");
     const token = closeTokenRef.current;
     const done = () => {
       if (closeTokenRef.current === token) safeToRemove?.();
@@ -329,6 +332,7 @@ function SheetPanel({
       if (!isPresent || dismissedRef.current) return;
       stopAnimation();
       entryRef.current.closing = true;
+      panelRef.current?.setAttribute("data-sheet-closing", "");
       const token = closeTokenRef.current;
       const finish = () => {
         if (closeTokenRef.current !== token) return;

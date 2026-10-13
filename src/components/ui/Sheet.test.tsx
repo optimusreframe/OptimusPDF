@@ -766,3 +766,15 @@ describe("Sheet: foco inicial (initialFocus)", () => {
     expect(document.activeElement).toBe(screen.getByRole("dialog"));
   });
 });
+
+describe("Sheet: salida marcada (Wave 8 · backlog b)", () => {
+  it("al cerrar, el dialogo queda marcado con data-sheet-closing mientras anima (los atajos globales no lo cuentan)", async () => {
+    const onClose = vi.fn();
+    render(<Harness onClose={onClose} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.hasAttribute("data-sheet-closing")).toBe(false);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(dialog.hasAttribute("data-sheet-closing")).toBe(true);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});

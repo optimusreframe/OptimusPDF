@@ -128,7 +128,7 @@ export function SignerManager({
             <li
               key={signer.id}
               className={cn(
-                "glass rounded-ios p-3 transition-colors",
+                "surface-card rounded-ios p-3 transition-colors",
                 // Con bloques la tarjeta se apila: fila del firmante + sus bloques.
                 blocks ? "space-y-3" : "flex items-center gap-3",
                 active ? "border border-signal/50" : "border border-white/10",

@@ -100,7 +100,7 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
       </div>
 
       {open ? (
-        <div className="glass rounded-ios flex items-start gap-3 p-4">
+        <div className="surface-card rounded-ios flex items-start gap-3 p-4">
           <Info
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"

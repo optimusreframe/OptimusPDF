@@ -370,7 +370,7 @@ describe("ScanToPdfClient — el foco nunca cae a <body> (Wave 6 · V-G)", () =>
         <ScanToPdfClient />
       </LanguageProvider>,
     );
-    const bar = container.querySelector(".glass-bar") as HTMLElement;
+    const bar = container.querySelector("[data-workspace-bar]") as HTMLElement;
     expect(bar.hasAttribute("inert")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Opciones" }));
     await waitFor(() => expect(bar.hasAttribute("inert")).toBe(true));

@@ -18,6 +18,7 @@ import type { ImageLayout } from "@/lib/pdf/imagesToPdf";
 import { normalizeRotation } from "@/lib/pdf/rotate";
 import {
   KEY,
+  appendOutlineGroup,
   cloneLeafInPlace,
   collectGarbage,
   collectNamedDests,
@@ -33,10 +34,13 @@ import {
   pruneNamedDests,
   pruneOpenAction,
   pruneOutline,
+  readImportableOutline,
   refKey,
   registerNewFields,
   sanitizeLeavesForCopy,
   setLeafRotation,
+  wrapExistingOutline,
+  type ImportedOutlineItem,
 } from "@/lib/pdf/pageAssemblyStructure";
 
 /**
@@ -124,7 +128,12 @@ export type ImageEntry = EntryBase & {
 
 export type PageEntry = ExistingEntry | ExternalEntry | BlankEntry | ImageEntry;
 
-export type ExternalSource = Uint8Array | Blob;
+/**
+ * Un documento externo: bytes, archivo, o un `PDFDocument` YA cargado (quien lo cargo se ahorra
+ * el segundo analisis; el motor no lo modifica salvo por `sanitizeLeavesForCopy` sobre las hojas
+ * copiadas, asi que no debe reutilizarse para otra cosa).
+ */
+export type ExternalSource = Uint8Array | Blob | PDFDocument;
 
 export type PageAssemblyWarningCode =
   /** Marcadores que apuntaban a paginas quitadas y se eliminaron. */
@@ -153,6 +162,19 @@ export type PageAssemblyOptions = {
   onProgress?: ProgressCallback;
   /** Comprobar tras guardar que el archivo tiene exactamente las paginas del plan (por defecto, si). */
   verify?: boolean;
+  /** Tope de documentos externos distintos (por defecto `PAGE_ASSEMBLY_LIMITS.maxExternalDocuments`). */
+  maxExternalDocuments?: number;
+  /**
+   * Marcadores de los documentos externos (Wave 8 · Unir): `sourceId` -> titulo del marcador bajo el
+   * que se agrupan los marcadores de ese documento que apuntan a paginas copiadas. Sin entrada para
+   * un `sourceId`, sus marcadores no se importan (comportamiento de PDF Pro al insertar paginas).
+   */
+  outlineGroups?: Readonly<Record<string, string>>;
+  /**
+   * Agrupa los marcadores que YA tenia el documento actual bajo un marcador con este titulo (solo si
+   * tiene alguno). Pensado para Unir: cada documento queda bajo su propio marcador.
+   */
+  wrapOutlineTitle?: string;
 };
 
 export type PageAssemblyResult = {
@@ -277,16 +299,18 @@ export function entryVisualSize(
  * Motor
  * ------------------------------------------------------------------ */
 
-async function sourceBytes(source: ExternalSource): Promise<Uint8Array> {
+async function loadExternal(source: ExternalSource): Promise<PDFDocument> {
+  if (source instanceof PDFDocument) return source;
   const size = source instanceof Uint8Array ? source.byteLength : source.size;
   if (size > PAGE_ASSEMBLY_LIMITS.maxExternalBytes) throw new PdfError("tooLarge");
-  return source instanceof Uint8Array ? source : readFileBytes(source);
+  return loadPdf(source instanceof Uint8Array ? source : await readFileBytes(source));
 }
 
 function validatePlan(
   plan: readonly PageEntry[],
   pageCount: number,
   externals: Readonly<Record<string, ExternalSource>>,
+  maxExternalDocuments: number,
 ): void {
   const pdfIds = new Set<string>();
   for (const entry of plan) {
@@ -300,7 +324,9 @@ function validatePlan(
       if (!externals[entry.sourceId]) throw new PdfError("invalidConfig");
       pdfIds.add(entry.sourceId);
     } else if (entry.kind === "image") {
-      if (!externals[entry.sourceId]) throw new PdfError("invalidConfig");
+      if (!externals[entry.sourceId] || externals[entry.sourceId] instanceof PDFDocument) {
+        throw new PdfError("invalidConfig");
+      }
     } else if (entry.kind === "blank") {
       if (!(entry.width > 0) || !(entry.height > 0) || !Number.isFinite(entry.width + entry.height)) {
         throw new PdfError("invalidConfig");
@@ -309,7 +335,7 @@ function validatePlan(
       throw new PdfError("invalidConfig");
     }
   }
-  if (pdfIds.size > PAGE_ASSEMBLY_LIMITS.maxExternalDocuments) throw new PdfError("tooLarge");
+  if (pdfIds.size > maxExternalDocuments) throw new PdfError("tooLarge");
 }
 
 type Slot = { leaf: PDFPageLeaf; ref: PDFRef; fresh: boolean };
@@ -320,9 +346,12 @@ type Slot = { leaf: PDFPageLeaf; ref: PDFRef; fresh: boolean };
  * El plan es la lista FINAL de paginas, en orden: lo que no aparece se elimina (un plan vacio es
  * un error `empty`, nunca «sin cambios»). Cada entrada que no se puede cumplir lanza un error
  * tipado en vez de saltarse en silencio.
+ *
+ * `current` puede ser un `PDFDocument` ya cargado (se edita EN SITIO y queda inservible para otra
+ * cosa): lo usan las herramientas sueltas, que ya lo cargaron para leer el numero de paginas.
  */
 export async function applyPageAssembly(
-  currentBytes: Uint8Array,
+  current: Uint8Array | PDFDocument,
   plan: readonly PageEntry[],
   externals: Readonly<Record<string, ExternalSource>> = {},
   options: PageAssemblyOptions = {},
@@ -337,11 +366,11 @@ export async function applyPageAssembly(
     throwIfAborted(signal);
     if (plan.length === 0) throw new PdfError("empty");
 
-    const document = await loadPdf(currentBytes);
+    const document = current instanceof PDFDocument ? current : await loadPdf(current);
     const context = document.context;
     const pageCount = document.getPageCount();
     if (pageCount < 1) throw new PdfError("corrupt");
-    validatePlan(plan, pageCount, externals);
+    validatePlan(plan, pageCount, externals, options.maxExternalDocuments ?? PAGE_ASSEMBLY_LIMITS.maxExternalDocuments);
     onProgress?.(0.08);
     throwIfAborted(signal);
 
@@ -354,13 +383,14 @@ export async function applyPageAssembly(
     /* ---------- 1. paginas de otros PDF (una llamada a copyPages por documento) ---------- */
     const externalLeaves = new Map<string, PDFPage>();
     const pdfIds = externalPdfIds(plan);
+    /** Marcadores de documentos externos a agrupar al final (`outlineGroups`), en orden de documento. */
+    const outlineGroups: { title: string; firstPageRef: PDFRef; items: ImportedOutlineItem[] }[] = [];
     let externalUsed = false;
     for (let sourceNumber = 0; sourceNumber < pdfIds.length; sourceNumber += 1) {
       throwIfAborted(signal);
       const sourceId = pdfIds[sourceNumber];
-      const bytes = await sourceBytes(externals[sourceId]);
+      const sourceDocument = await loadExternal(externals[sourceId]);
       throwIfAborted(signal);
-      const sourceDocument = await loadPdf(bytes);
       const sourceCount = sourceDocument.getPageCount();
       const indices: number[] = [];
       for (const entry of plan) {
@@ -382,6 +412,23 @@ export async function applyPageAssembly(
         fixCopiedLeaf(context, page.node, page.ref);
         externalLeaves.set(`${sourceId}:${indices[position]}`, page);
       });
+      const groupTitle = options.outlineGroups?.[sourceId];
+      if (groupTitle !== undefined && copied.length > 0) {
+        const pageMap = new Map<number, PDFRef>();
+        copied.forEach((page, position) => pageMap.set(indices[position], page.ref));
+        const imported = readImportableOutline(
+          sourceDocument.context,
+          sourceDocument.catalog,
+          sourcePages.map((page) => page.ref),
+          pageMap,
+        );
+        warn("outlinesRemoved", imported.dropped);
+        // El grupo lleva a la primera pagina copiada SEGUN EL PLAN (no segun el documento origen).
+        const firstEntry = plan.find((entry) => entry.kind === "external" && entry.sourceId === sourceId);
+        const firstKey = firstEntry && firstEntry.kind === "external" ? `${sourceId}:${firstEntry.sourceIndex}` : "";
+        const firstPageRef = externalLeaves.get(firstKey)?.ref ?? copied[0].ref;
+        outlineGroups.push({ title: groupTitle, firstPageRef, items: imported.items });
+      }
       externalUsed = true;
       onProgress?.(0.08 + ((sourceNumber + 1) / Math.max(1, pdfIds.length)) * 0.3);
     }
@@ -395,6 +442,7 @@ export async function applyPageAssembly(
         throwIfAborted(signal);
         const entry = imageEntries[index];
         const raw = externals[entry.sourceId];
+        if (raw instanceof PDFDocument) throw new PdfError("invalidConfig");
         const size = raw instanceof Uint8Array ? raw.byteLength : raw.size;
         if (size > PAGE_ASSEMBLY_LIMITS.maxExternalBytes) throw new PdfError("tooLarge");
         const blob = raw instanceof Uint8Array ? new Blob([raw as unknown as BlobPart]) : raw;
@@ -483,6 +531,16 @@ export async function applyPageAssembly(
       pruneOpenAction(context, catalog, named, isLive);
       warn("namedDestinationsRemoved", pruneNamedDests(context, catalog, named, isLive));
       if (dropStructure && dropStructureTree(catalog)) warn("structureRemoved", 1);
+    }
+
+    /* ---------- 6b. marcadores por documento (Unir) ---------- */
+    if (options.wrapOutlineTitle !== undefined) {
+      // El grupo del documento actual lleva a su primera pagina que sigue en el plan (o a la primera del plan).
+      const firstOwn = slots.find((slot, index) => plan[index].kind === "existing") ?? slots[0];
+      wrapExistingOutline(context, catalog, options.wrapOutlineTitle, firstOwn.ref);
+    }
+    for (const group of outlineGroups) {
+      appendOutlineGroup(context, catalog, group.title, group.firstPageRef, group.items);
     }
 
     const freshLeaves = slots.filter((slot) => slot.fresh).map((slot) => slot.leaf);

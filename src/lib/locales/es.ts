@@ -506,11 +506,7 @@ export const es = {
     editPdfFeatures: {
       editExistingText: {
         label: "Editar el texto que ya trae el PDF",
-        hint: "Permite hacer clic en el texto existente y cambiarlo: el editor cubre el original y dibuja el nuevo encima. Apagado, el texto que ya trae el PDF no se puede tocar, pero el editor sigue permitiendo añadir texto, imágenes y formas.",
-      },
-      stripOriginalText: {
-        label: "Limpiar el contenido original del archivo (próximamente)",
-        hint: "Todavía no está disponible, por eso no se puede activar: la limpieza completa del contenido llegará en una versión posterior. Hoy el editor cubre y redibuja el texto, pero el texto original puede seguir existiendo bajo la edición y alguien que copie o busque en el PDF podría encontrarlo. Para quitarlo ya, «Aplanar página» (en el editor) convierte esa página en una imagen: el texto deja de existir en el archivo.",
+        hint: "Permite hacer clic en el texto existente y cambiarlo: al exportar, el texto original se elimina del archivo y se dibuja el nuevo; si no se puede quitar, se avisa. Apagado, el texto que ya trae el PDF no se puede tocar, pero el editor sigue permitiendo añadir texto, imágenes y formas.",
       },
     },
   },

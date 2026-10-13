@@ -1,11 +1,12 @@
-import { PDFDocument, degrees, type PDFPage } from "@cantoo/pdf-lib";
+import type { PDFDocument, PDFPage } from "@cantoo/pdf-lib";
 import {
   PdfError,
   loadPdf,
-  savePdfToBlob,
+  scaleProgress,
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
+import { applyPageAssembly, type PageEntry } from "@/lib/pdf/pageAssembly";
 
 /**
  * Motor de organizacion de paginas: orden, rotacion, eliminacion e
@@ -18,6 +19,10 @@ import {
  *
  * Un plan vacio se interpreta como "documento intacto": es la salida
  * conservadora si la interfaz aun no ha terminado de construir el plan.
+ *
+ * Wave 8: la ejecucion la hace el motor en sitio (`pageAssembly`): se
+ * conservan titulo, autor, formulario, marcadores y enlaces, y las paginas
+ * quitadas no quedan dentro del archivo. Este modulo solo traduce el plan.
  */
 
 export type OrganizePage =
@@ -27,11 +32,9 @@ export type OrganizePage =
   | { kind: "blank" };
 
 /**
- * Tamano visual de una pagina copiada, respetando su rotacion EFECTIVA
- * final (original + delta del plan) -- `getSize()` de @cantoo/pdf-lib
- * devuelve el MediaBox crudo, que NO refleja `/Rotate`: una pagina
- * apaisada con /Rotate 90 devuelve {width,height} como si fuera vertical.
- * Verificado contra el codigo real de la libreria.
+ * Tamano visual de una pagina, respetando su rotacion EFECTIVA final
+ * (original + delta del plan) -- `getSize()` de @cantoo/pdf-lib devuelve
+ * el MediaBox crudo, que NO refleja `/Rotate`.
  */
 function visualSize(page: PDFPage, extraRotation: number): [number, number] {
   const { width, height } = page.getSize();
@@ -66,6 +69,17 @@ function blankSizeFor(
   }
   // El guard `pageCount < 1` ya garantiza que la pagina 1 existe.
   return visualSize(source.getPage(0), 0);
+}
+
+/** Traduce el plan de la herramienta al plan del motor (indices 0-based, blancos con su tamano). */
+export function organizePlanToEntries(plan: OrganizePage[], source: PDFDocument): PageEntry[] {
+  return plan.map((item, index) => {
+    if (item.kind === "existing") {
+      return { kind: "existing", sourceIndex: item.page - 1, rotation: item.rotation };
+    }
+    const [width, height] = blankSizeFor(plan, index, source);
+    return { kind: "blank", width, height, rotation: 0 };
+  });
 }
 
 export async function organizePdf(
@@ -104,54 +118,13 @@ export async function organizePdf(
                 item.page <= pageCount
               : item.kind === "blank",
           );
-    // Un PDF de 0 paginas se guarda sin error (verificado): este guard es
-    // lo unico que lo impide, preservado exactamente como en el motor
-    // original.
     if (plan.length === 0) throw new PdfError("empty");
 
-    const existingEntries = plan.filter(
-      (item): item is Extract<OrganizePage, { kind: "existing" }> =>
-        item.kind === "existing",
-    );
-
-    const output = await PDFDocument.create();
-    // Una sola llamada a copyPages: copiar pagina a pagina multiplica el
-    // coste en documentos con recursos compartidos. Las paginas `blank`
-    // no tienen origen en el documento, asi que nunca pasan por aqui.
-    const copied = await output.copyPages(
-      source,
-      existingEntries.map((item) => item.page - 1),
-    );
-
-    let cursor = 0;
-    for (let index = 0; index < plan.length; index += 1) {
-      const item = plan[index];
-      if (item.kind === "existing") {
-        const page = copied[cursor];
-        cursor += 1;
-        const rotation = item.rotation;
-        if (rotation % 360 !== 0) {
-          const current = page.getRotation().angle;
-          page.setRotation(degrees(((current + rotation) % 360 + 360) % 360));
-        }
-        output.addPage(page);
-      } else {
-        // `addPage` necesita una tupla [width, height], nunca un objeto
-        // {width, height}: un objeto lanza un TypeError real de la
-        // libreria que aqui se dejaria escapar (no se relanza como
-        // PdfError generico) para no ocultar un bug de firma.
-        output.addPage(blankSizeFor(plan, index, source));
-      }
-      onProgress?.(0.2 + ((index + 1) / plan.length) * 0.7);
-    }
-    // Invariante barata: si el cursor no consumio todo `copied`, algo
-    // esta mal (desincronizacion entre `existingEntries` y el recorrido
-    // del plan).
-    if (cursor !== copied.length) throw new PdfError("unknown");
-
-    const blob = await savePdfToBlob(output);
+    const result = await applyPageAssembly(source, organizePlanToEntries(plan, source), {}, {
+      onProgress: (value) => onProgress?.(scaleProgress(value, 0.2, 1)),
+    });
     onProgress?.(1);
-    return blob;
+    return new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" });
   } catch (error) {
     throw toPdfError(error);
   }

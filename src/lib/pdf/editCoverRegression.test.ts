@@ -182,14 +182,19 @@ describe("D4 — acentos de mayusculas fuera de la caja de cobertura", () => {
     expect(result.warnings.some((w) => w.kind === "background-not-uniform")).toBe(false);
   });
 
-  it("control: con la caja anterior (sin ampliar), Times a 24 pt dejaba residuo", async () => {
+  it("control (historico F1): con la caja anterior (sin ampliar), Times a 24 pt dejaba residuo; con F2 el original se quita del flujo y ya no queda", async () => {
+    // Antes de la Wave 8 (F2) esta prueba demostraba que la caja sin ampliar dejaba restos del
+    // original (acentos fuera de la cobertura). Ahora el texto original se elimina del flujo
+    // antes de cubrir, asi que con la MISMA caja antigua no queda tinta: la ampliacion D4 sigue
+    // importando solo para los bloques que no se pueden quitar (Type3, XObject compartido...).
     const bytes = await accentPage(StandardFonts.TimesRoman, 24);
     const [before] = await renderPages(bytes, SCALE);
     const block = (await extractBlocks(bytes))[0];
     const { edit } = deleteEdit(block, before);
     const result = await applyTextEdits(bytes, [{ ...edit, coverBox: { ...block.box } }]);
+    expect(result.warningsByEdit[edit.id]).toContainEqual({ kind: "original-text-removed" });
     const [after] = await renderPages(result.bytes, SCALE);
-    expect(countPixels(after, isDarkPixel)).toBeGreaterThan(0);
+    expect(countPixels(after, isDarkPixel)).toBe(0);
   });
 
   it("la cobertura ampliada NO pisa la linea vecina (limite por interlineado)", async () => {

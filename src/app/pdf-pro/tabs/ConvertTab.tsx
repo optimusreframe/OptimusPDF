@@ -91,8 +91,21 @@ function ExportCard({ entry, activeId, setActiveId }: CardProps) {
   const run = entry.run;
   const Options = entry.Options;
 
-  // Si la tarjeta se desmonta (otra pestaña, documento cerrado) la exportacion en curso se cancela.
-  useEffect(() => () => controller.current?.abort(), []);
+  // Si la tarjeta se desmonta (otra pestaña, documento cerrado) la exportacion en curso se cancela, y se AVISA en la
+  // region viva (Wave 8 · backlog a): antes la tarjeta reaparecia vacia sin explicacion.
+  const leaveNoteRef = useRef(own.cancelledOnLeave);
+  useEffect(() => {
+    leaveNoteRef.current = own.cancelledOnLeave;
+  });
+  useEffect(
+    () => () => {
+      const active = controller.current;
+      if (!active || active.signal.aborted) return;
+      active.abort();
+      doc.announce(leaveNoteRef.current);
+    },
+    [doc],
+  );
 
   const setOptions = (patch: Record<string, unknown>) =>
     setOptionsState((previous: unknown) => ({ ...(previous as Record<string, unknown>), ...patch }));

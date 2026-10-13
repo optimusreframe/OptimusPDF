@@ -53,7 +53,7 @@ export function ProtectToolClient() {
       }}
       canRun={(_files, options) => protectCanRun(options, s)}
       renderMain={() => (
-        <section className="glass rounded-ios p-5">
+        <section className="surface-card rounded-ios p-5">
           <div className="flex items-start gap-3">
             <ShieldCheck
               aria-hidden="true"

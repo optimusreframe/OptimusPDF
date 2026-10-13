@@ -13,7 +13,7 @@
  *   2. Keyframes
  *   3. Base por tema (claro/oscuro) y reset
  *   4. Materiales translucidos (thin / regular / thick) + fallbacks
- *   5. Utilidades heredadas (glass, safe-area...) y etiqueta ui-label
+ *   5. Utilidades heredadas (safe-area...) y etiqueta ui-label
  *   6. Accesibilidad de movimiento
  * ------------------------------------------------------------------ */
 
@@ -277,15 +277,6 @@
     --material-thick-bg: oklch(9% 0 0 / 0.88);
     --material-highlight: color-mix(in oklab, white 10%, transparent);
 
-    /* Superficies liquid glass heredadas: velo claro sobre negro. */
-    --glass-bg: color-mix(in oklab, white 6%, transparent);
-    --glass-highlight: color-mix(in oklab, white 8%, transparent);
-    --glass-bar-bg: color-mix(
-      in oklab,
-      var(--color-background) 72%,
-      transparent
-    );
-
     /* Texto que se pinta ENCIMA del azul de marca. */
     --color-on-signal: oklch(100% 0 0);
   }
@@ -340,17 +331,6 @@
     --material-regular-bg: oklch(98.5% 0 0 / 0.72);
     --material-thick-bg: oklch(98% 0 0 / 0.88);
     --material-highlight: color-mix(in oklab, white 90%, transparent);
-
-    /* Liquid glass invertido: velo blanco sobre gris muy claro. */
-    --glass-bg: color-mix(in oklab, white 72%, transparent);
-    --glass-highlight: color-mix(in oklab, white 90%, transparent);
-    /*
-     * Literal a proposito: si se escribe como color-mix sobre
-     * var(--color-background), el fallback estatico que genera el
-     * compilador se resuelve contra el fondo del tema oscuro y la barra
-     * sale negra. Es el mismo valor que --color-background al 78%.
-     */
-    --glass-bar-bg: oklch(97% 0 0 / 0.78);
 
     /*
      * Los componentes expresan sus veladuras y hairlines como utilidades
@@ -499,50 +479,11 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Utilidades heredadas (las consumen ~80 componentes; W1-B/C/D las
- * migran a material-*). Conservan su aspecto pero reciben los mismos
- * fallbacks de accesibilidad que los materiales nuevos.
+ * Utilidades heredadas (glow, safe-area...). Las superficies `glass` y
+ * `glass-bar` se retiraron en la Wave 8: toda tarjeta o panel es
+ * `surface-card`, las barras fijas son `bg-surface` + hairline y los
+ * popovers/pildoras `bg-elevated` + `shadow-elevation-*`.
  * ------------------------------------------------------------------ */
-@utility glass {
-  background-color: var(--glass-bg);
-  backdrop-filter: blur(24px) saturate(1.4);
-  border: 1px solid var(--color-hairline);
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight);
-
-  @supports not (backdrop-filter: blur(1px)) {
-    background-color: var(--color-elevated);
-  }
-  @media (prefers-reduced-transparency: reduce) {
-    background-color: var(--color-elevated);
-    backdrop-filter: none;
-  }
-  @media (prefers-contrast: more) {
-    background-color: color-mix(in oklab, var(--color-elevated) 96%, transparent);
-    backdrop-filter: none;
-    border-color: color-mix(in oklab, var(--color-foreground) 45%, transparent);
-    box-shadow: none;
-  }
-}
-
-/* Variante mas densa para barras fijas (header / tab bar) */
-@utility glass-bar {
-  background-color: var(--glass-bar-bg);
-  backdrop-filter: blur(24px) saturate(1.4);
-
-  @supports not (backdrop-filter: blur(1px)) {
-    background-color: var(--color-background);
-  }
-  @media (prefers-reduced-transparency: reduce) {
-    background-color: var(--color-background);
-    backdrop-filter: none;
-  }
-  @media (prefers-contrast: more) {
-    background-color: var(--color-background);
-    backdrop-filter: none;
-    border-bottom: 1px solid color-mix(in oklab, var(--color-foreground) 45%, transparent);
-  }
-}
-
 @utility glow-signal {
   box-shadow: 0 0 32px -6px color-mix(in oklab, var(--color-glow) 70%, transparent);
 }

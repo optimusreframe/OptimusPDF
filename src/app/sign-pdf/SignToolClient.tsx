@@ -1827,7 +1827,7 @@ type SignAgainPromptProps = {
  */
 function SignAgainPrompt({ onAccept, strings }: SignAgainPromptProps) {
   return (
-    <div className="glass rounded-ios mt-6 flex flex-col items-center gap-3 p-5 text-center">
+    <div className="surface-card rounded-ios mt-6 flex flex-col items-center gap-3 p-5 text-center">
       <h3 className="text-headline text-foreground">
         {strings.signAgainTitle}
       </h3>
@@ -2668,7 +2668,7 @@ export function MultiFlow({
        * panel minimo con el mismo `onFinish`.
        */}
       {options.step === "sign" && !anySlots ? (
-        <div className="glass rounded-ios p-5">
+        <div className="surface-card rounded-ios p-5">
           <h4 className="text-headline text-foreground">
             {strings.textOnlyReadyTitle}
           </h4>

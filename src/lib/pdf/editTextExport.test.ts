@@ -326,20 +326,24 @@ describe("applyTextEdits — cubrir y redibujar", () => {
     expect(page.count((c) => !isBackground(c), { x0: 34 * 2, y0: (200 - 124) * 2, x1: 38 * 2, y1: (200 - 90) * 2 })).toBe(0);
   });
 
-  it("el texto nuevo aparece al re-extraer y el original sigue (F1) con aviso permanente", async () => {
+  // Wave 8 · F2: antes (F1) este test comprobaba que "Original" SEGUIA extrayendose
+  // con el aviso permanente `original-text-remains`; ahora el original se quita del flujo.
+  it("el texto nuevo aparece al re-extraer y el original YA NO (F2), con aviso original-text-removed", async () => {
     const source = await buildPdf([{ texts: [ORIGINAL] }]);
     const result = await applyTextEdits(source, [edit({ text: "Cambiado" })]);
     const strings = (await extract(result.bytes)).map((item) => item.str);
     expect(strings).toContain("Cambiado");
-    expect(strings).toContain("Original");
-    expect(result.warnings).toContainEqual({ kind: "original-text-remains" });
-    expect(result.warningsByEdit.e1).toContainEqual({ kind: "original-text-remains" });
+    expect(strings).not.toContain("Original");
+    expect(result.warnings).toContainEqual({ kind: "original-text-removed" });
+    expect(result.warningsByEdit.e1).toContainEqual({ kind: "original-text-removed" });
+    expect(result.warnings.some((w) => w.kind === "original-text-remains")).toBe(false);
   });
 
-  it("original-text-remains tambien sale sin cobertura si reemplaza un bloque, y no en texto nuevo", async () => {
+  it("original-text-removed tambien sale sin cobertura si reemplaza un bloque, y no en texto nuevo", async () => {
     const source = await buildPdf([{ texts: [ORIGINAL] }]);
     const noCover = await applyTextEdits(source, [edit({ cover: { color: null, padding: 0 } })]);
-    expect(noCover.warnings).toContainEqual({ kind: "original-text-remains" });
+    expect(noCover.warnings).toContainEqual({ kind: "original-text-removed" });
+    expect((await extract(noCover.bytes)).map((i) => i.str)).not.toContain("Original");
 
     const brandNew = await applyTextEdits(source, [
       edit({ blockId: undefined, coverBox: undefined, cover: { color: null, padding: 0 } }),
@@ -360,7 +364,8 @@ describe("applyTextEdits — cubrir y redibujar", () => {
   it("borrar un bloque (texto vacio + cobertura) no dibuja texto", async () => {
     const source = await buildPdf([{ texts: [ORIGINAL] }]);
     const { bytes } = await applyTextEdits(source, [edit({ text: "   " })]);
-    expect((await extract(bytes)).map((i) => i.str)).toEqual(["Original"]);
+    // F2: borrar el bloque tambien lo quita del flujo (antes quedaba "Original" bajo la cobertura).
+    expect((await extract(bytes)).map((i) => i.str)).toEqual([]);
     expect((await render(bytes)).count(isDark)).toBe(0);
   });
 
@@ -838,9 +843,10 @@ describe("applyTextEdits — fuentes del catalogo y avisos", () => {
       edit({ id: "a" }),
       edit({ id: "b", box: { x: 40, y: 40, width: 100, height: 24 }, coverBox: { x: 40, y: 40, width: 100, height: 24 } }),
     ]);
-    expect(result.warnings.filter((w) => w.kind === "original-text-remains")).toHaveLength(1);
-    expect(result.warningsByEdit.a).toContainEqual({ kind: "original-text-remains" });
-    expect(result.warningsByEdit.b).toContainEqual({ kind: "original-text-remains" });
+    // F2: la edicion "a" cubre el bloque (se quita); "b" apunta a una caja sin texto (no se encuentra).
+    expect(result.warnings.filter((w) => w.kind === "original-text-removed")).toHaveLength(1);
+    expect(result.warningsByEdit.a).toContainEqual({ kind: "original-text-removed" });
+    expect(result.warningsByEdit.b).toContainEqual({ kind: "original-text-remains", reason: "not-found" });
   });
 });
 
@@ -952,10 +958,11 @@ describe("flattenPages — Aplanar pagina", () => {
     expect(after.count(isDark)).toBeLessThan(darkBefore * 1.4);
   });
 
-  it("hornea las ediciones F1: tras aplicar y aplanar, ni el texto viejo ni el nuevo se extraen pero el nuevo se ve", async () => {
+  it("hornea las ediciones: tras aplicar y aplanar, ni el texto viejo ni el nuevo se extraen pero el nuevo se ve", async () => {
     const source = await buildPdf([{ texts: [ORIGINAL] }]);
     const edited = await applyTextEdits(source, [edit({ text: "Nuevo" })]);
-    expect((await extract(edited.bytes)).map((i) => i.str)).toContain("Original");
+    // F2 ya quito el original del flujo; el aplanado sigue quitando ademas el texto nuevo.
+    expect((await extract(edited.bytes)).map((i) => i.str)).toEqual(["Nuevo"]);
     const flat = await flattenPages(edited.bytes, [0], { createRasterizer: createNodeRasterizer });
     expect(await extract(flat)).toEqual([]);
     expect(await contains(flat, "Original")).toBe(false);
