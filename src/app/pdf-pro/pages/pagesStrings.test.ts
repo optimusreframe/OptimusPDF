@@ -25,9 +25,12 @@ const WARNING_CODES: PageAssemblyWarningCode[] = [
   "namedDestinationsRemoved",
   "pageLabelsRemoved",
   "structureRemoved",
+  "structureIncomplete",
+  "signaturesInvalidated",
   "formFieldsRemoved",
   "fieldsRenamed",
   "signatureFieldsRemoved",
+  "signedSignaturesRemoved",
   "largeInsert",
 ];
 
@@ -73,6 +76,22 @@ describe("textos del organizador de paginas", () => {
     expect(pagesWarningText(ES, { code: "outlinesRemoved", count: 3 })).toContain("3");
     expect(pagesWarningText(EN, { code: "linksRemoved", count: 12 })).toContain("12");
     expect(pagesWarningText(ES, { code: "pageLabelsRemoved", count: 1 })).not.toContain("{n}");
+  });
+
+  it("D7 · el panel tambien distingue el campo de firma vacio de la firma ya aplicada", () => {
+    const empty = pagesWarningText(ES, { code: "signatureFieldsRemoved", count: 2 });
+    const signed = pagesWarningText(ES, { code: "signedSignaturesRemoved", count: 2 });
+    expect(empty).toContain("vacíos");
+    expect(empty).not.toMatch(/firma digital|válida/i);
+    expect(signed).toContain("ya aplicadas");
+    expect(signed).toContain("firma digital solo es válida");
+    const emptyEn = pagesWarningText(EN, { code: "signatureFieldsRemoved", count: 2 });
+    const signedEn = pagesWarningText(EN, { code: "signedSignaturesRemoved", count: 2 });
+    expect(emptyEn).toContain("empty signature fields");
+    expect(emptyEn).not.toMatch(/digital signature|valid/i);
+    expect(signedEn).toContain("already applied");
+    expect(signedEn).toContain("digital signature is only valid");
+    expect(`${empty}${signed}${emptyEn}${signedEn}`).not.toContain("{n}");
   });
 
   it("singular y plural correctos", () => {

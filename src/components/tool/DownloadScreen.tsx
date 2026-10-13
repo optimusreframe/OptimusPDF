@@ -65,7 +65,12 @@ export function DownloadScreen({
   const describedBy =
     [
       summary ? summaryId : null,
-      noticeItems.length > 0 ? noticesId : null,
+      // El titulo y CADA aviso, uno por uno. Nunca el grupo ni la lista que los contienen: Chromium calcula la descripcion
+      // de un elemento referenciado con TODO su contenido (aunque lleve `aria-labelledby`), asi que referenciar el grupo y
+      // ademas su lista hacia que el lector de pantalla leyera cada aviso dos veces al llegar a «Descargar».
+      ...(noticeItems.length > 0
+        ? [`${noticesId}-title`, ...noticeItems.map((_, index) => `${noticesId}-item-${index}`)]
+        : []),
       showReport ? reportId : null,
     ]
       .filter(Boolean)
@@ -132,9 +137,11 @@ export function DownloadScreen({
               <Info aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
               {notices.title}
             </h3>
-            <ul className="mt-2 list-disc space-y-1.5 pl-5 text-footnote text-muted-foreground">
-              {noticeItems.map((item) => (
-                <li key={item}>{item}</li>
+            <ul id={`${noticesId}-list`} className="mt-2 list-disc space-y-1.5 pl-5 text-footnote text-muted-foreground">
+              {noticeItems.map((item, index) => (
+                <li key={item} id={`${noticesId}-item-${index}`}>
+                  {item}
+                </li>
               ))}
             </ul>
           </div>

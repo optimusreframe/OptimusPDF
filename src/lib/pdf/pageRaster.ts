@@ -153,7 +153,14 @@ export async function renderPageRaster(
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.floor(viewport.width));
   canvas.height = Math.max(1, Math.floor(viewport.height));
-  if (!canvas.getContext("2d")) throw new RasterUnavailableError("no-2d-context");
+  // El contexto se crea AQUI, antes de `render`, y NO opaco (`alpha: true`, el valor por defecto, escrito para que no
+  // se pierda). Si no existe, pdf.js crea el suyo con `{ alpha: false, willReadFrequently: true }` y, al ser un lienzo
+  // opaco, Chromium en Linux (fontconfig de Ubuntu: `10-sub-pixel-rgb.conf`) y en Windows (ClearType) rasteriza el
+  // texto con antialiasing LCD: el PNG sale con franjas de color (R, G y B desplazados un tercio de pixel) pegadas
+  // para siempre al bitmap, que se vera igual en pantallas BGR, rotadas, con zoom por CSS, impresas o capturadas. Con
+  // un lienzo no opaco el antialiasing es en escala de grises, identico en macOS, Linux y Windows (medido en Linux
+  // con Docker: 0 pixeles distintos frente a la misma pagina con `alpha: true`; 23.767 con `alpha: false`).
+  if (!canvas.getContext("2d", { alpha: true })) throw new RasterUnavailableError("no-2d-context");
 
   const task = page.render({
     canvas,

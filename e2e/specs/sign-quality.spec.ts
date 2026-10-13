@@ -136,8 +136,16 @@ for (const dpr of [1, 2]) {
       await image.scrollIntoViewIfNeeded();
 
       // (1) El BITMAP que pone la aplicacion (lo que de verdad decide la nitidez) frente al pdf.js nativo del mismo
-      // navegador a su mismo tamano en pixeles: mismo motor y mismas opciones, asi que ha de ser identico. No depende
-      // del compositor (posicion fraccionaria, barra de desplazamiento clasica de Linux). En macOS sale SSIM 1, dif. 0.
+      // navegador a su mismo tamano en pixeles: mismo motor, mismo worker, mismas fuentes y el mismo contexto de
+      // canvas no opaco (escala de grises), asi que ha de ser identico. No depende del compositor (posicion
+      // fraccionaria, barra de desplazamiento clasica de Linux). MEDIDO (Chromium 151, build de produccion):
+      // macOS SSIM 1, dif. 0, nitidez 1; Linux en Docker (imagen de Playwright 1.62 sobre Ubuntu 24.04, la del runner)
+      // SSIM 1, dif. 0, nitidez 1, con 0 pixeles distintos, a DPR 1 y a DPR 2.
+      // La referencia ya NO es la que crea pdf.js por su cuenta (`alpha: false`): en Linux y Windows un lienzo opaco
+      // recibe antialiasing LCD (franjas de color; en CI daba SSIM 0,989 / dif. 2,23 / nitidez 1,16 a DPR 1 y
+      // 0,997 / 1,45 / 1,06 a DPR 2) y la aplicacion, que guarda un PNG, lo evita a proposito (`renderPageRaster`).
+      // Umbrales estrictos (SSIM > 0,999, dif. < 0,5, nitidez > 0,98, desplazamiento 0): desplazar el bitmap 0,25 px da
+      // SSIM 0,967 / 0,986 (DPR 1 / DPR 2) y dif. 3,8-4,4 / 2,9; un lienzo opaco (LCD) en Linux, 0,989 / 0,997.
       const natural = await decodePngGray(
         Buffer.from(
           await image.evaluate(async (el: HTMLImageElement) => {
@@ -152,7 +160,7 @@ for (const dpr of [1, 2]) {
           "base64",
         ),
       );
-      const nativeReference = await renderNativeReference(page, bytes, 1, natural.width, { sameCanvasAsApp: true });
+      const nativeReference = await renderNativeReference(page, bytes, 1, natural.width);
       const nh = Math.min(natural.height, nativeReference.height);
       const ny0 = Math.round(nh * 0.04);
       const nhh = Math.round(nh * 0.5);
@@ -160,23 +168,21 @@ for (const dpr of [1, 2]) {
         margin: 10,
         maxShift: 2,
       });
-      // En macOS sale SSIM 1 y dif. 0. En el runner Linux (rasterizado por software) la primera version de esta prueba,
-      // con la referencia creada por pdf.js con sus propios atributos de canvas, midio SSIM 0,989 / dif. 2,23 / nitidez
-      // 1,16 a DPR 1 y 0,997 / 1,45 / 1,06 a DPR 2 (la aplicacion sale MAS nitida: otro antialiasing, no otra escala:
-      // misma medida, desplazamiento 0). Con `sameCanvasAsApp` el canvas es el mismo y se espera ~1; los umbrales dejan
-      // margen para esa medida pero siguen excluyendo cualquier degradacion real (controles de abajo: SSIM <= 0,979,
-      // dif. >= 3,9, nitidez <= 0,8).
-      expect(bitmap.ssim, `bitmap: ${JSON.stringify(bitmap)}`).toBeGreaterThan(0.985);
-      expect(bitmap.meanAbsDiff).toBeLessThan(3);
-      expect(bitmap.sharpnessRatio).toBeGreaterThan(0.9);
+      expect(bitmap.shift, `bitmap: ${JSON.stringify(bitmap)}`).toEqual({ x: 0, y: 0 });
+      expect(bitmap.ssim, `bitmap: ${JSON.stringify(bitmap)}`).toBeGreaterThan(0.999);
+      expect(bitmap.meanAbsDiff).toBeLessThan(0.5);
+      expect(bitmap.sharpnessRatio).toBeGreaterThan(0.98);
 
-      // (2) Lo que se VE (captura de la hoja ya compuesta; en CI es identica al bitmap, dig. a dig.). Umbral fijado
-      // MEDIDO con controles negativos (en macOS):
-      // desplazar 0,25 px da SSIM 0,962 (DPR 1) / 0,979 (DPR 2) y dif. 4,7 / 3,9; reescalar a 0,75, medio tamano o
-      // un JPEG de 900 px estirado dan SSIM 0,85-0,95, dif. >= 5,2 y nitidez 0,37-0,64. Se exige lo que ningun
-      // control cumple y el runner si: SSIM > 0,98, dif. < 3 y nitidez > 0,9 (CI: 0,989 / 2,23 a DPR 1).
+      // (2) Lo que se VE: captura de la hoja ya compuesta por el navegador frente al mismo render nativo. MEDIDO (macOS y
+      // Linux, igual): a DPR 1 es identica al bitmap (SSIM 1, dif. 0); a DPR 2 el compositor remuestrea dos filas (la
+      // captura mide 1478 filas y el bitmap 1476) y sale SSIM 0,9998, dif. 0,027 y nitidez 1,0003. Controles negativos
+      // medidos con la aplicacion degradada (peor caso de cada uno, DPR 1 / DPR 2): desplazar 0,25 px 0,967 / 0,986 y
+      // dif. 3,8 / 2,9; reescalar a 0,75 0,86 / 0,94; medio tamano 0,81 / 0,88 y nitidez 0,35 / 0,41; un lienzo con
+      // antialiasing LCD en Linux 0,989 / 0,996 y nitidez 0,86 / 0,94; un bitmap 1 px mas alto (`ceil`) 1,0 / 0,983 y
+      // dif. 0 / 2,0. Se exige SSIM > 0,998, dif. < 0,5 y nitidez > 0,97: 11 veces de margen sobre lo medido y todos
+      // los controles quedan fuera.
       const shot = await decodePngGray(await image.screenshot({ type: "png" }));
-      const reference = await renderNativeReference(page, bytes, 1, shot.width, { sameCanvasAsApp: true });
+      const reference = await renderNativeReference(page, bytes, 1, shot.width);
       const h = Math.min(shot.height, reference.height);
       const y0 = Math.round(h * 0.04);
       const hh = Math.round(h * 0.5);
@@ -184,9 +190,9 @@ for (const dpr of [1, 2]) {
         margin: 10,
         maxShift: 2,
       });
-      expect(result.ssim, `captura: ${JSON.stringify(result)}`).toBeGreaterThan(0.98);
-      expect(result.meanAbsDiff).toBeLessThan(3);
-      expect(result.sharpnessRatio).toBeGreaterThan(0.9);
+      expect(result.ssim, `captura: ${JSON.stringify(result)}`).toBeGreaterThan(0.998);
+      expect(result.meanAbsDiff).toBeLessThan(0.5);
+      expect(result.sharpnessRatio).toBeGreaterThan(0.97);
       expect(errors).toEqual([]);
     });
 

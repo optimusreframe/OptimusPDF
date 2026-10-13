@@ -34,6 +34,10 @@ export type SignEmbeddedStrings = {
   /** Une 1 o 2 nombres: «Ana y Luis». */
   joinNames: (names: readonly string[]) => string;
   warningsTitle: string;
+  /** Linea resumen cuando se pliegan DOS o mas avisos: «2 avisos» (el texto completo va al expandir). */
+  warningsCount: (count: number) => string;
+  /** Aviso corto (una linea) de que el texto original editado se elimina al aplicar; el completo es `editTextNote`. */
+  editedTextShort: string;
   /** Texto del desplegable de notas («Que debes saber»). */
   notesLabel: string;
   /** Version de una linea de los avisos del documento (el texto completo esta en `PRO_STRINGS.warnings`). */
@@ -71,6 +75,8 @@ const es: SignEmbeddedStrings = {
   joinNames: (names) =>
     names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`,
   warningsTitle: "Antes de aplicar",
+  warningsCount: (count) => (count === 1 ? "1 aviso" : `${count} avisos`),
+  editedTextShort: "Texto editado: al aplicar se elimina el original",
   notesLabel: "Qué debes saber",
   warningShort: {
     signaturesInvalidated: "Las firmas digitales dejarán de ser válidas",
@@ -110,6 +116,8 @@ const en: SignEmbeddedStrings = {
   joinNames: (names) =>
     names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`,
   warningsTitle: "Before applying",
+  warningsCount: (count) => (count === 1 ? "1 notice" : `${count} notices`),
+  editedTextShort: "Edited text: the original is removed when you apply",
   notesLabel: "Good to know",
   warningShort: {
     signaturesInvalidated: "Digital signatures will stop being valid",
@@ -139,6 +147,10 @@ export function withEmbeddedWording(language: Language): SignStrings {
       ...base,
       applyAndDownload: "Finish and apply",
       finishAndDownload: "Apply to the document",
+      editTextNote:
+        "When you apply, the original text of what you edited is removed from the file, and a summary appears afterwards. In special cases (uncommon fonts, vertical or hidden text, shared content) it can't be removed: the summary tells you which one and why, and “Flatten page” in the Edit tab removes it completely.",
+      editRemainsAdvice: (flattenLabel: string) =>
+        `To remove it completely, go to the Edit tab of PDF Pro and use “${flattenLabel}”: the page becomes an image and the original text disappears.`,
       modeSingleHint:
         "You create your signature, place it wherever you want and, if the document has fields, fill them in right there. Then you apply it to the document. It's the quick way.",
     };
@@ -147,6 +159,10 @@ export function withEmbeddedWording(language: Language): SignStrings {
     ...base,
     applyAndDownload: "Finalizar y aplicar",
     finishAndDownload: "Aplicar al documento",
+    editTextNote:
+      "Al aplicar, el texto original de lo que editaste se elimina del archivo, y después verás un resumen. En casos especiales (fuentes poco comunes, texto vertical u oculto, contenido compartido) no se puede quitar: el resumen te dice cuál y por qué, y «Aplanar página» en la pestaña Editar lo quita del todo.",
+    editRemainsAdvice: (flattenLabel: string) =>
+      `Para quitarlo del todo, ve a la pestaña Editar de PDF Pro y usa «${flattenLabel}»: la página pasa a ser una imagen y el texto original desaparece.`,
     modeSingleHint:
       "Creas tu firma, la colocas donde quieras y, si el documento tiene campos, los rellenas ahí mismo. Después la aplicas al documento. Es el camino rápido.",
   };

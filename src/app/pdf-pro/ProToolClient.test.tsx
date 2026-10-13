@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PDFDocument } from "@cantoo/pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName } from "@cantoo/pdf-lib";
 import { ProToolClient } from "@/app/pdf-pro/ProToolClient";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { InputGuardContext } from "@/components/tool/InputGuardContext";
@@ -610,5 +610,65 @@ describe("avisos antes de guardar", () => {
     const { container } = renderPro();
     await openPdf(container, 1);
     expect(screen.queryByText(S.suite.warningsTitle)).toBeNull();
+  });
+
+  /** Un PDF con un campo de firma digital ya firmado (`/FT /Sig` con `/V`): firmas «activas». */
+  async function digitallySignedBytes(): Promise<Uint8Array> {
+    const document = await PDFDocument.create();
+    document.addPage([300, 400]).drawText("Firmado", { x: 40, y: 340, size: 18 });
+    const context = document.context;
+    const signature = PDFDict.withContext(context);
+    signature.set(PDFName.of("Type"), PDFName.of("Sig"));
+    const field = PDFDict.withContext(context);
+    field.set(PDFName.of("FT"), PDFName.of("Sig"));
+    field.set(PDFName.of("V"), context.register(signature));
+    const fields = PDFArray.withContext(context);
+    fields.push(context.register(field));
+    const acroForm = PDFDict.withContext(context);
+    acroForm.set(PDFName.of("Fields"), fields);
+    document.catalog.set(PDFName.of("AcroForm"), context.register(acroForm));
+    return document.save({ useObjectStreams: false });
+  }
+
+  it("B1 · UN aviso: titulo y texto en UNA linea, sin plegar", async () => {
+    const { markDecryptedCopy } = await import("@/lib/pdf/inputGuard");
+    const { container } = renderPro();
+    const file = pdfFile(await makePdfBytes(1), "descifrado.pdf");
+    markDecryptedCopy(file);
+    fireEvent.change(fileInput(container), { target: { files: [file] } });
+    await screen.findByRole("heading", { level: 1, name: /descifrado\.pdf/ });
+    expect(document.querySelector("[data-pro-warnings-fold]")).toBeNull();
+    const title = screen.getByText(S.suite.warningsTitle);
+    const text = screen.getByText(S.warnings.decryptedCopy);
+    // Mismo contenedor de una fila (`flex-wrap`): el texto no baja a otra linea en escritorio.
+    expect(title.parentElement).toBe(text.closest("ul")!.parentElement);
+    expect(title.parentElement!.className).toContain("flex-wrap");
+    expect(text.closest("ul")!.className).not.toContain("list-disc");
+  });
+
+  it("B1 · DOS avisos (firma digital invalidada + copia sin contrasena): UNA linea «Antes de guardar · 2 avisos» expandible", async () => {
+    const { markDecryptedCopy } = await import("@/lib/pdf/inputGuard");
+    const { container } = renderPro();
+    const file = pdfFile(await digitallySignedBytes(), "firmado.pdf");
+    markDecryptedCopy(file);
+    fireEvent.change(fileInput(container), { target: { files: [file] } });
+    await screen.findByRole("heading", { level: 1, name: /firmado\.pdf/ });
+    // Sin cambios todavia: la firma digital aun vale, solo avisa la copia sin contrasena (UN aviso, sin plegar).
+    expect(document.querySelector("[data-pro-warnings-fold]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: S.operations.rotateAll90 }));
+    const fold = await screen.findByRole("button", { name: new RegExp(`${S.suite.warningsTitle}.*${S.suite.warningsCount(2)}`) });
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    const root = document.querySelector<HTMLElement>("[data-pro-warnings-fold]")!;
+    const panel = root.querySelector<HTMLElement>("[data-notice-fold-panel]")!;
+    // Plegado: el texto completo de los dos sigue ahi para lectores de pantalla, pero no se ve.
+    expect(panel.className).toContain("sr-only");
+    expect(panel.textContent).toContain(S.warnings.decryptedCopy);
+    expect(panel.textContent).toContain(S.warnings.signaturesInvalidated);
+    expect(panel.querySelectorAll("li")).toHaveLength(2);
+    fireEvent.click(fold);
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    expect(panel.className).not.toContain("sr-only");
+    // UNA sola region viva en la pagina (el pliegue no anade ninguna).
+    expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 });

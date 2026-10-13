@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { closePdfDocument, openPdfDocument, toPdfError, type PdfErrorCode } from "@/lib/pdf/core";
+import { closePdfDocument, toPdfError, type PdfErrorCode } from "@/lib/pdf/core";
 import { geometryFromPdfJsPage } from "@/app/edit-pdf/editCanvasMath";
 import type { PageGeometry } from "@/lib/pdf/core";
+import { openViewerDocument } from "@/app/pdf-pro/viewer/openViewerDocument";
 import type { ViewerSnapshot } from "@/app/pdf-pro/viewer/viewerTypes";
 
 /*
@@ -120,6 +121,32 @@ function yieldToBrowser(): Promise<void> {
 export const PRIORITY_RADIUS = 12;
 
 /**
+ * LECCION DE MEMORIA (Wave 9, medida con un heap snapshot de un PDF de 100 MB): una funcion retiene el CONTEXTO ENTERO de
+ * la llamada que la creo, con todas las variables que cualquier funcion hermana capture. En un gancho de React eso es
+ * grave para lo que dura toda la vida del componente: `useCallback(f, [])`, el cierre de un `useEffect(g, [])` o el
+ * `destroy` de un efecto son del PRIMER render y se conservan hasta desmontar. Si en ese mismo gancho otro efecto captura
+ * `bytes` (para dejarlos en una referencia), esos cierres retienen los bytes del snapshot del primer render (el
+ * ORIGINAL, 100 MB) aunque el historial ya los haya volcado a disco, y lo mismo con cualquier snapshot superado.
+ *
+ * Por eso `bytes` y el contador de reintentos viven en ganchos auxiliares que SOLO capturan lo suyo, y
+ * `useViewerDocument` no tiene ninguna funcion que capture `bytes`.
+ */
+function useAttempt(): [number, () => void] {
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  return [attempt, retry];
+}
+
+/** Referencia al ULTIMO valor recibido (se actualiza tras cada render, como `useEffectEvent` pero legible desde otros efectos). */
+function useLatest<T>(value: T): { current: T } {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref;
+}
+
+/**
  * `getPriorityPage` (opcional) da la pagina que se esta viendo al abrir el documento: sus vecinas se miden antes
  * que el resto, asi tras deshacer/girar lo visible ya tiene sus proporciones reales y no una estimacion.
  */
@@ -133,20 +160,18 @@ export function useViewerDocument(
     opening: boolean;
   }>({ document: null, error: null, opening: false });
   const currentRef = useRef<ViewerDocument | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const [attempt, retry] = useAttempt();
   const snapshotId = snapshot?.id ?? null;
-  const bytes = snapshot?.bytes ?? null;
-  /* `bytes` es de un snapshot inmutable: se lee por referencia estable, no por contenido. */
-  const bytesRef = useRef(bytes);
-  const priorityRef = useRef(getPriorityPage);
-  useEffect(() => {
-    bytesRef.current = bytes;
-    priorityRef.current = getPriorityPage;
-  });
+  /* `bytes` es de un snapshot inmutable: se lee por referencia estable, no por contenido. NO se captura en ningun cierre de
+   * este gancho (ver `useLatest`). */
+  const bytesRef = useLatest(snapshot?.bytes ?? null);
+  const priorityRef = useLatest(getPriorityPage);
 
   useEffect(() => {
     let cancelled = false;
-    const source = bytesRef.current;
+    // `let` y se suelta tras abrir: el efecto guarda su funcion de limpieza (y con ella este contexto) hasta el siguiente
+    // cambio de snapshot; sin soltarlo retendria los bytes de ESTE snapshot aunque el historial ya los haya vuelcado.
+    let source: Uint8Array | null = bytesRef.current;
     if (snapshotId === null || !source) {
       const previous = currentRef.current;
       currentRef.current = null;
@@ -167,7 +192,9 @@ export function useViewerDocument(
     void (async () => {
       let opened: PDFDocumentProxy | null = null;
       try {
-        opened = await openPdfDocument(source);
+        const toOpen = source;
+        source = null;
+        opened = await openViewerDocument(toOpen);
         if (cancelled) {
           void closePdfDocument(opened);
           return;
@@ -224,7 +251,7 @@ export function useViewerDocument(
     return () => {
       cancelled = true;
     };
-  }, [snapshotId, attempt]);
+  }, [snapshotId, attempt, bytesRef, priorityRef]);
 
   /* Cierre al desmontar. */
   useEffect(
@@ -235,8 +262,6 @@ export function useViewerDocument(
     },
     [],
   );
-
-  const retry = useCallback(() => setAttempt((value) => value + 1), []);
 
   const status: ViewerDocumentState["status"] = state.error
     ? "error"

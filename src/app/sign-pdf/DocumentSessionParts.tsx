@@ -3,6 +3,7 @@
 import { StatusRegion } from "@/components/tool/liveRouting";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
+import { useCanvasCompact } from "@/app/sign-pdf/canvasCompact";
 import type { DetectedField } from "@/lib/pdf/detectFields";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 
@@ -28,6 +29,8 @@ export function DetectionStatus({
   detectedCount: number;
   strings: SignStrings;
 }) {
+  // Compacto (PDF Pro): «Buscando campos…» es UNA linea, no una tarjeta; al terminar, la hoja no salta ~60 px.
+  const compact = useCanvasCompact();
   const spoken = detecting
     ? strings.detectingFields
     : failed
@@ -37,7 +40,17 @@ export function DetectionStatus({
         : "";
   return (
     <StatusRegion text={spoken} className="flex flex-col gap-3 empty:-mb-4">
-      {detecting ? (
+      {detecting && compact ? (
+        <p
+          data-detecting=""
+          className="flex items-center gap-2 text-footnote text-muted-foreground"
+        >
+          <Spinner className="size-4" />
+          {strings.detectingFields}
+        </p>
+      ) : null}
+
+      {detecting && !compact ? (
         <div className="surface-card rounded-ios flex items-center gap-3 p-4">
           <Spinner />
           <p className="text-footnote text-muted-foreground">

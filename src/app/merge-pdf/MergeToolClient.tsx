@@ -9,7 +9,8 @@ import {
 import { useI18n, useT } from "@/lib/i18n";
 import { MERGE_STRINGS } from "@/app/merge-pdf/strings";
 import { slugify, type PageRef, type ProgressCallback } from "@/lib/pdf/core";
-import { mergePdfFiles } from "@/lib/pdf/merge";
+import { mergePdfFilesWithReport } from "@/lib/pdf/merge";
+import { pageNotices } from "@/app/organize-pdf/pageNotices";
 import { getTool } from "@/lib/tools-registry";
 
 /**
@@ -53,16 +54,16 @@ export function MergeToolClient() {
       options: MergeToolOptions,
       onProgress: ProgressCallback,
     ): Promise<ProcessResult> => {
-      const blob = await mergePdfFiles(
+      const { blob, warnings } = await mergePdfFilesWithReport(
         files,
         { pages: effectivePlan(files, options) },
         onProgress,
       );
       const base =
         t.filenames["merge-pdf"] ?? slugify(t.tools["merge-pdf"].name);
-      return { blob, filename: `${base}.pdf` };
+      return { blob, filename: `${base}.pdf`, notices: pageNotices(language, warnings) };
     },
-    [t],
+    [t, language],
   );
 
   return (

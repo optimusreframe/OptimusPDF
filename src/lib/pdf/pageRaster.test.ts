@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_PIXEL_RATIO,
   MAX_RASTER_PIXELS,
@@ -182,5 +182,82 @@ describe("renderPageRaster", () => {
     pdfjs.name = "RenderingCancelledException";
     expect(isRasterCancelled(pdfjs)).toBe(true);
     expect(isRasterCancelled(new Error("otra cosa"))).toBe(false);
+  });
+});
+
+/**
+ * W9-B5: el contexto 2D del lienzo lo crea la aplicacion, ANTES de `render` y no opaco. Si no existiera, pdf.js crearia
+ * el suyo con `{ alpha: false, willReadFrequently: true }` y Chromium en Linux/Windows dibujaria el texto con
+ * antialiasing LCD (franjas de color) dentro del PNG: medido en Linux con Docker, 23.767 pixeles distintos y SSIM 0,989
+ * frente a la misma pagina con un lienzo no opaco (0 distintos). En macOS no hay LCD, asi que solo esta prueba (y la E2E
+ * de nitidez en Linux) lo detectan.
+ */
+describe("renderPageRaster — el contexto 2D lo crea la aplicacion, no pdf.js", () => {
+  const plan = planRaster(A4, { cssWidth: 640, zoom: 1, pixelRatio: 1 });
+
+  type ContextCall = { type: string; attributes: unknown; renderedAlready: boolean };
+
+  function setup(options: { context?: boolean } = {}) {
+    const calls: ContextCall[] = [];
+    let rendered = false;
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext(type: string, attributes?: unknown) {
+        calls.push({ type, attributes, renderedAlready: rendered });
+        return options.context === false ? null : {};
+      },
+      toBlob(callback: (blob: Blob | null) => void) {
+        callback(new Blob(["png"], { type: "image/png" }));
+      },
+    };
+    const createElement = vi.fn(() => canvas);
+    vi.stubGlobal("document", { createElement });
+    const render = vi.fn((params: { canvas: unknown; intent?: string }) => {
+      rendered = true;
+      return { promise: Promise.resolve(), cancel: vi.fn(), params };
+    });
+    const page = {
+      getViewport: ({ scale }: { scale: number }) => ({ width: A4.width * scale + 0.4, height: A4.height * scale + 0.4 }),
+      render,
+    } as never;
+    return { calls, canvas, createElement, render, page };
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("pide el contexto 2D ANTES de dibujar y sin canal opaco (`alpha` nunca es false)", async () => {
+    const { calls, render, page } = setup();
+    await renderPageRaster(page, plan);
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(calls[0].type).toBe("2d");
+    expect(calls[0].renderedAlready).toBe(false);
+    const attributes = calls[0].attributes as { alpha?: boolean } | undefined;
+    expect(attributes?.alpha).not.toBe(false);
+    // Se escribe explicito: un lienzo no opaco es lo que garantiza el antialiasing en grises.
+    expect(attributes?.alpha).toBe(true);
+  });
+
+  it("dibuja en ESE lienzo, con la intencion `print` y a un tamano truncado (nunca redondeado hacia arriba)", async () => {
+    const { canvas, createElement, render, page } = setup();
+    const result = await renderPageRaster(page, plan);
+    const params = render.mock.calls[0][0];
+    // Un solo lienzo: el que lleva el contexto de la aplicacion es el mismo en el que dibuja pdf.js.
+    expect(createElement).toHaveBeenCalledTimes(1);
+    expect(createElement).toHaveBeenCalledWith("canvas");
+    expect(params.canvas).toBe(canvas);
+    expect(params.intent).toBe("print");
+    // El tamano del resultado es el del lienzo en el momento de dibujar (despues se vacia para liberar memoria).
+    expect(result.width).toBe(Math.floor(A4.width * plan.scale + 0.4));
+    expect(result.height).toBe(Math.floor(A4.height * plan.scale + 0.4));
+    expect(canvas.width).toBe(0);
+    expect(canvas.height).toBe(0);
+  });
+
+  it("sin contexto 2D lanza RasterUnavailableError y NO llama a render", async () => {
+    const { render, page } = setup({ context: false });
+    await expect(renderPageRaster(page, plan)).rejects.toBeInstanceOf(RasterUnavailableError);
+    expect(render).not.toHaveBeenCalled();
   });
 });

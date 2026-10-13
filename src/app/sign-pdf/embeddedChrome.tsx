@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Info } from "lucide-react";
 import { StatusRegion } from "@/components/tool/liveRouting";
+import { NoticeFold } from "@/components/ui/NoticeFold";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useProModeControls, useProModeHost } from "@/app/pdf-pro/modes/modeContext";
 import { useBeforeUnloadGuard } from "@/app/pdf-pro/modes/modeFocus";
@@ -256,13 +257,21 @@ export function EmbeddedBar({
  */
 export const ModeHeaderSlotContext = createContext<HTMLElement | null>(null);
 
-/** Aviso corto del documento (firmas digitales, copia descifrada) con su texto completo. */
-export type ModeWarning = { code: string; short: string; full: string };
+/**
+ * Aviso corto del documento (firmas digitales, copia descifrada) con su texto completo. `tone: "info"` (B1) es una
+ * nota que no avisa de un riesgo (p. ej. «el original del texto editado se elimina»): lleva un icono neutro.
+ */
+export type ModeWarning = { code: string; short: string; full: string; tone?: "warning" | "info" };
 
 /**
  * Cabecera compacta de un modo (Wave 7 · U7): UNA fila con los controles del modo (`leading`), el estado en una
- * linea (`status`) y las notas plegadas en un `<details>`, y debajo los avisos del documento EN UNA LINEA cada uno
- * (el texto completo va en `title` y para lectores de pantalla). El lienzo empieza visible sin desplazarse.
+ * linea (`status`) y las notas plegadas en un `<details>`, y debajo los avisos del documento. El lienzo empieza visible
+ * sin desplazarse.
+ *
+ * Avisos (B1): con UNO, una linea con su texto corto (el completo va en `title` y para lectores de pantalla). Con DOS O
+ * MAS se pliegan en UNA linea resumen expandible («2 avisos») que va en la misma fila de controles, asi que no restan
+ * alto al lienzo; al expandir se ve el texto completo de cada uno. Plegada, la lista sigue entera para lectores de
+ * pantalla. Ninguna de las dos formas es una region viva.
  */
 export function ModeHeader({
   leading,
@@ -271,6 +280,7 @@ export function ModeHeader({
   notes,
   warningsLabel,
   warnings,
+  warningsCount,
 }: {
   leading?: ReactNode;
   status?: ReactNode;
@@ -278,8 +288,11 @@ export function ModeHeader({
   notes: readonly string[];
   warningsLabel: string;
   warnings: readonly ModeWarning[];
+  /** Texto de la linea resumen con dos o mas avisos («2 avisos»). Sin el: «Avisos (2)». */
+  warningsCount?: (count: number) => string;
 }) {
   const slot = useContext(ModeHeaderSlotContext);
+  const folded = warnings.length >= 2;
   const items = (
     <>
       {leading}
@@ -295,8 +308,37 @@ export function ModeHeader({
           ))}
         </div>
       </details>
+      {folded ? (
+        <NoticeFold
+          data-pro-mode-warnings-fold=""
+          summary={warningsCount ? warningsCount(warnings.length) : `${warningsLabel} (${warnings.length})`}
+        >
+          {(open) => (
+            <ul
+              aria-label={warningsLabel}
+              data-pro-mode-warnings=""
+              className="space-y-0.5 text-footnote text-foreground"
+            >
+              {warnings.map((warning) => (
+                <li key={warning.code} title={warning.full} className="flex items-start gap-1.5" data-warning={warning.code}>
+                  {warning.tone === "info" ? (
+                    <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent-edit" />
+                  )}
+                  <span className={open ? undefined : "sr-only"}>{warning.full}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </NoticeFold>
+      ) : null}
     </>
   );
+  const single = warnings.length === 1;
+  // Con hueco (PDF Pro) y sin un aviso suelto no queda nada en el flujo: ni siquiera el contenedor, para que su
+  // margen (`space-y-*` del padre) no reste alto al lienzo.
+  if (slot && !single) return createPortal(items, slot);
   return (
     <div data-pro-mode-header="">
       {slot ? (
@@ -304,7 +346,7 @@ export function ModeHeader({
       ) : (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">{items}</div>
       )}
-      {warnings.length > 0 ? (
+      {single ? (
         <ul
           aria-label={warningsLabel}
           data-pro-mode-warnings=""
@@ -312,7 +354,11 @@ export function ModeHeader({
         >
           {warnings.map((warning) => (
             <li key={warning.code} title={warning.full} className="flex items-center gap-1.5" data-warning={warning.code}>
-              <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-accent-edit" />
+              {warning.tone === "info" ? (
+                <Info aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-accent-edit" />
+              )}
               <span className="sr-only">{warning.full}</span>
               <span aria-hidden="true">{warning.short}</span>
             </li>

@@ -206,11 +206,28 @@ export type SignStrings = {
   /** Pista de uso mientras la herramienta esta activa. */
   editTextHint: string;
   editTextCount: (count: number) => string;
-  /** Nota permanente: al firmar se quita el texto original de lo editado; en casos especiales no se puede y queda bajo la edicion. */
+  /**
+   * Nota permanente: al firmar se quita el texto original de lo editado; en casos especiales no se puede, queda bajo la
+   * edicion y el resumen del final dice cual y por que (`editReportTitle`...).
+   */
   editTextNote: string;
   editTextFlattenLink: string;
   editTextUndo: string;
   editTextRedo: string;
+  /* --- Resumen del texto editado al terminar (B1): que se quito del archivo y que no, con el motivo --- */
+  /** Titulo de la lista de avisos de la pantalla de resultado. */
+  editReportTitle: string;
+  /** « en 3 documentos» (se pega tras «N textos editados»). */
+  editInDocs: (documents: number) => string;
+  /** «el original se elimino del archivo» (varios documentos: «de los archivos»). */
+  editTailAllRemoved: (several: boolean) => string;
+  editTailSomeRemoved: (removed: number, remains: number) => string;
+  editTailNoneRemoved: (remains: number) => string;
+  /** Un bloque cuyo original sigue bajo la edicion: donde esta y por que (`reason` ya viene en llano). */
+  editRemainsItem: (docName: string | null, page: number, excerpt: string | null, reason: string) => string;
+  editRemainsMore: (count: number) => string;
+  /** Salida recomendada, una vez: `flattenLabel` es «Aplanar pagina» tal como lo nombra Editar PDF. */
+  editRemainsAdvice: (flattenLabel: string) => string;
   /** Aviso NO bloqueante antes de firmar/descargar si quedan campos vacios. */
   pendingTextFieldsWarning: (missing: number) => string;
   /** Anuncio del snackbar tras borrar un campo con "Deshacer" activo. */
@@ -755,10 +772,26 @@ const es: SignStrings = {
       ? "1 texto editado en este documento."
       : `${count} textos editados en este documento.`,
   editTextNote:
-    "Al firmar, el texto original de lo que editaste se elimina del archivo. En casos especiales (fuentes poco comunes, texto vertical u oculto, contenido compartido) no se puede y el original queda bajo la edición: Editar PDF te lo indica, y «Aplanar página» lo quita del todo.",
+    "Al firmar, el texto original de lo que editaste se elimina del archivo, y al terminar verás un resumen. En casos especiales (fuentes poco comunes, texto vertical u oculto, contenido compartido) no se puede quitar: el resumen te dice cuál y por qué, y «Aplanar página» en Editar PDF lo quita del todo.",
   editTextFlattenLink: "Abrir Editar PDF",
   editTextUndo: "Deshacer cambio de texto",
   editTextRedo: "Rehacer cambio de texto",
+  editReportTitle: "Sobre el texto editado",
+  editInDocs: (documents) => ` en ${documents} documentos`,
+  editTailAllRemoved: (several) =>
+    several ? "el original se eliminó de los archivos" : "el original se eliminó del archivo",
+  editTailSomeRemoved: (removed, remains) =>
+    `el original se eliminó de ${removed} y no se pudo quitar de ${remains} (más abajo, por qué)`,
+  editTailNoneRemoved: (remains) =>
+    remains === 1
+      ? "no se pudo quitar el original (más abajo, por qué)"
+      : `no se pudo quitar el original de ${remains} (más abajo, por qué)`,
+  editRemainsItem: (docName, page, excerpt, reason) =>
+    `${docName ? `${docName}, página` : "Página"} ${page}${excerpt ? `, «${excerpt}»` : ", un texto borrado"}: el original sigue bajo la edición. ${reason}`,
+  editRemainsMore: (count) =>
+    count === 1 ? "Y 1 texto más con el original sin quitar." : `Y ${count} textos más con el original sin quitar.`,
+  editRemainsAdvice: (flattenLabel) =>
+    `Para quitarlo del todo, abre el archivo descargado en Editar PDF y usa «${flattenLabel}»: la página pasa a ser una imagen y el texto original desaparece.`,
   pendingTextFieldsWarning: (missing) =>
     `Queda${missing === 1 ? "" : "n"} ${missing} campo${missing === 1 ? "" : "s"} de texto sin rellenar. Puedes continuar igual.`,
   textFieldDeletedNotice: "Campo eliminado.",
@@ -1347,10 +1380,26 @@ const en: SignStrings = {
   editTextCount: (count) =>
     count === 1 ? "1 text edited in this document." : `${count} texts edited in this document.`,
   editTextNote:
-    "When you sign, the original text of what you edited is removed from the file. In special cases (uncommon fonts, vertical or hidden text, shared content) it can't be removed and the original stays under the edit: Edit PDF tells you, and “Flatten page” removes it completely.",
+    "When you sign, the original text of what you edited is removed from the file, and a summary appears when you finish. In special cases (uncommon fonts, vertical or hidden text, shared content) it can't be removed: the summary tells you which one and why, and “Flatten page” in Edit PDF removes it completely.",
   editTextFlattenLink: "Open Edit PDF",
   editTextUndo: "Undo text change",
   editTextRedo: "Redo text change",
+  editReportTitle: "About the edited text",
+  editInDocs: (documents) => ` in ${documents} documents`,
+  editTailAllRemoved: (several) =>
+    several ? "the original was removed from the files" : "the original was removed from the file",
+  editTailSomeRemoved: (removed, remains) =>
+    `the original was removed from ${removed} and could not be removed from ${remains} (see why below)`,
+  editTailNoneRemoved: (remains) =>
+    remains === 1
+      ? "the original could not be removed (see why below)"
+      : `the original could not be removed from ${remains} (see why below)`,
+  editRemainsItem: (docName, page, excerpt, reason) =>
+    `${docName ? `${docName}, page` : "Page"} ${page}${excerpt ? `, “${excerpt}”` : ", a deleted text"}: the original is still under the edit. ${reason}`,
+  editRemainsMore: (count) =>
+    count === 1 ? "And 1 more text whose original was not removed." : `And ${count} more texts whose original was not removed.`,
+  editRemainsAdvice: (flattenLabel) =>
+    `To remove it completely, open the downloaded file in Edit PDF and use “${flattenLabel}”: the page becomes an image and the original text disappears.`,
   pendingTextFieldsWarning: (missing) =>
     `${missing} text field${missing === 1 ? "" : "s"} still empty. You can continue anyway.`,
   textFieldDeletedNotice: "Field deleted.",

@@ -7,6 +7,7 @@ import { makeImage, makePdf } from "../helpers/test-files";
 import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
 import { es } from "../../src/lib/locales/es";
 import { inspectPdf, makeRichPdf, marker, TINY_PNG } from "../../src/lib/pdf/testing/pageAssemblyFixtures";
+import { pdfjsPageLabels } from "../../src/lib/pdf/testing/pdfjsInspect";
 
 /**
  * PDF Pro · Paginas (Wave 7 · U4), navegador real y headless, en 1280×800 y 375×812:
@@ -637,11 +638,15 @@ test.describe("PDF Pro · Páginas · casos", () => {
     const notices = page.getByRole("region", { name: P.status.warningsTitle });
     await expect(notices).toBeVisible();
     await expect(notices).toContainText("marcadores");
-    await expect(notices).toContainText("numeración");
-    const info = await inspectPdf(new Uint8Array(await downloadCurrent(page, env)));
+    // Wave 8 · B3: la numeracion de paginas ya no se quita, se RECALCULA (no hay aviso de ella).
+    await expect(notices).not.toContainText("numeración");
+    const downloaded = new Uint8Array(await downloadCurrent(page, env));
+    const info = await inspectPdf(downloaded);
     expect(info.outlineTitles).toEqual(["Capitulo 1", "Capitulo 3", "Capitulo 4", "Capitulo 5", "Capitulo 6"]);
     expect(info.outlineTargets).toEqual([0, 1, 2, 3, 4]);
-    expect(info.hasPageLabels).toBe(false);
+    expect(info.hasPageLabels).toBe(true);
+    // Etiquetas originales: i, ii, 1, 2, 3, 4; sin la 2.ª: i, 1, 2, 3, 4.
+    expect(await pdfjsPageLabels(downloaded)).toEqual(["i", "1", "2", "3", "4"]);
   });
 
   test("un PDF cifrado al insertar pide contraseña y un archivo roto se explica", async ({ page }) => {

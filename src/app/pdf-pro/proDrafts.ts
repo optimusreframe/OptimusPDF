@@ -1,3 +1,13 @@
+import {
+  CHUNK_PREFIX,
+  MANIFEST_PREFIX,
+  collectChunkGarbage,
+  deleteManifest,
+  putChunked,
+  readChunked,
+  type ChunkedRead,
+} from "@/app/pdf-pro/proChunkRows";
+import { CHUNK_MIN_TOTAL_BYTES, planChunks, shouldChunk, type ChunkPlan } from "@/app/pdf-pro/proChunks";
 import type { ProHistoryNote, ProSnapshotSource } from "@/app/pdf-pro/proTypes";
 
 /**
@@ -15,6 +25,12 @@ import type { ProHistoryNote, ProSnapshotSource } from "@/app/pdf-pro/proTypes";
  *
  * REGLA DURA: ninguna funcion de aqui lanza hacia la interfaz. Modo privado, IndexedDB ausente, cuota
  * agotada, base bloqueada o expulsada: todo se devuelve como resultado tipado `{ ok: false, reason }`.
+ *
+ * Wave 9 · escritura: un borrador de >= `chunkMinBytes` (4 MB) se guarda TROCEADO por contenido (`proChunks` +
+ * `proChunkRows`): sus bytes son filas `~c:<sha256>` en `draftFiles` (compartidas entre borradores y entre versiones) y su
+ * manifiesto `~m:<id>`; cada autoguardado escribe solo los trozos nuevos (~7 % de un PDF de 100 MB tras una operacion
+ * tipica, en vez del 100 %). Los pequeños siguen siendo UNA fila `id` con sus bytes (se leen igual que antes).
+ * Para un mismo id solo existe una de las dos formas: guardar en una borra la otra en la misma transaccion.
  *
  * Presupuesto: `MAX_PRO_DRAFTS` borradores y `MAX_PRO_DRAFTS_TOTAL_BYTES` en total; al pasarse se
  * expulsa el mas antiguo (jamas el recien guardado), borrando los bytes junto a los metadatos, todo
@@ -38,6 +54,7 @@ const limits = {
   maxDrafts: MAX_PRO_DRAFTS,
   maxTotalBytes: MAX_PRO_DRAFTS_TOTAL_BYTES,
   maxDraftBytes: MAX_PRO_DRAFT_BYTES,
+  chunkMinBytes: CHUNK_MIN_TOTAL_BYTES,
 };
 
 /** Solo para tests: acota los limites; sin argumentos los restaura. */
@@ -45,6 +62,7 @@ export function __setProDraftsLimitsForTests(override: Partial<typeof limits> = 
   limits.maxDrafts = override.maxDrafts ?? MAX_PRO_DRAFTS;
   limits.maxTotalBytes = override.maxTotalBytes ?? MAX_PRO_DRAFTS_TOTAL_BYTES;
   limits.maxDraftBytes = override.maxDraftBytes ?? MAX_PRO_DRAFT_BYTES;
+  limits.chunkMinBytes = override.chunkMinBytes ?? CHUNK_MIN_TOTAL_BYTES;
 }
 
 /* ------------------------------------------------------------------ *
@@ -389,7 +407,7 @@ function asBytes(value: unknown): Uint8Array | null {
  * Expulsa los borradores mas antiguos por encima de los limites, nunca `protectedId`. Borra los bytes
  * junto con los metadatos y barre todo archivo sin borrador vivo. Filas corruptas se purgan.
  */
-function enforceBudget(db: IDBDatabase, protectedId?: string): Promise<void> {
+function enforceBudget(db: IDBDatabase, protectedId?: string, collectGarbage = false): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction([FILES_STORE, META_STORE], "readwrite");
     tx.oncomplete = () => resolve();
@@ -397,43 +415,70 @@ function enforceBudget(db: IDBDatabase, protectedId?: string): Promise<void> {
     tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
     const filesStore = tx.objectStore(FILES_STORE);
     const metaStore = tx.objectStore(META_STORE);
+    const fail = (error: unknown) => {
+      reject(error);
+      try {
+        tx.abort();
+      } catch {
+        // Ya abortada.
+      }
+    };
 
     const metasRequest = metaStore.getAll();
-    const keysRequest = filesStore.getAllKeys();
-    let pending = 2;
+    // Filas ENTERAS (clave = huella) y manifiestos: nunca se piden los trozos (`~c:`), que pueden ser decenas de miles.
+    const keysRequest = filesStore.getAllKeys(IDBKeyRange.upperBound(CHUNK_PREFIX, true));
+    const manifestKeysRequest = filesStore.getAllKeys(IDBKeyRange.bound(MANIFEST_PREFIX, "~m;"));
+    let pending = 3;
     const onRead = () => {
       pending -= 1;
       if (pending > 0) return;
-
-      const rows = metasRequest.result as unknown[];
-      const metas = rows.filter(isProDraftMeta);
-      for (const row of rows) {
-        if (!isProDraftMeta(row) && isRecord(row) && typeof row.id === "string") metaStore.delete(row.id);
-      }
-
-      const oldestFirst = [...metas].sort((a, b) => a.savedAt.localeCompare(b.savedAt));
-      let totalBytes = oldestFirst.reduce((sum, meta) => sum + meta.fileSize, 0);
-      let count = oldestFirst.length;
-      const kept = new Set<string>();
-      for (const meta of oldestFirst) {
-        if ((count > limits.maxDrafts || totalBytes > limits.maxTotalBytes) && meta.id !== protectedId) {
-          metaStore.delete(meta.id);
-          writtenSnapshots.delete(meta.id);
-          count -= 1;
-          totalBytes -= meta.fileSize;
-        } else {
-          kept.add(meta.id);
+      try {
+        const rows = metasRequest.result as unknown[];
+        const metas = rows.filter(isProDraftMeta);
+        for (const row of rows) {
+          if (!isProDraftMeta(row) && isRecord(row) && typeof row.id === "string") metaStore.delete(row.id);
         }
-      }
-      for (const key of keysRequest.result as string[]) {
-        if (!kept.has(key)) {
-          filesStore.delete(key);
-          writtenSnapshots.delete(key);
+
+        const oldestFirst = [...metas].sort((a, b) => a.savedAt.localeCompare(b.savedAt));
+        let totalBytes = oldestFirst.reduce((sum, meta) => sum + meta.fileSize, 0);
+        let count = oldestFirst.length;
+        const kept = new Set<string>();
+        let removedSomething = collectGarbage;
+        for (const meta of oldestFirst) {
+          if ((count > limits.maxDrafts || totalBytes > limits.maxTotalBytes) && meta.id !== protectedId) {
+            metaStore.delete(meta.id);
+            writtenSnapshots.delete(meta.id);
+            removedSomething = true;
+            count -= 1;
+            totalBytes -= meta.fileSize;
+          } else {
+            kept.add(meta.id);
+          }
         }
+        for (const key of keysRequest.result as string[]) {
+          if (!kept.has(key)) {
+            filesStore.delete(key);
+            writtenSnapshots.delete(key);
+            removedSomething = true;
+          }
+        }
+        for (const key of manifestKeysRequest.result as string[]) {
+          const id = key.slice(MANIFEST_PREFIX.length);
+          if (!kept.has(id)) {
+            filesStore.delete(key);
+            writtenSnapshots.delete(id);
+            removedSomething = true;
+          }
+        }
+        // Los trozos que dejo un borrador expulsado (o una version sustituida) los barre la recoleccion.
+        if (removedSomething) collectChunkGarbage(filesStore, () => {}, fail);
+      } catch (error) {
+        fail(error);
       }
     };
     metasRequest.onsuccess = onRead;
     keysRequest.onsuccess = onRead;
+    manifestKeysRequest.onsuccess = onRead;
   });
 }
 
@@ -473,7 +518,11 @@ function writeDraftTx(
     try {
       if (writtenSnapshots.get(meta.id) !== snapshotId) {
         const record: FileRecord = { id: meta.id, bytes };
-        tx.objectStore(FILES_STORE).put(record);
+        const files = tx.objectStore(FILES_STORE);
+        files.put(record);
+        // Una sola forma por id: si antes era un borrador troceado, su manifiesto sale en esta misma transaccion
+        // (los trozos huerfanos los barre el presupuesto que corre justo despues).
+        deleteManifest(files, meta.id);
         wroteBytes = true;
       }
       tx.objectStore(META_STORE).put(meta);
@@ -484,6 +533,70 @@ function writeDraftTx(
       } catch {
         // Ya abortada.
       }
+    }
+  });
+}
+
+/**
+ * Escritura de un borrador TROCEADO: trozos nuevos + manifiesto + metadatos en UNA transaccion (todo o nada: nunca
+ * quedan metadatos apuntando a un borrador a medias, y un fallo deja el borrador anterior intacto). Las peticiones se
+ * encadenan desde sus `onsuccess` (ninguna se serializa de golpe); no hace falta la pasada sincrona del camino rapido
+ * porque lo que pasa de ~64 KB no sobrevive a un `beforeunload` de todos modos (medido).
+ */
+function writeChunkedDraftTx(
+  db: IDBDatabase,
+  meta: ProDraftMeta,
+  bytes: Uint8Array,
+  snapshotId: string,
+  plan: ChunkPlan,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let failure: unknown;
+    let wroteBytes = false;
+    let tx: IDBTransaction;
+    try {
+      tx = db.transaction([FILES_STORE, META_STORE], "readwrite");
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    tx.oncomplete = () => {
+      if (wroteBytes) writtenSnapshots.set(meta.id, snapshotId);
+      resolve();
+    };
+    tx.onerror = () => {
+      failure ??= tx.error;
+    };
+    tx.onabort = () => reject(failure ?? tx.error ?? new Error("transaccion abortada"));
+    const fail = (error: unknown) => {
+      failure = error;
+      try {
+        tx.abort();
+      } catch {
+        // Ya abortada.
+      }
+    };
+    try {
+      const files = tx.objectStore(FILES_STORE);
+      const metas = tx.objectStore(META_STORE);
+      const finish = () => {
+        try {
+          metas.put(meta);
+          // Los trozos que solo nombraba la version anterior de este borrador salen ya.
+          collectChunkGarbage(files, () => {}, fail);
+        } catch (error) {
+          fail(error);
+        }
+      };
+      if (writtenSnapshots.get(meta.id) !== snapshotId) {
+        wroteBytes = true;
+        files.delete(meta.id); // la fila entera de una version anterior ya no hace falta
+        putChunked(files, meta.id, bytes, plan, finish, fail);
+      } else {
+        finish();
+      }
+    } catch (error) {
+      fail(error);
     }
   });
 }
@@ -513,15 +626,31 @@ export async function saveProDraft(params: SaveProDraftParams): Promise<SaveProD
   if (!FINGERPRINT.test(params.id)) return { ok: false, reason: "invalid" };
   if (typeof indexedDB === "undefined" || indexedDB === null) return { ok: false, reason: "unsupported" };
   if (params.bytes.byteLength > limits.maxDraftBytes) return { ok: false, reason: "tooBig" };
-  const meta = buildMeta(params);
 
-  // CAMINO RAPIDO: la transaccion nace aqui, en esta pasada sincrona.
+  // Los borradores grandes se trocean: el plan (hashes) se calcula UNA vez por snapshot y se reutiliza (el historial lo
+  // pide tambien). Solo los grandes esperan aqui: los pequeños siguen creando su transaccion en esta misma pasada
+  // sincrona (lo unico que sobrevive de forma fiable a un `beforeunload`).
+  let plan: ChunkPlan | null = null;
+  if (shouldChunk(params.bytes.byteLength, limits.chunkMinBytes)) {
+    try {
+      plan = await planChunks(params.bytes);
+    } catch {
+      plan = null; // sin SHA-256: se guarda entero
+    }
+    // El calculo tarda: puede que mientras tanto llegara un cambio mas reciente (o un borrado).
+    if (params.isCurrent && !params.isCurrent()) return { ok: false, reason: "superseded" };
+  }
+  const meta = buildMeta(params);
+  const write = (db: IDBDatabase) =>
+    plan ? writeChunkedDraftTx(db, meta, params.bytes, params.snapshotId, plan) : writeDraftTx(db, meta, params.bytes, params.snapshotId);
+
+  // CAMINO RAPIDO: la transaccion nace aqui, en esta pasada sincrona (en los pequeños).
   const warm = warmDb;
   if (warm && (!params.isCurrent || params.isCurrent())) {
     try {
-      await writeDraftTx(warm, meta, params.bytes, params.snapshotId);
+      await write(warm);
       try {
-        await enforceBudget(warm, params.id);
+        await enforceBudget(warm, params.id, plan === null);
       } catch {
         // El presupuesto es limpieza: lo guardado ya esta guardado.
       }
@@ -538,9 +667,9 @@ export async function saveProDraft(params: SaveProDraftParams): Promise<SaveProD
     const adopted = db === warmDb || adoptWarm(db);
     try {
       if (params.isCurrent && !params.isCurrent()) return { ok: false, reason: "superseded" };
-      await writeDraftTx(db, meta, params.bytes, params.snapshotId);
+      await write(db);
       try {
-        await enforceBudget(db, params.id);
+        await enforceBudget(db, params.id, plan === null);
       } catch {
         // Ver arriba.
       }
@@ -582,8 +711,33 @@ function deleteDraftTx(db: IDBDatabase, id: string): Promise<void> {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
-    tx.objectStore(FILES_STORE).delete(id);
+    const files = tx.objectStore(FILES_STORE);
+    files.delete(id);
+    deleteManifest(files, id);
     tx.objectStore(META_STORE).delete(id);
+    // Los trozos que solo nombraba este borrador se borran con el (los que comparte con otro, no).
+    collectChunkGarbage(files, () => {}, (error) => {
+      reject(error);
+      try {
+        tx.abort();
+      } catch {
+        // Ya abortada.
+      }
+    });
+  });
+}
+
+/** Lee los bytes de un borrador TROCEADO (manifiesto + trozos) en una transaccion de solo lectura. */
+function readChunkedDraft(db: IDBDatabase, id: string): Promise<ChunkedRead> {
+  return new Promise((resolve, reject) => {
+    const box: { value: ChunkedRead } = { value: { kind: "none" } };
+    const tx = db.transaction(FILES_STORE, "readonly");
+    tx.oncomplete = () => resolve(box.value);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+    readChunked(tx.objectStore(FILES_STORE), id, (result) => {
+      box.value = result;
+    });
   });
 }
 
@@ -605,8 +759,15 @@ export async function loadProDraft(id: string): Promise<LoadProDraftResult> {
         writtenSnapshots.delete(id);
         return { ok: false, reason: "corrupt" };
       }
-      const record = await getFromStore<FileRecord>(db, FILES_STORE, id);
-      const bytes = record ? asBytes(record.bytes) : null;
+      // Primero la forma troceada (borradores grandes); si no hay manifiesto, la fila entera de siempre.
+      const chunked = await readChunkedDraft(db, id);
+      let bytes: Uint8Array | null = null;
+      if (chunked.kind === "ok") {
+        bytes = chunked.bytes;
+      } else if (chunked.kind === "none") {
+        const record = await getFromStore<FileRecord>(db, FILES_STORE, id);
+        bytes = record ? asBytes(record.bytes) : null;
+      }
       if (!bytes || bytes.byteLength === 0) {
         await deleteDraftTx(db, id);
         writtenSnapshots.delete(id);

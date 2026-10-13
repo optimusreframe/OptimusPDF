@@ -106,7 +106,17 @@ export function hasTextEdits(edits: readonly TextEdit[] | undefined): boolean {
 
 export type AppliedEdits = {
   file: File;
+  /** Avisos de todo el documento, sin repetidos. */
   warnings: EditWarning[];
+  /**
+   * (B1) Avisos por `TextEdit.id`: de aqui sale que textos perdieron de verdad su original y cuales no (y por que).
+   * Vacio sin ediciones efectivas.
+   */
+  warningsByEdit: Record<string, EditWarning[]>;
+  /** (B1) Ediciones que el motor omitio (pagina inexistente, tamano invalido...). */
+  skipped: string[];
+  /** (B1) Las ediciones efectivas que se aplicaron (las que cuentan para el resumen). */
+  applied: TextEdit[];
 };
 
 /**
@@ -120,7 +130,7 @@ export async function applyEditsToFile(
   options: ApplyTextEditsOptions = {},
 ): Promise<AppliedEdits> {
   const effective = edits ? effectiveTextEdits(edits) : [];
-  if (effective.length === 0) return { file, warnings: [] };
+  if (effective.length === 0) return { file, warnings: [], warningsByEdit: {}, skipped: [], applied: [] };
   const bytes = new Uint8Array(await file.arrayBuffer());
   const result = await applyTextEdits(bytes, effective, options);
   return {
@@ -129,5 +139,8 @@ export async function applyEditsToFile(
       lastModified: file.lastModified,
     }),
     warnings: result.warnings,
+    warningsByEdit: result.warningsByEdit,
+    skipped: result.skipped,
+    applied: effective,
   };
 }

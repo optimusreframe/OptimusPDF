@@ -1,7 +1,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PdfError } from "@/lib/pdf/core";
-import { LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
+import { getExportStore } from "@/app/pdf-pro/export/exportStore";
+import { fakeBytes } from "@/app/pdf-pro/proTestUtils";
+import { ProWorkingDocProvider } from "@/app/pdf-pro/useProWorkingDoc";
+import type { ProWorkingDoc } from "@/app/pdf-pro/proWorkingDoc";
 import { PRO_STRINGS } from "@/app/pdf-pro/proStrings";
 import { getPagesStore } from "@/app/pdf-pro/pages/pagesStore";
 import { ConvertTab } from "@/app/pdf-pro/tabs/ConvertTab";
@@ -232,6 +236,7 @@ describe("exportar", () => {
 describe("progreso y cancelacion", () => {
   function pending() {
     let resolve!: (value: { blob: Blob; filename: string }) => void;
+    let reject!: (error: unknown) => void;
     let signal!: AbortSignal;
     let onProgress!: (value: number) => void;
     runner.run.mockImplementationOnce(
@@ -240,10 +245,16 @@ describe("progreso y cancelacion", () => {
           signal = input.signal;
           onProgress = input.onProgress;
           resolve = done;
+          reject = fail;
           input.signal.addEventListener("abort", () => fail(new PdfError("cancelled")));
         }),
     );
-    return { resolve: (value: { blob: Blob; filename: string }) => resolve(value), signal: () => signal, progress: (value: number) => onProgress(value) };
+    return {
+      resolve: (value: { blob: Blob; filename: string }) => resolve(value),
+      reject: (error: unknown) => reject(error),
+      signal: () => signal,
+      progress: (value: number) => onProgress(value),
+    };
   }
 
   it("mientras exporta muestra progreso y «Cancelar»; el boton no se desactiva con foco (aria-disabled)", async () => {
@@ -293,18 +304,171 @@ describe("progreso y cancelacion", () => {
     fireEvent.click(exportButton("markdown"));
     await within(card("markdown")).findByRole("progressbar");
     expect(exportButton("text").getAttribute("aria-disabled")).toBe("true");
-    expect(within(card("text")).getByText(E.card.inProgressOther)).toBeTruthy();
+    // Dice CUAL esta en curso y que hacer (esperar o cancelarla); el boton no arranca otra.
+    expect(within(card("text")).getByText(E.card.inProgressOther(E.formatsShort.markdown))).toBeTruthy();
+    expect(within(card("markdown")).queryByText(E.card.inProgressOther(E.formatsShort.markdown))).toBeNull();
     fireEvent.click(exportButton("text"));
     expect(runner.run).toHaveBeenCalledTimes(1);
   });
 
-  it("cambiar de pestaña (desmontar) cancela la exportacion en curso", async () => {
+  /** Vuelve a montar «Convertir» sobre el MISMO documento de trabajo (como volver a la pestaña). */
+  function remount(doc: ProWorkingDoc) {
+    return render(
+      <LanguageProvider>
+        <ProWorkingDocProvider doc={doc}>
+          <ConvertTab />
+        </ProWorkingDocProvider>
+      </LanguageProvider>,
+    );
+  }
+
+  it("cambiar de pestaña (desmontar) NO cancela: el motor sigue y al volver la tarjeta muestra el progreso", async () => {
     const control = pending();
     const view = await mountTab(<ConvertTab />);
     fireEvent.click(exportButton("json"));
     await within(card("json")).findByRole("progressbar");
+    act(() => control.progress(0.3));
     view.unmount();
+    // La señal NO se aborta ni se avisa de cancelacion: la exportacion vive en el almacen del documento.
+    expect(control.signal().aborted).toBe(false);
+    expect(view.doc.getState().announcement?.text).not.toBe(E.card.cancelled);
+    expect(getExportStore(view.doc).getState().job).toMatchObject({ formatId: "json", phase: "running" });
+    // Mientras la pestaña no esta, el motor avanza.
+    act(() => control.progress(0.6));
+    remount(view.doc);
+    const bar = await within(card("json")).findByRole("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("60");
+    expect(within(card("json")).getByRole("button", { name: E.card.cancel })).toBeTruthy();
+    // Mientras exporta, el boton principal dice «Exportando…» y no admite otra pulsacion.
+    expect(within(card("json")).getByRole("button", { name: E.card.running }).getAttribute("aria-disabled")).toBe("true");
+    expect(runner.run).toHaveBeenCalledTimes(1);
+    await act(async () => control.resolve({ blob: new Blob(["j"]), filename: "datos.json" }));
+    await waitFor(() => expect(downloaded.items).toHaveLength(1));
+    expect(downloaded.items[0].name).toBe("datos.json");
+  });
+
+  it("una exportacion que TERMINA con la pestaña desmontada se descarga una vez y el resultado la espera al volver", async () => {
+    const control = pending();
+    const view = await mountTab(<ConvertTab />);
+    fireEvent.click(exportButton("word"));
+    await within(card("word")).findByRole("progressbar");
+    view.unmount();
+    await act(async () => control.resolve({ blob: new Blob(["w"]), filename: "acta-word.docx" }));
+    expect(downloaded.items.map((item) => item.name)).toEqual(["acta-word.docx"]);
+    expect(view.doc.getState().announcement?.text).toBe(E.card.done("acta-word.docx"));
+    remount(view.doc);
+    expect(within(card("word")).getByText(E.card.result("acta-word.docx", "Original"))).toBeTruthy();
+    expect(within(card("word")).queryByRole("progressbar")).toBeNull();
+    // Volver a la pestaña no repite la descarga.
+    expect(downloaded.items).toHaveLength(1);
+  });
+
+  it("el resultado dice de que VERSION es y avisa si el documento cambio mientras tanto", async () => {
+    const control = pending();
+    const { doc } = await mountTab(<ConvertTab />);
+    fireEvent.click(exportButton("markdown"));
+    await within(card("markdown")).findByRole("progressbar");
+    expect(within(card("markdown")).getByText(E.card.runningFrom("Original"))).toBeTruthy();
+    await act(async () => {
+      await doc.commit(fakeBytes(300, 4), "Rotar 90°", "operation", { pageCount: 3 });
+    });
+    await act(async () => control.resolve({ blob: new Blob(["m"]), filename: "acta-markdown.md" }));
+    const result = await within(card("markdown")).findByText(E.card.result("acta-markdown.md", "Original"), { exact: false });
+    expect(result.textContent).toContain(E.card.versionChanged);
+    expect(result.closest("[data-export]")).toBe(card("markdown"));
+  });
+
+  it("si el documento sigue igual, el resultado NO habla de cambios", async () => {
+    await mountTab(<ConvertTab />);
+    fireEvent.click(exportButton("csv"));
+    await waitFor(() => expect(downloaded.items).toHaveLength(1));
+    const line = await within(card("csv")).findByText(E.card.result("salida-csv.bin", "Original"));
+    expect(line.textContent).not.toContain(E.card.versionChanged);
+  });
+
+  it("las opciones elegidas sobreviven a cambiar de pestaña y se usan al exportar", async () => {
+    const view = await mountTab(<ConvertTab />);
+    fireEvent.click(within(card("text")).getByRole("button", { name: E.card.showOptions }));
+    fireEvent.click(within(card("text")).getAllByRole("checkbox")[1]); // separadores de pagina
+    view.unmount();
+    remount(view.doc);
+    fireEvent.click(within(card("text")).getByRole("button", { name: E.card.showOptions }));
+    expect(within(card("text")).getAllByRole("checkbox")[1]).toHaveProperty("checked", true);
+    fireEvent.click(exportButton("text"));
+    await waitFor(() => expect(runner.run).toHaveBeenCalledTimes(1));
+    expect(runner.run.mock.calls[0][1].options).toEqual({ ocrFallback: true, pageSeparators: true });
+  });
+
+  it("un error con la pestaña desmontada espera al volver: alerta con el motivo y «Cerrar» la retira", async () => {
+    const control = pending();
+    const view = await mountTab(<ConvertTab />);
+    fireEvent.click(exportButton("powerpoint"));
+    await within(card("powerpoint")).findByRole("progressbar");
+    view.unmount();
+    await act(async () => control.reject(new PdfError("offline")));
+    await waitFor(() => expect(getExportStore(view.doc).getState().job?.phase).toBe("error"));
+    // Sin la pestaña a la vista, el error se anuncia por la region viva unica (una vez).
+    expect(view.doc.getState().announcement?.text).toBe(E.notices.failedAway(E.formatsShort.powerpoint));
+    remount(view.doc);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(es.tool.errors.offline);
+    fireEvent.click(within(alert).getByRole("button", { name: "Cerrar" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(getExportStore(view.doc).getState().job).toBeNull();
+  });
+
+  it("con la pestaña a la vista, un error NO se anuncia dos veces (solo su alerta)", async () => {
+    runner.run.mockRejectedValueOnce(new PdfError("noTablesFound"));
+    const { doc } = await mountTab(<ConvertTab />);
+    const before = doc.getState().announcement?.id ?? 0;
+    fireEvent.click(exportButton("excel"));
+    await screen.findByRole("alert");
+    expect(doc.getState().announcement?.id ?? 0).toBe(before);
+  });
+
+  it("cerrar el documento cancela la exportacion y la tarjeta no hereda nada del anterior", async () => {
+    const control = pending();
+    const { doc } = await mountTab(<ConvertTab />);
+    fireEvent.click(exportButton("powerpoint"));
+    await within(card("powerpoint")).findByRole("progressbar");
+    act(() => doc.close());
     expect(control.signal().aborted).toBe(true);
+    expect(document.querySelector("[data-export]")).toBeNull();
+    await act(async () => control.resolve({ blob: new Blob(["p"]), filename: "tarde.pptx" }));
+    expect(downloaded.items).toEqual([]);
+  });
+
+  it("pulsar «Exportar» dos veces seguidas lanza UN solo motor", async () => {
+    pending();
+    await mountTab(<ConvertTab />);
+    const button = exportButton("excel");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("«Cancelar» desde la tarjeta: la tarjeta de OTRO formato queda libre otra vez", async () => {
+    pending();
+    await mountTab(<ConvertTab />);
+    fireEvent.click(exportButton("markdown"));
+    await within(card("markdown")).findByRole("progressbar");
+    expect(exportButton("text").getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(within(card("markdown")).getByRole("button", { name: E.card.cancel }));
+    expect(exportButton("text").getAttribute("aria-disabled")).toBeNull();
+    expect(within(card("markdown")).getByText(E.card.cancelled)).toBeTruthy();
+  });
+
+  it("si «Cancelar» tiene el foco y la exportacion TERMINA sola, el foco pasa al boton de exportar (nunca a <body>)", async () => {
+    const control = pending();
+    await mountTab(<ConvertTab />);
+    fireEvent.click(exportButton("excel"));
+    const cancel = await within(card("excel")).findByRole("button", { name: E.card.cancel });
+    cancel.focus();
+    expect(document.activeElement).toBe(cancel);
+    await act(async () => control.resolve({ blob: new Blob(["x"]), filename: "a.xlsx" }));
+    expect(within(card("excel")).queryByRole("button", { name: E.card.cancel })).toBeNull();
+    expect(document.activeElement).toBe(exportButton("excel"));
   });
 });
 

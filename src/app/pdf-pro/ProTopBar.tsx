@@ -1,6 +1,6 @@
 "use client";
 
-import type { Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import { ChevronDown, Download, Layers, Redo2, Undo2, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { MoreMenu, type MoreMenuItem } from "@/app/pdf-pro/shell/MoreMenu";
@@ -29,6 +29,11 @@ export type ProTopBarProps = {
   /** Igual para el menu «Mas» (en pantallas estrechas el atajo de guardar abre este). */
   moreMenuSignal?: number;
   headingRef?: Ref<HTMLHeadingElement>;
+  /**
+   * Indicador de estado global junto a «Descargar» (Wave 9: la exportacion en curso). Pinta `null` en reposo; mientras
+   * pinta algo (`data-export-indicator`), la barra se parte en dos filas para darle su propia linea.
+   */
+  status?: ReactNode;
 };
 
 /** Boton de icono de 44 px (patron del Sidebar): el relleno visible es de 32 px. */
@@ -95,6 +100,7 @@ export function ProTopBar({
   saveMenuSignal,
   moreMenuSignal,
   headingRef,
+  status,
 }: ProTopBarProps) {
   const strings = getProStrings(language);
   const s = strings.suite;
@@ -103,7 +109,11 @@ export function ProTopBar({
       role="group"
       data-pro-region="top"
       aria-label={s.topBarLabel}
-      className="flex min-h-14 shrink-0 items-center gap-2 border-b border-hairline px-3 md:px-4"
+      className={cn(
+        "flex min-h-14 shrink-0 items-center gap-2 border-b border-hairline px-3 md:px-4",
+        // Con un indicador a la vista el indicador baja a su propia fila: la barra se parte en dos mientras dura.
+        "has-[[data-export-indicator]]:flex-wrap has-[[data-export-indicator]]:py-1",
+      )}
     >
       <Layers aria-hidden="true" className="hidden size-5 shrink-0 text-accent-pro sm:block" />
       <div className="min-w-0 flex-1">
@@ -127,6 +137,7 @@ export function ProTopBar({
       <BarIconButton label={s.redo} shortcut="Control+Shift+Z Meta+Shift+Z Control+Y" disabled={!canRedo} onClick={onRedo}>
         <Redo2 aria-hidden="true" className="size-[18px]" />
       </BarIconButton>
+      {status}
       <Button size="md" onClick={onDownload} className="shrink-0">
         <Download aria-hidden="true" className="size-4" />
         <span className="max-sm:sr-only">{s.download}</span>

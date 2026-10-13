@@ -21,6 +21,7 @@ import {
   fileKey,
   usePageThumbnails,
 } from "@/app/organize-pdf/pageToolkit";
+import { pageNotices } from "@/app/organize-pdf/pageNotices";
 import {
   getExtractPagesStrings,
   type ExtractPagesStrings,
@@ -91,9 +92,10 @@ export function ExtractPagesToolClient() {
           strings.filenameSuffix,
           output.kind === "zip" ? "zip" : "pdf",
         ),
+        notices: pageNotices(language, output.warnings),
       };
     },
-    [strings],
+    [strings, language],
   );
 
   return (

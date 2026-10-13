@@ -45,7 +45,7 @@ import {
   pickFontForText,
   sanitizeTextForFont,
 } from "@/lib/pdf/editFonts";
-import { removeOriginalText, type RemoveOutcome } from "@/lib/pdf/editTextRemove";
+import { isolateSharedContents, removeOriginalText, type RemoveOutcome } from "@/lib/pdf/editTextRemove";
 import type {
   CatalogFontKey,
   EditWarning,
@@ -573,6 +573,10 @@ function sameWarning(a: EditWarning, b: EditWarning): boolean {
  * fuente dibuje sale como "?" y tambien se avisa. El ajuste de linea colapsa
  * espacios repetidos y respeta los saltos explicitos.
  *
+ * Un `/Contents` que es un array INDIRECTO compartido con otra pagina se
+ * convierte en un array propio de la pagina antes de dibujar (si no, pdf-lib
+ * anadiria la cobertura y el texto nuevo tambien a la otra pagina).
+ *
  * Acepta bytes o un `PDFDocument` ya cargado (se modifica en su sitio). Lanza
  * `PdfError` (`cancelled` si `signal` se aborta, `encrypted` si el PDF esta
  * cifrado...). Un TTF que no se pueda cargar NO aborta: la edicion se dibuja
@@ -639,6 +643,10 @@ export async function applyTextEdits(
       throwIfAborted(options.signal);
       const page = pages[pageIndex];
       const pageEdits = byPage.get(pageIndex) ?? [];
+
+      // Un `/Contents` que es un array indirecto compartido con otra pagina se vuelve propio de esta ANTES de
+      // dibujar: pdf-lib anade la cobertura y el texto nuevo a ese array, y si no la otra pagina los recibiria.
+      isolateSharedContents(document, page);
 
       // 0) F2: quitar del flujo el texto original de los bloques reemplazados.
       const replacing = pageEdits.filter((edit) => edit.blockId !== undefined);

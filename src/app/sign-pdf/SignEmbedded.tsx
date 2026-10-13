@@ -9,6 +9,7 @@ import { useI18n, type Language } from "@/lib/i18n";
 import { toPdfError } from "@/lib/pdf/core";
 import { useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
 import { DocumentSessionHost } from "@/app/sign-pdf/DocumentSessionHost";
+import { editResultText } from "@/app/sign-pdf/editReport";
 import { CanvasCompactContext } from "@/app/sign-pdf/canvasCompact";
 import {
   MultiFlow,
@@ -16,7 +17,7 @@ import {
   isEditOnlyJob,
   multiReady,
   prepareDocumentJob,
-  runDocumentJob,
+  runDocumentJobDetailed,
   type SignMode,
   type SignToolOptions,
 } from "@/app/sign-pdf/SignToolClient";
@@ -24,6 +25,7 @@ import {
   EmbeddedBar,
   EmbeddedSessionShell,
   ModeHeader,
+  type ModeWarning,
   useBusyFocus,
   useEmbeddedShell,
   useFocusReturn,
@@ -87,7 +89,15 @@ export type SignEmbeddedProps = {
   bytes?: Uint8Array;
   lang: Language;
   /** Recibe el PDF firmado. Rechaza si no se pudo crear el snapshot: la sesion sigue abierta. */
-  onApply: (bytes: Uint8Array, label: string, opts?: { warnings?: ProWarning[] }) => Promise<void>;
+  onApply: (
+    bytes: Uint8Array,
+    label: string,
+    opts?: {
+      warnings?: ProWarning[];
+      /** Avisos ya redactados (B1: que paso con el texto original editado); el anfitrion los muestra tras aplicar. */
+      notices?: string[];
+    },
+  ) => Promise<void>;
   /** Descarta la sesion de firma (sin snapshot). */
   onCancel: () => void;
   /** Avisa de si hay trabajo de firma sin aplicar. */
@@ -224,17 +234,21 @@ function SignEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
       setProgress(0);
       let result: Uint8Array;
       let label: string;
+      let notices: string[] = [];
       try {
         const job = await prepareDocumentJob(docId, file, current, {
           language: lang,
           strings: SIGN_STRINGS[lang],
           certificateEnabled,
         });
-        const blob = await runDocumentJob(job, (value) => {
+        const { blob, edits } = await runDocumentJobDetailed(job, (value) => {
           if (mountedRef.current) setProgress(value);
         });
         result = new Uint8Array(await blob.arrayBuffer());
         job.commit();
+        // Que paso con el texto original editado (B1): resumen y avisos para la tarjeta de «Aplicado».
+        const editText = editResultText(edits ? [{ docName: file.name, report: edits }] : [], lang, strings);
+        notices = [...(editText.summary ? [editText.summary] : []), ...(editText.notices?.items ?? [])];
         // Los nombres de la etiqueta son los de quienes firman ESTE documento (tienen algun hueco), con nombre.
         const signing = new Set(viewOf(current, docId).fields.map((field) => field.signerId));
         const names =
@@ -268,7 +282,13 @@ function SignEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
         return false;
       }
       try {
-        await onApply(result, label, warnings.length > 0 ? { warnings } : undefined);
+        await onApply(
+          result,
+          label,
+          warnings.length > 0 || notices.length > 0
+            ? { ...(warnings.length > 0 ? { warnings } : {}), ...(notices.length > 0 ? { notices } : {}) }
+            : undefined,
+        );
       } catch (caught) {
         if (mountedRef.current) changePhase("editing");
         if (hosted) throw caught;
@@ -284,7 +304,7 @@ function SignEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
       }, 0);
       return true;
     },
-    [changePhase, certificateEnabled, e, file, getIdentity, hosted, identity, lang, onApply, t, warnings],
+    [changePhase, certificateEnabled, e, file, getIdentity, hosted, identity, lang, onApply, strings, t, warnings],
   );
 
   return (
@@ -418,6 +438,21 @@ function SessionBody({
 }: BodyProps) {
   const e = SIGN_EMBEDDED_STRINGS[lang];
   const noticeRouted = useRoutedAnnouncement(notice ?? "");
+  // Avisos de la cabecera: los del documento y, con texto editado, la nota de que el original se elimina (B1: se
+  // pliegan todos en UNA linea «N avisos» y el lienzo no pierde alto).
+  const headerWarnings = useMemo<ModeWarning[]>(
+    () => [
+      ...warnings.map((warning) => ({
+        code: warning.code,
+        short: e.warningShort[warning.code as keyof typeof e.warningShort],
+        full: proWarningText(lang, warning),
+      })),
+      ...(hasTextEdits(view.textEdits)
+        ? [{ code: "editedText", short: e.editedTextShort, full: strings.editTextNote, tone: "info" as const }]
+        : []),
+    ],
+    [warnings, e, lang, view.textEdits, strings.editTextNote],
+  );
   const ready = view.mode === "single" ? soloReady(view) : multiReady(view, view.signature);
   const dirty = hasSignProgress(view);
 
@@ -438,7 +473,7 @@ function SessionBody({
     <>
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-2 max-md:scroll-pb-48 max-md:pb-52 md:px-4"
+        className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-2 max-md:scroll-pb-48 max-md:pb-52 md:px-4"
         data-pro-mode-scroll=""
         inert={busy}
       >
@@ -463,11 +498,8 @@ function SessionBody({
             notesLabel={e.notesLabel}
             notes={[view.mode === "single" ? strings.modeSingleHint : strings.modeMultiHint, e.notDigital, e.sessionNote]}
             warningsLabel={e.warningsTitle}
-            warnings={warnings.map((warning) => ({
-              code: warning.code,
-              short: e.warningShort[warning.code as keyof typeof e.warningShort],
-              full: proWarningText(lang, warning),
-            }))}
+            warningsCount={e.warningsCount}
+            warnings={headerWarnings}
           />
 
           {notice ? (

@@ -7,7 +7,6 @@ import {
   PDFRef,
   PDFStream,
   PDFContentStream,
-  StandardFontEmbedder,
   decodePDFRawStream,
   type PDFContext,
   type PDFDocument,
@@ -15,6 +14,7 @@ import {
 } from "@cantoo/pdf-lib";
 import type { TextEdit, UserBox } from "@/lib/pdf/editTypes";
 import { countNonBlank, type GlyphProfile } from "@/lib/pdf/editTextProfile";
+import { simpleEncodingFor, standardGlyphWidth, type SimpleEncoding } from "@/lib/pdf/editTextRemoveEncoding";
 
 /**
  * Wave 8 · F2: eliminar DE VERDAD el texto original que reemplaza una edicion.
@@ -27,9 +27,11 @@ import { countNonBlank, type GlyphProfile } from "@/lib/pdf/editTextProfile";
  * reales de cada fuente, y asi sabe en que punto del espacio de usuario
  * empieza y acaba CADA glifo de `Tj`, `TJ`, `'` y `"`.
  *
- * Un glifo pertenece al bloque editado si empieza y termina dentro de su
- * caja de cobertura (`coverOriented` o `coverBox`) y no cae en la caja de un
- * vecino (`obstacles`). Los glifos del bloque se quitan del operador y su
+ * Un glifo pertenece al bloque editado si empieza y su TINTA termina dentro de
+ * su caja de cobertura (`coverOriented` o `coverBox`) y no cae en la caja de un
+ * vecino (`obstacles`). La tinta acaba donde acaba el ancho del glifo: el
+ * espaciado `Tc`/`Tw` que sigue al ultimo glifo no cuenta (la caja, que sale de
+ * pdf.js, no lo incluye). Los glifos del bloque se quitan del operador y su
  * avance se conserva como ajuste numerico de `TJ`: el resto de la linea (si
  * el bloque es una linea parcial) no se desplaza. Todo lo demas del flujo se
  * copia byte a byte (solo se empalman los rangos de los operadores tocados).
@@ -49,7 +51,12 @@ import { countNonBlank, type GlyphProfile } from "@/lib/pdf/editTextProfile";
  *    XObjects/anotaciones o pintado mas de una vez (se cuentan TODAS las
  *    pintadas antes de decidir): reescribirlo borraria tambien las otras copias;
  *  - los glifos quitados no cuadran con el texto original del bloque
- *    (`TextEdit.originalGlyphs`): faltan o sobran, asi que no se quita nada;
+ *    (`TextEdit.originalGlyphs`): faltan o sobran, asi que no se quita nada.
+ *    Salvo el texto "en negrita" dibujado 2-4 veces en el mismo sitio: si cada
+ *    glifo tiene sus copias (misma fuente, codigo y tamano, a menos de ~12 % del
+ *    cuerpo) y UNA copia de cada uno cuadra con el perfil, se quitan todas;
+ *    sin ToUnicode el texto de cada codigo sale de la codificacion de la fuente
+ *    (`editTextRemoveEncoding.ts`: WinAnsi, MacRoman, Standard, /Differences);
  *  - el flujo no se pudo leer o no se encontro ningun glifo en la caja;
  *  - un glifo cae a la vez en la caja del bloque y en la de un vecino.
  */
@@ -332,20 +339,6 @@ export function standardFontNameFor(baseFont: string): string | null {
   return null;
 }
 
-const embedders = new Map<string, StandardFontEmbedder>();
-function standardWidth(name: string, code: number): number {
-  let embedder = embedders.get(name);
-  if (!embedder) {
-    embedder = StandardFontEmbedder.for(name as never);
-    embedders.set(name, embedder);
-  }
-  try {
-    return embedder.widthOfTextAtSize(String.fromCharCode(code), 1000);
-  } catch {
-    return 0;
-  }
-}
-
 function num(value: unknown, fallback: number): number {
   return value instanceof PDFNumber ? value.asNumber() : fallback;
 }
@@ -413,7 +406,7 @@ export function parseToUnicode(source: string): Map<number, string> {
   return map;
 }
 
-function toUnicodeOf(dict: PDFDict, bytesPerCode: 1 | 2): FontModel["unicodeOf"] {
+function toUnicodeOf(dict: PDFDict, bytesPerCode: 1 | 2, encoding: SimpleEncoding | null = null): FontModel["unicodeOf"] {
   let map: Map<number, string> | null = null;
   try {
     const stream = dict.lookup(PDFName.of("ToUnicode"));
@@ -437,7 +430,13 @@ function toUnicodeOf(dict: PDFDict, bytesPerCode: 1 | 2): FontModel["unicodeOf"]
     };
   }
   if (bytesPerCode === 1) {
-    return (code) => ({ text: code === 32 || code === 160 ? " " : String.fromCharCode(code), exact: false });
+    return (code) => {
+      // Sin ToUnicode: el texto sale de la codificacion declarada (WinAnsi, MacRoman, Standard, /Differences)
+      // y, si no hay o no sabe este codigo, de una estimacion de un caracter por codigo.
+      const known = encoding?.textOf(code);
+      if (known !== undefined && known !== null) return { text: known, exact: false };
+      return { text: code === 32 || code === 160 ? " " : String.fromCharCode(code), exact: false };
+    };
   }
   return () => null;
 }
@@ -465,6 +464,12 @@ function fontModel(context: PDFContext, dict: PDFDict): FontModel {
   const firstChar = num(dict.lookup(PDFName.of("FirstChar")), 0);
   const descriptor = dict.lookup(PDFName.of("FontDescriptor"));
   const missing = descriptor instanceof PDFDict ? num(descriptor.lookup(PDFName.of("MissingWidth")), 0) : 0;
+  const baseFont = dict.lookup(PDFName.of("BaseFont"));
+  const standard = baseFont instanceof PDFName ? standardFontNameFor(baseFont.decodeText()) : null;
+  const latinStandard = standard !== null && standard !== "Symbol" && standard !== "ZapfDingbats";
+  // Flag 32 = no simbolica: sin /BaseEncoding parte de StandardEncoding. Una base 14 latina sin descriptor tambien.
+  const nonSymbolic =
+    descriptor instanceof PDFDict ? (num(descriptor.lookup(PDFName.of("Flags")), 0) & 32) !== 0 : latinStandard;
   if (widthsArray instanceof PDFArray && widthsArray.size() > 0) {
     const widths = widthsArray.asArray().map((v) => context.lookup(v));
     return {
@@ -473,13 +478,22 @@ function fontModel(context: PDFContext, dict: PDFDict): FontModel {
         const entry = widths[code - firstChar];
         return entry instanceof PDFNumber ? entry.asNumber() : missing;
       },
-      unicodeOf: toUnicodeOf(dict, 1),
+      unicodeOf: toUnicodeOf(dict, 1, simpleEncodingFor(context, dict, nonSymbolic)),
     };
   }
-  const baseFont = dict.lookup(PDFName.of("BaseFont"));
-  const standard = baseFont instanceof PDFName ? standardFontNameFor(baseFont.decodeText()) : null;
-  if (!standard) return unsafe("widths");
-  return { bytesPerCode: 1, widthOf: (code) => standardWidth(standard, code), unicodeOf: toUnicodeOf(dict, 1) };
+  // Sin /Widths: anchos AFM de la base 14 por NOMBRE de glifo (el de la codificacion declarada). Symbol y
+  // ZapfDingbats (codificacion propia) y las codificaciones que no se conocen no se casan: no se quita nada.
+  if (!standard || !latinStandard) return unsafe("widths");
+  const encoding = simpleEncodingFor(context, dict, true);
+  if (!encoding) return unsafe("widths");
+  return {
+    bytesPerCode: 1,
+    widthOf: (code) => {
+      const name = encoding.nameOf(code);
+      return name === null ? 0 : standardGlyphWidth(standard, name);
+    },
+    unicodeOf: toUnicodeOf(dict, 1, encoding),
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -519,7 +533,12 @@ type GState = {
 
 type Glyph = {
   start: { x: number; y: number };
-  end: { x: number; y: number };
+  /**
+   * Donde acaba la TINTA del glifo (su ancho propio, sin `Tc`/`Tw`): el espaciado de caracteres y de
+   * palabras se suma DESPUES del glifo y la caja del bloque (que sale de pdf.js) no lo incluye, asi que
+   * el ultimo glifo de un bloque con `Tc` grande acaba dentro de la caja aunque su avance no.
+   */
+  inkEnd: { x: number; y: number };
   /** Tamano de fuente en espacio de usuario. */
   size: number;
   /** Avance en espacio de texto (ya con Tz). */
@@ -630,9 +649,9 @@ function showString(walk: Walk, bytes: Uint8Array): StrItem {
     const w0 = font ? font.widthOf(code) / 1000 : 0;
     const word = bytesPerCode === 1 && code === 32 ? state.wordSpacing : 0;
     const tx = (w0 * state.size + state.charSpacing + word) * state.hScale;
+    const inkEnd = apply(m, w0 * state.size * state.hScale, state.rise);
     walk.tm = multiply([1, 0, 0, 1, tx, 0], walk.tm);
-    const end = apply(multiply(walk.tm, state.ctm), 0, state.rise);
-    glyphs.push({ start, end, size: state.size * Math.hypot(m[2], m[3]), tx });
+    glyphs.push({ start, inkEnd, size: state.size * Math.hypot(m[2], m[3]), tx });
   }
   return { kind: "str", bytes, glyphs, codes, bytesPerCode, font };
 }
@@ -1036,10 +1055,38 @@ function incomingReferences(context: PDFContext): Map<string, number> {
 }
 
 /**
+ * Copia-al-escribir del ARRAY `/Contents`: si `/Contents` de la pagina es un
+ * array INDIRECTO que tambien usa otra pagina (u otro objeto), pdf-lib lo
+ * normaliza (`q`/`Q` alrededor) y le AÑADE el flujo de lo que se dibuja (la
+ * cobertura y el texto nuevo) directamente en ese array compartido: la otra
+ * pagina recibiria tambien la cobertura y el texto. Se sustituye por un array
+ * propio de esta pagina con las mismas referencias (los flujos no se copian) y
+ * lo que se dibuje despues solo afecta a esta pagina. Hay que llamarlo ANTES
+ * de dibujar en la pagina. Devuelve true si habia que aislarlo. Nunca lanza.
+ */
+export function isolateSharedContents(document: PDFDocument, page: PDFPage): boolean {
+  try {
+    const raw = page.node.get(PDFName.of("Contents"));
+    if (!(raw instanceof PDFRef)) return false;
+    const array = document.context.lookup(raw);
+    if (!(array instanceof PDFArray)) return false;
+    if ((incomingReferences(document.context).get(raw.toString()) ?? 0) <= 1) return false;
+    page.node.set(PDFName.of("Contents"), document.context.obj(array.asArray()));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Los glifos que se van a quitar corresponden al texto original del bloque:
  * con `ToUnicode` la cuenta de caracteres no blancos es exacta; sin el (o con
  * codigos sin entrada) se admite la holgura de las ligaduras y de los espacios
  * desconocidos. Un glifo ajeno que sobra, o uno propio que falta, la rompe.
+ *
+ * Las dos ramas cuentan igual (NFKC, por punto de codigo, como `glyphProfile`):
+ * un glifo `…`, `™` o `½` aporta 3, 2 y 3 caracteres lo conozca el `ToUnicode` o
+ * la codificacion de la fuente (WinAnsi, MacRoman...), no 1.
  */
 export function glyphsMatch(
   profile: GlyphProfile,
@@ -1051,12 +1098,48 @@ export function glyphsMatch(
   for (const entry of texts) {
     if (!entry) unknown += 1;
     else if (entry.exact) known += entry.text;
-    else if (/^\s$/u.test(entry.text)) continue;
-    else approximate += 1;
+    else approximate += countNonBlank(entry.text);
   }
   const base = countNonBlank(known) + approximate;
   if (unknown === 0 && approximate === 0) return profile.chars === base;
   return profile.chars >= base && profile.chars <= base + unknown + profile.ligatures;
+}
+
+/** Mas copias de un mismo glifo que estas no son un trazo repetido sino otra cosa. */
+const MAX_OVERSTRIKE_COPIES = 4;
+/** Una caja con mas glifos que estos no es un bloque de texto: no se agrupa (coste cuadratico). */
+const MAX_OVERSTRIKE_GLYPHS = 4000;
+
+/**
+ * Texto "en negrita" simulado: se dibuja dos (o tres, o cuatro) veces el mismo
+ * texto con un desplazamiento de una fraccion del cuerpo. Agrupa los glifos
+ * hallados en la caja por COPIAS (misma fuente, mismo codigo y mismo sitio
+ * salvo ese desplazamiento) y devuelve un representante por grupo, o null si
+ * no hay ninguna copia. Un glifo solo es copia de otro si cae en el mismo
+ * punto (inicio y fin de tinta a menos de ~12 % del cuerpo y de 35 % de su
+ * propio ancho): dos letras iguales seguidas ("ll") NO se agrupan.
+ */
+function collapseOverstrike<
+  T extends { glyph: Glyph; code: number; font: FontModel | null },
+>(items: readonly T[]): T[] | null {
+  if (items.length > MAX_OVERSTRIKE_GLYPHS) return null;
+  const groups: T[][] = [];
+  const distance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+  const sameInk = (a: T, b: T): boolean => {
+    if (a.font !== b.font || a.code !== b.code) return false;
+    const advance = distance(a.glyph.start, a.glyph.inkEnd);
+    const tolerance = Math.min(a.glyph.size * 0.12, advance * 0.35);
+    if (Math.abs(a.glyph.size - b.glyph.size) > a.glyph.size * 0.05) return false;
+    return distance(a.glyph.start, b.glyph.start) <= tolerance && distance(a.glyph.inkEnd, b.glyph.inkEnd) <= tolerance;
+  };
+  for (const item of items) {
+    const group = groups.find((candidate) => sameInk(candidate[0], item));
+    if (!group) groups.push([item]);
+    else if (group.length >= MAX_OVERSTRIKE_COPIES) return null;
+    else group.push(item);
+  }
+  if (!groups.some((group) => group.length > 1)) return null;
+  return groups.map((group) => group[0]);
 }
 
 /** XObjects (y los anidados en ellos) que usan las demas paginas del documento. */
@@ -1170,7 +1253,14 @@ export function removeOriginalText(
   };
   const blocked = new Map<number, RemoveFailReason>();
   const found = new Array<number>(edits.length).fill(0);
-  type Candidate = { owner: number; show: ShowOp; glyph: Glyph; text: ReturnType<NonNullable<FontModel["unicodeOf"]>> };
+  type Candidate = {
+    owner: number;
+    show: ShowOp;
+    glyph: Glyph;
+    code: number;
+    font: FontModel | null;
+    text: ReturnType<NonNullable<FontModel["unicodeOf"]>>;
+  };
   const candidates: Candidate[] = [];
 
   for (const show of walk.shows) {
@@ -1187,7 +1277,7 @@ export function removeOriginalText(
         for (let i = 0; i < targets.length; i += 1) {
           const t = targets[i];
           if (!t) continue;
-          if (!insideTarget(t, glyph.start) || !insideTarget(t, glyph.end)) continue;
+          if (!insideTarget(t, glyph.start) || !insideTarget(t, glyph.inkEnd)) continue;
           // Un glifo mucho mayor o menor que el bloque no es suyo (fondo, marca de agua).
           if (glyph.size > t.edit.fontSize * 1.8 + 1 || glyph.size < t.edit.fontSize * 0.4 - 1) continue;
           owner = i;
@@ -1196,7 +1286,7 @@ export function removeOriginalText(
         if (owner < 0) return;
         const t = targets[owner]!;
         found[owner] += 1;
-        const mid = { x: (glyph.start.x + glyph.end.x) / 2, y: (glyph.start.y + glyph.end.y) / 2 };
+        const mid = { x: (glyph.start.x + glyph.inkEnd.x) / 2, y: (glyph.start.y + glyph.inkEnd.y) / 2 };
         let reason: RemoveFailReason | null = show.unsafe;
         if (!reason && sharedHere) reason = "shared-xobject";
         if (!reason && t.obstacles.some((box) => insideBox(box, mid))) reason = "ambiguous";
@@ -1205,7 +1295,14 @@ export function removeOriginalText(
           if (!blocked.has(owner)) blocked.set(owner, reason);
           return;
         }
-        candidates.push({ owner, show, glyph, text: item.font?.unicodeOf?.(item.codes[index]) ?? null });
+        candidates.push({
+          owner,
+          show,
+          glyph,
+          code: item.codes[index],
+          font: item.font,
+          text: item.font?.unicodeOf?.(item.codes[index]) ?? null,
+        });
       });
     }
   }
@@ -1215,7 +1312,13 @@ export function removeOriginalText(
     if (blocked.has(i) || found[i] === 0) continue;
     const profile = edits[i].originalGlyphs;
     if (!profile) continue;
-    if (!glyphsMatch(profile, candidates.filter((c) => c.owner === i).map((c) => c.text))) blocked.set(i, "ambiguous");
+    const mine = candidates.filter((c) => c.owner === i);
+    if (glyphsMatch(profile, mine.map((c) => c.text))) continue;
+    // Texto dibujado varias veces para simular negrita: si cada glifo hallado tiene sus copias en el mismo
+    // sitio y UNA copia de cada uno cuadra con el texto del bloque, se quitan todas las pasadas.
+    const copies = collapseOverstrike(mine);
+    if (copies && glyphsMatch(profile, copies.map((c) => c.text))) continue;
+    blocked.set(i, "ambiguous");
   }
 
   // Un bloque se quita entero o no se quita: si algun glifo suyo esta bloqueado, se dejan todos.

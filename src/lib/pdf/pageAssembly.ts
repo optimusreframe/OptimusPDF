@@ -16,6 +16,7 @@ import {
 } from "@/lib/pdf/core";
 import type { ImageLayout } from "@/lib/pdf/imagesToPdf";
 import { normalizeRotation } from "@/lib/pdf/rotate";
+import { findDeadPages, neutralizeDeadReferences, resolveMarkedActions } from "@/lib/pdf/pageAssemblyDeadRefs";
 import {
   KEY,
   appendOutlineGroup,
@@ -23,6 +24,7 @@ import {
   collectGarbage,
   collectNamedDests,
   collectPresentWidgets,
+  countSignedSignatures,
   dropPageLabels,
   dropStructureTree,
   fixCopiedLeaf,
@@ -34,14 +36,27 @@ import {
   pruneNamedDests,
   pruneOpenAction,
   pruneOutline,
+  pruneStructureTree,
   readImportableOutline,
   refKey,
   registerNewFields,
+  resolveMarkedLinks,
   sanitizeLeavesForCopy,
   setLeafRotation,
   wrapExistingOutline,
   type ImportedOutlineItem,
 } from "@/lib/pdf/pageAssemblyStructure";
+import {
+  EMPTY_LABEL,
+  compressLabels,
+  defaultLabel,
+  labelAt,
+  readPageLabels,
+  sameRanges,
+  writePageLabels,
+  type LabelsRead,
+  type PageLabel,
+} from "@/lib/pdf/pageAssemblyLabels";
 
 /**
  * Motor de ensamblado de paginas (Wave 7 · U4): reordenar, rotar, eliminar, duplicar, insertar
@@ -61,8 +76,12 @@ import {
  *    este, tras quitarles los enlaces internos y las referencias a su pagina original;
  *  - la rotacion es ADITIVA sobre la que ya trae cada hoja (`/Rotate`);
  *  - despues se repara lo que quedo colgando (marcadores, enlaces, destinos con nombre, formulario,
- *    PDF etiquetado, etiquetas de pagina) y se sueltan los objetos sin referencia, de modo que lo
- *    eliminado no sigue dentro del archivo.
+ *    PDF etiquetado) y se sueltan los objetos sin referencia, de modo que lo eliminado no sigue dentro
+ *    del archivo;
+ *  - las etiquetas de pagina (`/PageLabels`) se RECALCULAN para el orden nuevo (la etiqueta sigue a la
+ *    pagina: ver `pageAssemblyLabels.ts`) y el arbol de estructura de un PDF etiquetado se PODA a las
+ *    paginas que quedan; los enlaces internos de las paginas de otro PDF se reapuntan a sus paginas
+ *    dentro del resultado.
  *
  * Limites declarados: ver `PAGE_ASSEMBLY_LIMITS` y las advertencias (`PageAssemblyWarning`).
  */
@@ -142,16 +161,22 @@ export type PageAssemblyWarningCode =
   | "linksRemoved"
   /** Destinos con nombre que apuntaban a paginas quitadas. */
   | "namedDestinationsRemoved"
-  /** Las etiquetas de pagina (i, ii, 1...) ya no coinciden con las paginas y se quitaron. */
+  /** No se pudo conservar la numeracion de paginas (i, ii, 1...): `/PageLabels` ilegible, se quito. */
   | "pageLabelsRemoved"
-  /** El arbol de estructura (PDF etiquetado) se quito al eliminar paginas. */
+  /** El arbol de estructura (PDF etiquetado) no se pudo podar a las paginas que quedan y se quito. */
   | "structureRemoved"
+  /** Paginas copiadas (duplicados o de otro PDF) que no llevan etiquetas de accesibilidad. */
+  | "structureIncomplete"
+  /** Firmas digitales ya aplicadas que siguen en el documento y dejan de ser validas al reescribirlo. */
+  | "signaturesInvalidated"
   /** Campos de formulario cuyas paginas se quitaron. */
   | "formFieldsRemoved"
   /** Campos de formulario renombrados por repetir un nombre ya usado. */
   | "fieldsRenamed"
-  /** Campos de firma que no se copian a otro documento. */
+  /** Campos de firma VACIOS (sin firmar) que no se copian a otro documento. */
   | "signatureFieldsRemoved"
+  /** Firmas YA APLICADAS que no se copian a otro documento (su firma no seria valida fuera del original). */
+  | "signedSignaturesRemoved"
   /** Se anaden muchas paginas de golpe (puede tardar). */
   | "largeInsert";
 
@@ -181,6 +206,13 @@ export type PageAssemblyResult = {
   bytes: Uint8Array;
   warnings: PageAssemblyWarning[];
   /** Paginas del documento resultante (= longitud del plan). */
+  pageCount: number;
+};
+
+/** Lo que devuelven las herramientas sueltas (Unir, Organizar, Quitar paginas...): el PDF y lo que se perdio. */
+export type PageToolResult = {
+  blob: Blob;
+  warnings: PageAssemblyWarning[];
   pageCount: number;
 };
 
@@ -341,6 +373,32 @@ function validatePlan(
 type Slot = { leaf: PDFPageLeaf; ref: PDFRef; fresh: boolean };
 
 /**
+ * Etiqueta de cada pagina del plan (la que mostraba en su documento de origen), o `null` si ningun
+ * documento que participa tiene etiquetas (no hay nada que conservar). Los documentos sin etiquetas
+ * numeran 1, 2, 3...; las paginas nuevas (en blanco, de imagen) no llevan etiqueta.
+ */
+function planLabels(
+  plan: readonly PageEntry[],
+  base: LabelsRead,
+  externals: ReadonlyMap<string, { labels: LabelsRead }>,
+): PageLabel[] | null {
+  const used = externalPdfIds(plan);
+  const anyLabels =
+    base.kind === "ranges" || used.some((id) => externals.get(id)?.labels.kind === "ranges");
+  if (!anyLabels) return null;
+  return plan.map((entry) => {
+    if (entry.kind === "existing") {
+      return base.kind === "ranges" ? labelAt(base.ranges, entry.sourceIndex) : defaultLabel(entry.sourceIndex);
+    }
+    if (entry.kind === "external") {
+      const read = externals.get(entry.sourceId)?.labels;
+      return read?.kind === "ranges" ? labelAt(read.ranges, entry.sourceIndex) : defaultLabel(entry.sourceIndex);
+    }
+    return EMPTY_LABEL;
+  });
+}
+
+/**
  * Aplica un plan de paginas al documento actual y devuelve el PDF resultante.
  *
  * El plan es la lista FINAL de paginas, en orden: lo que no aparece se elimina (un plan vacio es
@@ -379,9 +437,13 @@ export async function applyPageAssembly(
 
     const originalPages = document.getPages();
     const catalog = document.catalog;
+    /** Primer objeto que traen las paginas de otros PDF (`copyPages` los registra todos a partir de aqui). */
+    const firstCopiedObject = context.largestObjectNumber + 1;
 
     /* ---------- 1. paginas de otros PDF (una llamada a copyPages por documento) ---------- */
     const externalLeaves = new Map<string, PDFPage>();
+    /** Numeracion de paginas y estructura de cada documento externo (se leen antes de tocarlo). */
+    const externalInfo = new Map<string, { labels: LabelsRead; tagged: boolean }>();
     const pdfIds = externalPdfIds(plan);
     /** Marcadores de documentos externos a agrupar al final (`outlineGroups`), en orden de documento. */
     const outlineGroups: { title: string; firstPageRef: PDFRef; items: ImportedOutlineItem[] }[] = [];
@@ -399,19 +461,39 @@ export async function applyPageAssembly(
         if (!indices.includes(entry.sourceIndex)) indices.push(entry.sourceIndex);
       }
       const sourcePages = sourceDocument.getPages();
+      externalInfo.set(sourceId, {
+        labels: readPageLabels(sourceDocument.context, sourceDocument.catalog),
+        tagged: hasStructureTree(sourceDocument.catalog),
+      });
       for (const index of indices) materializeInherited(sourcePages[index].node);
+      // Enlaces internos: se marcan con la pagina de ORIGEN a la que llevan y se reapuntan tras copiar.
+      const pageIndexByRef = new Map<string, number>();
+      sourcePages.forEach((page, position) => pageIndexByRef.set(refKey(page.ref), position));
       const cleaned = sanitizeLeavesForCopy(
         sourceDocument.context,
         sourceDocument.catalog,
         indices.map((index) => sourcePages[index].node),
+        pageIndexByRef,
       );
-      warn("linksRemoved", cleaned.linksRemoved);
-      warn("signatureFieldsRemoved", cleaned.signaturesRemoved);
+      warn("signatureFieldsRemoved", cleaned.emptySignaturesRemoved);
+      warn("signedSignaturesRemoved", cleaned.signedSignaturesRemoved);
       const copied = await document.copyPages(sourceDocument, indices);
       copied.forEach((page, position) => {
         fixCopiedLeaf(context, page.node, page.ref);
         externalLeaves.set(`${sourceId}:${indices[position]}`, page);
       });
+      const unresolvedLinks = resolveMarkedLinks(
+        context,
+        copied.map((page) => page.node),
+        (sourceIndex) => externalLeaves.get(`${sourceId}:${sourceIndex}`)?.ref,
+      );
+      // Botones y otras acciones de salto: tambien se reapuntan a las paginas copiadas (o se quitan si esa pagina no vino).
+      const unresolvedActions = resolveMarkedActions(
+        context,
+        copied.map((page) => page.node),
+        (sourceIndex) => externalLeaves.get(`${sourceId}:${sourceIndex}`)?.ref,
+      );
+      warn("linksRemoved", cleaned.linksRemoved + unresolvedLinks + unresolvedActions);
       const groupTitle = options.outlineGroups?.[sourceId];
       if (groupTitle !== undefined && copied.length > 0) {
         const pageMap = new Map<number, PDFRef>();
@@ -469,6 +551,9 @@ export async function applyPageAssembly(
       if (entry.kind === "existing" && !claimant.has(entry.sourceIndex)) claimant.set(entry.sourceIndex, entry);
     }
 
+    const hadStructure = hasStructureTree(catalog);
+    /** Paginas copiadas que no llevan etiquetas de accesibilidad (duplicados, y paginas de otro PDF en un resultado etiquetado o que venian etiquetadas). */
+    let untaggedPages = 0;
     const externalClaimed = new Set<string>();
     const slots: Slot[] = [];
     for (const entry of plan) {
@@ -478,11 +563,15 @@ export async function applyPageAssembly(
           slots.push({ leaf: page.node, ref: page.ref, fresh: false });
         } else {
           slots.push({ ...cloneLeafInPlace(context, page.node), fresh: true });
+          if (hadStructure) untaggedPages += 1;
         }
       } else if (entry.kind === "external") {
         const key = `${entry.sourceId}:${entry.sourceIndex}`;
         const page = externalLeaves.get(key);
         if (!page) throw new PdfError("unknown");
+        // Sin etiquetas en el resultado: lo que pierde las suyas (el origen estaba etiquetado) y lo que llega, sin ellas, a un
+        // documento que SI lo esta (el resultado se anuncia como etiquetado). Si nadie estaba etiquetado, no hay nada que avisar.
+        if (hadStructure || externalInfo.get(entry.sourceId)?.tagged) untaggedPages += 1;
         if (!externalClaimed.has(key)) {
           externalClaimed.add(key);
           slots.push({ leaf: page.node, ref: page.ref, fresh: true });
@@ -520,18 +609,30 @@ export async function applyPageAssembly(
     const finalLeaves = slots.map((slot) => slot.leaf);
     const live = new Set(slots.map((slot) => refKey(slot.ref)));
     const deletedAny = usedOriginals.size < pageCount;
-    const hadStructure = hasStructureTree(catalog);
+    /** Hojas originales que ya no estan en el plan (y que nada del resultado debe seguir referenciando). */
+    const deadPages = deletedAny ? originalPages.filter((page) => !live.has(refKey(page.ref))) : [];
+    let structurePruned = false;
+    // Destinos con nombre ANTES de podar nada: a donde llevaba cada nombre (los enlaces y las acciones lo consultan).
+    const named = collectNamedDests(context, catalog);
+    const isLive = (ref: PDFRef) => live.has(refKey(ref));
 
     if (deletedAny) {
-      const named = collectNamedDests(context, catalog);
-      const isLive = (ref: PDFRef) => live.has(refKey(ref));
-      const dropStructure = hadStructure;
-      warn("outlinesRemoved", pruneOutline(context, catalog, named, isLive, { dropStructure }));
+      warn("outlinesRemoved", pruneOutline(context, catalog, named, isLive, { dropStructure: hadStructure }));
       warn("linksRemoved", pruneLinks(context, finalLeaves, named, isLive));
-      pruneOpenAction(context, catalog, named, isLive);
+      warn("linksRemoved", pruneOpenAction(context, catalog, named, isLive));
       warn("namedDestinationsRemoved", pruneNamedDests(context, catalog, named, isLive));
-      if (dropStructure && dropStructureTree(catalog)) warn("structureRemoved", 1);
+      if (hadStructure) {
+        // El arbol de estructura se poda a las paginas que quedan; si no se puede con seguridad, se quita entero.
+        structurePruned = pruneStructureTree(
+          context,
+          catalog,
+          new Set(deadPages.map((page) => refKey(page.ref))),
+          deadPages.map((page) => page.node),
+        );
+        if (!structurePruned && dropStructureTree(catalog)) warn("structureRemoved", 1);
+      }
     }
+    warn("structureIncomplete", untaggedPages);
 
     /* ---------- 6b. marcadores por documento (Unir) ---------- */
     if (options.wrapOutlineTitle !== undefined) {
@@ -548,13 +649,80 @@ export async function applyPageAssembly(
       const registered = registerNewFields(context, catalog, freshLeaves);
       warn("fieldsRenamed", registered.renamed);
     }
+    /** Lo que se quito del formulario (campos, grupos, widgets): se corta de todo lo que lo nombre (ver `neutralizeDeadReferences`). */
+    let deadFormNodes: PDFRef[] = [];
     if (deletedAny || externalUsed) {
-      warn("formFieldsRemoved", pruneAcroForm(context, catalog, collectPresentWidgets(context, finalLeaves)));
+      const form = pruneAcroForm(
+        context,
+        catalog,
+        collectPresentWidgets(context, finalLeaves),
+        deadPages.map((page) => page.node),
+      );
+      warn("formFieldsRemoved", form.removed);
+      deadFormNodes = form.deadNodes;
     }
 
-    if (!preservesPageLabels(plan, pageCount) && dropPageLabels(catalog)) warn("pageLabelsRemoved", 1);
+    /* ---------- 6c. etiquetas de pagina: la etiqueta sigue a la pagina ---------- */
+    const baseLabels = readPageLabels(context, catalog);
+    if (baseLabels.kind === "unreadable") {
+      // Ilegible: si las primeras paginas siguen en su sitio se deja tal cual; si no, se quita y se avisa.
+      if (!preservesPageLabels(plan, pageCount)) {
+        if (dropPageLabels(catalog)) warn("pageLabelsRemoved", 1);
+      } else {
+        // Se deja el arbol como esta, pero las etiquetas de los documentos anadidos no se pueden sumar a un arbol que no
+        // se lee: se pierden, y no en silencio (un documento anadido sin numeracion propia no pierde nada).
+        warn("pageLabelsRemoved", [...externalInfo.values()].filter((info) => info.labels.kind !== "none").length);
+      }
+    } else {
+      const unreadable = [...externalInfo.values()].filter((info) => info.labels.kind === "unreadable").length;
+      warn("pageLabelsRemoved", unreadable);
+      const labels = planLabels(plan, baseLabels, externalInfo);
+      if (labels) {
+        const ranges = compressLabels(labels);
+        const unlabelled = ranges.length === 1 && ranges[0].style === undefined && ranges[0].prefix === "";
+        if (unlabelled) {
+          catalog.delete(KEY.PageLabels);
+        } else {
+          const current =
+            baseLabels.kind === "ranges"
+              ? compressLabels(Array.from({ length: pageCount }, (_, index) => labelAt(baseLabels.ranges, index)))
+              : [];
+          // Sin cambios (las etiquetas actuales ya numeran asi todas las paginas): se deja el arbol como esta.
+          if (!sameRanges(ranges, current.filter((range) => range.start < plan.length))) {
+            writePageLabels(context, catalog, ranges);
+          }
+        }
+      }
+    }
 
-    if (deletedAny || externalUsed) collectGarbage(context);
+    if (deletedAny || externalUsed) {
+      // Paginas muertas: las quitadas y las que `copyPages` arrastro como huerfanas. Nada que se conserve puede seguir
+      // llevando a ellas, o su objeto, su texto y sus anotaciones se quedarian dentro del archivo.
+      const orphans = findDeadPages(
+        context,
+        live,
+        deadPages.map((page) => page.ref),
+        externalUsed ? firstCopiedObject : undefined,
+      );
+      warn(
+        "linksRemoved",
+        neutralizeDeadReferences(context, catalog, {
+          deadPages: orphans,
+          liveLeaves: finalLeaves,
+          deadFields: deadFormNodes,
+          named,
+          newObjectsFrom: externalUsed ? firstCopiedObject : undefined,
+        }),
+      );
+      collectGarbage(context);
+      if (structurePruned && orphans.some((page) => context.lookup(page) !== undefined)) {
+        // Algo del arbol podado sigue llevando a una pagina quitada: mejor sin estructura que arrastrar la pagina.
+        if (dropStructureTree(catalog)) warn("structureRemoved", 1);
+        collectGarbage(context);
+      }
+    }
+    // Reescribir el archivo invalida las firmas digitales que siguen en el documento.
+    warn("signaturesInvalidated", countSignedSignatures(context, catalog));
     onProgress?.(0.85);
     throwIfAborted(signal);
 

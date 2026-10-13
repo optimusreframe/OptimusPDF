@@ -36,6 +36,13 @@ describe("paridad es/en", () => {
       "export.formats.json.title",
       "export.formats.excel.title",
       "export.formats.powerpoint.title",
+      // Wave 9: los mismos nombres de formato en las frases del indicador («Exportando a Word…»).
+      "export.formatsShort.word",
+      "export.formatsShort.excel",
+      "export.formatsShort.csv",
+      "export.formatsShort.markdown",
+      "export.formatsShort.json",
+      "export.formatsShort.powerpoint",
       "export.images.jpg",
       "export.images.png",
       "export.images.dpi.1",

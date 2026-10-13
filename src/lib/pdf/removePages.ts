@@ -5,7 +5,7 @@ import {
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { applyPageAssembly, type PageEntry } from "@/lib/pdf/pageAssembly";
+import { applyPageAssembly, type PageEntry, type PageToolResult } from "@/lib/pdf/pageAssembly";
 
 /**
  * Motor de eliminacion de paginas. Modulo puro (sin React).
@@ -35,11 +35,17 @@ export function keptPagesPlan(remove: readonly number[], pageCount: number): Pag
   return plan;
 }
 
-export async function removePdfPages(
+/**
+ * Quita las paginas y devuelve el PDF con lo que no se pudo conservar en `warnings`: marcadores, enlaces
+ * y destinos de las paginas quitadas, firmas que dejan de ser validas, estructura de accesibilidad que
+ * no se pudo podar... Las etiquetas de pagina y el arbol de estructura de las paginas que quedan SI se
+ * conservan.
+ */
+export async function removePdfPagesWithReport(
   file: File,
   plan: RemovePagesPlan,
   onProgress?: ProgressCallback,
-): Promise<Blob> {
+): Promise<PageToolResult> {
   try {
     const document = await loadPdf(file);
     onProgress?.(0.25);
@@ -56,8 +62,21 @@ export async function removePdfPages(
       onProgress: (value) => onProgress?.(scaleProgress(value, 0.25, 1)),
     });
     onProgress?.(1);
-    return new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" });
+    return {
+      blob: new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" }),
+      warnings: result.warnings,
+      pageCount: result.pageCount,
+    };
   } catch (error) {
     throw toPdfError(error);
   }
+}
+
+/** Igual que `removePdfPagesWithReport`, solo con el PDF. */
+export async function removePdfPages(
+  file: File,
+  plan: RemovePagesPlan,
+  onProgress?: ProgressCallback,
+): Promise<Blob> {
+  return (await removePdfPagesWithReport(file, plan, onProgress)).blob;
 }

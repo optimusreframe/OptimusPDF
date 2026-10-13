@@ -592,17 +592,37 @@ for (const viewport of AXE_VIEWPORTS) {
 test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)", () => {
   test.use({ locale: "es-ES", viewport: { width: 1280, height: 800 } });
 
+  /** Espera a que termine «Buscando campos…» (una linea transitoria que mueve la hoja) antes de medir. */
+  async function settleCanvas(page: Page): Promise<void> {
+    // (El texto tambien queda en la region viva unica de PDF Pro: se mira la propia linea, no el texto.)
+    await expect(page.locator("[data-detecting]")).toHaveCount(0);
+    await expect(page.locator('img[alt]:not([alt=""])').first()).toBeVisible();
+    let previous = -1;
+    await expect
+      .poll(async () => {
+        const top = await page.evaluate(() => document.querySelector('[data-canvas="host"]')!.getBoundingClientRect().top);
+        const settled = Math.abs(top - previous) < 0.5;
+        previous = top;
+        return settled;
+      })
+      .toBe(true);
+  }
+
   async function canvasLayout(page: Page) {
+    await settleCanvas(page);
     return page.evaluate(() => {
       const scroll = document.querySelector("[data-pro-mode-scroll]")!;
       const canvas = document.querySelector("[data-canvas-announcer]")!.parentElement!;
       const area = scroll.getBoundingClientRect();
       const box = canvas.getBoundingClientRect();
+      // La HOJA (el lienzo donde se coloca la firma), no solo el contenedor con sus barras: es lo que se ve de la pagina.
+      const stage = document.querySelector('[data-canvas="host"]')!.getBoundingClientRect();
       return {
         scrollTop: scroll.scrollTop,
         areaHeight: area.height,
         canvasTop: box.top - area.top,
         canvasVisible: Math.min(area.bottom, box.bottom) - Math.max(area.top, box.top),
+        stageVisible: Math.min(area.bottom, stage.bottom) - Math.max(area.top, stage.top),
         intro: document.querySelector("[data-canvas-intro]")?.className ?? "",
         warnings: document.querySelectorAll("[data-pro-mode-warnings] li").length,
       };
@@ -618,6 +638,8 @@ test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)
     expect(layout.scrollTop).toBe(0);
     expect(layout.canvasTop, "el lienzo empieza a la vista").toBeLessThan(layout.areaHeight / 3);
     expect(layout.canvasVisible, "alto visible del lienzo").toBeGreaterThanOrEqual(450);
+    // B1: y la HOJA misma (antes ~275 px con dos avisos): se ve con >= 450 px.
+    expect(layout.stageVisible, "alto visible de la hoja").toBeGreaterThanOrEqual(450);
     expect(layout.intro).toContain("sr-only");
     expect(await page.locator("[data-pro-mode-notes]").evaluate((node) => (node as HTMLDetailsElement).open)).toBe(false);
     await noHorizontalOverflow(page, "un aviso");
@@ -632,10 +654,96 @@ test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)
     expect(layout.scrollTop).toBe(0);
     expect(layout.areaHeight, "zona del modo").toBeGreaterThanOrEqual(450);
     expect(layout.canvasTop, "el lienzo empieza a la vista").toBeLessThan(layout.areaHeight / 3);
-    // Con el aviso general de la suite (~100 px) y los dos avisos propios, el lienzo se ve casi entero.
-    expect(layout.canvasVisible, "alto visible del lienzo").toBeGreaterThanOrEqual(390);
+    // B1: con el aviso general de la suite y los dos avisos propios el lienzo y la hoja se ven con >= 450 px
+    // (antes 390 y ~275: los dos avisos van plegados en UNA linea «2 avisos», en la fila de controles).
+    expect(layout.canvasVisible, "alto visible del lienzo").toBeGreaterThanOrEqual(450);
+    expect(layout.stageVisible, "alto visible de la hoja").toBeGreaterThanOrEqual(450);
+    await expect(page.getByRole("button", { name: SE.warningsCount(2), exact: true })).toBeVisible();
     await noHorizontalOverflow(page, "avisos");
     expect(await runAxe(page), "axe con dos avisos").toEqual([]);
+  });
+
+  test("con DOS avisos y el aviso general de la suite plegado (documento con cambios): la hoja sigue viendose con >= 450 px", async ({ page }) => {
+    await openProPdf(page, await buildSignedAndRestricted(), "avisos.pdf");
+    // Dos giros de 90° dejan la pagina como estaba (vertical) pero el documento con cambios: la firma digital se invalida
+    // y, con la copia sin contrasena, «Antes de guardar» tiene DOS avisos -> UNA linea.
+    const rotate = page.getByRole("button", { name: S.operations.rotateAll90, exact: true });
+    await rotate.click();
+    await expect(history(page).getByRole("listitem")).toHaveCount(2);
+    await rotate.click();
+    await expect(history(page).getByRole("listitem")).toHaveCount(3);
+    const banner = page.locator("[data-pro-warnings-fold]");
+    await expect(banner).toBeVisible();
+    await expect(banner.getByRole("button", { name: new RegExp(`${S.suite.warningsTitle}.*${S.suite.warningsCount(2)}`) })).toBeVisible();
+    await gotoTab(page, "sign");
+    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(page.getByRole("button", { name: SE.warningsCount(2), exact: true })).toBeVisible();
+    const layout = await canvasLayout(page);
+    expect(layout.scrollTop).toBe(0);
+    expect(layout.canvasVisible, "alto visible del lienzo").toBeGreaterThanOrEqual(450);
+    expect(layout.stageVisible, "alto visible de la hoja").toBeGreaterThanOrEqual(450);
+    await noHorizontalOverflow(page, "dos avisos y banner plegado");
+    expect(await runAxe(page), "axe con el banner plegado").toEqual([]);
+  });
+
+  test("los avisos plegados: texto completo al expandir, teclado (Intro y Escape con el foco en el boton) y NINGUNA region viva nueva", async ({ page }) => {
+    await openProPdf(page, await buildSignedAndRestricted(), "avisos.pdf");
+    await gotoTab(page, "sign");
+    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    const fold = page.getByRole("button", { name: SE.warningsCount(2), exact: true });
+    const panel = page.locator("[data-pro-mode-warnings-fold] [data-notice-fold-panel]");
+    await expect(fold).toHaveAttribute("aria-expanded", "false");
+    // Plegado: no se ve, pero el texto completo sigue para lectores de pantalla.
+    await expect(panel.locator("li")).toHaveCount(2);
+    expect(await panel.evaluate((node) => node.getBoundingClientRect().width)).toBeLessThanOrEqual(1);
+    await expect(panel).toContainText("firmas digitales");
+    await expect(panel).toContainText("contraseña");
+    await settleCanvas(page);
+    const liveBefore = await page.locator('[role="status"], [role="alert"], [aria-live]').allInnerTexts();
+    // Teclado: foco en el boton e Intro lo expande; el foco NO se mueve; Escape lo cierra y el foco sigue en el boton.
+    await fold.focus();
+    await page.keyboard.press("Enter");
+    await expect(fold).toHaveAttribute("aria-expanded", "true");
+    await expect(fold).toBeFocused();
+    expect(await panel.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(100);
+    await expect(panel.locator("li").nth(0)).toBeVisible();
+    await expect(panel.locator("li").nth(1)).toBeVisible();
+    expect(await runAxe(page), "axe con los avisos expandidos").toEqual([]);
+    await noHorizontalOverflow(page, "avisos expandidos");
+    await page.keyboard.press("Escape");
+    await expect(fold).toHaveAttribute("aria-expanded", "false");
+    await expect(fold).toBeFocused();
+    // Escape NO sale del modo (el pliegue se queda el evento): seguimos en Firmar.
+    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    // Ni abrir ni cerrar tocaron una region viva.
+    expect(await page.locator('[role="status"], [role="alert"], [aria-live]').allInnerTexts()).toEqual(liveBefore);
+    // Espacio tambien lo abre; un clic lo cierra.
+    await page.keyboard.press("Space");
+    await expect(fold).toHaveAttribute("aria-expanded", "true");
+    await fold.click();
+    await expect(fold).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("con UN aviso no hay pliegue: una linea con su texto, como siempre", async ({ page }) => {
+    await openProPdf(page, await buildDigitallySigned(), "firmado.pdf");
+    await gotoTab(page, "sign");
+    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(page.locator("[data-pro-mode-warnings-fold]")).toHaveCount(0);
+    await expect(page.locator("[data-pro-mode-warnings] li")).toHaveCount(1);
+  });
+
+  test("Rellenar con dos avisos del documento: tambien «2 avisos» plegado en la fila de controles", async ({ page }) => {
+    await openProPdf(page, await buildSignedAndRestricted(), "avisos.pdf");
+    await gotoTab(page, "sign");
+    await page.getByRole("tab", { name: SE.switchFill }).click();
+    const fold = page.getByRole("button", { name: SE.warningsCount(2), exact: true });
+    await expect(fold).toBeVisible();
+    await expect(page.locator("[data-pro-mode-warnings] li")).toHaveCount(2);
+    await fold.click();
+    await expect(fold).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("[data-pro-mode-warnings] li").nth(0)).toBeVisible();
+    await noHorizontalOverflow(page, "Rellenar con dos avisos");
+    expect(await runAxe(page), "axe en Rellenar con los avisos expandidos").toEqual([]);
   });
 
   test("Rellenar tambien arranca compacto: estado en una linea y una sola cifra de campos", async ({ page }) => {
@@ -687,5 +795,45 @@ test.describe("PDF Pro · modos Firmar y Rellenar · ingles", () => {
     await page.keyboard.press("Escape");
     await page.locator("[data-pro-mode-apply]").click();
     await expect(page.locator("[data-pro-mode-result]")).toContainText(getModeStrings("en").host.appliedTitle(ee.labelSigned));
+  });
+});
+
+test.describe("PDF Pro · Firmar · avisos plegados · movil 375×812", () => {
+  test.use({ locale: "es-ES", viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
+
+  test("dos avisos: una linea «2 avisos» expandible, sin desbordes; la tarjeta de la firma y el lienzo siguen como siempre", async ({ page }) => {
+    await openProPdf(page, await buildSignedAndRestricted(), "avisos.pdf");
+    await gotoTab(page, "sign");
+    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    const fold = page.getByRole("button", { name: SE.warningsCount(2), exact: true });
+    await expect(fold).toBeVisible();
+    const target = await fold.boundingBox();
+    expect(target!.height, "objetivo tactil").toBeGreaterThanOrEqual(44);
+    await noHorizontalOverflow(page, "movil, plegado");
+    // En movil NO se junta la barra: el dueno de la firma sigue en su tarjeta y los contadores encima de la hoja.
+    await expect(page.locator("[data-canvas-controls]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: SG.createSignature }).first()).toBeVisible();
+    const order = await page.evaluate(() => {
+      const host = document.querySelector('[data-canvas="host"]')!;
+      const row = document.querySelector("[data-canvas-status-row]")!;
+      return host.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_PRECEDING ? "antes" : "despues";
+    });
+    expect(order).toBe("antes");
+    // Expandir: el texto completo de los dos, dentro del ancho del telefono.
+    await fold.tap();
+    await expect(fold).toHaveAttribute("aria-expanded", "true");
+    const items = page.locator("[data-pro-mode-warnings] li");
+    await expect(items.nth(0)).toBeVisible();
+    await expect(items.nth(1)).toBeVisible();
+    await expect(items.nth(0)).toContainText("firmas digitales");
+    await expect(items.nth(1)).toContainText("contraseña");
+    const box = await page.locator("[data-notice-fold-panel]").boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+    await noHorizontalOverflow(page, "movil, expandido");
+    expect(await runAxe(page), "axe en movil con los avisos expandidos").toEqual([]);
+    await fold.tap();
+    await expect(fold).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
   });
 });

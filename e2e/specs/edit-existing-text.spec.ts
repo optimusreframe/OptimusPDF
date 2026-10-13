@@ -209,6 +209,49 @@ test.describe("edit-pdf: edicion del texto existente", () => {
     expect(errors).toEqual([]);
   });
 
+  test("texto con …, ™, ½ y • en fuentes estandar sin ToUnicode: se elimina de verdad, sin el aviso de «no se pudo eliminar»", async ({ page }) => {
+    // Ronda 3 de F2: antes estos bloques daban «No se pudo eliminar» aunque se hubieran encontrado todos sus glifos.
+    const doc = await PDFDocument.create();
+    const helv = await doc.embedFont(StandardFonts.Helvetica);
+    const times = await doc.embedFont(StandardFonts.TimesRoman);
+    const sheet = doc.addPage([595, 842]);
+    sheet.drawText("Oferta limitada… marca™ 1½ tazas", { x: 50, y: 700, size: 14, font: helv });
+    sheet.drawText("Viñeta • item — “comillas” € 3¾", { x: 50, y: 640, size: 14, font: times });
+    sheet.drawText("Pie de pagina intacto", { x: 50, y: 100, size: 11, font: helv });
+    await page.goto("/edit-pdf");
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: "simbolos.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from(await doc.save()),
+    });
+    await expect(page.locator('[data-render-state="ready"]')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-element-kind="text"]').first()).toBeVisible({ timeout: 30_000 });
+    for (const [name, replacement] of [
+      [/^Texto: Oferta limitada/, "Oferta nueva"],
+      [/^Texto: Viñeta/, "Item nuevo"],
+    ] as const) {
+      const target = page.getByRole("button", { name });
+      await target.scrollIntoViewIfNeeded();
+      await target.dblclick();
+      await page.keyboard.press("ControlOrMeta+A");
+      await page.keyboard.type(replacement);
+      await page.keyboard.press("Escape");
+      await expectFocusNotOnBody(page, `tras editar ${replacement}`);
+    }
+    await page.getByRole("button", { name: "Procesar" }).first().click();
+    await expect(page.getByRole("button", { name: "Descargar" })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(/El texto original de 2 textos editados se eliminó del PDF/)).toBeVisible();
+    await expect(page.getByText(/No se pudo eliminar del PDF/)).toHaveCount(0);
+    const bytes = await downloadBytes(page, async () => {
+      await page.getByRole("button", { name: "Descargar" }).click();
+    });
+    const text = await getPageText(bytes, 1);
+    for (const gone of ["Oferta limitada", "marca", "tazas", "Viñeta", "comillas", "item"]) expect(text).not.toContain(gone);
+    expect(text).toContain("Oferta nueva");
+    expect(text).toContain("Item nuevo");
+    expect(text).toContain("Pie de pagina intacto");
+  });
+
   test("una pagina sin texto avisa de que parece un escaneo y deja anadir texto", async ({ page }) => {
     await page.goto("/edit-pdf");
     const blank = await PDFDocument.create();

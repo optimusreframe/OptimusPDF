@@ -30,6 +30,7 @@ import {
   fileKey,
   usePageThumbnails,
 } from "@/app/organize-pdf/pageToolkit";
+import { pageNotices } from "@/app/organize-pdf/pageNotices";
 import { getSplitStrings, type SplitStrings } from "@/app/split-pdf/strings";
 
 const TOOL = getTool("split-pdf");
@@ -124,9 +125,10 @@ export function SplitToolClient() {
           strings.filenameSuffix,
           output.kind === "zip" ? "zip" : "pdf",
         ),
+        notices: pageNotices(language, output.warnings),
       };
     },
-    [strings],
+    [strings, language],
   );
 
   return (

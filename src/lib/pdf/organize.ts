@@ -6,7 +6,7 @@ import {
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { applyPageAssembly, type PageEntry } from "@/lib/pdf/pageAssembly";
+import { applyPageAssembly, type PageEntry, type PageToolResult } from "@/lib/pdf/pageAssembly";
 
 /**
  * Motor de organizacion de paginas: orden, rotacion, eliminacion e
@@ -82,11 +82,15 @@ export function organizePlanToEntries(plan: OrganizePage[], source: PDFDocument)
   });
 }
 
-export async function organizePdf(
+/**
+ * Aplica el plan y devuelve el PDF con lo que no se pudo conservar en `warnings` (marcadores o enlaces
+ * hacia paginas quitadas, firmas que dejan de ser validas, etiquetas de accesibilidad de duplicados...).
+ */
+export async function organizePdfWithReport(
   file: File,
   pages: OrganizePage[],
   onProgress?: ProgressCallback,
-): Promise<Blob> {
+): Promise<PageToolResult> {
   try {
     const source = await loadPdf(file);
     onProgress?.(0.2);
@@ -124,8 +128,21 @@ export async function organizePdf(
       onProgress: (value) => onProgress?.(scaleProgress(value, 0.2, 1)),
     });
     onProgress?.(1);
-    return new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" });
+    return {
+      blob: new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" }),
+      warnings: result.warnings,
+      pageCount: result.pageCount,
+    };
   } catch (error) {
     throw toPdfError(error);
   }
+}
+
+/** Igual que `organizePdfWithReport`, solo con el PDF. */
+export async function organizePdf(
+  file: File,
+  pages: OrganizePage[],
+  onProgress?: ProgressCallback,
+): Promise<Blob> {
+  return (await organizePdfWithReport(file, pages, onProgress)).blob;
 }

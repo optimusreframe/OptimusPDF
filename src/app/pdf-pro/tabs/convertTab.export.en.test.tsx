@@ -1,6 +1,7 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, within } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
+import { getExportStore } from "@/app/pdf-pro/export/exportStore";
 import { PRO_STRINGS } from "@/app/pdf-pro/proStrings";
 import { ConvertTab } from "@/app/pdf-pro/tabs/ConvertTab";
 import { mountTab } from "@/app/pdf-pro/tabs/docTestUtils";
@@ -12,6 +13,9 @@ vi.mock("@/lib/pdf/core", async (importOriginal) => {
   return { ...actual, downloadBlob: vi.fn() };
 });
 
+const runner = vi.hoisted(() => ({ run: vi.fn() }));
+vi.mock("@/app/pdf-pro/export/exportRunners", () => ({ runExportFormat: runner.run }));
+
 const E = PRO_STRINGS.en.export;
 
 beforeAll(() => {
@@ -19,6 +23,10 @@ beforeAll(() => {
 });
 afterAll(() => {
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
+});
+beforeEach(() => {
+  runner.run.mockReset();
+  runner.run.mockImplementation(async (id: string) => ({ blob: new Blob([id]), filename: `salida-${id}.bin` }));
 });
 afterEach(() => cleanup());
 
@@ -50,12 +58,25 @@ describe("Convertir en ingles", () => {
   });
 });
 
-describe("Convertir · salir con una exportacion en curso (Wave 8 · backlog a)", () => {
-  it("desmontar la pestaña con una exportacion en marcha la cancela y lo AVISA en la region viva", async () => {
+describe("Convertir · exportacion persistente (Wave 9)", () => {
+  it("desmontar la pestaña con una exportacion en marcha NO la cancela ni dice que se cancelo", async () => {
     const { doc, unmount } = await mountTab(<ConvertTab />);
     fireEvent.click(within(card("text")).getByRole("button", { name: E.formats.text.title }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     unmount();
-    expect(doc.getState().announcement?.text).toBe(E.card.cancelledOnLeave);
+    expect(getExportStore(doc).getState().job?.phase === "running" || getExportStore(doc).getState().job?.phase === "done").toBe(true);
+    expect(doc.getState().announcement?.text).not.toBe(E.card.cancelled);
+  });
+
+  it("el resultado, la version y el aviso de otra exportacion en curso hablan ingles", async () => {
+    let finish!: (value: { blob: Blob; filename: string }) => void;
+    runner.run.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    await mountTab(<ConvertTab />);
+    fireEvent.click(within(card("json")).getByRole("button", { name: E.formats.json.title }));
+    await within(card("json")).findByRole("progressbar");
+    expect(within(card("json")).getByText(E.card.runningFrom("Original"))).toBeTruthy();
+    expect(within(card("text")).getByText(E.card.inProgressOther(E.formatsShort.json))).toBeTruthy();
+    await act(async () => finish({ blob: new Blob(["j"]), filename: "report-json.json" }));
+    expect(within(card("json")).getByText(E.card.result("report-json.json", "Original"))).toBeTruthy();
   });
 });

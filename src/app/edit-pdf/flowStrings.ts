@@ -1,4 +1,5 @@
 import type { Language } from "@/lib/i18n";
+import type { OriginalTextRemainsReason } from "@/lib/pdf/editTypes";
 
 /**
  * Copy del flujo completo de Editar PDF (Wave 5 · U5): avisos al abrir el
@@ -104,6 +105,11 @@ export type EditFlowStrings = {
   noticeRemains: (count: number) => string;
   /** (Wave 8 · F2) El texto original de N textos editados se elimino de verdad del PDF. */
   noticeRemoved: (count: number) => string;
+  /**
+   * (B1) Por que el texto original de UN bloque no se pudo quitar, en una frase y en lenguaje llano. Un motivo
+   * desconocido (o ausente) da una frase generica. Lo comparten Editar PDF y Firmar.
+   */
+  remainsReason: (reason: OriginalTextRemainsReason | undefined) => string;
   noticeBackground: (count: number) => string;
   noticeMixed: (count: number) => string;
   noticeOverlap: (count: number) => string;
@@ -135,6 +141,35 @@ function enDrops(forms: boolean, outlines: boolean): string {
 function esCount(count: number, one: string, many: string): string {
   return count === 1 ? `1 ${one}` : `${count} ${many}`;
 }
+
+/** (B1) Motivo, en llano, por el que el texto original de un bloque editado no se pudo quitar del PDF. */
+const ES_REMAINS_REASON: Record<OriginalTextRemainsReason | "unknown", string> = {
+  type3: "Está escrito con un tipo de letra especial (Type 3) que no se puede reescribir.",
+  vertical: "Está escrito en vertical, algo que no se puede reescribir con seguridad.",
+  encoding: "Su tipo de letra usa una codificación poco común que no se puede interpretar.",
+  widths: "Su tipo de letra no trae las medidas necesarias para quitarlo sin descolocar el resto.",
+  invisible: "Es texto invisible (por ejemplo, la capa de reconocimiento de un escaneado) y no se toca.",
+  clip: "Se usa como máscara de recorte de la página y quitarlo la estropearía.",
+  "shared-xobject": "Forma parte de un contenido que comparten otras páginas, y quitarlo lo cambiaría también en ellas.",
+  unreadable: "El contenido de la página está codificado de una forma que no se pudo leer.",
+  "not-found": "No se encontró dentro del contenido de la página (puede ser una anotación o un campo de formulario).",
+  ambiguous: "Se solapa con otro texto y no se pudo separar de él con seguridad.",
+  unknown: "No se pudo quitar y no se pudo precisar el motivo.",
+};
+
+const EN_REMAINS_REASON: Record<OriginalTextRemainsReason | "unknown", string> = {
+  type3: "It is set in a special font type (Type 3) that can't be rewritten.",
+  vertical: "It is set vertically, which can't be rewritten safely.",
+  encoding: "Its font uses an uncommon encoding that can't be interpreted.",
+  widths: "Its font lacks the measurements needed to remove it without shifting the rest.",
+  invisible: "It is invisible text (for example, the recognition layer of a scan) and is left alone.",
+  clip: "It is used as a clipping mask of the page and removing it would break the page.",
+  "shared-xobject": "It is part of content shared with other pages, and removing it would change it there too.",
+  unreadable: "The page content is encoded in a way that could not be read.",
+  "not-found": "It was not found in the page content (it may be an annotation or a form field).",
+  ambiguous: "It overlaps another text and could not be told apart from it safely.",
+  unknown: "It could not be removed and the reason could not be determined.",
+};
 
 const es: EditFlowStrings = {
   checking: "Comprobando el documento…",
@@ -250,6 +285,7 @@ const es: EditFlowStrings = {
     count === 1
       ? "El texto original de 1 texto editado se eliminó del PDF: ya no se puede seleccionar, copiar ni buscar."
       : `El texto original de ${count} textos editados se eliminó del PDF: ya no se puede seleccionar, copiar ni buscar.`,
+  remainsReason: (reason) => ES_REMAINS_REASON[reason ?? "unknown"] ?? ES_REMAINS_REASON.unknown,
   noticeBackground: (count) =>
     count === 1
       ? "1 texto está sobre un fondo que no es de un solo color: puede verse un borde alrededor."
@@ -394,6 +430,7 @@ const en: EditFlowStrings = {
     count === 1
       ? "The original text of 1 edited text was removed from the PDF: it can no longer be selected, copied or searched."
       : `The original text of ${count} edited texts was removed from the PDF: it can no longer be selected, copied or searched.`,
+  remainsReason: (reason) => EN_REMAINS_REASON[reason ?? "unknown"] ?? EN_REMAINS_REASON.unknown,
   noticeBackground: (count) =>
     count === 1
       ? "1 text sits on a background that isn't a single colour: an outline may show around it."

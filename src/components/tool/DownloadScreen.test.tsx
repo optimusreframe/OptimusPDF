@@ -25,7 +25,11 @@ function UseLanguage({ language }: { language: Language }) {
   return null;
 }
 
-function renderScreen(report?: BatchReport, language: Language = "es") {
+function renderScreen(
+  report?: BatchReport,
+  language: Language = "es",
+  extra: { summary?: string; notices?: { title: string; items: string[] } } = {},
+) {
   return render(
     <LanguageProvider>
       <UseLanguage language={language} />
@@ -36,6 +40,7 @@ function renderScreen(report?: BatchReport, language: Language = "es") {
         onDownload={vi.fn()}
         onStartOver={vi.fn()}
         report={report}
+        {...extra}
       />
     </LanguageProvider>,
   );
@@ -111,5 +116,88 @@ describe("DownloadScreen — informe de fallos parciales", () => {
     expect(within(status).getAllByRole("listitem")[0].textContent).toMatch(
       /^Contrato B\.pdf \(/,
     );
+  });
+});
+
+describe("DownloadScreen — resumen y avisos (B1)", () => {
+  const NOTICES = {
+    title: "Sobre el texto editado",
+    items: ["Página 1, «Total»: el original sigue bajo la edición.", "Para quitarlo del todo, aplana la página."],
+  };
+
+  /** Texto que un lector de pantalla leeria de los elementos a los que apunta `aria-describedby`. */
+  function described(button: HTMLElement): string {
+    return (button.getAttribute("aria-describedby") ?? "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+  }
+
+  it("el boton Descargar se describe por el resumen, el titulo de los avisos y CADA aviso, una sola vez (nunca por el grupo ni por la lista que los contienen)", () => {
+    renderScreen(undefined, "es", { summary: "1 texto editado: no se pudo quitar el original.", notices: NOTICES });
+    const button = screen.getByRole("button", { name: "Descargar" });
+    const group = document.querySelector<HTMLElement>("[data-download-notices]")!;
+    const list = group.querySelector("ul")!;
+    const ids = (button.getAttribute("aria-describedby") ?? "").split(/\s+/);
+    // Chromium describe un elemento referenciado con TODO su contenido: el grupo o la lista duplicarian lo que ya dicen sus partes.
+    expect(ids).not.toContain(group.id);
+    expect(ids).not.toContain(list.id);
+    const titleId = group.getAttribute("aria-labelledby")!;
+    expect(ids).toContain(titleId);
+    const listItems = Array.from(list.querySelectorAll("li"));
+    for (const li of listItems) expect(ids).toContain(li.id);
+    expect(ids).toHaveLength(1 + 1 + NOTICES.items.length);
+    // Ningun elemento referenciado contiene a otro referenciado: la descripcion no repite nada.
+    const elements = ids.map((id) => document.getElementById(id)!);
+    for (const outer of elements) {
+      for (const inner of elements) {
+        if (outer !== inner) expect(outer.contains(inner), `${outer.id} contiene a ${inner.id}`).toBe(false);
+      }
+    }
+    const text = described(button);
+    expect(text).toContain("1 texto editado: no se pudo quitar el original.");
+    expect(text).toContain("Sobre el texto editado");
+    for (const item of NOTICES.items) expect(text).toContain(item);
+    // Cada texto sale UNA vez en la descripcion.
+    const occurrences = (needle: string) => text.split(needle).length - 1;
+    for (const piece of ["1 texto editado: no se pudo quitar el original.", "Sobre el texto editado", ...NOTICES.items]) {
+      expect(occurrences(piece), piece).toBe(1);
+    }
+    // Cada referencia existe: ninguna descripcion cuelga de un id inexistente.
+    for (const id of ids) expect(document.getElementById(id), id).not.toBeNull();
+  });
+
+  it("solo resumen: lo describe y no hay grupo de avisos", () => {
+    renderScreen(undefined, "es", { summary: "2 textos editados: el original se eliminó del archivo." });
+    const button = screen.getByRole("button", { name: "Descargar" });
+    expect(described(button)).toBe("2 textos editados: el original se eliminó del archivo.");
+    expect(document.querySelector("[data-download-notices]")).toBeNull();
+  });
+
+  it("ni el resumen ni los avisos son una region viva (los lee la descripcion del boton)", () => {
+    renderScreen(undefined, "es", { summary: "x", notices: NOTICES });
+    for (const element of [document.querySelector("[data-download-summary]")!, document.querySelector("[data-download-notices]")!]) {
+      expect(element.closest('[role="status"], [role="alert"], [aria-live]')).toBeNull();
+    }
+  });
+
+  it("el grupo de avisos conserva su nombre accesible (el titulo) y la lista tiene id propio", () => {
+    renderScreen(undefined, "es", { notices: NOTICES });
+    const group = document.querySelector<HTMLElement>("[data-download-notices]")!;
+    expect(group.getAttribute("role")).toBe("group");
+    expect(document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent).toBe("Sobre el texto editado");
+    expect(group.querySelector("ul")!.id).not.toBe("");
+  });
+
+  it("con fallos parciales Y avisos, la descripcion junta resumen, avisos e informe", () => {
+    renderScreen(PARTIAL, "es", { summary: "Resumen.", notices: NOTICES });
+    const button = screen.getByRole("button", { name: "Descargar" });
+    const ids = (button.getAttribute("aria-describedby") ?? "").split(/\s+/);
+    // Resumen, titulo de los avisos, sus dos avisos y el informe de fallos.
+    expect(ids).toHaveLength(5);
+    const text = described(button);
+    expect(text.indexOf("Resumen.")).toBeLessThan(text.indexOf("Sobre el texto editado"));
+    expect(text.indexOf("Sobre el texto editado")).toBeLessThan(text.indexOf("Contrato B.pdf"));
   });
 });

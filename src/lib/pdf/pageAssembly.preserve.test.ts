@@ -10,6 +10,7 @@ import {
   makeRichPdf,
   marker,
 } from "@/lib/pdf/testing/pageAssemblyFixtures";
+import { pdfjsPageLabels } from "@/lib/pdf/testing/pdfjsInspect";
 import {
   legacyMergePdfFiles,
   legacyOrganizePdf,
@@ -405,17 +406,20 @@ describe("conservacion en sitio: etiquetas de pagina y PDF etiquetado", () => {
     expect((await inspectPdf((await applyPageAssembly(bytes, plan)).bytes)).hasPageLabels).toBe(true);
   });
 
-  it("reordenar quita las etiquetas de pagina (ya no coincidirian) y avisa", async () => {
+  it("reordenar RECALCULA las etiquetas: cada pagina conserva la suya y no se avisa de nada", async () => {
     const bytes = await makeRichPdf({ pages: 4, pageLabels: true });
     const result = await applyPageAssembly(bytes, [existing(1), existing(0), existing(2), existing(3)]);
-    expect((await inspectPdf(result.bytes)).hasPageLabels).toBe(false);
-    expect(result.warnings).toContainEqual({ code: "pageLabelsRemoved", count: 1 });
+    expect((await inspectPdf(result.bytes)).hasPageLabels).toBe(true);
+    expect(await pdfjsPageLabels(result.bytes)).toEqual(["ii", "i", "1", "2"]);
+    expect(result.warnings).toEqual([]);
   });
 
-  it("insertar en medio quita las etiquetas y avisa", async () => {
+  it("insertar una pagina en medio conserva las etiquetas de las demas (la nueva no lleva numero)", async () => {
     const bytes = await makeRichPdf({ pages: 3, pageLabels: true });
     const plan: PageEntry[] = [existing(0), { kind: "blank", width: 10, height: 10, rotation: 0 }, existing(1), existing(2)];
-    expect((await applyPageAssembly(bytes, plan)).warnings.map((w) => w.code)).toContain("pageLabelsRemoved");
+    const result = await applyPageAssembly(bytes, plan);
+    expect(result.warnings.map((w) => w.code)).not.toContain("pageLabelsRemoved");
+    expect(await pdfjsPageLabels(result.bytes)).toEqual(["i", "", "ii", "1"]);
   });
 
   it("un documento sin etiquetas no avisa de que las quita", async () => {
@@ -430,13 +434,13 @@ describe("conservacion en sitio: etiquetas de pagina y PDF etiquetado", () => {
     expect((await inspectPdf(result.bytes)).hasStructTree).toBe(true);
   });
 
-  it("un PDF etiquetado al que se eliminan paginas pierde la estructura (y avisa), para no arrastrar las paginas quitadas", async () => {
+  it("un PDF etiquetado al que se eliminan paginas conserva la estructura PODADA a las que quedan, sin arrastrar las quitadas", async () => {
     const bytes = await makeRichPdf({ pages: 4, tagged: true });
     const result = await applyPageAssembly(bytes, [existing(0), existing(1)]);
     const out = await inspectPdf(result.bytes);
-    expect(out.hasStructTree).toBe(false);
+    expect(out.hasStructTree).toBe(true);
     expect(out.pageObjects).toBe(2);
-    expect(result.warnings).toContainEqual({ code: "structureRemoved", count: 1 });
+    expect(result.warnings.map((w) => w.code)).not.toContain("structureRemoved");
   });
 });
 

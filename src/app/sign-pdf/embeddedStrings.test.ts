@@ -97,16 +97,36 @@ describe("withEmbeddedWording", () => {
     const changed = Object.keys(base).filter(
       (key) => (embedded as Record<string, unknown>)[key] !== (base as Record<string, unknown>)[key],
     );
-    expect(changed.sort()).toEqual(["applyAndDownload", "finishAndDownload", "modeSingleHint"]);
+    // B1: la nota del texto editado y la salida recomendada hablan de «firmar» y de «el archivo descargado»; dentro de
+    // PDF Pro se «aplica» y la salida es la pestana Editar.
+    expect(changed.sort()).toEqual([
+      "applyAndDownload",
+      "editRemainsAdvice",
+      "editTextNote",
+      "finishAndDownload",
+      "modeSingleHint",
+    ]);
   });
 
   it("ningun texto cambiado menciona descargar", () => {
     for (const language of ["es", "en"] as const) {
       const embedded = withEmbeddedWording(language);
-      for (const key of ["applyAndDownload", "finishAndDownload", "modeSingleHint"] as const) {
+      for (const key of ["applyAndDownload", "finishAndDownload", "modeSingleHint", "editTextNote"] as const) {
         expect(embedded[key]).not.toMatch(/descarg|download/i);
       }
+      expect(embedded.editRemainsAdvice("X")).not.toMatch(/descarg|download/i);
     }
+  });
+
+  it("la nota y la salida del texto editado, dentro de PDF Pro, apuntan a la pestana Editar y no a Editar PDF", () => {
+    const es = withEmbeddedWording("es");
+    expect(es.editTextNote).toMatch(/se elimina del archivo/);
+    expect(es.editTextNote).toMatch(/pestaña Editar/);
+    expect(es.editRemainsAdvice("Aplanar página")).toMatch(/pestaña Editar de PDF Pro y usa «Aplanar página»/);
+    const en = withEmbeddedWording("en");
+    expect(en.editTextNote).toMatch(/is removed from the file/);
+    expect(en.editTextNote).toMatch(/Edit tab/);
+    expect(en.editRemainsAdvice("Flatten page")).toMatch(/Edit tab of PDF Pro and use “Flatten page”/);
   });
 });
 

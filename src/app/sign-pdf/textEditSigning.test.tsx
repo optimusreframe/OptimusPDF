@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
+import { PDFDocument, PDFName, StandardFonts } from "@cantoo/pdf-lib";
 import { makeEdit } from "@/app/edit-pdf/editTestUtils";
 import {
+  documentResult,
   isEditOnlyJob,
   prepareDocumentJob,
   runDocumentJob,
+  runDocumentJobDetailed,
   signDocumentsBatch,
   type SignToolOptions,
 } from "@/app/sign-pdf/SignToolClient";
@@ -357,5 +359,213 @@ describe("nombre del archivo: «-editado» si no se estampo ninguna firma", () =
     const JSZip = (await import("jszip")).default;
     const zip = await JSZip.loadAsync(await result.blob.arrayBuffer());
     expect(Object.keys(zip.files).sort()).toEqual(["a-firmado.pdf", "b-editado.pdf"]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * B1: lo que paso con el texto ORIGINAL llega a la pantalla de resultado
+ * ------------------------------------------------------------------ */
+
+/** Reemplazo de un BLOQUE del PDF (no texto propio): el original esta en (50, 250) con cuerpo 12. */
+const BLOCK = (text: string, over: Partial<TextEdit> = {}): TextEdit =>
+  makeEdit({
+    id: `b-${text}`,
+    blockId: "p0-b0",
+    text,
+    box: { x: 48, y: 247, width: 120, height: 16 },
+    coverBox: { x: 48, y: 247, width: 120, height: 16 },
+    cover: { color: "#ffffff", padding: 1 },
+    ...over,
+  });
+
+/** Dos paginas que comparten el MISMO Form XObject con el texto: F2 no puede quitarlo (shared-xobject). */
+async function sharedXObjectFile(name: string): Promise<File> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const xobject = doc.context.register(
+    doc.context.stream("BT /F1 12 Tf 0 0 Td (Original) Tj ET", {
+      Type: "XObject",
+      Subtype: "Form",
+      BBox: [0, -10, 300, 30],
+      Matrix: [1, 0, 0, 1, 50, 250],
+      Resources: { Font: { F1: font.ref } },
+    }),
+  );
+  for (let index = 0; index < 2; index += 1) {
+    const page = doc.addPage([400, 300]);
+    page.node.setXObject(PDFName.of("Fx"), xobject);
+    page.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream("q /Fx Do Q")));
+  }
+  return new File([(await doc.save()) as BlobPart], name, { type: "application/pdf" });
+}
+
+describe("runDocumentJobDetailed — el informe del texto editado", () => {
+  it("un texto quitable: informe con el original eliminado, y el PDF final sin el original ni la firma perdida", async () => {
+    const file = await pdfWith("Original");
+    const session = soloSession(file, { textEdits: [BLOCK("Cambiado")] });
+    const job = await prepareDocumentJob(docIdOf(file), file, session, CONTEXT);
+    const { blob, edits } = await runDocumentJobDetailed(job);
+    expect(edits).toMatchObject({ replaced: 1, removed: 1, remains: [] });
+    const result = await inspect(blob);
+    expect(result.text).toContain("Cambiado");
+    expect(result.text).not.toContain("Original");
+    expect(result.images).toHaveLength(1);
+  });
+
+  it("un texto que NO se puede quitar: el informe lleva el motivo y el archivo sigue siendo valido", async () => {
+    const file = await sharedXObjectFile("compartido.pdf");
+    const session = soloSession(file, { textEdits: [BLOCK("Importe nuevo")] });
+    const job = await prepareDocumentJob(docIdOf(file), file, session, CONTEXT);
+    const { blob, edits } = await runDocumentJobDetailed(job);
+    expect(edits?.removed).toBe(0);
+    expect(edits?.remains).toEqual([
+      { editId: "b-Importe nuevo", pageIndex: 0, excerpt: "Importe nuevo", reason: "shared-xobject" },
+    ]);
+    expect((await inspect(blob)).text).toContain("Importe nuevo");
+  });
+
+  it("sin ediciones de texto no hay informe (y runDocumentJob sigue devolviendo solo el Blob)", async () => {
+    const file = await pdfWith("Original");
+    const job = await prepareDocumentJob(docIdOf(file), file, soloSession(file, {}), CONTEXT);
+    expect((await runDocumentJobDetailed(job)).edits).toBeNull();
+    expect(await runDocumentJob(job)).toBeInstanceOf(Blob);
+  });
+
+  it("solo ediciones (sin firma estampada) tambien lleva informe", async () => {
+    const file = await pdfWith("Original");
+    const session = soloSession(file, { rect: { x: 0, y: 0, width: 0, height: 0 }, textEdits: [BLOCK("Solo edicion")] });
+    const job = await prepareDocumentJob(docIdOf(file), file, session, CONTEXT);
+    expect((await runDocumentJobDetailed(job)).edits).toMatchObject({ replaced: 1, removed: 1 });
+  });
+});
+
+describe("documentResult — la pantalla de resultado de UN documento", () => {
+  const blob = new Blob(["x"], { type: "application/pdf" });
+  const FILE = new File(["x"], "Contrato.pdf", { type: "application/pdf" });
+  const report = (remains: number) => ({
+    replaced: 2,
+    added: 0,
+    removed: 2 - remains,
+    remains: Array.from({ length: remains }, (_, index) => ({
+      editId: `e${index}`,
+      pageIndex: index,
+      excerpt: `Texto ${index + 1}`,
+      reason: "type3" as const,
+    })),
+    warnings: {
+      fontSubstituted: 0,
+      glyphMissing: 0,
+      originalRemains: 0,
+      originalRemoved: 0,
+      backgroundNotUniform: 0,
+      overlap: 0,
+      mixedStyle: 0,
+      coverOverlaps: 0,
+      flattenDrops: null,
+      skipped: 0,
+    },
+  });
+
+  it("sin ediciones: el resultado de siempre (nombre y blob; ni resumen ni avisos)", () => {
+    const result = documentResult({ blob, edits: null, file: FILE, editedOnly: false, prefix: null, language: "es", strings });
+    expect(result).toEqual({ blob, filename: "Contrato-firmado.pdf" });
+    expect("summary" in result).toBe(false);
+    expect("notices" in result).toBe(false);
+  });
+
+  it("todo quitado: resumen «N textos editados: el original se elimino del archivo» y sin avisos", () => {
+    const result = documentResult({ blob, edits: report(0), file: FILE, editedOnly: false, prefix: null, language: "es", strings });
+    expect(result.summary).toBe("2 textos editados: el original se eliminó del archivo.");
+    expect(result.notices).toBeUndefined();
+    expect(result.filename).toBe("Contrato-firmado.pdf");
+  });
+
+  it("con uno que permanece: aviso por bloque con el motivo y la salida; en ingles tambien", () => {
+    const es = documentResult({ blob, edits: report(1), file: FILE, editedOnly: true, prefix: null, language: "es", strings });
+    expect(es.filename).toBe("Contrato-editado.pdf");
+    expect(es.summary).toBe(
+      "2 textos editados: el original se eliminó de 1 y no se pudo quitar de 1 (más abajo, por qué).",
+    );
+    expect(es.notices?.title).toBe("Sobre el texto editado");
+    expect(es.notices?.items[0]).toMatch(/^Página 1, «Texto 1»: el original sigue bajo la edición\. .*Type 3/);
+    expect(es.notices?.items[1]).toMatch(/«Aplanar página»/);
+    const en = documentResult({ blob, edits: report(1), file: FILE, editedOnly: false, prefix: null, language: "en", strings: SIGN_STRINGS.en });
+    expect(en.summary).toMatch(/^2 texts edited: the original was removed from 1/);
+    expect(en.notices?.items[0]).toMatch(/^Page 1, “Texto 1”: the original is still under the edit\./);
+  });
+
+  it("el prefijo de los firmantes sigue delante del nombre", () => {
+    const result = documentResult({ blob, edits: report(0), file: FILE, editedOnly: false, prefix: "Ana", language: "es", strings });
+    expect(result.filename).toBe("Ana_Contrato-firmado.pdf");
+  });
+});
+
+describe("entrega conjunta (ZIP): el resumen cuenta todos los documentos", () => {
+  async function sessionFor(files: File[], edits: Record<string, TextEdit[]>): Promise<SignSession> {
+    const ids = files.map((file) => docIdOf(file));
+    let session: SignSession = { ...DEFAULT_SESSION, mode: "single", signaturePng: PNG_URL, ratio: 0.5, docOrder: ids, activeDocId: ids[0] };
+    const rect = { x: 0.2, y: 0.6, width: 0.3, height: 0.15 };
+    files.forEach((file, index) => {
+      session = {
+        ...session,
+        ...applyViewPatch(session, ids[index], { textEdits: edits[file.name], rect, pageIndex: 0 }, ids),
+      };
+    });
+    return session;
+  }
+
+  it("un documento limpio y otro con el original compartido: «de 1 y no se pudo quitar de 1», con el nombre del documento", async () => {
+    const a = await pdfWith("Uno", "a.pdf");
+    const b = await sharedXObjectFile("b.pdf");
+    const session = await sessionFor([a, b], {
+      "a.pdf": [BLOCK("Edicion A")],
+      "b.pdf": [BLOCK("Edicion B", { id: "b2" })],
+    });
+    const result = await signDocumentsBatch({ files: [a, b], session, onProgress: () => {}, context: CONTEXT });
+    expect(result.summary).toBe(
+      "2 textos editados en 2 documentos: el original se eliminó de 1 y no se pudo quitar de 1 (más abajo, por qué).",
+    );
+    expect(result.notices?.title).toBe("Sobre el texto editado");
+    expect(result.notices?.items[0]).toMatch(/^b\.pdf, página 1, «Edicion B»: el original sigue bajo la edición\./);
+    expect(result.notices?.items.at(-1)).toMatch(/«Aplanar página»/);
+    // El ZIP sigue siendo el de siempre.
+    expect(result.report!.ok.map((item) => item.name)).toEqual(["a.pdf", "b.pdf"]);
+    expect(result.report!.failed).toEqual([]);
+  });
+
+  it("todo quitado en los dos: solo resumen, sin lista de avisos", async () => {
+    const a = await pdfWith("Uno", "a.pdf");
+    const b = await pdfWith("Dos", "b.pdf");
+    const session = await sessionFor([a, b], { "a.pdf": [BLOCK("Edicion A")], "b.pdf": [BLOCK("Edicion B")] });
+    const result = await signDocumentsBatch({ files: [a, b], session, onProgress: () => {}, context: CONTEXT });
+    expect(result.summary).toBe("2 textos editados en 2 documentos: el original se eliminó de los archivos.");
+    expect(result.notices).toBeUndefined();
+  });
+
+  it("sin ediciones en ningun documento: el resultado de siempre, sin resumen ni avisos", async () => {
+    const a = await pdfWith("Uno", "a.pdf");
+    const b = await pdfWith("Dos", "b.pdf");
+    const session = await sessionFor([a, b], { "a.pdf": [], "b.pdf": [] });
+    const result = await signDocumentsBatch({ files: [a, b], session, onProgress: () => {}, context: CONTEXT });
+    expect("summary" in result).toBe(false);
+    expect("notices" in result).toBe(false);
+  });
+
+  it("el nombre del documento va aunque solo uno del ZIP traiga ediciones", async () => {
+    const a = await pdfWith("Uno", "a.pdf");
+    const b = await sharedXObjectFile("b.pdf");
+    const session = await sessionFor([a, b], { "a.pdf": [], "b.pdf": [BLOCK("Solo B")] });
+    const result = await signDocumentsBatch({ files: [a, b], session, onProgress: () => {}, context: CONTEXT });
+    expect(result.summary).toBe("1 texto editado: no se pudo quitar el original (más abajo, por qué).");
+    expect(result.notices?.items[0]).toMatch(/^b\.pdf, página 1/);
+  });
+
+  it("un documento que falla no cuenta en el resumen", async () => {
+    const a = await pdfWith("Uno", "a.pdf");
+    const broken = new File([new Uint8Array([1, 2, 3])], "roto.pdf", { type: "application/pdf" });
+    const session = await sessionFor([a, broken], { "a.pdf": [BLOCK("Edicion A")], "roto.pdf": [BLOCK("Edicion R")] });
+    const result = await signDocumentsBatch({ files: [a, broken], session, onProgress: () => {}, context: CONTEXT });
+    expect(result.report!.failed.map((item) => item.name)).toEqual(["roto.pdf"]);
+    expect(result.summary).toBe("1 texto editado: el original se eliminó del archivo.");
   });
 });

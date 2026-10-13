@@ -1,4 +1,4 @@
-import { PDFDocument } from "@cantoo/pdf-lib";
+import { PDFDocument, type PDFRef } from "@cantoo/pdf-lib";
 import {
   PdfError,
   loadPdf,
@@ -12,19 +12,34 @@ import {
   applyPageAssembly,
   type PageAssemblyOptions,
   type PageAssemblyResult,
+  type PageAssemblyWarning,
+  type PageAssemblyWarningCode,
   type PageEntry,
 } from "@/lib/pdf/pageAssembly";
+import { findDeadPages, neutralizeDeadReferences, resolveMarkedActions } from "@/lib/pdf/pageAssemblyDeadRefs";
 import {
+  compressLabels,
+  labelAt,
+  readPageLabels,
+  sameRanges,
+  writePageLabels,
+} from "@/lib/pdf/pageAssemblyLabels";
+import {
+  addOutlineItems,
   collectGarbage,
   collectNamedDests,
   collectPresentWidgets,
+  countOutlineItems,
   fixCopiedLeaf,
+  hasStructureTree,
   itemTarget,
   outlineTitle,
   pruneAcroForm,
+  readImportableOutline,
   readOutline,
   refKey,
   registerNewFields,
+  resolveMarkedLinks,
   sanitizeLeavesForCopy,
   type OutlineNode,
 } from "@/lib/pdf/pageAssemblyStructure";
@@ -38,8 +53,10 @@ import { buildSplitGroups, formatPageList, type PageRange } from "@/lib/pdf/spli
  *    extraido conserva titulo, autor, formulario y los marcadores de las paginas que se quedan,
  *    y no arrastra nada de las demas (se sueltan los objetos sin referencia).
  *  - `splitDocument` crea un PDF por parte: parte de un documento nuevo (rapido con cientos de
- *    partes) al que se copian los metadatos del original y las paginas con su formulario; no
- *    conserva los marcadores (cada parte es un documento nuevo).
+ *    partes) al que se copian los metadatos del original y las paginas con su formulario, sus
+ *    etiquetas de pagina, los marcadores que apuntan a sus paginas y los enlaces entre sus paginas
+ *    (reapuntados a las copias). Lo que no cabe en una parte (enlaces y marcadores hacia otras partes,
+ *    firmas, estructura etiquetada) se cuenta en `warnings`.
  */
 
 /** Maximo de partes de una division (cada parte es un archivo del ZIP). */
@@ -201,6 +218,8 @@ export type SplitOutcome = {
   parts: number;
   /** Nombres de los archivos (dentro del ZIP, o el unico PDF). */
   names: string[];
+  /** Lo que no se pudo llevar a las partes (marcadores o enlaces hacia otras partes, firmas, estructura). */
+  warnings: PageAssemblyWarning[];
 };
 
 function safeTitle(title: string): string {
@@ -260,30 +279,93 @@ export async function splitDocument(
     if (clean.length > MAX_SPLIT_PARTS) throw new PdfError("tooLarge");
     onProgress?.(0.08);
 
-    // Una sola vez sobre el original (en memoria): fuera enlaces internos y referencias a la
-    // pagina de origen, que arrastrarian el documento entero a cada parte.
-    const allLeaves = source.getPages().map((page) => page.node);
-    sanitizeLeavesForCopy(source.context, source.catalog, allLeaves);
+    const warnings = new Map<PageAssemblyWarningCode, number>();
+    const warn = (code: PageAssemblyWarningCode, count: number) => {
+      if (count > 0) warnings.set(code, (warnings.get(code) ?? 0) + count);
+    };
+
+    // Una sola vez sobre el original (en memoria), solo las paginas que salen: fuera las referencias a la
+    // pagina de origen y las firmas, y los enlaces internos quedan MARCADOS con la pagina a la que llevan
+    // (si no, `copyPages` arrastraria el documento entero a cada parte); cada parte los reapunta a sus copias.
+    const sourcePages = source.getPages();
+    const usedPages = [...new Set(clean.flatMap((entry) => entry.group))].sort((a, b) => a - b);
+    const pageIndexByRef = new Map<string, number>();
+    sourcePages.forEach((page, position) => pageIndexByRef.set(refKey(page.ref), position));
+    const cleaned = sanitizeLeavesForCopy(
+      source.context,
+      source.catalog,
+      usedPages.map((index) => sourcePages[index].node),
+      pageIndexByRef,
+    );
+    warn("signatureFieldsRemoved", cleaned.emptySignaturesRemoved);
+    warn("signedSignaturesRemoved", cleaned.signedSignaturesRemoved);
+    warn("linksRemoved", cleaned.linksRemoved);
+    const labels = readPageLabels(source.context, source.catalog);
+    if (labels.kind === "unreadable") warn("pageLabelsRemoved", 1);
+    // Cada parte es un documento nuevo: no hereda el arbol de estructura del original.
+    if (hasStructureTree(source.catalog)) warn("structureRemoved", 1);
+    const outlineTotal = countOutlineItems(source.context, source.catalog);
+    let outlineKept = 0;
+    const sourcePageRefs = sourcePages.map((page) => page.ref);
 
     const buildPart = async (group: readonly number[]): Promise<Uint8Array> => {
       const part = await PDFDocument.create({ updateMetadata: false });
       copyMetadata(source, part);
       const copied = await part.copyPages(source, [...group]);
-      for (const page of copied) {
+      const refOf = new Map<number, PDFRef>();
+      copied.forEach((page, position) => {
         fixCopiedLeaf(part.context, page.node, page.ref);
         part.addPage(page);
-      }
+        refOf.set(group[position], page.ref);
+      });
       const leaves = copied.map((page) => page.node);
+      warn("linksRemoved", resolveMarkedLinks(part.context, leaves, (index) => refOf.get(index)));
+      warn("linksRemoved", resolveMarkedActions(part.context, leaves, (index) => refOf.get(index)));
       registerNewFields(part.context, part.catalog, leaves);
-      pruneAcroForm(part.context, part.catalog, collectPresentWidgets(part.context, leaves));
+      const form = pruneAcroForm(part.context, part.catalog, collectPresentWidgets(part.context, leaves));
+      if (outlineTotal > 0) {
+        const imported = readImportableOutline(source.context, source.catalog, sourcePageRefs, refOf);
+        outlineKept += addOutlineItems(part.context, part.catalog, imported.items);
+      }
+      if (labels.kind === "ranges") {
+        const ranges = compressLabels(group.map((index) => labelAt(labels.ranges, index)));
+        // La numeracion por defecto (1, 2, 3...) no necesita etiquetas.
+        if (!sameRanges(ranges, [{ start: 0, style: "D", prefix: "", first: 1 }])) {
+          writePageLabels(part.context, part.catalog, ranges);
+        }
+      }
+      // `copyPages` sigue las referencias y arrastra, como huerfanas, las paginas a las que lleva la copiada: se cortan antes
+      // de soltar los objetos sin referencia, o cada parte llevaria dentro paginas que no son suyas.
+      const live = new Set(copied.map((page) => refKey(page.ref)));
+      const orphans = findDeadPages(part.context, live, [], 0);
+      warn(
+        "linksRemoved",
+        neutralizeDeadReferences(part.context, part.catalog, {
+          deadPages: orphans,
+          liveLeaves: leaves,
+          deadFields: form.deadNodes,
+          named: collectNamedDests(part.context, part.catalog),
+          newObjectsFrom: 0,
+        }),
+      );
       collectGarbage(part.context);
       return part.save({ useObjectStreams: true, addDefaultPage: false, updateFieldAppearances: false });
+    };
+    const finish = (): PageAssemblyWarning[] => {
+      warn("outlinesRemoved", Math.max(0, outlineTotal - outlineKept));
+      return [...warnings.entries()].map(([code, count]) => ({ code, count }));
     };
 
     if (clean.length === 1) {
       const bytes = await buildPart(clean[0].group);
       onProgress?.(1);
-      return { kind: "pdf", bytes, parts: 1, names: [partName(baseName, clean[0].group, clean[0].title)] };
+      return {
+        kind: "pdf",
+        bytes,
+        parts: 1,
+        names: [partName(baseName, clean[0].group, clean[0].title)],
+        warnings: finish(),
+      };
     }
 
     const { default: JSZip } = await import("jszip");
@@ -302,7 +384,7 @@ export async function splitDocument(
     throwIfAborted(signal);
     const zipped = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
     onProgress?.(1);
-    return { kind: "zip", bytes: zipped, parts: clean.length, names };
+    return { kind: "zip", bytes: zipped, parts: clean.length, names, warnings: finish() };
   } catch (error) {
     throw toPdfError(error);
   }

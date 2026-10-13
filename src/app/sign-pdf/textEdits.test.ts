@@ -206,6 +206,37 @@ describe("applyEditsToFile — se aplican ANTES de estampar firmas", () => {
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(before);
   });
 
+  it("B1: devuelve los avisos POR edicion (el original quitado), las omitidas y las ediciones aplicadas", async () => {
+    const file = await pdfWith("Original");
+    const edit = makeEdit({
+      id: "e1",
+      blockId: "p0-b0",
+      text: "Reemplazo",
+      box: { x: 48, y: 247, width: 120, height: 16 },
+      coverBox: { x: 48, y: 247, width: 120, height: 16 },
+      cover: { color: "#ffffff", padding: 1 },
+    });
+    const applied = await applyEditsToFile(file, [edit]);
+    expect(applied.applied).toEqual([edit]);
+    expect(applied.warningsByEdit.e1.map((warning) => warning.kind)).toContain("original-text-removed");
+    expect(applied.skipped).toEqual([]);
+    // El texto original ya no se extrae del archivo editado.
+    expect(await textOf(applied.file)).not.toContain("Original");
+  });
+
+  it("B1: una edicion que el motor omite (pagina inexistente) sale en `skipped` y en sus avisos", async () => {
+    const file = await pdfWith("Original");
+    const applied = await applyEditsToFile(file, [makeEdit({ id: "lejos", blockId: "p9-b0", pageIndex: 9, text: "Nada" })]);
+    expect(applied.skipped).toEqual(["lejos"]);
+    expect(applied.warningsByEdit.lejos.map((warning) => warning.kind)).toContain("edit-skipped");
+  });
+
+  it("B1: sin ediciones efectivas devuelve avisos, omitidas y aplicadas vacios", async () => {
+    const file = await pdfWith("Original");
+    const none = await applyEditsToFile(file, [makeEdit({ id: "vacio", text: "   " })]);
+    expect(none).toEqual({ file, warnings: [], warningsByEdit: {}, skipped: [], applied: [] });
+  });
+
   it("informa del progreso", async () => {
     const file = await pdfWith("Original");
     const steps: number[] = [];

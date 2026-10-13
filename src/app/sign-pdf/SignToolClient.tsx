@@ -74,6 +74,12 @@ import {
   stampKeyOf,
 } from "@/app/sign-pdf/textEdits";
 import {
+  buildEditReport,
+  editResultText,
+  type EditReport,
+  type EditReportEntry,
+} from "@/app/sign-pdf/editReport";
+import {
   DetectionStatus,
   ExportEditsNotice,
   PendingFieldsNotice,
@@ -494,8 +500,27 @@ export async function runDocumentJob(
   job: DocumentJob,
   onProgress?: ProgressCallback,
 ): Promise<Blob> {
+  return (await runDocumentJobDetailed(job, onProgress)).blob;
+}
+
+/** El PDF final de un documento y, si se editó su texto, qué pasó con el original de cada bloque (B1). */
+export type DocumentJobResult = {
+  blob: Blob;
+  /** `null` si el documento no llevaba ediciones de texto: la pantalla de resultado es la de siempre. */
+  edits: EditReport | null;
+};
+
+/**
+ * Lo mismo que `runDocumentJob`, pero sin tirar los avisos de la exportación del texto: `edits` dice cuántos textos
+ * perdieron de verdad su original y, de los que no, por qué (F2). Es lo que alimenta el resumen de la pantalla de
+ * resultado (`describeEditReports`).
+ */
+export async function runDocumentJobDetailed(
+  job: DocumentJob,
+  onProgress?: ProgressCallback,
+): Promise<DocumentJobResult> {
   if (!hasTextEdits(job.textEdits)) {
-    return signPdfMulti(job.file, job.params, onProgress);
+    return { blob: await signPdfMulti(job.file, job.params, onProgress), edits: null };
   }
   const editedOnly = job.params.placements.length === 0;
   const applied = await applyEditsToFile(job.file, job.textEdits, {
@@ -503,14 +528,47 @@ export async function runDocumentJob(
       ? (value) => onProgress(scaleProgress(value, 0, editedOnly ? 1 : 0.4))
       : undefined,
   });
+  const edits = buildEditReport(applied);
   if (editedOnly) {
-    return new Blob([await applied.file.arrayBuffer()], { type: "application/pdf" });
+    return { blob: new Blob([await applied.file.arrayBuffer()], { type: "application/pdf" }), edits };
   }
-  return signPdfMulti(
+  const blob = await signPdfMulti(
     applied.file,
     job.params,
     onProgress ? (value) => onProgress(scaleProgress(value, 0.4, 1)) : undefined,
   );
+  return { blob, edits };
+}
+
+/**
+ * El `ProcessResult` de UN documento: nombre del archivo y, si se editó su texto, el resumen y los avisos de la
+ * pantalla de resultado (B1: cuántos originales se eliminaron y, de los que no, por qué). Solo texto editado y
+ * ninguna firma estampada: el archivo no está «firmado», acaba en `-editado`.
+ */
+export function documentResult({
+  blob,
+  edits,
+  file,
+  editedOnly,
+  prefix,
+  language,
+  strings,
+}: {
+  blob: Blob;
+  edits: EditReport | null;
+  file: File;
+  editedOnly: boolean;
+  /** Prefijo de los firmantes (ronda por turnos) o `null`. */
+  prefix: string | null;
+  language: Language;
+  strings: SignStrings;
+}): ProcessResult {
+  const baseFilename = withSuffix(file.name, editedOnly ? strings.editedFilenameSuffix : strings.filenameSuffix);
+  return {
+    blob,
+    filename: prefix ? `${prefix}_${baseFilename}` : baseFilename,
+    ...editResultText(edits ? [{ docName: file.name, report: edits }] : [], language, strings),
+  };
 }
 
 /**
@@ -608,6 +666,8 @@ export async function signDocumentsBatch({
   signal?: AbortSignal;
   context: DocumentJobContext;
 }): Promise<ProcessResult> {
+  // Que paso con el texto original editado de cada documento que SI entro en el ZIP (B1).
+  const editEntries: EditReportEntry[] = [];
   const result = await signBatch({
     documents: files.map((file) => ({
       id: docIdOf(file),
@@ -627,7 +687,8 @@ export async function signDocumentsBatch({
         ...context,
         signerNames,
       });
-      const blob = await runDocumentJob(job, progress.onProgress);
+      const { blob, edits } = await runDocumentJobDetailed(job, progress.onProgress);
+      if (edits) editEntries.push({ docName: document.name, report: edits });
       job.commit();
       const edited = isEditOnlyJob(job);
       return {
@@ -638,7 +699,12 @@ export async function signDocumentsBatch({
       };
     },
   });
-  return { blob: result.blob, filename: result.filename, report: result.report };
+  return {
+    blob: result.blob,
+    filename: result.filename,
+    report: result.report,
+    ...editResultText(editEntries, context.language, context.strings, { named: true }),
+  };
 }
 
 /** Documento activo REAL de la sesion, con su archivo y su vista plana. */
@@ -1193,23 +1259,14 @@ export function SignToolClient() {
         strings,
         certificateEnabled: completionCertificateEnabled,
       });
-      const blob = await runDocumentJob(job, onProgress);
+      const { blob, edits } = await runDocumentJobDetailed(job, onProgress);
       job.commit();
-      // Solo texto editado y ninguna firma estampada: el archivo no esta «firmado».
-      const baseFilename = withSuffix(
-        file.name,
-        isEditOnlyJob(job) ? strings.editedFilenameSuffix : strings.filenameSuffix,
-      );
-
-      if (session.mode === "single") return { blob, filename: baseFilename };
-
-      const prefix = signerPrefixRef.current && !isEditOnlyJob(job)
-        ? buildSignerFilenamePrefix(session.signers.map((signer) => signer.name))
-        : null;
-      return {
-        blob,
-        filename: prefix ? `${prefix}_${baseFilename}` : baseFilename,
-      };
+      // Solo en la ronda por turnos y con firma estampada el nombre lleva el prefijo de los firmantes.
+      const prefix =
+        session.mode !== "single" && signerPrefixRef.current && !isEditOnlyJob(job)
+          ? buildSignerFilenamePrefix(session.signers.map((signer) => signer.name))
+          : null;
+      return documentResult({ blob, edits, file, editedOnly: isEditOnlyJob(job), prefix, language, strings });
     },
     [strings, language, completionCertificateEnabled],
   );

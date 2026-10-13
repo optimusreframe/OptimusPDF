@@ -380,6 +380,7 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
             notesLabel={SIGN_EMBEDDED_STRINGS[lang].notesLabel}
             notes={[e.howItWorks, e.sessionNote]}
             warningsLabel={e.warningsTitle}
+            warningsCount={SIGN_EMBEDDED_STRINGS[lang].warningsCount}
             warnings={warnings.map((warning) => ({
               code: warning.code,
               short: SIGN_EMBEDDED_STRINGS[lang].warningShort[

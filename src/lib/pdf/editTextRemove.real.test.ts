@@ -12,7 +12,7 @@ import { openWithPdfjs } from "@/lib/pdf/textBlocksFixtures";
 
 /**
  * Wave 8 · F2, criterio 3: PDFs REALES generados por Chromium (Playwright
- * headless) desde HTML: factura con tabla, carta y formulario. Chromium
+ * headless) desde HTML: factura con tabla, carta, formulario y un texto con simbolos y letter-spacing. Chromium
  * embebe las fuentes como TrueType/CID con subconjunto, con TJ y kerning,
  * como los PDF que suben los usuarios. Se edita un dato y se comprueba con
  * pdf.js y `pdftotext` que el original ya no se extrae y el nuevo si.
@@ -59,6 +59,17 @@ const DOCS = {
     target: "V-12345678",
     replacement: "V-00000000",
     untouched: ["Andrés Pernía", "andres@example.com", "Formulario de inscripción"],
+  },
+  // Ronda 3 (N1/N2/N3): simbolos que NFKC expande o que viven en 0x80–0x9F de WinAnsi, y letter-spacing grande.
+  simbolos: {
+    html: `<html><body style="font-family: Arial; padding: 40px">
+      <p>Oferta limitada… marca™ 1½ tazas</p>
+      <p>Viñeta • item — “comillas” € 3¾</p>
+      <p style="letter-spacing: 3px">Hola con espaciado</p>
+      <p>Código: AB-1234</p></body></html>`,
+    target: "AB-1234",
+    replacement: "ZZ-9999",
+    untouched: ["Oferta limitada", "item"],
   },
 } as const;
 

@@ -19,7 +19,7 @@ import {
   type PageMm,
 } from "@/app/pdf-pro/ops/cropMath";
 import { hasPatch, patchFromForm, type MetadataFormFields } from "@/app/pdf-pro/ops/metadataForm";
-import { asPdfFile, blobToBytes, sameBytes } from "@/app/pdf-pro/ops/opUtils";
+import { asEngineFile, asPdfFile, blobToBytes, sameBytes } from "@/app/pdf-pro/ops/opUtils";
 import type { ProOperation, ProOperationResult } from "@/app/pdf-pro/proTypes";
 
 /**
@@ -42,7 +42,7 @@ export const watermarkOperation: ProOperation<WatermarkOptions> = {
   kind: "document",
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
-    return { bytes: await blobToBytes(await addWatermark(asPdfFile(bytes), options, ctx.onProgress)) };
+    return { bytes: await blobToBytes(await addWatermark(asEngineFile(bytes), options, ctx.onProgress)) };
   },
 };
 
@@ -53,7 +53,7 @@ export const pageNumbersOperation: ProOperation<PageNumbersToolOptions> = {
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
     // `preset` solo lo usa la interfaz (igual que en la herramienta suelta): el motor lo ignora.
-    return { bytes: await blobToBytes(await addPageNumbers(asPdfFile(bytes), options, ctx.onProgress)) };
+    return { bytes: await blobToBytes(await addPageNumbers(asEngineFile(bytes), options, ctx.onProgress)) };
   },
 };
 
@@ -63,7 +63,7 @@ export const headerFooterOperation: ProOperation<HeaderFooterOptions> = {
   kind: "document",
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
-    return { bytes: await blobToBytes(await addHeaderFooter(asPdfFile(bytes), options, ctx.onProgress)) };
+    return { bytes: await blobToBytes(await addHeaderFooter(asEngineFile(bytes), options, ctx.onProgress)) };
   },
 };
 
@@ -154,7 +154,7 @@ export const cropOperation: ProOperation<ProCropOptions> = {
     const rect = marginsToRect(sanitizeMargins(options.margins), page);
     ctx.onProgress(0.1);
     const blob = await cropPdf(
-      asPdfFile(bytes),
+      asEngineFile(bytes),
       { rect, scope: options.scope, pageIndex: 0, fromPage: options.fromPage, toPage: options.toPage },
       (value) => ctx.onProgress(0.1 + value * 0.9),
     );
@@ -195,7 +195,7 @@ export const rotateOperation: ProOperation<ProRotateOptions> = {
       const document = await loadPdf(bytes);
       plan = rotateRangePlan(options, document.getPageCount());
     }
-    return { bytes: await blobToBytes(await rotatePdf(asPdfFile(bytes), plan, ctx.onProgress)) };
+    return { bytes: await blobToBytes(await rotatePdf(asEngineFile(bytes), plan, ctx.onProgress)) };
   },
 };
 

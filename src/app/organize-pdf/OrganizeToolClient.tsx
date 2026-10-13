@@ -11,7 +11,7 @@ import {
   withSuffix,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { organizePdf, type OrganizePage } from "@/lib/pdf/organize";
+import { organizePdfWithReport, type OrganizePage } from "@/lib/pdf/organize";
 import { getTool } from "@/lib/tools-registry";
 import {
   FieldNote,
@@ -21,6 +21,7 @@ import {
   fileKey,
   usePageThumbnails,
 } from "@/app/organize-pdf/pageToolkit";
+import { pageNotices } from "@/app/organize-pdf/pageNotices";
 import { getOrganizeStrings, type OrganizeStrings } from "@/app/organize-pdf/strings";
 
 const TOOL = getTool("organize-pdf");
@@ -92,10 +93,14 @@ export function OrganizeToolClient() {
                 : { kind: "blank" as const },
             )
           : [];
-      const blob = await organizePdf(file, plan, onProgress);
-      return { blob, filename: withSuffix(file.name, strings.filenameSuffix) };
+      const { blob, warnings } = await organizePdfWithReport(file, plan, onProgress);
+      return {
+        blob,
+        filename: withSuffix(file.name, strings.filenameSuffix),
+        notices: pageNotices(language, warnings),
+      };
     },
-    [strings],
+    [strings, language],
   );
 
   return (

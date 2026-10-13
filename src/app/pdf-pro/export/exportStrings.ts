@@ -8,22 +8,51 @@ import type { ExportFormatId } from "@/app/pdf-pro/export/exportTypes";
  */
 export type ExportStrings = {
   formats: Record<ExportFormatId, { title: string; body: string }>;
+  /** Nombre corto de cada formato para frases («Exportando a Word…»). */
+  formatsShort: Record<ExportFormatId, string>;
   card: {
     showOptions: string;
     hideOptions: string;
     running: string;
     cancel: string;
     cancelled: string;
-    /** Wave 8 (backlog a): la tarjeta se desmonto (otra pestaña, documento cerrado) con una exportacion en curso. */
-    cancelledOnLeave: string;
+    /** Anuncio (region viva) al terminar: solo el nombre del archivo. */
     done: (filename: string) => string;
+    /**
+     * Wave 9: la exportacion trabaja sobre una copia FIJA del documento (la version actual al empezar); la tarjeta
+     * dice de cual, para no confundir si el documento cambia mientras tanto.
+     */
+    runningFrom: (version: string) => string;
+    result: (filename: string, version: string) => string;
+    versionChanged: string;
     localOnly: string;
     requiresNetwork: string;
     mayNeedNetwork: string;
     ocrNetwork: string;
     ocrOffline: string;
     largeDocument: string;
-    inProgressOther: string;
+    inProgressOther: (format: string) => string;
+  };
+  /** Wave 9: indicador global de la barra superior (visible desde cualquier pestaña mientras una exportacion corre). */
+  indicator: {
+    group: string;
+    /** «Exportando a Word…» (el porcentaje va aparte, siempre visible). */
+    running: (format: string) => string;
+    /** «42 %». */
+    percent: (percent: number) => string;
+    progressLabel: (format: string) => string;
+    cancel: string;
+    cancelLabel: (format: string) => string;
+  };
+  /** Wave 9: avisos de la exportacion cuando la tarjeta no esta a la vista y razones para confirmar al cerrar. */
+  notices: {
+    failedAway: (format: string) => string;
+    /** Cerrar el documento con una exportacion en curso y sin otros cambios sin descargar. */
+    closeOnly: (format: string) => string;
+    /** Abrir otro documento con una exportacion en curso y sin otros cambios sin descargar. */
+    replaceOnly: (format: string) => string;
+    /** Se SUMA al texto de confirmacion habitual cuando ademas hay cambios sin descargar. */
+    also: (format: string) => string;
   };
   images: {
     formatLabel: string;
@@ -58,14 +87,26 @@ const es: ExportStrings = {
     json: { title: "JSON (.json)", body: "La estructura del documento (títulos, párrafos, listas y tablas) en JSON." },
     powerpoint: { title: "PowerPoint (.pptx)", body: "Una diapositiva por página, como imagen (no son diapositivas editables)." },
   },
+  formatsShort: {
+    images: "imágenes",
+    text: "texto",
+    word: "Word",
+    excel: "Excel",
+    csv: "CSV",
+    markdown: "Markdown",
+    json: "JSON",
+    powerpoint: "PowerPoint",
+  },
   card: {
     showOptions: "Opciones",
     hideOptions: "Ocultar opciones",
     running: "Exportando…",
     cancel: "Cancelar",
     cancelled: "Exportación cancelada.",
-    cancelledOnLeave: "La exportación se canceló al salir de Convertir: vuelve y pulsa Exportar de nuevo.",
     done: (filename) => `Exportado: ${filename}`,
+    runningFrom: (version) => `Exportando desde la versión «${version}». Puedes seguir trabajando: el resultado será de esa versión.`,
+    result: (filename, version) => `Exportado desde la versión «${version}»: ${filename}`,
+    versionChanged: "El documento ha cambiado desde entonces: el archivo no incluye los cambios posteriores.",
     localOnly: "Solo en tu dispositivo",
     requiresNetwork: "Requiere conexión",
     mayNeedNetwork: "Puede requerir conexión",
@@ -74,7 +115,23 @@ const es: ExportStrings = {
     ocrOffline:
       "Estás sin conexión: las páginas escaneadas no se podrán reconocer. Desactiva el OCR o vuelve a conectarte.",
     largeDocument: "Este documento es grande: exportarlo puede tardar y usar mucha memoria.",
-    inProgressOther: "Hay otra exportación en curso.",
+    inProgressOther: (format) => `Hay otra exportación en curso (${format}). Espera a que termine o cancélala.`,
+  },
+  indicator: {
+    group: "Exportación en curso",
+    running: (format) => `Exportando a ${format}…`,
+    percent: (percent) => `${percent} %`,
+    progressLabel: (format) => `Exportando a ${format}`,
+    cancel: "Cancelar",
+    cancelLabel: (format) => `Cancelar la exportación a ${format}`,
+  },
+  notices: {
+    failedAway: (format) => `No se pudo exportar a ${format}. Abre Convertir para ver el motivo.`,
+    closeOnly: (format) =>
+      `Hay una exportación a ${format} en curso. Si cierras el documento, se cancelará y no se descargará nada.`,
+    replaceOnly: (format) =>
+      `Hay una exportación a ${format} en curso. Si continúas, se cancelará y no se descargará nada.`,
+    also: (format) => `Además, hay una exportación a ${format} en curso: se cancelará y no se descargará nada.`,
   },
   images: {
     formatLabel: "Formato",
@@ -111,14 +168,26 @@ const en: ExportStrings = {
     json: { title: "JSON (.json)", body: "The structure of the document (headings, paragraphs, lists and tables) as JSON." },
     powerpoint: { title: "PowerPoint (.pptx)", body: "One slide per page, as an image (not editable slides)." },
   },
+  formatsShort: {
+    images: "images",
+    text: "text",
+    word: "Word",
+    excel: "Excel",
+    csv: "CSV",
+    markdown: "Markdown",
+    json: "JSON",
+    powerpoint: "PowerPoint",
+  },
   card: {
     showOptions: "Options",
     hideOptions: "Hide options",
     running: "Exporting…",
     cancel: "Cancel",
     cancelled: "Export cancelled.",
-    cancelledOnLeave: "The export was cancelled when you left Convert: come back and press Export again.",
     done: (filename) => `Exported: ${filename}`,
+    runningFrom: (version) => `Exporting from version “${version}”. You can keep working: the result will be from that version.`,
+    result: (filename, version) => `Exported from version “${version}”: ${filename}`,
+    versionChanged: "The document has changed since then: the file doesn't include the later changes.",
     localOnly: "On your device only",
     requiresNetwork: "Requires a connection",
     mayNeedNetwork: "May require a connection",
@@ -127,7 +196,23 @@ const en: ExportStrings = {
     ocrOffline:
       "You are offline: scanned pages can't be recognised. Turn OCR off or reconnect.",
     largeDocument: "This document is large: exporting it can take a while and use a lot of memory.",
-    inProgressOther: "Another export is in progress.",
+    inProgressOther: (format) => `Another export is in progress (${format}). Wait for it to finish or cancel it.`,
+  },
+  indicator: {
+    group: "Export in progress",
+    running: (format) => `Exporting to ${format}…`,
+    percent: (percent) => `${percent}%`,
+    progressLabel: (format) => `Exporting to ${format}`,
+    cancel: "Cancel",
+    cancelLabel: (format) => `Cancel the export to ${format}`,
+  },
+  notices: {
+    failedAway: (format) => `Couldn't export to ${format}. Open Convert to see why.`,
+    closeOnly: (format) =>
+      `An export to ${format} is in progress. If you close the document, it will be cancelled and nothing will be downloaded.`,
+    replaceOnly: (format) =>
+      `An export to ${format} is in progress. If you continue, it will be cancelled and nothing will be downloaded.`,
+    also: (format) => `Also, an export to ${format} is in progress: it will be cancelled and nothing will be downloaded.`,
   },
   images: {
     formatLabel: "Format",

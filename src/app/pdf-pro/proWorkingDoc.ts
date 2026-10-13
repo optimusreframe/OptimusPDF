@@ -3,6 +3,7 @@ import type { Language } from "@/lib/i18n";
 import { PdfError, readFileBytes, toPdfError, type PdfErrorCode } from "@/lib/pdf/core";
 import { isDecryptedCopy } from "@/lib/pdf/inputGuard";
 import { createProHistoryStore, type ProHistoryStore } from "@/app/pdf-pro/proHistoryStore";
+import { CHUNK_MIN_TOTAL_BYTES, planChunks, shouldChunk } from "@/app/pdf-pro/proChunks";
 import { getProStrings } from "@/app/pdf-pro/proStrings";
 import type {
   ProDocument,
@@ -31,6 +32,11 @@ import type {
  * (`restoring` en el estado) y luego mueve el cursor; el anuncio multipaso no cambia porque sale de las etiquetas.
  * Si el volcado falla (sin IndexedDB, cuota) el documento queda marcado (`historyOffloadFailed`, aviso visible) y
  * se recorta por bytes como antes. El presupuesto por bytes cuenta solo lo RESIDENTE.
+ *
+ * Wave 9 · escritura: los snapshots grandes (>= 4 MB) se guardan TROCEADOS por contenido y sin repetir (`proChunks`): un
+ * paso cuesta ~7 % de su peso a disco, no el 100 %. El plan de trozos de cada snapshot se calcula en segundo plano en
+ * cuanto nace (`prewarmChunkPlan`), para que ni el volcado ni el borrador esperen ese calculo. Palanca de memoria que NO
+ * se ha movido: `PRO_HOT_SNAPSHOT_BYTES` (con 40 MB deja 4 snapshots residentes; con la mitad, 2).
  */
 
 /**
@@ -373,6 +379,7 @@ export class ProWorkingDoc {
       this.fileCache = null;
       this.announcement = { id: ++this.announcementId, text: strings.announce.opened(file.name) };
       this.recompute();
+      this.prewarmChunkPlan(first);
       return { ok: true, document: this.document };
     } catch (error) {
       if (epoch !== this.epoch) return { ok: false, code: "cancelled" };
@@ -478,6 +485,7 @@ export class ProWorkingDoc {
           : strings.announce.applied(label),
       };
       this.recompute();
+      this.prewarmChunkPlan(snapshot);
       this.rebalance();
       if (!diskless) {
         // Se espera a que lo que sale de la ventana este en disco y entonces se aplica el presupuesto a lo que
@@ -740,6 +748,22 @@ export class ProWorkingDoc {
       }
     }
     for (const snapshot of toFetch) this.prefetch(snapshot);
+  }
+
+  /**
+   * Wave 9: el plan de trozos de un snapshot GRANDE (hashes por contenido, ~0,3 s por 100 MB, cedido al hilo cada ~8 ms)
+   * lo necesitan despues el borrador y el volcado al historial. Se calcula en segundo plano, EN CUANTO el navegador esta
+   * ocioso tras nacer el snapshot (`requestIdleCallback`, como tarde a los 1,5 s): asi no compite con la primera pintura
+   * de un documento recien abierto (medido: con 100 MB, abrir pasaba de 0,44 a 0,93 s si el calculo arrancaba al instante)
+   * y, cuando hace falta (autoguardado tras 0,6 s, volcado del paso que sale de la ventana), ya esta hecho o en marcha.
+   * El resultado queda recordado por objeto (`planChunks`); un fallo se ignora (los almacenes guardan entero).
+   */
+  private prewarmChunkPlan(snapshot: ProSnapshot): void {
+    if (!this.store || !shouldChunk(snapshot.byteLength, CHUNK_MIN_TOTAL_BYTES)) return;
+    const start = () => void planChunks(snapshot.bytes).catch(() => undefined);
+    const idle = (globalThis as { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }).requestIdleCallback;
+    if (typeof idle === "function") idle.call(globalThis, start, { timeout: 1500 });
+    else setTimeout(start, 50);
   }
 
   private offload(snapshot: ProSnapshot): void {

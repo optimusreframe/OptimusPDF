@@ -7,14 +7,20 @@
  *  - Una base POR PESTAÑA (`optimuspdf-pro-history-<sesion>`), separada de `optimuspdf-pro-drafts`: borrar la base
  *    entera es la limpieza, asi los borradores no corren ningun riesgo y no hay migracion de esquema que pueda
  *    corromperlos.
- *  - Los bytes se guardan como `Blob` por trozos de 8 MB (Chromium los lleva a disco en vez de copiarlos dos veces en
- *    memoria; ningun trozo bloquea el hilo principal) y se leen con `blob.arrayBuffer()` fuera del hilo principal.
+ *  - Los snapshots GRANDES (>= `chunkMinBytes`, 4 MB) se guardan TROCEADOS POR CONTENIDO y sin repetir (Wave 9,
+ *    `proChunks` + `proChunkRows`): cada trozo de ~48 KB se identifica por su SHA-256 y se escribe una sola vez aunque lo
+ *    compartan todos los pasos del historial (los pasos consecutivos de un PDF grande comparten >90 %). Un historial de
+ *    31 pasos de 100 MB ocupa ~330 MB en vez de ~3 GB: ya no choca con el techo de cuota de blobs de Chromium
+ *    (~1,5 GB, medido en perfiles efimeros) ni escribe 100 MB por paso. Los demas, como `Blob` por trozos de 8 MB.
  *  - Sin fugas: al cerrar el documento se vacia; al desmontar la suite se borra la base; y al arrancar, cada
  *    pestaña borra las bases de sesiones MUERTAS (las reconoce porque su Web Lock ya no lo sostiene nadie).
  *
  * REGLA DURA: nada de aqui lanza hacia el documento sin forma tipada: `put` rechaza con un `Error` (sin IndexedDB,
  * cuota agotada, base bloqueada) y el documento de trabajo degrada con aviso al recorte por bytes de siempre.
  */
+
+import { collectChunkGarbage, deleteManifest, putChunked, readChunked, type ChunkedRead } from "@/app/pdf-pro/proChunkRows";
+import { CHUNK_MIN_TOTAL_BYTES, planChunks, shouldChunk, type ChunkPlan } from "@/app/pdf-pro/proChunks";
 
 export const PRO_HISTORY_DB_PREFIX = "optimuspdf-pro-history-";
 const STORE = "snapshots";
@@ -42,6 +48,12 @@ export type ProHistoryStoreOptions = {
   openTimeoutMs?: number;
   /** `false` evita guardar como Blob (entornos donde IndexedDB no lo clona). */
   useBlob?: boolean;
+  /**
+   * Desde que tamaño un snapshot se guarda TROCEADO por contenido (Wave 9, `proChunks`): solo se escriben los trozos
+   * que el almacen no tiene ya, asi un paso de un PDF grande cuesta ~7 % de su peso en vez del 100 %. Por debajo, se
+   * guarda entero como siempre. Por defecto `CHUNK_MIN_TOTAL_BYTES`.
+   */
+  chunkMinBytes?: number;
 };
 
 /** Hay IndexedDB en este contexto (jsdom sin `fake-indexeddb`, modo privado antiguo...: no). */
@@ -195,6 +207,7 @@ export function createProHistoryStore(options: ProHistoryStoreOptions = {}): Pro
   const name = `${PRO_HISTORY_DB_PREFIX}${options.sessionId ?? randomSessionId()}`;
   const timeoutMs = options.openTimeoutMs ?? 4000;
   const useBlob = options.useBlob ?? typeof Blob !== "undefined";
+  const chunkMinBytes = options.chunkMinBytes ?? CHUNK_MIN_TOTAL_BYTES;
   let dbPromise: Promise<IDBDatabase> | null = null;
   let disposed = false;
   const releaseLock = holdSessionLock(name);
@@ -246,9 +259,60 @@ export function createProHistoryStore(options: ProHistoryStoreOptions = {}): Pro
         }),
     );
 
+  /**
+   * Como `inTx`, pero para trabajo que ENCADENA peticiones desde sus propios `onsuccess` (los snapshots troceados): la
+   * transaccion sigue viva mientras haya peticiones en curso y termina sola. `run` recibe un `fail` para abortarla.
+   */
+  const inTxChain = (mode: IDBTransactionMode, run: (store: IDBObjectStore, fail: (error: unknown) => void) => void): Promise<void> =>
+    db().then(
+      (opened) =>
+        new Promise<void>((resolve, reject) => {
+          let tx: IDBTransaction;
+          try {
+            tx = opened.transaction(STORE, mode);
+          } catch (error) {
+            reject(error);
+            return;
+          }
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error ?? new Error("transaccion fallida"));
+          tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+          const fail = (error: unknown) => {
+            reject(error);
+            try {
+              tx.abort();
+            } catch {
+              // Ya abortada.
+            }
+          };
+          try {
+            run(tx.objectStore(STORE), fail);
+          } catch (error) {
+            fail(error);
+          }
+        }),
+    );
+
   return {
     name,
     async put(id, bytes) {
+      if (shouldChunk(bytes.byteLength, chunkMinBytes)) {
+        let plan: ChunkPlan | null = null;
+        try {
+          plan = await planChunks(bytes);
+        } catch {
+          plan = null; // sin SHA-256: se guarda entero
+        }
+        if (plan && plan.byteLength === bytes.byteLength) {
+          if (disposed) throw new Error("almacen del historial cerrado");
+          const chunkedPlan = plan;
+          await inTxChain("readwrite", (store, fail) => {
+            // Un paso con el mismo id que se vuelve a guardar sustituye al anterior (los trozos viejos los barre `remove`).
+            putChunked(store, id, bytes, chunkedPlan, () => {}, fail);
+          });
+          return;
+        }
+      }
       const chunks = Math.max(1, Math.ceil(bytes.byteLength / CHUNK_BYTES));
       const rows: ChunkRow[] = [];
       for (let index = 0; index < chunks; index += 1) {
@@ -264,6 +328,10 @@ export function createProHistoryStore(options: ProHistoryStoreOptions = {}): Pro
       });
     },
     async get(id) {
+      const chunked: { value: ChunkedRead } = { value: { kind: "none" } };
+      await inTxChain("readonly", (store) => readChunked(store, id, (result) => (chunked.value = result)));
+      if (chunked.value.kind === "ok") return chunked.value.bytes;
+      if (chunked.value.kind === "corrupt") return null;
       const manifest = await inTx<ManifestRow | undefined>("readonly", (store) => store.get(id) as IDBRequest<ManifestRow | undefined>);
       if (!manifest || typeof manifest.chunks !== "number" || typeof manifest.byteLength !== "number") return null;
       const rows = await inTx<ChunkRow[]>("readonly", (store) =>
@@ -286,11 +354,14 @@ export function createProHistoryStore(options: ProHistoryStoreOptions = {}): Pro
     async remove(ids) {
       if (ids.length === 0) return;
       try {
-        await inTx("readwrite", (store) => {
+        await inTxChain("readwrite", (store, fail) => {
           for (const id of ids) {
             store.delete(id);
             store.delete(IDBKeyRange.bound(`${id}:`, `${id}:\uffff`));
+            deleteManifest(store, id);
           }
+          // Los trozos que ya no nombra ningun manifiesto se borran (un trozo compartido con otro paso se queda).
+          collectChunkGarbage(store, () => {}, fail);
         });
       } catch {
         // Limpieza: si falla, `dispose` borra la base entera.

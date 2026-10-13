@@ -5,6 +5,9 @@ import {
   PDFHexString,
   PDFName,
   PDFNumber,
+  PDFObject,
+  PDFOperator,
+  PDFOperatorNames,
   PDFRef,
   PDFStream,
   PDFString,
@@ -36,8 +39,17 @@ export type RichPdfOptions = {
   links?: boolean;
   /** `/PageLabels`: romanos en las dos primeras paginas, luego arabigos desde 1. */
   pageLabels?: boolean;
+  /** `/PageLabels` a medida: tramos `{start (0-based), style, prefix, st}`. Sustituye a `pageLabels`. */
+  labelRanges?: readonly { start: number; style?: "D" | "R" | "r" | "A" | "a"; prefix?: string; st?: number }[];
+  /** Con `labelRanges`: el arbol de numeros se parte en `/Kids` (un nodo por tramo, con `/Limits`). */
+  labelsAsTree?: boolean;
   /** Arbol de estructura (PDF etiquetado) minimo con `/Pg` a cada pagina. */
   tagged?: boolean;
+  /**
+   * PDF etiquetado de verdad: contenido marcado (`BDC /P << /MCID 0 >>`), `/StructParents` en cada pagina,
+   * `/ParentTree`, `/IDTree` y un elemento `Div` repartido entre las paginas 1 y 2 (contenido en dos paginas).
+   */
+  taggedContent?: boolean;
   /** Rotaciones iniciales por pagina (0-based). */
   rotations?: Record<number, number>;
   /** Recorte (CropBox) en las paginas indicadas: `[x, y, ancho, alto]`. */
@@ -47,6 +59,8 @@ export type RichPdfOptions = {
   height?: number;
   /** Un campo de firma (sin firmar) en la pagina 1, ademas del formulario. */
   signatureField?: boolean;
+  /** Un campo de firma YA FIRMADO (con `/V`, diccionario de firma) en la pagina 1. */
+  signedSignature?: boolean;
   /**
    * `/Rotate` y `/MediaBox` HEREDADOS del nodo `/Pages` raiz (las hojas no los traen). Las hojas
    * mantienen su tamano por herencia: todas miden `baseWidth` de ancho.
@@ -80,7 +94,26 @@ export async function makeRichPdf(options: RichPdfOptions = {}): Promise<Uint8Ar
 
   for (let index = 0; index < pages; index += 1) {
     const page = document.addPage([pageWidthOf(index, baseWidth), height]);
-    page.drawText(marker(index), { x: 30, y: height - 60, size: 14, font });
+    const markContent = (mcid: number, draw: () => void) => {
+      if (!options.taggedContent) {
+        draw();
+        return;
+      }
+      page.pushOperators(
+        PDFOperator.of(PDFOperatorNames.BeginMarkedContentSequence, [
+          PDFName.of(mcid === 0 ? "P" : "Span"),
+          `<< /MCID ${mcid} >>`,
+        ]),
+      );
+      draw();
+      page.pushOperators(PDFOperator.of(PDFOperatorNames.EndMarkedContent));
+    };
+    markContent(0, () => page.drawText(marker(index), { x: 30, y: height - 60, size: 14, font }));
+    // Contenido compartido entre las paginas 1 y 2 (lo cuenta un solo elemento de estructura).
+    if (options.taggedContent && index < 2) {
+      markContent(1, () => page.drawText(`COMPARTIDO-${index + 1}`, { x: 30, y: height - 90, size: 12, font }));
+    }
+    if (options.taggedContent) page.node.set(PDFName.of("StructParents"), PDFNumber.of(index));
     const rotation = options.rotations?.[index];
     if (rotation) page.setRotation(degrees(rotation));
     const crop = options.cropBoxes?.[index];
@@ -180,6 +213,31 @@ export async function makeRichPdf(options: RichPdfOptions = {}): Promise<Uint8Ar
     document.catalog.set(PDFName.of("Dests"), legacy);
   }
 
+  if (options.labelRanges) {
+    const entries = options.labelRanges.map((range) => {
+      const dict = context.obj({});
+      if (range.style) dict.set(PDFName.of("S"), PDFName.of(range.style));
+      if (range.prefix !== undefined) dict.set(PDFName.of("P"), PDFString.of(range.prefix));
+      if (range.st !== undefined) dict.set(PDFName.of("St"), PDFNumber.of(range.st));
+      return { start: range.start, dict };
+    });
+    if (options.labelsAsTree) {
+      const kids = entries.map((entry) =>
+        context.register(
+          context.obj({
+            Nums: [entry.start, entry.dict],
+            Limits: [entry.start, entry.start],
+          }),
+        ),
+      );
+      document.catalog.set(PDFName.of("PageLabels"), context.obj({ Kids: kids }));
+    } else {
+      const nums: PDFObject[] = [];
+      for (const entry of entries) nums.push(PDFNumber.of(entry.start), entry.dict);
+      document.catalog.set(PDFName.of("PageLabels"), context.obj({ Nums: nums }));
+    }
+  }
+
   if (options.pageLabels) {
     const labels = context.obj({
       Nums: [
@@ -199,7 +257,69 @@ export async function makeRichPdf(options: RichPdfOptions = {}): Promise<Uint8Ar
     document.catalog.set(PDFName.of("MarkInfo"), context.obj({ Marked: true }));
   }
 
-  if (options.signatureField) {
+  if (options.taggedContent) {
+    const rootRef = context.nextRef();
+    const documentRef = context.nextRef();
+    const paragraphs = pageRefs.map((pageRef, index) =>
+      context.register(
+        context.obj({
+          Type: "StructElem",
+          S: "P",
+          P: documentRef,
+          Pg: pageRef,
+          K: 0,
+          ID: PDFString.of(`parrafo-${index + 1}`),
+        }),
+      ),
+    );
+    const kids: PDFRef[] = [...paragraphs];
+    let division: PDFRef | undefined;
+    if (pages >= 2) {
+      division = context.register(
+        context.obj({
+          Type: "StructElem",
+          S: "Div",
+          P: documentRef,
+          ID: PDFString.of("compartido"),
+          K: [
+            { Type: "MCR", Pg: pageRefs[0], MCID: 1 },
+            { Type: "MCR", Pg: pageRefs[1], MCID: 1 },
+          ],
+        }),
+      );
+      kids.push(division);
+    }
+    context.assign(documentRef, context.obj({ Type: "StructElem", S: "Document", P: rootRef, K: kids }));
+    const nums: PDFObject[] = [];
+    pageRefs.forEach((_pageRef, index) => {
+      const entry: PDFObject[] = [paragraphs[index]];
+      if (division && index < 2) entry.push(division);
+      nums.push(PDFNumber.of(index), context.obj(entry));
+    });
+    const parentTree = context.register(context.obj({ Nums: nums }));
+    const idNames: PDFObject[] = [];
+    paragraphs.forEach((ref, index) => idNames.push(PDFString.of(`parrafo-${index + 1}`), ref));
+    if (division) idNames.push(PDFString.of("compartido"), division);
+    // El arbol de nombres va ordenado por clave: «compartido» < «parrafo-N».
+    const ordered: PDFObject[] = [];
+    if (division) ordered.push(PDFString.of("compartido"), division);
+    paragraphs.forEach((ref, index) => ordered.push(PDFString.of(`parrafo-${index + 1}`), ref));
+    const idTree = context.register(context.obj({ Names: ordered }));
+    context.assign(
+      rootRef,
+      context.obj({
+        Type: "StructTreeRoot",
+        K: documentRef,
+        ParentTree: parentTree,
+        ParentTreeNextKey: pages,
+        IDTree: idTree,
+      }),
+    );
+    document.catalog.set(PDFName.of("StructTreeRoot"), rootRef);
+    document.catalog.set(PDFName.of("MarkInfo"), context.obj({ Marked: true }));
+  }
+
+  if (options.signatureField || options.signedSignature) {
     const widget = context.obj({
       Type: "Annot",
       Subtype: "Widget",
@@ -209,6 +329,22 @@ export async function makeRichPdf(options: RichPdfOptions = {}): Promise<Uint8Ar
       F: 4,
     });
     widget.set(PDFName.of("P"), pageRefs[0]);
+    if (options.signedSignature) {
+      widget.set(
+        PDFName.of("V"),
+        context.register(
+          context.obj({
+            Type: "Sig",
+            Filter: "Adobe.PPKLite",
+            SubFilter: "adbe.pkcs7.detached",
+            ByteRange: [0, 0, 0, 0],
+            Contents: PDFHexString.of("00".repeat(16)),
+            M: PDFString.of("D:20260101000000Z"),
+            Name: PDFString.of("Ana Perez"),
+          }),
+        ),
+      );
+    }
     const widgetRef = context.register(widget);
     document.getPage(0).node.addAnnot(widgetRef);
     const form = document.getForm();

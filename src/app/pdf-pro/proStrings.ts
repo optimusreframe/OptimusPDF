@@ -81,6 +81,8 @@ export type ProStrings = {
     /** Se abrio solo el primero de varios PDF de la herramienta de origen. */
     openedFromMany: (tool: string, total: number) => string;
     warningsTitle: string;
+    /** (B1) Linea resumen cuando «Antes de guardar» tiene DOS o mas avisos: «2 avisos». */
+    warningsCount: (count: number) => string;
     encryptedKeep: string;
     openAnother: string;
   };
@@ -227,6 +229,7 @@ const es: ProStrings = {
     openedFromMany: (tool, total) =>
       `Abierto desde ${tool}: se abrió el primero de ${total} PDF. Para unirlos, usa Páginas → Insertar desde PDF.`,
     warningsTitle: "Antes de guardar",
+    warningsCount: (count) => (count === 1 ? "1 aviso" : `${count} avisos`),
     encryptedKeep: "Trabajas con una copia sin contraseña.",
     openAnother: "Abrir otro PDF",
   },
@@ -367,6 +370,7 @@ const en: ProStrings = {
     openedFromMany: (tool, total) =>
       `Opened from ${tool}: the first of ${total} PDFs was opened. To merge them, use Pages → Insert from PDF.`,
     warningsTitle: "Before saving",
+    warningsCount: (count) => (count === 1 ? "1 notice" : `${count} notices`),
     encryptedKeep: "You are working with a copy without a password.",
     openAnother: "Open another PDF",
   },

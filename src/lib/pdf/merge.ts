@@ -7,7 +7,12 @@ import {
   type PageRef,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { applyPageAssembly, type ExternalSource, type PageEntry } from "@/lib/pdf/pageAssembly";
+import {
+  applyPageAssembly,
+  type ExternalSource,
+  type PageEntry,
+  type PageToolResult,
+} from "@/lib/pdf/pageAssembly";
 
 export type MergeOptions = {
   /**
@@ -34,13 +39,18 @@ export function mergeOutlineTitle(file: File, index: number): string {
  *    repiten un nombre ya usado, se renombran (`campo_2`); nunca se fusionan valores;
  *  - los marcadores de cada archivo se conservan bajo un marcador con el nombre del archivo
  *    (solo si ese archivo tenia marcadores que apuntan a paginas unidas);
- *  - las paginas no seleccionadas no quedan dentro del archivo (se sueltan los objetos huerfanos).
+ *  - las paginas no seleccionadas no quedan dentro del archivo (se sueltan los objetos huerfanos);
+ *  - las etiquetas de pagina de cada archivo se conservan (la etiqueta sigue a la pagina) y los enlaces
+ *    internos de cada archivo se reapuntan a SUS paginas dentro del resultado;
+ *  - lo que no se puede conservar (campos de firma de los archivos 2..n, firmas que dejan de ser
+ *    validas, etiquetas de accesibilidad de PDF etiquetados, enlaces a paginas no seleccionadas...)
+ *    se devuelve en `warnings` para que la interfaz lo cuente.
  */
-export async function mergePdfFiles(
+export async function mergePdfFilesWithReport(
   files: File[],
   options: MergeOptions = {},
   onProgress?: ProgressCallback,
-): Promise<Blob> {
+): Promise<PageToolResult> {
   if (files.length === 0) throw new PdfError("empty");
   if (files.length < 2) throw new PdfError("needTwo");
 
@@ -86,8 +96,21 @@ export async function mergePdfFiles(
       wrapOutlineTitle: mergeOutlineTitle(files[0], 0),
     });
     onProgress?.(1);
-    return new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" });
+    return {
+      blob: new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" }),
+      warnings: result.warnings,
+      pageCount: result.pageCount,
+    };
   } catch (error) {
     throw toPdfError(error);
   }
+}
+
+/** Igual que `mergePdfFilesWithReport`, solo con el PDF. */
+export async function mergePdfFiles(
+  files: File[],
+  options: MergeOptions = {},
+  onProgress?: ProgressCallback,
+): Promise<Blob> {
+  return (await mergePdfFilesWithReport(files, options, onProgress)).blob;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PDFArray,
+  PDFDict,
   PDFDocument,
   PDFName,
   PDFRawStream,
@@ -12,15 +13,25 @@ import {
 } from "@cantoo/pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { createCanvas } from "@napi-rs/canvas";
+import { jsPDF } from "jspdf";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { applyTextEdits } from "@/lib/pdf/editTextExport";
-import { glyphsMatch, parseToUnicode, removeOriginalText, standardFontNameFor } from "@/lib/pdf/editTextRemove";
+import {
+  glyphsMatch,
+  isolateSharedContents,
+  parseToUnicode,
+  removeOriginalText,
+  standardFontNameFor,
+} from "@/lib/pdf/editTextRemove";
 import { glyphProfile } from "@/lib/pdf/editTextProfile";
 import { applyPageAssembly } from "@/lib/pdf/pageAssembly";
-import type { TextEdit } from "@/lib/pdf/editTypes";
+import type { TextBlock, TextEdit } from "@/lib/pdf/editTypes";
+import { draftEditForBlock } from "@/app/edit-pdf/editCanvasMath";
+import { analyzePageText } from "@/lib/pdf/textBlocks";
+import { openWithPdfjs } from "@/lib/pdf/textBlocksFixtures";
 
 /**
  * Wave 8 · F2: el texto original de un bloque editado se QUITA del flujo de
@@ -948,5 +959,524 @@ describe("F2 · filtro de tamano de glifo", () => {
     const content = await pageContent(result.bytes);
     expect(content).toContain("(nota)");
     expect(content).toContain("(I)");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Ronda 3: falsos «no se pudo quitar» y /Contents compartido
+ * ------------------------------------------------------------------ */
+
+/** Bloques que detecta el editor en la pagina (pdf.js + `analyzePageText`), como los ve la app. */
+async function blocksOf(bytes: Uint8Array, pageNumber = 1): Promise<TextBlock[]> {
+  const opened = await openWithPdfjs(bytes);
+  try {
+    const page = await opened.page(pageNumber);
+    return (await analyzePageText(page, pageNumber - 1, { OPS: opened.OPS })).blocks;
+  } finally {
+    await opened.close();
+  }
+}
+
+/** Edicion que hace la app al cambiar un bloque: caja, cobertura y perfil de glifos salen del bloque real. */
+function blockEdit(block: TextBlock, text = "Nuevo", overrides: Partial<TextEdit> = {}): TextEdit {
+  return { ...draftEditForBlock(block, { coverColor: "#ffffff" }), text, ...overrides };
+}
+
+const zoneOf = (e: TextEdit, margin = 1): Zone => {
+  const box = e.coverBox ?? e.box;
+  return { x: box.x - margin, y: box.y - margin, width: box.width + margin * 2, height: box.height + margin * 2 };
+};
+
+/** Fuentes del PDF sin `ToUnicode`: lo que hace falta para ejercitar la rama aproximada. */
+async function hasToUnicode(bytes: Uint8Array): Promise<boolean> {
+  const doc = await PDFDocument.load(bytes);
+  for (const [, object] of doc.context.enumerateIndirectObjects()) {
+    if (object instanceof PDFDict && object.has(PDFName.of("ToUnicode"))) return true;
+  }
+  return false;
+}
+
+/** PDF 380x160 con texto dibujado por pdf-lib (fuente estandar WinAnsi, sin ToUnicode). */
+async function drawnPdf(
+  fontName: StandardFonts,
+  lines: Array<{ text: string; x: number; y: number; size: number }>,
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(fontName);
+  const page = doc.addPage([380, 160]);
+  for (const line of lines) page.drawText(line.text, { x: line.x, y: line.y, size: line.size, font });
+  return doc.save();
+}
+
+/** Todos los glifos del texto caen en la caja: lo que halla el interprete ANTES de validar contra el perfil. */
+async function foundGlyphs(bytes: Uint8Array, e: TextEdit): Promise<number> {
+  const doc = await PDFDocument.load(bytes);
+  const copy: TextEdit = { ...e };
+  delete copy.originalGlyphs;
+  return removeOriginalText(doc, doc.getPage(0), [copy])[0].glyphs;
+}
+
+/** Comprobaciones de un bloque cambiado de verdad: ni pdf.js ni pdftotext lo extraen, el nuevo si y 0 px fuera. */
+async function expectBlockReplaced(
+  source: Uint8Array,
+  result: Uint8Array,
+  e: TextEdit,
+  expected: { gone: string[]; present: string[]; untouched?: string[]; compact?: boolean },
+): Promise<void> {
+  // Con Tc grande pdf.js y poppler separan las letras con espacios: se compara sin blancos.
+  const norm = (value: string) => (expected.compact ? value.replace(/\s+/g, "") : value);
+  const before = norm((await strings(source)).join(" "));
+  const after = norm((await strings(result)).join(" "));
+  for (const gone of expected.gone) {
+    expect(before).toContain(norm(gone));
+    expect(after).not.toContain(norm(gone));
+  }
+  for (const present of expected.present) expect(after).toContain(norm(present));
+  for (const kept of expected.untouched ?? []) expect(after).toContain(norm(kept));
+  const text = pdftotext(result);
+  if (text !== null) {
+    const flat = norm(text);
+    for (const gone of expected.gone) expect(flat).not.toContain(norm(gone));
+    for (const present of expected.present) expect(flat).toContain(norm(present));
+  }
+  const diff = diffPixels(await render(source), await render(result), zoneOf(e));
+  expect(diff.outside).toBe(0);
+  expect(diff.inside).toBeGreaterThan(0);
+}
+
+const SPECIAL: Array<{ text: string; marks: string[]; gone: string[] }> = [
+  { text: "Oferta limitada… marca™ 1½ tazas", marks: ["…", "™", "½"], gone: ["Oferta", "limitada", "marca", "tazas"] },
+  { text: "Receta: 1¼ y 3¾ ‰ de sal", marks: ["¼", "¾", "‰"], gone: ["Receta", "sal"] },
+  { text: "Viñeta • item", marks: ["•"], gone: ["Viñeta", "item"] },
+  { text: "“Comillas” ‘x’ — – € ƒ", marks: ["“", "”", "‘", "’", "—", "–", "€", "ƒ"], gone: ["Comillas"] },
+  { text: "Daga † doble ‡ š œ ž Ÿ", marks: ["†", "‡", "š", "œ", "ž", "Ÿ"], gone: ["Daga", "doble"] },
+];
+
+describe.each([
+  ["Helvetica", StandardFonts.Helvetica],
+  ["Times-Roman", StandardFonts.TimesRoman],
+  ["Helvetica-Bold", StandardFonts.HelveticaBold],
+])("F2 ronda 3 · N1/N2 · %s de pdf-lib sin ToUnicode con simbolos de WinAnsi 0x80–0x9F y que NFKC expande", (_name, fontName) => {
+  it.each(SPECIAL)("«$text»: se hallan TODOS los glifos, se marca eliminado y el original no se extrae", async ({ text, marks, gone }) => {
+    const source = await drawnPdf(fontName, [
+      { text, x: 20, y: 100, size: 14 },
+      { text: "Pie intacto", x: 20, y: 30, size: 10 },
+    ]);
+    expect(await hasToUnicode(source)).toBe(false); // precondicion: es la rama aproximada
+    const blocks = await blocksOf(source);
+    const block = blocks.find((b) => b.text.includes(gone[0]));
+    expect(block, "bloque detectado").toBeDefined();
+    for (const mark of marks) expect(block!.text).toContain(mark);
+    const e = blockEdit(block!, "Nuevo");
+    // N2: ningun glifo se pierde por un ancho mal calculado (antes: 12 de 13 con la vineta).
+    expect(await foundGlyphs(source, e)).toBe([...text].length);
+    // N1: el perfil (NFKC) y la cuenta aproximada de glifos coinciden.
+    const result = await applyTextEdits(source, [e]);
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    expect(remains(result.warningsByEdit[e.id])).toBeNull();
+    await expectBlockReplaced(source, result.bytes, e, { gone, present: ["Nuevo"], untouched: ["Pie intacto"] });
+  });
+});
+
+describe("F2 ronda 3 · N1/N2 · PDFs de jsPDF (la propia app los genera con fuentes base 14 sin ToUnicode)", () => {
+  it.each(["helvetica", "times", "courier"])("%s: «Viñeta • item — “x” € 1½ ™» se elimina de verdad", async (family) => {
+    const pdf = new jsPDF({ unit: "pt", format: [380, 160] });
+    pdf.setFont(family);
+    pdf.setFontSize(12);
+    pdf.text("Viñeta • item — “x” € 1½ ™", 20, 60);
+    pdf.text("Pie intacto", 20, 120);
+    const source = new Uint8Array(pdf.output("arraybuffer"));
+    expect(await hasToUnicode(source)).toBe(false);
+    const block = (await blocksOf(source)).find((b) => b.text.includes("item"));
+    expect(block, "bloque detectado").toBeDefined();
+    const e = blockEdit(block!, "Nuevo");
+    const result = await applyTextEdits(source, [e]);
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    await expectBlockReplaced(source, result.bytes, e, { gone: ["item"], present: ["Nuevo"], untouched: ["Pie intacto"], compact: true });
+  });
+});
+
+describe("F2 ronda 3 · N2 · anchos AFM de 0x80–0x9F con el resto de la linea", () => {
+  /** Linea parcial: el bloque editado es solo la ultima palabra; delante van simbolos de 0x80–0x9F. */
+  async function lastWord(fontName: StandardFonts, prefix: string, word: string) {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(fontName);
+    const page = doc.addPage([380, 160]);
+    page.drawText(prefix + word, { x: 20, y: 100, size: 14, font });
+    const source = await doc.save();
+    const x = 20 + font.widthOfTextAtSize(prefix, 14);
+    const width = font.widthOfTextAtSize(word, 14);
+    const box = { x: x - 0.3, y: 96, width: width + 0.6, height: 18 };
+    const e = edit({ box, coverBox: box, text: "Nuevo", fontSize: 14, originalGlyphs: glyphProfile(word) });
+    return { source, e };
+  }
+
+  it.each([
+    ["Viñeta • ", "item"],
+    ["Oferta… ", "ahora"],
+    ["“Cita” — ", "autor"],
+    ["Total € 5 ™ ", "final"],
+  ])("«%s» + «%s»: cada glifo cae en su sitio y solo se quita la ultima palabra", async (prefix, word) => {
+    const { source, e } = await lastWord(StandardFonts.Helvetica, prefix, word);
+    const result = await applyTextEdits(source, [e]);
+    expect(result.warningsByEdit.e1).toContainEqual({ kind: "original-text-removed" });
+    const after = (await strings(result.bytes)).join(" ");
+    expect(after).not.toContain(word);
+    expect(after).toContain("Nuevo");
+    expect(after).toContain(prefix.trim().split(" ")[0]);
+    const diff = diffPixels(await render(source), await render(result.bytes), { x: 19, y: 95, width: 340, height: 22 });
+    expect(diff.outside).toBe(0);
+  });
+});
+
+describe("F2 ronda 3 · N2 · codificaciones declaradas (MacRoman, /Differences, StandardEncoding)", () => {
+  async function customFontPdf(font: Record<string, unknown>, content: string): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([380, 160]);
+    const ref = doc.context.register(doc.context.obj({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica", ...font }));
+    page.node.setFontDictionary(PDFName.of("F1"), ref);
+    page.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream(content)));
+    return doc.save();
+  }
+
+  async function replaceMarked(source: Uint8Array, marker: string) {
+    const block = (await blocksOf(source)).find((b) => b.text.includes(marker));
+    expect(block, `bloque con ${marker}`).toBeDefined();
+    const e = blockEdit(block!, "Nuevo");
+    const result = await applyTextEdits(source, [e]);
+    return { block: block!, e, result };
+  }
+
+  it("MacRomanEncoding sin /Widths ni ToUnicode: em dash, vinetas y acentos con su ancho de MacRoman", async () => {
+    // Cafe — Nandu • • • … en MacRoman: é=0x8E, —=0xD1, Ñ=0x84, ú=0x9C, •=0xA5, …=0xC9
+    const source = await customFontPdf(
+      { Encoding: "MacRomanEncoding" },
+      "BT /F1 14 Tf 20 100 Td (Caf\\216 \\321 \\321 \\321 \\204and\\234 \\245 \\245 \\245 \\311) Tj ET BT /F1 10 Tf 20 30 Td (Pie intacto) Tj ET",
+    );
+    expect(await hasToUnicode(source)).toBe(false);
+    const { block, e, result } = await replaceMarked(source, "Caf");
+    expect(block.text).toContain("—");
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    await expectBlockReplaced(source, result.bytes, e, { gone: ["Caf", "and"], present: ["Nuevo"], untouched: ["Pie intacto"] });
+  });
+
+  it("/Encoding con /Differences (ligaduras fi, fl y vineta) sin /Widths: los anchos salen del nombre del glifo", async () => {
+    const source = await customFontPdf(
+      { Encoding: { Type: "Encoding", BaseEncoding: "WinAnsiEncoding", Differences: [1, "fi", "fl", "bullet"] } },
+      "BT /F1 14 Tf 20 100 Td (\\001re \\002oor \\003 \\003 \\003 x) Tj ET BT /F1 10 Tf 20 30 Td (Pie intacto) Tj ET",
+    );
+    const { e, result } = await replaceMarked(source, "re");
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    const after = (await strings(result.bytes)).join(" ");
+    expect(after).toContain("Nuevo");
+    expect(after).toContain("Pie intacto");
+    expect(after).not.toMatch(/oor/);
+  });
+
+  it("sin /Encoding (StandardEncoding): ﬁ y ﬂ en 0xAE/0xAF y comilla recta en 0x27", async () => {
+    const source = await customFontPdf(
+      {},
+      "BT /F1 14 Tf 20 100 Td (\\256\\256\\256 \\257\\257\\257 x) Tj ET BT /F1 10 Tf 20 30 Td (Pie intacto) Tj ET",
+    );
+    const { e, result } = await replaceMarked(source, "x");
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    const after = (await strings(result.bytes)).join(" ");
+    expect(after).toContain("Nuevo");
+    expect(after).toContain("Pie intacto");
+  });
+
+  it("fuente Symbol sin /Widths: sus anchos no se conocen, asi que no se casa ni se quita nada y se avisa widths", async () => {
+    const source = await rawPdf("BT /F1 20 Tf 40 100 Td (Original) Tj ET", { font: StandardFonts.Symbol });
+    const result = await applyTextEdits(source, [edit({ text: "Nuevo" })]);
+    expect(removed(result.warningsByEdit.e1)).toBe(false);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "widths" });
+    expect(await pageContent(result.bytes)).toContain("(Original) Tj");
+  });
+});
+
+describe("F2 ronda 3 · N3 · espaciado de caracteres (Tc) y de palabras (Tw)", () => {
+  const TC_CASES: Array<[string, string, string]> = [
+    ["Tc 2", "2 Tc", "Espaciado de caracteres"],
+    ["Tc 3", "3 Tc", "Hola"],
+    ["Tc 6", "6 Tc", "Hola"],
+    ["Tw 8", "8 Tw", "Hola mundo feliz"],
+    ["Tc 4 con Tz 150", "4 Tc 150 Tz", "Hola mundo"],
+    ["Tc -0,5", "-0.5 Tc", "Hola mundo"],
+    ["Tc 1 y Tw 6", "1 Tc 6 Tw", "Hola mundo feliz"],
+  ];
+
+  it.each(TC_CASES)("%s: el ultimo glifo no se pierde por el margen de la caja", async (_name, ops, text) => {
+    const source = await rawPdf(`q BT /F1 14 Tf ${ops} 20 100 Td (${text}) Tj ET Q BT /F1 8 Tf 20 30 Td (Pie intacto) Tj ET`);
+    const block = (await blocksOf(source)).find((b) => b.text.includes("Hola") || b.text.includes("Espaciado"));
+    expect(block, "bloque detectado").toBeDefined();
+    const e = blockEdit(block!, "Nuevo");
+    expect(await foundGlyphs(source, e)).toBe(text.length);
+    const result = await applyTextEdits(source, [e]);
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    await expectBlockReplaced(source, result.bytes, e, {
+      gone: [text.split(" ")[0]],
+      present: ["Nuevo"],
+      untouched: ["Pie intacto"],
+      compact: true,
+    });
+    expect(await pageContent(result.bytes)).not.toContain(`(${text})`);
+  });
+
+  /** «Hola» con Tc 3 (37,8 pt de tinta); la caja manual es la de la tinta, como la del editor. */
+  const holaBox = { x: 19.5, y: 96, width: 38.8, height: 18 };
+  const holaEdit = () => edit({ box: holaBox, coverBox: holaBox, text: "Nuevo", fontSize: 14, originalGlyphs: glyphProfile("Hola") });
+
+  it("adverso: un glifo ajeno justo FUERA de la caja (sin espaciado propio) no se toca aunque el Tc del bloque sea grande", async () => {
+    const source = await rawPdf("BT /F1 14 Tf 3 Tc 20 100 Td (Hola) Tj ET BT /F1 14 Tf 0 Tc 60.5 100 Td (X) Tj ET");
+    const result = await applyTextEdits(source, [holaEdit()]);
+    expect(result.warningsByEdit.e1).toContainEqual({ kind: "original-text-removed" });
+    const content = await pageContent(result.bytes);
+    expect(content).toContain("(X) Tj");
+    expect(content).not.toContain("(Hola)");
+    expect(await strings(result.bytes)).toContain("X");
+  });
+
+  it("adverso: texto vecino del mismo cuerpo DENTRO de una caja ancha con Tc grande: no se borra NADA y se avisa ambiguous", async () => {
+    const source = await rawPdf("BT /F1 14 Tf 3 Tc 20 100 Td (Hola) Tj ( mundo) Tj ET");
+    const wide = { x: 19.5, y: 96, width: 110, height: 18 };
+    const result = await applyTextEdits(source, [edit({ box: wide, coverBox: wide, text: "Nuevo", fontSize: 14, originalGlyphs: glyphProfile("Hola") })]);
+    expect(removed(result.warningsByEdit.e1)).toBe(false);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "ambiguous" });
+    const content = await pageContent(result.bytes);
+    expect(content).toContain("(Hola) Tj");
+    expect(content).toContain("( mundo) Tj");
+  });
+
+  it("adverso: un glifo ajeno que EMPIEZA dentro de la caja y cuyo espaciado sobresale: no se borra (se bloquea el bloque)", async () => {
+    // El punto de otro objeto de texto se dibuja encima de la «l» (Tc 3 propio): ahora su tinta cae dentro y el
+    // perfil de «Hola» ya no cuadra, asi que no se quita nada del bloque; el punto sigue en el flujo.
+    const source = await rawPdf("BT /F1 14 Tf 3 Tc 20 100 Td (Hola) Tj ET BT /F1 14 Tf 3 Tc 53.5 100 Td (.) Tj ET");
+    const result = await applyTextEdits(source, [holaEdit()]);
+    const content = await pageContent(result.bytes);
+    expect(content).toContain("(.) Tj");
+    if (removed(result.warningsByEdit.e1)) expect(content).not.toContain("(Hola)");
+    else expect(content).toContain("(Hola) Tj");
+  });
+});
+
+describe("F2 ronda 3 · N3b · texto dibujado varias veces para simular negrita", () => {
+  const FONT = "BT /F1 14 Tf";
+  const BOLD_CASES: Array<[string, string]> = [
+    ["dos pasadas en dos BT", `${FONT} 20 100 Td (Hola mundo) Tj ET ${FONT} 20.4 100 Td (Hola mundo) Tj ET`],
+    ["dos Tj en el mismo BT", `${FONT} 20 100 Td (Hola mundo) Tj 0.4 0 Td (Hola mundo) Tj ET`],
+    ["tres pasadas", `${FONT} 20 100 Td (Hola mundo) Tj ET ${FONT} 20.4 100 Td (Hola mundo) Tj ET ${FONT} 20 100.4 Td (Hola mundo) Tj ET`],
+    [
+      "cuatro pasadas en diagonal",
+      `${FONT} 20 100 Td (Hola mundo) Tj ET ${FONT} 20.3 100 Td (Hola mundo) Tj ET ${FONT} 20 100.3 Td (Hola mundo) Tj ET ${FONT} 20.3 100.3 Td (Hola mundo) Tj ET`,
+    ],
+    ["con TJ y kerning", `${FONT} 20 100 Td [(Ho) -20 (la mundo)] TJ ET ${FONT} 20.4 100 Td [(Ho) -20 (la mundo)] TJ ET`],
+  ];
+
+  it.each(BOLD_CASES)("%s: las pasadas caen en la caja, el perfil cuadra con una y se quitan todas", async (_name, content) => {
+    const source = await rawPdf(`${content} BT /F1 8 Tf 20 30 Td (Pie intacto) Tj ET`);
+    const block = (await blocksOf(source)).find((b) => b.text.includes("Hola"));
+    expect(block, "bloque detectado").toBeDefined();
+    const e = blockEdit(block!, "Nuevo");
+    const result = await applyTextEdits(source, [e]);
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    expect(remains(result.warningsByEdit[e.id])).toBeNull();
+    await expectBlockReplaced(source, result.bytes, e, { gone: ["Hola", "mundo"], present: ["Nuevo"], untouched: ["Pie intacto"] });
+    const after = await pageContent(result.bytes);
+    expect(after).not.toContain("(Hola mundo)");
+    expect(after).not.toContain("(Ho)");
+    expect(after).toContain("(Pie intacto)");
+  });
+
+  const box = { x: 19.5, y: 96, width: 78, height: 18 };
+  const hand = (text: string) => edit({ box, coverBox: box, text: "Nuevo", fontSize: 14, originalGlyphs: glyphProfile(text) });
+
+  it("adverso: la segunda pasada tiene OTRA letra del mismo ancho (Hola / Hole): no se confunde con una copia, no se borra nada", async () => {
+    // «a» y «e» miden lo mismo en Helvetica: solo el codigo del glifo las distingue.
+    const source = await rawPdf(`${FONT} 20 100 Td (Hola mundo) Tj ET ${FONT} 20.3 100 Td (Hole mundo) Tj ET`);
+    const result = await applyTextEdits(source, [hand("Hola mundo")]);
+    expect(removed(result.warningsByEdit.e1)).toBe(false);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "ambiguous" });
+    const content = await pageContent(result.bytes);
+    expect(content).toContain("(Hola mundo) Tj");
+    expect(content).toContain("(Hole mundo) Tj");
+  });
+
+  it("adverso: la segunda pasada es de otro tamano de fuente (15 frente a 14): no es una copia, no se borra nada", async () => {
+    const source = await rawPdf(`${FONT} 20 100 Td (Hola mundo) Tj ET BT /F1 14.9 Tf 20.3 100 Td (Hola mundo) Tj ET`);
+    const result = await applyTextEdits(source, [hand("Hola mundo")]);
+    expect(removed(result.warningsByEdit.e1)).toBe(false);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "ambiguous" });
+    expect(await pageContent(result.bytes)).toContain("(Hola mundo) Tj");
+  });
+
+  it("adverso: dos palabras cortas con la misma geometria pero 14 y 15 pt no se funden aunque las posiciones casi coincidan", async () => {
+    // Texto de dos letras: la diferencia de ancho es menor que la tolerancia de posicion; solo el tamano distingue las pasadas.
+    const source = await rawPdf(`${FONT} 20 100 Td (Hi) Tj ET BT /F1 15 Tf 20 100 Td (Hi) Tj ET`);
+    const result = await applyTextEdits(source, [hand("Hi")]);
+    expect(removed(result.warningsByEdit.e1)).toBe(false);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "ambiguous" });
+    expect(await pageContent(result.bytes)).toContain("(Hi) Tj");
+  });
+
+  it("adverso: cinco pasadas del mismo texto no son una negrita simulada: no se borra nada", async () => {
+    const passes = [0, 0.1, 0.2, 0.3, 0.4].map((dx) => `${FONT} ${20 + dx} 100 Td (Hola mundo) Tj ET`).join(" ");
+    const source = await rawPdf(passes);
+    const result = await applyTextEdits(source, [hand("Hola mundo")]);
+    expect(removed(result.warningsByEdit.e1)).toBe(false);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "ambiguous" });
+    expect(await pageContent(result.bytes)).toContain("(Hola mundo) Tj");
+  });
+
+  it("adverso: dos letras iguales seguidas («ll») NO se funden como copias y un glifo ajeno dentro de la caja no se cuela", async () => {
+    // «Hallo» mas una «x» ajena dentro de la caja. Si las dos «l» contaran como una pasada doble, el perfil de 5 caracteres
+    // cuadraria por casualidad (H a l o x) y se borraria la «x» de otro texto.
+    const source = await rawPdf(`${FONT} 20 100 Td (Hallo) Tj ET ${FONT} 60 100 Td (x) Tj ET`);
+    const wide = { x: 19.5, y: 96, width: 60, height: 18 };
+    const result = await applyTextEdits(source, [
+      edit({ box: wide, coverBox: wide, text: "Nuevo", fontSize: 14, originalGlyphs: glyphProfile("Hallo") }),
+    ]);
+    expect(removed(result.warningsByEdit.e1)).toBe(false);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "ambiguous" });
+    const content = await pageContent(result.bytes);
+    expect(content).toContain("(Hallo) Tj");
+    expect(content).toContain("(x) Tj");
+  });
+
+  it("un bloque con dos pasadas solo a medias (la segunda cubre parte del texto) se quita entero", async () => {
+    const source = await rawPdf(`${FONT} 20 100 Td (Hola mundo) Tj ET ${FONT} 20.3 100 Td (Hola) Tj ET`);
+    const result = await applyTextEdits(source, [hand("Hola mundo")]);
+    expect(result.warningsByEdit.e1).toContainEqual({ kind: "original-text-removed" });
+    const content = await pageContent(result.bytes);
+    expect(content).not.toContain("(Hola mundo)");
+    expect(content).not.toContain("(Hola) Tj");
+  });
+});
+
+describe("F2 ronda 3 · N4 · /Contents como array indirecto compartido y edicion que NO consigue quitar el original", () => {
+  const shared = "BT /F1 20 Tf 40 100 Td (Original) Tj ET BT /F1 12 Tf 40 30 Td (Pie comun) Tj ET";
+
+  /** Dos paginas cuyo `/Contents` es el MISMO array indirecto (como deja un duplicado hecho a mano o por otra herramienta). */
+  async function sharedArrayPdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const stream = doc.context.register(doc.context.stream(shared));
+    const array = doc.context.register(doc.context.obj([stream]));
+    for (let i = 0; i < 2; i += 1) {
+      const page = doc.addPage([300, 200]);
+      page.node.setFontDictionary(PDFName.of("F1"), font.ref);
+      page.node.set(PDFName.of("Contents"), array);
+    }
+    return doc.save();
+  }
+
+  const contentsOf = async (bytes: Uint8Array, index: number) => {
+    const doc = await PDFDocument.load(bytes);
+    const raw = doc.getPage(index).node.get(PDFName.of("Contents"));
+    const array = raw instanceof PDFRef ? doc.context.lookup(raw) : raw;
+    return { raw, size: array instanceof PDFArray ? array.size() : -1 };
+  };
+
+  it("precondicion: las dos paginas comparten el array", async () => {
+    const source = await sharedArrayPdf();
+    const a = await contentsOf(source, 0);
+    const b = await contentsOf(source, 1);
+    expect(String(a.raw)).toBe(String(b.raw));
+    expect(a.raw).toBeInstanceOf(PDFRef);
+  });
+
+  it("edicion bloqueada (perfil que no cuadra): la pagina 2 no recibe ni el texto nuevo ni la cobertura (0 px de diferencia)", async () => {
+    const source = await sharedArrayPdf();
+    const result = await applyTextEdits(source, [edit({ text: "NUEVO P1", originalGlyphs: { chars: 99, ligatures: 0 } })]);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "ambiguous" });
+    const [p1, p2] = await allText(result.bytes, 2);
+    expect(p1).toContain("NUEVO P1");
+    expect(p2).toBe((await allText(source, 2))[1]);
+    expect(p2).not.toContain("NUEVO");
+    expect((await sameDiff(source, 2, result.bytes, 2)).outside).toBe(0);
+    expect((await sameDiff(source, 2, result.bytes, 2)).inside).toBe(0);
+    // El array de la otra pagina sigue con su unico flujo (nadie le anadio cobertura, texto ni q/Q).
+    expect((await contentsOf(result.bytes, 1)).size).toBe(1);
+    expect((await contentsOf(result.bytes, 0)).size).toBeGreaterThan(1);
+  });
+
+  it("texto NUEVO (sin blockId) en una pagina de array compartido: la otra pagina no lo recibe", async () => {
+    const source = await sharedArrayPdf();
+    const result = await applyTextEdits(source, [
+      edit({ blockId: undefined, text: "Nota nueva", box: { x: 40, y: 140, width: 120, height: 24 }, coverBox: undefined, cover: { color: null, padding: 0 } }),
+    ]);
+    const [p1, p2] = await allText(result.bytes, 2);
+    expect(p1).toContain("Nota nueva");
+    expect(p2).not.toContain("Nota nueva");
+    expect((await sameDiff(source, 2, result.bytes, 2)).outside).toBe(0);
+    expect((await contentsOf(result.bytes, 1)).size).toBe(1);
+  });
+
+  it("las dos paginas se editan y ninguna logra quitar el original: cada una recibe solo lo suyo", async () => {
+    const source = await sharedArrayPdf();
+    const result = await applyTextEdits(source, [
+      edit({ id: "e1", text: "UNO", originalGlyphs: { chars: 99, ligatures: 0 } }),
+      edit({ id: "e2", pageIndex: 1, blockId: "p1-b0", text: "DOS", originalGlyphs: { chars: 99, ligatures: 0 } }),
+    ]);
+    const [p1, p2] = await allText(result.bytes, 2);
+    expect(p1).toContain("UNO");
+    expect(p1).not.toContain("DOS");
+    expect(p2).toContain("DOS");
+    expect(p2).not.toContain("UNO");
+    expect(p1).toContain("Pie comun");
+    expect(p2).toContain("Pie comun");
+  });
+
+  it("removeOriginalText llamado SIN pasar por applyTextEdits sobre un array compartido: no reescribe el flujo en su sitio (defensa en profundidad)", async () => {
+    const doc = await PDFDocument.load(await sharedArrayPdf());
+    const outcome = removeOriginalText(doc, doc.getPage(0), [edit({ text: "Nuevo" })])[0];
+    expect(outcome.removed).toBe(true);
+    const [p1, p2] = await allText(await doc.save(), 2);
+    expect(p1).not.toContain("Original");
+    expect(p2).toContain("Original");
+    expect(p2).toContain("Pie comun");
+  });
+
+  it("isolateSharedContents: aisla el array compartido y no toca los que ya son de la pagina", async () => {
+    const source = await sharedArrayPdf();
+    const doc = await PDFDocument.load(source);
+    expect(isolateSharedContents(doc, doc.getPage(0))).toBe(true);
+    const own = doc.getPage(0).node.get(PDFName.of("Contents"));
+    expect(own).toBeInstanceOf(PDFArray); // directo, propio de la pagina
+    expect(doc.getPage(1).node.get(PDFName.of("Contents"))).toBeInstanceOf(PDFRef);
+    // Ya aislado: no hay nada mas que hacer. La pagina 2 conserva el array indirecto, ahora de su sola propiedad.
+    expect(isolateSharedContents(doc, doc.getPage(0))).toBe(false);
+    expect(isolateSharedContents(doc, doc.getPage(1))).toBe(false);
+    // Flujo unico indirecto, o array directo: tampoco.
+    const single = await PDFDocument.load(await rawPdf(shared));
+    expect(isolateSharedContents(single, single.getPage(0))).toBe(false);
+  });
+});
+
+describe("F2 ronda 3 · M15 · un bloque bloqueado por otra razon conserva SU razon", () => {
+  it("Tr 3 (invisible) con perfil de glifos: sigue siendo invisible, no pasa a ambiguous", async () => {
+    const source = await rawPdf("BT /F1 20 Tf 3 Tr 40 100 Td (Oculto) Tj ET");
+    const result = await applyTextEdits(source, [edit({ text: "Nuevo", originalGlyphs: glyphProfile("Oculto") })]);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "invisible" });
+  });
+
+  it("XObject compartido con perfil de glifos: sigue siendo shared-xobject", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const form = doc.context.register(
+      doc.context.flateStream("BT /F1 20 Tf 40 100 Td (Original) Tj ET", {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, 300, 200],
+        Resources: { Font: { F1: font.ref } },
+      }),
+    );
+    for (let i = 0; i < 2; i += 1) {
+      const page = doc.addPage([300, 200]);
+      page.node.setFontDictionary(PDFName.of("F1"), font.ref);
+      page.node.setXObject(PDFName.of("Fm1"), form);
+      page.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream("/Fm1 Do")));
+    }
+    const result = await applyTextEdits(await doc.save(), [edit({ text: "Nuevo", originalGlyphs: glyphProfile("Original") })]);
+    expect(remains(result.warningsByEdit.e1)).toEqual({ kind: "original-text-remains", reason: "shared-xobject" });
   });
 });

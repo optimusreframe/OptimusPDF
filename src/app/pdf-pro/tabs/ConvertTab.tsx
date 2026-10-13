@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ExternalLink,
   FileCode,
@@ -20,9 +20,10 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useI18n } from "@/lib/i18n";
-import { downloadBlob, toPdfError, type PdfErrorCode } from "@/lib/pdf/core";
 import { toolHref } from "@/lib/tools-registry";
+import { ExportCancelButton } from "@/app/pdf-pro/export/ExportCancelButton";
 import { getExportStrings } from "@/app/pdf-pro/export/exportStrings";
+import { useExportStore } from "@/app/pdf-pro/export/useExportStore";
 import { useSelectedPages } from "@/app/pdf-pro/export/useSelectedPages";
 import { getProExports, type ProExport } from "@/app/pdf-pro/ops/proExports";
 import { getProStrings } from "@/app/pdf-pro/proStrings";
@@ -64,105 +65,53 @@ function useOnline(): boolean {
 
 type CardProps = {
   entry: ProExport;
-  /** Id de la tarjeta que esta exportando (solo una a la vez). */
-  activeId: string | null;
-  setActiveId: (id: string | null) => void;
 };
 
-function ExportCard({ entry, activeId, setActiveId }: CardProps) {
+/**
+ * Una tarjeta de exportacion. NO es duena de la exportacion (Wave 9): el estado y el motor viven en el almacen del
+ * documento de trabajo (`export/exportStore.ts`), asi que la tarjeta se puede desmontar (otra pestaña, un modo) sin
+ * cancelar nada y, al volver, lee de aqui el progreso o el resultado. Aqui solo se pinta y se pide empezar o cancelar.
+ */
+function ExportCard({ entry }: CardProps) {
   const { t, language } = useI18n();
   const s = getProStrings(language).docTools.convert;
-  const own = getExportStrings(language).card;
-  const { doc, document, pageCount } = useProWorkingDoc();
+  const strings = getExportStrings(language);
+  const own = strings.card;
+  const { document, pageCount } = useProWorkingDoc();
+  const { store, state } = useExportStore();
   const selectedPages = useSelectedPages();
   const online = useOnline();
   const optionsId = useId();
   const reasonId = useId();
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<PdfErrorCode | null>(null);
-  const [cancelledNote, setCancelledNote] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
-  const [options, setOptionsState] = useState<unknown>(() => entry.defaultOptions?.());
-  const controller = useRef<AbortController | null>(null);
+  const defaultOptions = useMemo(() => entry.defaultOptions?.(), [entry]);
+  const options = state.options[entry.id] ?? defaultOptions;
   const exportButton = useRef<HTMLButtonElement>(null);
   const Icon = ICONS[entry.id] ?? FileOutput;
-  const copy = error ? errorCopy(t, error) : null;
   const run = entry.run;
   const Options = entry.Options;
 
-  // Si la tarjeta se desmonta (otra pestaña, documento cerrado) la exportacion en curso se cancela, y se AVISA en la
-  // region viva (Wave 8 · backlog a): antes la tarjeta reaparecia vacia sin explicacion.
-  const leaveNoteRef = useRef(own.cancelledOnLeave);
-  useEffect(() => {
-    leaveNoteRef.current = own.cancelledOnLeave;
-  });
-  useEffect(
-    () => () => {
-      const active = controller.current;
-      if (!active || active.signal.aborted) return;
-      active.abort();
-      doc.announce(leaveNoteRef.current);
-    },
-    [doc],
-  );
+  // La exportacion de ESTA tarjeta (si la hay: en curso, terminada, con error o cancelada) y si hay otra distinta.
+  const job = state.job && state.job.formatId === entry.id ? state.job : null;
+  const busy = job?.phase === "running";
+  const otherBusy = state.job?.phase === "running" && !busy;
+  const error = job?.phase === "error" ? job.error : null;
+  const copy = error ? errorCopy(t, error) : null;
 
-  const setOptions = (patch: Record<string, unknown>) =>
-    setOptionsState((previous: unknown) => ({ ...(previous as Record<string, unknown>), ...patch }));
+  const setOptions = (patch: Record<string, unknown>) => store.setOptions(entry.id, defaultOptions, patch);
 
   const needsNetwork = entry.needsNetwork ? entry.needsNetwork(options) : entry.requiresNetwork;
   const reason = entry.validate?.(options, { language, pageCount, selectedPages }) ?? null;
-  const otherBusy = activeId !== null && activeId !== entry.id;
   const disabled = busy || otherBusy || reason !== null;
   const snapshotBytes = document ? document.snapshots[document.cursor]?.byteLength ?? 0 : 0;
   const title = entry.title(language);
+  // La version del documento que se exporto (o se esta exportando) y si el documento sigue siendo esa.
+  const currentSnapshotId = document ? document.snapshots[document.cursor]?.id : undefined;
+  const versionChanged = job !== null && currentSnapshotId !== undefined && currentSnapshotId !== job.snapshotId;
 
-  const exportNow = async () => {
+  const exportNow = () => {
     if (!run || !document || disabled) return;
-    const bytes = doc.current();
-    if (!bytes) return;
-    const mine = new AbortController();
-    controller.current = mine;
-    setActiveId(entry.id);
-    setBusy(true);
-    setProgress(0);
-    setError(null);
-    setCancelledNote(false);
-    try {
-      const result = await run(bytes, {
-        name: document.name,
-        language,
-        signal: mine.signal,
-        onProgress: (value) => {
-          if (!mine.signal.aborted) setProgress(value);
-        },
-        options,
-        selectedPages,
-        pageCount,
-        file: doc.currentFile() ?? undefined,
-      });
-      if (mine.signal.aborted) {
-        setCancelledNote(true);
-        return;
-      }
-      downloadBlob(result.blob, result.filename);
-      doc.announce(own.done(result.filename));
-    } catch (caught) {
-      const code = toPdfError(caught).code;
-      if (code === "cancelled" || mine.signal.aborted) setCancelledNote(true);
-      else setError(code);
-    } finally {
-      if (controller.current === mine) controller.current = null;
-      setBusy(false);
-      setActiveId(null);
-    }
-  };
-
-  const cancel = () => {
-    controller.current?.abort();
-    doc.announce(own.cancelled);
-    // El boton «Cancelar» desaparece: el foco vuelve al de exportar (nunca a <body>).
-    window.requestAnimationFrame(() => exportButton.current?.focus({ preventScroll: true }));
+    store.start({ entry, options, selectedPages, language });
   };
 
   return (
@@ -227,7 +176,12 @@ function ExportCard({ entry, activeId, setActiveId }: CardProps) {
               {reason}
             </p>
           ) : null}
-          {busy ? <ProgressBar value={progress * 100} label={own.running} /> : null}
+          {busy && job ? <ProgressBar value={job.progress * 100} label={own.running} /> : null}
+          {busy && job ? (
+            <p data-export-from="" className="text-xs leading-relaxed text-muted-foreground">
+              {own.runningFrom(job.versionLabel)}
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               ref={exportButton}
@@ -241,13 +195,29 @@ function ExportCard({ entry, activeId, setActiveId }: CardProps) {
               {busy ? own.running : title}
             </Button>
             {busy ? (
-              <Button variant="ghost" size="md" onClick={cancel}>
+              <ExportCancelButton
+                variant="ghost"
+                size="md"
+                onCancel={() => store.cancel()}
+                // «Cancelar» desaparece (se cancele o termine solo): el foco vuelve al boton de exportar, nunca a <body>.
+                returnFocusTo={() => exportButton.current}
+              >
                 {own.cancel}
-              </Button>
+              </ExportCancelButton>
             ) : null}
           </div>
-          {otherBusy ? <p className="text-xs leading-relaxed text-muted-foreground">{own.inProgressOther}</p> : null}
-          {cancelledNote && !busy ? <p className="text-xs leading-relaxed text-muted-foreground">{own.cancelled}</p> : null}
+          {otherBusy && state.job ? (
+            <p data-export-other="" className="text-xs leading-relaxed text-muted-foreground">
+              {own.inProgressOther(strings.formatsShort[state.job.formatId])}
+            </p>
+          ) : null}
+          {job?.phase === "done" && job.filename ? (
+            <p data-export-result="" className="text-xs leading-relaxed text-foreground">
+              {own.result(job.filename, job.versionLabel)}
+              {versionChanged ? <span className="text-muted-foreground"> {own.versionChanged}</span> : null}
+            </p>
+          ) : null}
+          {job?.phase === "cancelled" ? <p className="text-xs leading-relaxed text-muted-foreground">{own.cancelled}</p> : null}
           <ErrorBanner
             show={copy !== null}
             errorKey={error ?? undefined}
@@ -256,7 +226,7 @@ function ExportCard({ entry, activeId, setActiveId }: CardProps) {
             hint={copy?.hint}
             actions={errorActions(t, error)}
             dismissLabel={t.common.close}
-            onDismiss={() => setError(null)}
+            onDismiss={() => store.dismiss()}
             className="mb-0"
           />
         </>
@@ -283,12 +253,17 @@ function ExportCard({ entry, activeId, setActiveId }: CardProps) {
  * en `ops/proExports.ts`. Las ocho de `export/registerExports.ts` (imagenes JPG/PNG, texto, Word, Excel, CSV,
  * Markdown, JSON, PowerPoint) tienen su mini-panel de opciones, progreso, cancelacion y error claro. Exportar NO
  * toca el historial ni el estado «guardado» del documento.
+ *
+ * Wave 9: la exportacion NO vive aqui. Cambiar de pestaña desmonta esta pestaña pero la exportacion sigue en el almacen
+ * del documento (`export/exportStore.ts`); el indicador de la barra superior (`ExportIndicator`) la muestra y la cancela.
  */
 export function ConvertTab() {
   const { language } = useI18n();
   const s = getProStrings(language).docTools.convert;
   const { document } = useProWorkingDoc();
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const { store } = useExportStore();
+  // Con esta pestaña a la vista la alerta de error de cada tarjeta se anuncia sola; sin ella lo anuncia el almacen.
+  useEffect(() => store.registerView(), [store]);
   if (!document) return null;
   return (
     <div className="space-y-4" data-doc-tab="convert">
@@ -298,7 +273,7 @@ export function ConvertTab() {
       </div>
       <ul aria-label={s.title} className="space-y-3">
         {getProExports().map((entry) => (
-          <ExportCard key={entry.id} entry={entry} activeId={activeId} setActiveId={setActiveId} />
+          <ExportCard key={entry.id} entry={entry} />
         ))}
       </ul>
     </div>

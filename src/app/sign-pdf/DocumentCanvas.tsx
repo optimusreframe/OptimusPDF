@@ -75,6 +75,7 @@ import {
 } from "@/app/sign-pdf/soloSignature";
 import { pageAspectOf } from "@/app/sign-pdf/pageAspect";
 import { useCanvasCompact } from "@/app/sign-pdf/canvasCompact";
+import { useIsDesktop } from "@/app/pdf-pro/shell/useIsDesktop";
 import { usePageImage } from "@/app/sign-pdf/usePageImage";
 import { useSignTextEditing, type SignTextEditConfig } from "@/app/sign-pdf/useSignTextEditing";
 import { ValueSuggestions } from "@/app/sign-pdf/ValueSuggestions";
@@ -503,6 +504,7 @@ function DocumentCanvasInner({
   textEdit,
 }: DocumentCanvasProps) {
   const compact = useCanvasCompact();
+  const isDesktop = useIsDesktop();
   /** Recuento de paginas que da la pasada de miniaturas (la vista grande trae el suyo). */
   const [thumbPageCount, setThumbPageCount] = useState(0);
   const [thumbs, setThumbs] = useState<string[]>([]);
@@ -2245,6 +2247,249 @@ function DocumentCanvasInner({
         ? strings.typeChangeClearedNotice(textTypeLabel(pendingUndo.toType))
         : strings.textFieldDeletedNotice;
 
+  /*
+   * Compacto en escritorio (PDF Pro · Firmar, B1): el dueño de la firma o de los huecos y el alta con teclado van
+   * EN la barra de zoom y paginas, en una sola fila, en vez de en una tarjeta aparte. Quita ~74 px de alto antes de
+   * la hoja. En movil (y fuera de PDF Pro) siguen en su tarjeta, como siempre. El mismo JSX en los dos sitios: nunca
+   * se pintan a la vez.
+   */
+  const merged = compact && isDesktop && !sequence?.hidePager;
+
+  /* Dueño de los huecos nuevos (o la firma propia, en "Solo yo"). */
+  const signatureControls = (
+    <>
+      {solo ? (
+        /* "Solo yo": crear o rehacer la firma sin salir del lienzo. */
+        <div
+          className={
+            merged
+              ? "flex flex-wrap items-center gap-2"
+              : "flex flex-wrap items-center justify-between gap-3"
+          }
+        >
+          {solo.signaturePng ? (
+            <span className="ui-label text-muted-foreground">
+              {strings.soloSignatureLabel}
+            </span>
+          ) : (
+            <p
+              className={
+                merged
+                  ? "sr-only"
+                  : "min-w-0 flex-1 text-footnote leading-relaxed text-muted-foreground"
+              }
+            >
+              {strings.noSignature}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={solo.signaturePng ? "secondary" : "primary"}
+              size="sm"
+              className={COARSE_TALL}
+              onClick={solo.onCreateSignature}
+            >
+              <PenLine aria-hidden="true" className="size-4" />
+              {solo.signaturePng ? strings.changeSignature : strings.createSignature}
+            </Button>
+            {solo.onOpenSaved ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                className={COARSE_TALL}
+                onClick={solo.onOpenSaved}
+              >
+                <Bookmark aria-hidden="true" className="size-4" />
+                {strings.vaultButton}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : signers.length > 0 ? (
+        /* Dueño del proximo hueco: se cambia aqui mismo, sin volver al paso 1. */
+        <div className={merged ? "flex flex-wrap items-center gap-2" : undefined}>
+          <span className={cn("ui-label text-muted-foreground", !merged && "mb-1.5 block")}>
+            {strings.activeSignerLabel}
+          </span>
+          <div
+            role="radiogroup"
+            aria-label={strings.activeSignerLabel}
+            className="flex flex-wrap gap-1.5"
+          >
+            {signers.map((signer, index) => {
+              const active = signer.id === activeSignerId;
+              return (
+                <button
+                  key={signer.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => onActiveSignerIdChange(signer.id)}
+                  className={cn(
+                    "flex min-h-11 items-center gap-2 rounded-ios-sm border px-3 text-footnote font-medium transition-colors duration-200 ease-spring focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
+                    active
+                      ? "border-signal/60 bg-signal/15 text-foreground"
+                      : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/25 hover:bg-white/10 hover:text-foreground",
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="size-3 shrink-0 rounded-full"
+                    /* Color del firmante: dato del documento, no un token del tema. */
+                    style={{ backgroundColor: signer.color }}
+                  />
+                  <span className="max-w-32 truncate">
+                    {signerDisplayName(signer.name, index, strings.defaultSignerName)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="text-footnote leading-relaxed text-muted-foreground">
+          {strings.slotsNeedSigners}
+        </p>
+      )}
+    </>
+  );
+
+  /*
+    Alta SIN puntero (teclado, lector de pantalla): con una herramienta
+    de creacion activa, coloca el elemento por defecto en la pagina.
+  */
+  const placeControl = creates ? (
+    <Button
+      ref={addButtonRef}
+      variant="secondary"
+      size="sm"
+      className={COARSE_TALL}
+      disabled={creates.kind === "slot" && !canPlaceSlot}
+      onClick={() => addCentered(0.5, 0.75)}
+    >
+      {creates.kind === "slot"
+        ? solo
+          ? strings.soloPlaceHere
+          : strings.addFieldHere
+        : strings.addTextFieldHere}
+    </Button>
+  ) : null;
+
+  /*
+   * Estado y acciones destructivas, encima del lienzo: en movil se hace scroll dentro de la vista previa para
+   * moverse por el documento, asi que ningun boton que borre queda en esa ruta. Con los controles en la barra
+   * (`merged`, PDF Pro en escritorio) va DEBAJO de la hoja: son acciones raras y la hoja gana ~50 px de alto.
+   */
+  const statusRow = (
+    <div
+      data-canvas-status-row=""
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-3",
+        merged ? "mt-3" : "mb-3",
+      )}
+    >
+      <p className="flex flex-wrap items-center gap-x-1.5 text-caption text-muted-foreground tabular-nums">
+        <span>{pendingNote}</span>
+        <span aria-hidden="true">·</span>
+        <span>
+          {solo
+            ? strings.soloTotalSummary(slots.length, textFields.length)
+            : strings.canvasTotalSummary(slots.length, textFields.length)}
+        </span>
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {suggestionCount > 0 || suggestionsPref !== null ? (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={suggestionsOn}
+            data-suggestions-toggle=""
+            title={strings.suggestedFieldsDescription}
+            onClick={() => {
+              const next = !suggestionsOn;
+              setSuggestionsPref(next);
+              setAnnouncement(
+                next ? strings.suggestedFieldsShown(suggestionCount) : strings.suggestedFieldsHidden,
+              );
+            }}
+            className={cn(
+              "inline-flex min-h-9 items-center gap-2 rounded-ios-sm border px-2.5 text-footnote font-medium transition-colors duration-200 ease-spring motion-reduce:transition-none pointer-coarse:min-h-11 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
+              // Colores forzados (alto contraste): el estado se distingue por el color de sistema, no por el tema.
+              "forced-colors:border-[ButtonText] forced-colors:text-[ButtonText]",
+              suggestionsOn
+                ? "border-signal/60 bg-signal/15 text-foreground forced-colors:border-[Highlight] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
+                : "border-hairline bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground forced-colors:bg-[ButtonFace]",
+            )}
+          >
+            {/* Pista y pulgar: con colores forzados la pista lleva borde y el pulgar el color del texto, a un lado u otro. */}
+            <span
+              aria-hidden="true"
+              data-switch-track=""
+              className={cn(
+                "relative inline-block h-4 w-7 shrink-0 rounded-full transition-colors duration-200 motion-reduce:transition-none",
+                // Colores de SISTEMA (un color no-sistema, como `currentColor`, se sustituye por Canvas).
+                "forced-colors:border forced-colors:bg-transparent",
+                suggestionsOn
+                  ? "bg-signal forced-colors:border-[HighlightText]"
+                  : "bg-muted-foreground/40 forced-colors:border-[ButtonText]",
+              )}
+            >
+              <span
+                data-switch-thumb=""
+                className={cn(
+                  "absolute top-0.5 left-0.5 size-3 rounded-full bg-background transition-transform duration-200 motion-reduce:transition-none",
+                  suggestionsOn ? "translate-x-3 forced-colors:bg-[HighlightText]" : "forced-colors:bg-[ButtonText]",
+                )}
+              />
+            </span>
+            {strings.suggestedFieldsToggle(suggestionCount)}
+          </button>
+        ) : null}
+        {image.hasText === false ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className={BORDERED_SM_COARSE}
+            disabled={scanning}
+            data-scan-fields=""
+            onClick={() => void scanScannedPage()}
+          >
+            {scanning ? (
+              <Spinner className="size-4" label={strings.scanningPage} />
+            ) : null}
+            {strings.scanPageFields}
+          </Button>
+        ) : null}
+        <Button
+          variant="secondary"
+          size="sm"
+          className={cn(COARSE_TALL, ABOVE_FLOATING_PALETTE)}
+          disabled={clearPageDisabled}
+          onClick={clearPage}
+        >
+          {clearScope === "slot"
+            ? strings.clearPageFields
+            : clearScope === "text"
+              ? strings.clearPageTextFields
+              : strings.clearPageAll}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(COARSE_TALL, ABOVE_FLOATING_PALETTE)}
+          disabled={clearAllDisabled}
+          onClick={() => setConfirmClearAllOpen(true)}
+        >
+          {clearScope === "slot"
+            ? strings.clearAllFields
+            : clearScope === "text"
+              ? strings.clearAllTextFields
+              : strings.clearAllAll}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <div ref={rootRef}>
       {/* Region viva SIEMPRE montada: herramienta activa, duplicados, saltos de campo. */}
@@ -2260,110 +2505,12 @@ function DocumentCanvasInner({
       </div>
 
       {/* Dueño de los huecos nuevos (o la firma propia, en "Solo yo") y alta con teclado. */}
-      <div className="surface-card rounded-ios mb-3 space-y-3 p-3">
-        {solo ? (
-          /* "Solo yo": crear o rehacer la firma sin salir del lienzo. */
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {solo.signaturePng ? (
-              <span className="ui-label text-muted-foreground">
-                {strings.soloSignatureLabel}
-              </span>
-            ) : (
-              <p className="min-w-0 flex-1 text-footnote leading-relaxed text-muted-foreground">
-                {strings.noSignature}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant={solo.signaturePng ? "secondary" : "primary"}
-                size="sm"
-                className={COARSE_TALL}
-                onClick={solo.onCreateSignature}
-              >
-                <PenLine aria-hidden="true" className="size-4" />
-                {solo.signaturePng ? strings.changeSignature : strings.createSignature}
-              </Button>
-              {solo.onOpenSaved ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className={COARSE_TALL}
-                  onClick={solo.onOpenSaved}
-                >
-                  <Bookmark aria-hidden="true" className="size-4" />
-                  {strings.vaultButton}
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        ) : signers.length > 0 ? (
-          /* Dueño del proximo hueco: se cambia aqui mismo, sin volver al paso 1. */
-          <div>
-            <span className="ui-label mb-1.5 block text-muted-foreground">
-              {strings.activeSignerLabel}
-            </span>
-            <div
-              role="radiogroup"
-              aria-label={strings.activeSignerLabel}
-              className="flex flex-wrap gap-1.5"
-            >
-              {signers.map((signer, index) => {
-                const active = signer.id === activeSignerId;
-                return (
-                  <button
-                    key={signer.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => onActiveSignerIdChange(signer.id)}
-                    className={cn(
-                      "flex min-h-11 items-center gap-2 rounded-ios-sm border px-3 text-footnote font-medium transition-colors duration-200 ease-spring focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
-                      active
-                        ? "border-signal/60 bg-signal/15 text-foreground"
-                        : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/25 hover:bg-white/10 hover:text-foreground",
-                    )}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="size-3 shrink-0 rounded-full"
-                      /* Color del firmante: dato del documento, no un token del tema. */
-                      style={{ backgroundColor: signer.color }}
-                    />
-                    <span className="max-w-32 truncate">
-                      {signerDisplayName(signer.name, index, strings.defaultSignerName)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <p className="text-footnote leading-relaxed text-muted-foreground">
-            {strings.slotsNeedSigners}
-          </p>
-        )}
-
-        {/*
-          Alta SIN puntero (teclado, lector de pantalla): con una herramienta
-          de creacion activa, coloca el elemento por defecto en la pagina.
-        */}
-        {creates ? (
-          <Button
-            ref={addButtonRef}
-            variant="secondary"
-            size="sm"
-            className={COARSE_TALL}
-            disabled={creates.kind === "slot" && !canPlaceSlot}
-            onClick={() => addCentered(0.5, 0.75)}
-          >
-            {creates.kind === "slot"
-              ? solo
-                ? strings.soloPlaceHere
-                : strings.addFieldHere
-              : strings.addTextFieldHere}
-          </Button>
-        ) : null}
-      </div>
+      {merged ? null : (
+        <div className="surface-card rounded-ios mb-3 space-y-3 p-3">
+          {signatureControls}
+          {placeControl}
+        </div>
+      )}
 
       {/*
         Zoom y paginas: pegajosos bajo la cabecera, para que sigan al alcance
@@ -2377,13 +2524,23 @@ function DocumentCanvasInner({
         <div
           data-canvas-sticky=""
           className={cn(
-            "material-thick shadow-elevation-2 rounded-ios sticky z-30 mb-3 flex flex-wrap items-center justify-between gap-x-1 gap-y-1 p-1",
+            "material-thick shadow-elevation-2 rounded-ios sticky z-30 flex flex-wrap items-center justify-between gap-x-1 gap-y-1 p-1",
+            merged ? "mb-1.5" : "mb-3",
             compact
               ? "top-1"
               : "top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3",
           )}
         >
           {pinchZoomEnabled ? zoomGroup : <span />}
+          {merged ? (
+            <div
+              data-canvas-controls=""
+              className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-2 px-2"
+            >
+              {signatureControls}
+              {placeControl}
+            </div>
+          ) : null}
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -2416,112 +2573,7 @@ function DocumentCanvasInner({
         </div>
       )}
 
-      {/*
-       * Estado y acciones destructivas, encima del lienzo: en movil se
-       * hace scroll dentro de la vista previa para moverse por el
-       * documento, asi que ningun boton que borre queda en esa ruta.
-       */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="flex flex-wrap items-center gap-x-1.5 text-caption text-muted-foreground tabular-nums">
-          <span>{pendingNote}</span>
-          <span aria-hidden="true">·</span>
-          <span>
-            {solo
-              ? strings.soloTotalSummary(slots.length, textFields.length)
-              : strings.canvasTotalSummary(slots.length, textFields.length)}
-          </span>
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          {suggestionCount > 0 || suggestionsPref !== null ? (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={suggestionsOn}
-              data-suggestions-toggle=""
-              title={strings.suggestedFieldsDescription}
-              onClick={() => {
-                const next = !suggestionsOn;
-                setSuggestionsPref(next);
-                setAnnouncement(
-                  next ? strings.suggestedFieldsShown(suggestionCount) : strings.suggestedFieldsHidden,
-                );
-              }}
-              className={cn(
-                "inline-flex min-h-9 items-center gap-2 rounded-ios-sm border px-2.5 text-footnote font-medium transition-colors duration-200 ease-spring motion-reduce:transition-none pointer-coarse:min-h-11 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
-                // Colores forzados (alto contraste): el estado se distingue por el color de sistema, no por el tema.
-                "forced-colors:border-[ButtonText] forced-colors:text-[ButtonText]",
-                suggestionsOn
-                  ? "border-signal/60 bg-signal/15 text-foreground forced-colors:border-[Highlight] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
-                  : "border-hairline bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground forced-colors:bg-[ButtonFace]",
-              )}
-            >
-              {/* Pista y pulgar: con colores forzados la pista lleva borde y el pulgar el color del texto, a un lado u otro. */}
-              <span
-                aria-hidden="true"
-                data-switch-track=""
-                className={cn(
-                  "relative inline-block h-4 w-7 shrink-0 rounded-full transition-colors duration-200 motion-reduce:transition-none",
-                  // Colores de SISTEMA (un color no-sistema, como `currentColor`, se sustituye por Canvas).
-                  "forced-colors:border forced-colors:bg-transparent",
-                  suggestionsOn
-                    ? "bg-signal forced-colors:border-[HighlightText]"
-                    : "bg-muted-foreground/40 forced-colors:border-[ButtonText]",
-                )}
-              >
-                <span
-                  data-switch-thumb=""
-                  className={cn(
-                    "absolute top-0.5 left-0.5 size-3 rounded-full bg-background transition-transform duration-200 motion-reduce:transition-none",
-                    suggestionsOn ? "translate-x-3 forced-colors:bg-[HighlightText]" : "forced-colors:bg-[ButtonText]",
-                  )}
-                />
-              </span>
-              {strings.suggestedFieldsToggle(suggestionCount)}
-            </button>
-          ) : null}
-          {image.hasText === false ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              className={BORDERED_SM_COARSE}
-              disabled={scanning}
-              data-scan-fields=""
-              onClick={() => void scanScannedPage()}
-            >
-              {scanning ? (
-                <Spinner className="size-4" label={strings.scanningPage} />
-              ) : null}
-              {strings.scanPageFields}
-            </Button>
-          ) : null}
-          <Button
-            variant="secondary"
-            size="sm"
-            className={cn(COARSE_TALL, ABOVE_FLOATING_PALETTE)}
-            disabled={clearPageDisabled}
-            onClick={clearPage}
-          >
-            {clearScope === "slot"
-              ? strings.clearPageFields
-              : clearScope === "text"
-                ? strings.clearPageTextFields
-                : strings.clearPageAll}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(COARSE_TALL, ABOVE_FLOATING_PALETTE)}
-            disabled={clearAllDisabled}
-            onClick={() => setConfirmClearAllOpen(true)}
-          >
-            {clearScope === "slot"
-              ? strings.clearAllFields
-              : clearScope === "text"
-                ? strings.clearAllTextFields
-                : strings.clearAllAll}
-          </Button>
-        </div>
-      </div>
+      {merged ? null : statusRow}
 
       {/* «Editar texto»: pista, deshacer/rehacer y la nota de que al firmar se quita el texto original (salvo casos especiales). */}
       {textEdit && (editingText || textEditing.count > 0) ? (
@@ -2575,7 +2627,8 @@ function DocumentCanvasInner({
               {textEdit.strings.nonEditableCount(textEditing.nonEditable)}
             </p>
           ) : null}
-          {textEditing.count > 0 ? (
+          {/* Compacto (PDF Pro): la nota del texto original va en la cabecera del modo, plegada con los demas avisos. */}
+          {textEditing.count > 0 && !compact ? (
             <p className="text-footnote leading-relaxed text-muted-foreground">
               {strings.editTextNote}{" "}
               <Link
@@ -2615,7 +2668,10 @@ function DocumentCanvasInner({
         <div ref={stageRef} className="relative min-w-0 flex-1">
           <div
             ref={clipRef}
-            className="surface-card rounded-ios flex justify-center overflow-hidden p-3"
+            className={cn(
+              "surface-card rounded-ios flex justify-center overflow-hidden",
+              merged ? "p-1.5" : "p-3",
+            )}
           >
             <div
               ref={hostRef}
@@ -2891,6 +2947,8 @@ function DocumentCanvasInner({
           {textEditing.bar}
         </div>
       </div>
+
+      {merged ? statusRow : null}
 
       {selectedTextField?.confidence === "low" ? (
         <p className="mt-3 flex items-start gap-2 text-footnote leading-relaxed text-foreground">

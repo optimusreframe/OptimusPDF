@@ -9,6 +9,19 @@ import { decodePngGray, type Gray } from "./image-metrics";
  * un canvas del tamano EXACTO en pixeles de dispositivo, para que la unica
  * diferencia con lo que pinta la aplicacion sea la nitidez (no el rasterizador
  * de texto de Node). Requiere un contexto con `bypassCSP: true`.
+ *
+ * Antialiasing del texto (W9-B5, medido en Linux con Docker):
+ *  - `"grayscale"` (por defecto): el lienzo se crea con un contexto 2D NO opaco
+ *    (`alpha: true`), igual que `renderPageRaster` (`src/lib/pdf/pageRaster.ts`).
+ *    El texto sale en escala de grises y es identico al de la aplicacion en
+ *    macOS y en Linux (SSIM 1, 0 pixeles distintos).
+ *  - `"pdfjs"`: no se crea el contexto y pdf.js crea el suyo, el de su visor
+ *    (`{ alpha: false, willReadFrequently: true }`). Un lienzo opaco recibe
+ *    antialiasing LCD (subpixel RGB) en Chromium para Linux (fontconfig de
+ *    Ubuntu, `10-sub-pixel-rgb.conf`) y Windows: el texto sale con franjas de
+ *    color, y al pasarlo a luminancia es mas borroso en horizontal. NO sirve
+ *    para comparar con la aplicacion (en el runner de CI daba SSIM 0,989, dif.
+ *    2,23, nitidez 1,16); queda solo para medirlo.
  */
 let pdfjsSource: Promise<string> | null = null;
 
@@ -19,16 +32,21 @@ function loadPdfjsSource(): Promise<string> {
   return pdfjsSource;
 }
 
+export type NativeReferenceOptions = {
+  /** Ver la cabecera del archivo. Por defecto `"grayscale"`. */
+  antialiasing?: "grayscale" | "pdfjs";
+};
+
 export async function renderNativeReference(
   page: Page,
   bytes: Uint8Array | Buffer,
   pageNumber: number,
   widthPx: number,
-  options: { sameCanvasAsApp?: boolean } = {},
+  options: NativeReferenceOptions = {},
 ): Promise<Gray> {
   const source = await loadPdfjsSource();
   const dataUrl = await page.evaluate(
-    async ({ source: code, base64, pageNumber: number, widthPx: width, sameCanvasAsApp }) => {
+    async ({ source: code, base64, pageNumber: number, widthPx: width, antialiasing }) => {
       const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
       const pdfjs = await import(/* @vite-ignore */ url);
       pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
@@ -39,20 +57,26 @@ export async function renderNativeReference(
       const base = pdfPage.getViewport({ scale: 1 });
       const viewport = pdfPage.getViewport({ scale: width / base.width });
       const canvas = document.createElement("canvas");
-      // `sameCanvasAsApp`: el canvas se crea como en `renderPageRaster` (contexto 2D por defecto ANTES de dibujar y
-      // medidas con `floor`). Si no, pdf.js crea el contexto con sus atributos (`alpha: false`, `willReadFrequently`) y
-      // en un navegador con rasterizado por software (el runner de CI) el texto sale con otro antialiasing que el de la
-      // aplicacion (medido: SSIM 0,989 y nitidez 1,16 a DPR 1) aunque el motor y el PDF sean los mismos.
-      canvas.width = sameCanvasAsApp ? Math.max(1, Math.floor(viewport.width)) : Math.round(viewport.width);
-      canvas.height = sameCanvasAsApp ? Math.max(1, Math.floor(viewport.height)) : Math.round(viewport.height);
-      if (sameCanvasAsApp) canvas.getContext("2d");
+      // El ancho es el pedido (entero, el del bitmap de la aplicacion; `floor` del flotante podria dar uno menos por
+      // redondeo) y el alto se trunca como lo hace `renderPageRaster`.
+      canvas.width = Math.max(1, Math.round(width));
+      canvas.height = Math.max(1, Math.floor(viewport.height + 1e-6));
+      // El contexto se crea ANTES de dibujar: si no existe, pdf.js crea el suyo (opaco, con antialiasing LCD en
+      // Linux/Windows).
+      if (antialiasing === "grayscale") canvas.getContext("2d", { alpha: true });
       await pdfPage.render({ canvas, viewport, intent: "print" }).promise;
       const out = canvas.toDataURL("image/png");
       await task.destroy();
       URL.revokeObjectURL(url);
       return out;
     },
-    { source, base64: Buffer.from(bytes).toString("base64"), pageNumber, widthPx, sameCanvasAsApp: options.sameCanvasAsApp === true },
+    {
+      source,
+      base64: Buffer.from(bytes).toString("base64"),
+      pageNumber,
+      widthPx,
+      antialiasing: options.antialiasing ?? "grayscale",
+    },
   );
   return decodePngGray(Buffer.from(dataUrl.split(",")[1], "base64"));
 }

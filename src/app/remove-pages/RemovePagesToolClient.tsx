@@ -9,9 +9,10 @@ import {
   withSuffix,
   type ProgressCallback,
 } from "@/lib/pdf/core";
-import { removePdfPages } from "@/lib/pdf/removePages";
+import { removePdfPagesWithReport } from "@/lib/pdf/removePages";
 import { formatPageList, parsePageList } from "@/lib/pdf/split";
 import { getTool } from "@/lib/tools-registry";
+import { pageNotices } from "@/app/organize-pdf/pageNotices";
 import {
   FieldNote,
   PageBoard,
@@ -61,14 +62,18 @@ export function RemovePagesToolClient() {
     ): Promise<ProcessResult> => {
       const file = files[0];
       const fresh = options.signature === fileKey(file);
-      const blob = await removePdfPages(
+      const { blob, warnings } = await removePdfPagesWithReport(
         file,
         { remove: fresh ? options.removed : [] },
         onProgress,
       );
-      return { blob, filename: withSuffix(file.name, strings.filenameSuffix) };
+      return {
+        blob,
+        filename: withSuffix(file.name, strings.filenameSuffix),
+        notices: pageNotices(language, warnings),
+      };
     },
-    [strings],
+    [strings, language],
   );
 
   return (

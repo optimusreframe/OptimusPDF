@@ -6,6 +6,7 @@ import {
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
+import type { PageAssemblyWarning } from "@/lib/pdf/pageAssembly";
 
 /**
  * Motor de division y extraccion de paginas.
@@ -45,6 +46,8 @@ export type SplitOutput = {
   kind: "pdf" | "zip";
   /** Numero de documentos generados. */
   parts: number;
+  /** Lo que no se pudo conservar (marcadores, enlaces, firmas, etiquetas de accesibilidad...). */
+  warnings: PageAssemblyWarning[];
 };
 
 /* ------------------------------------------------------------------ *
@@ -244,6 +247,7 @@ export async function splitPdf(
         blob: new Blob([result.bytes as unknown as BlobPart], { type: "application/pdf" }),
         kind: "pdf",
         parts: 1,
+        warnings: result.warnings,
       };
     }
 
@@ -257,6 +261,7 @@ export async function splitPdf(
       }),
       kind: outcome.kind,
       parts: outcome.parts,
+      warnings: outcome.warnings,
     };
   } catch (error) {
     throw toPdfError(error);

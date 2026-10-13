@@ -89,8 +89,16 @@ describe("ToolShell — resumen y avisos de la descarga", () => {
     expect(group.getAttribute("role")).toBe("group");
     expect(Array.from(group.querySelectorAll("li")).map((li) => li.textContent)).toEqual(["Uno", "Dos"]);
     // El boton de descarga los describe para los lectores de pantalla.
+    // Por el titulo y por cada aviso, uno por uno: nunca por el grupo entero (Chromium lo leeria con todo su contenido, y la
+    // lista dos veces).
     const describedBy = screen.getByRole("button", { name: "Descargar" }).getAttribute("aria-describedby")!;
-    expect(describedBy.split(" ")).toContain(group.id);
+    const ids = describedBy.split(" ");
+    expect(ids).not.toContain(group.id);
+    expect(ids).toContain(group.getAttribute("aria-labelledby"));
+    for (const li of Array.from(group.querySelectorAll("li"))) expect(ids).toContain(li.id);
+    const text = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+    expect(text).toContain("Uno");
+    expect(text).toContain("Dos");
   });
 
   it("sin resumen ni avisos la pantalla es la de siempre", async () => {

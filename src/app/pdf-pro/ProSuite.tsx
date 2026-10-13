@@ -6,6 +6,7 @@ import { ErrorBanner } from "@/components/tool/ErrorBanner";
 import { errorActions, errorCopy } from "@/components/tool/errorCopy";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
+import { NoticeFold } from "@/components/ui/NoticeFold";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Sheet } from "@/components/ui/Sheet";
 import { cn } from "@/lib/cn";
@@ -16,6 +17,8 @@ import { exportWarnings } from "@/app/pdf-pro/proAdapter";
 import type { ProDraftSummary } from "@/app/pdf-pro/proDrafts";
 import type { AutosaveIssue } from "@/app/pdf-pro/ProToolClient";
 import { ImportInsertSheet } from "@/app/pdf-pro/create/ImportInsertSheet";
+import { ExportIndicator } from "@/app/pdf-pro/export/ExportIndicator";
+import { leaveConfirmation } from "@/app/pdf-pro/export/exportGuard";
 import { useProSave } from "@/app/pdf-pro/save/useProSave";
 import { limitWarnings } from "@/app/pdf-pro/session/proLimits";
 import { RecentSheet } from "@/app/pdf-pro/session/RecentSheet";
@@ -149,6 +152,8 @@ function ProSuiteBody({
   const rootRef = useRef<HTMLElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const [confirmClose, setConfirmClose] = useState(false);
+  /** Texto de la confirmacion de cierre: el habitual, o el que ademas habla de la exportacion en curso (Wave 9). */
+  const [confirmCloseBody, setConfirmCloseBody] = useState(() => getProStrings(language).suite.closeConfirmBody);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sheet, setSheet] = useState<"thumbs" | "panel" | null>(null);
@@ -249,12 +254,15 @@ function ProSuiteBody({
 
   const requestClose = useCallback(() => {
     guardMode(() => {
-      // D7: un paso en vuelo (operacion corriendo o confirmacion encolada) cuenta como cambios pendientes.
-      const state = doc.getState();
-      if (state.dirty || state.stepInFlight) setConfirmClose(true);
-      else onClose();
+      // D7: un paso en vuelo (operacion corriendo o confirmacion encolada) cuenta como cambios pendientes; Wave 9: una
+      // exportacion en curso tambien (se cancelara al cerrar) y la hoja lo dice.
+      const decision = leaveConfirmation(doc, language, "close", getProStrings(language).suite.closeConfirmBody);
+      if (decision.needed) {
+        setConfirmCloseBody(decision.body);
+        setConfirmClose(true);
+      } else onClose();
     });
-  }, [doc, onClose, setConfirmClose, guardMode]);
+  }, [doc, onClose, language, setConfirmClose, setConfirmCloseBody, guardMode]);
 
   /** Elige una pestaña: en escritorio reabre el panel si estaba plegado; en movil abre su hoja. */
   const goToTabNow = useCallback(
@@ -556,6 +564,7 @@ function ProSuiteBody({
         saveMenuSignal={saveMenuSignal}
         moreMenuSignal={moreMenuSignal}
         headingRef={headingRef}
+        status={<ExportIndicator />}
       />
 
       {running ? (
@@ -591,7 +600,7 @@ function ProSuiteBody({
       ) : null}
 
       {openedFrom || warnings.length > 0 || sizeWarnings.length > 0 || autosaveIssue || draftOffer ? (
-        <div className="shrink-0 space-y-2 border-b border-hairline bg-white/3 px-3 py-2 md:px-4">
+        <div className="shrink-0 space-y-2 border-b border-hairline bg-white/3 px-3 py-1.5 md:px-4">
           {openedFrom ? (
             <p className="flex items-center gap-2 text-footnote text-muted-foreground">
               <Info aria-hidden="true" className="size-4 shrink-0" />
@@ -643,13 +652,36 @@ function ProSuiteBody({
               </ul>
             </div>
           ) : null}
-          {warnings.length > 0 ? (
-            <div>
+          {warnings.length > 1 ? (
+            /* (B1) Dos o mas avisos: UNA linea resumen expandible. El texto completo sigue ahi (lectores de pantalla). */
+            <NoticeFold
+              data-pro-warnings-fold=""
+              dense
+              summary={
+                <>
+                  <span className="font-semibold">{s.warningsTitle}</span>
+                  <span aria-hidden="true"> · </span>
+                  <span className="sr-only">: </span>
+                  <span>{s.warningsCount(warnings.length)}</span>
+                </>
+              }
+            >
+              {() => (
+                <ul className="list-disc space-y-0.5 pl-6 text-footnote text-muted-foreground">
+                  {warnings.map((warning) => (
+                    <li key={warning.code}>{proWarningText(language, warning)}</li>
+                  ))}
+                </ul>
+              )}
+            </NoticeFold>
+          ) : warnings.length === 1 ? (
+            /* Un solo aviso: titulo y texto en UNA linea (en pantallas estrechas el texto baja solo). */
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
               <p className="flex items-center gap-2 text-footnote font-semibold text-foreground">
                 <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-accent-edit" />
                 {s.warningsTitle}
               </p>
-              <ul className="mt-1 list-disc space-y-0.5 pl-6 text-footnote text-muted-foreground">
+              <ul className="min-w-0 flex-1 basis-80 text-footnote text-muted-foreground">
                 {warnings.map((warning) => (
                   <li key={warning.code}>{proWarningText(language, warning)}</li>
                 ))}
@@ -836,9 +868,10 @@ function ProSuiteBody({
       <ConfirmSheet
         open={confirmClose}
         onClose={() => setConfirmClose(false)}
+        // Cerrar el documento cancela y limpia la exportacion en curso (el almacen escucha al documento de trabajo).
         onConfirm={onClose}
         title={s.close}
-        body={s.closeConfirmBody}
+        body={confirmCloseBody}
         confirmLabel={s.close}
         cancelLabel={s.cancel}
         closeLabel={t.common.close}
