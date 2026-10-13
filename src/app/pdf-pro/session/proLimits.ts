@@ -59,7 +59,11 @@ export function unloadGuardNeeded(input: {
   wasEncrypted: boolean;
   currentBytes: number;
   draftWritePending?: boolean;
+  /** Hay una operacion o confirmacion de paso en vuelo: su resultado aun no es un snapshot, ni cuenta como borrador. */
+  stepInFlight?: boolean;
 }): boolean {
+  // Un paso en vuelo se perderia al cerrar: avisa aunque todavia no haya cambios confirmados.
+  if (input.stepInFlight) return true;
   if (!input.dirty) return false;
   const covered =
     !input.draftWritePending &&

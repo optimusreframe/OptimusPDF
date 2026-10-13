@@ -45,7 +45,7 @@ function issueOf(result: SaveProDraftResult): AutosaveIssue {
 
 function ProApp() {
   const { t } = useI18n();
-  const { announcement, document: workingDocument, dirty, doc } = useProWorkingDoc();
+  const { announcement, document: workingDocument, dirty, stepInFlight, doc } = useProWorkingDoc();
   const session = useProSession();
   const { document: proDocument, intake } = session;
   const autosave = useProFeatureFlag("proAutosave");
@@ -78,6 +78,7 @@ function ProApp() {
       wasEncrypted: workingDocument?.wasEncrypted ?? false,
       currentBytes,
       draftWritePending,
+      stepInFlight,
     }),
   );
 

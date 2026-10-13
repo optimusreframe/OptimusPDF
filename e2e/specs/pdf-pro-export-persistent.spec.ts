@@ -7,6 +7,7 @@ import { expect as baseExpect, openTool, runAndDownload, test, uploadFiles } fro
 import { makePdf } from "../helpers/test-files";
 import { downloadFile } from "../helpers/downloads";
 import { closeSheetIfOpen, goToTab, isMobile, noHorizontalOverflow, openProPdf, S, watchUploads } from "../helpers/pro-flow";
+import { holdExport } from "../helpers/export-gate";
 import { LANGUAGE_STORAGE_KEY, type Language } from "../../src/lib/i18n";
 import { THEME_STORAGE_KEY } from "../../src/lib/theme";
 import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
@@ -29,7 +30,12 @@ import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
  *     cuando la exportacion termina con el foco en «Cancelar».
  *  7. Axe (claro/oscuro × ES/EN × 1280/375) con la exportacion en curso, el resultado en la tarjeta y la hoja de confirmar.
  *
+ * La exportacion «en curso» es DETERMINISTA: `holdExport` (e2e/helpers/export-gate.ts) retiene la entrega de cada hoja
+ * hasta que la prueba la suelta, asi que ninguna prueba depende de la velocidad de la maquina (antes dependian de un
+ * freno de CPU y la exportacion podia acabar antes que la prueba).
+ *
  * Uso: `PW_PORT=3776 npx playwright test e2e/specs/pdf-pro-export-persistent.spec.ts --project=chromium --workers=2`
+ * (opcional: `PW_CPU_THROTTLE=4` frena ademas la CPU de la pagina, para comprobar una maquina lenta).
  */
 
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -94,14 +100,13 @@ async function bigPdf(pages = 60, label = "ACTA"): Promise<Buffer> {
   return makePdf({ pages, label, size: PAGE_SIZE });
 }
 
-/**
- * Frena la CPU de la pagina (`Emulation.setCPUThrottlingRate`): la exportacion de 60 paginas a 216 DPI dura varios
- * segundos de sobra incluso en una maquina rapida, asi que cambiar de pestaña «a mitad» no depende de la suerte.
+/*
+ * «Exportacion en curso» DETERMINISTA. Un PDF de 40-60 hojas casi vacias se exporta a PNG/216 DPI en ~0,6 s en una
+ * maquina normal; frenar la CPU solo lo alarga en proporcion (x6 ≈ 4 s) y una prueba con tres pasadas de axe y una hoja
+ * por medio tarda mas que eso: la exportacion acababa antes del «Cancelar» y la prueba fallaba por velocidad de la
+ * maquina, no por el producto. `holdExport` (e2e/helpers/export-gate.ts) retiene en la pagina la entrega de cada hoja
+ * hasta que la prueba lo ordena: el motor real sigue siendo el que exporta, pero ni termina ni avanza solo.
  */
-async function slowDown(page: Page, rate = 4): Promise<void> {
-  const session = await page.context().newCDPSession(page);
-  await session.send("Emulation.setCPUThrottlingRate", { rate });
-}
 
 const percentOf = async (locator: Locator): Promise<number> => Number(await locator.getAttribute("aria-valuenow"));
 
@@ -130,8 +135,9 @@ test.describe("1280×800", () => {
     const uploads = watchUploads(page);
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(60) });
-    await slowDown(page);
+    const gate = await holdExport(page, { pages: 3 });
     const target = await startPngExport(page);
+    await gate.whenHeld();
     await expect(indicator(page)).toBeVisible();
 
     const seen: number[] = [];
@@ -144,18 +150,20 @@ test.describe("1280×800", () => {
     expect(downloads.items, "sigue en curso: aun no hay descarga").toHaveLength(0);
     await expect(page.getByRole("status")).not.toHaveText(E.card.cancelled);
     for (let index = 1; index < seen.length; index += 1) expect(seen[index]).toBeGreaterThanOrEqual(seen[index - 1]);
-    // Y AVANZA mientras se esta en otra pestaña (no solo «no se cancela»).
+    // Y AVANZA mientras se esta en otra pestaña (no solo «no se cancela»): se sueltan 12 hojas mas y el porcentaje sube.
+    await gate.release(12);
     await expect
       .poll(async () => (await indicator(page).count()) === 0 || (await percentOf(indicator(page).getByRole("progressbar"))) > seen[seen.length - 1], {
         timeout: 60_000,
       })
       .toBe(true);
+    await expect(indicator(page)).toBeVisible();
 
     await goToTab(page, "convert");
-    // Al volver: la tarjeta de imagenes muestra el progreso o, si ya termino, su resultado.
-    await expect(target.locator('[role="progressbar"], [data-export-result]').first()).toBeVisible();
+    // Al volver: la tarjeta de imagenes muestra el progreso (la exportacion sigue retenida a medias).
+    await expect(target.getByRole("progressbar")).toBeVisible();
 
-    const download = downloads.items[0] ?? (await downloads.next());
+    const [download] = await Promise.all([downloads.next(), gate.releaseAll()]);
     expect(download.suggestedFilename()).toBe("acta-imagenes.zip");
     const zip = await JSZip.loadAsync(await readDownload(download));
     const names = Object.keys(zip.files).sort();
@@ -179,18 +187,39 @@ test.describe("1280×800", () => {
     expect(uploads.requests).toEqual([]);
   });
 
+  test("la compuerta retiene la exportacion mucho mas que el motor sin freno y, al abrirla, termina (sensibilidad)", async ({ page }) => {
+    const downloads = watchDownloads(page);
+    await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(40) });
+    const gate = await holdExport(page, { pages: 5 });
+    await startPngExport(page);
+    await gate.whenHeld();
+    const held = await percentOf(indicator(page).getByRole("progressbar"));
+    // Sin freno el motor acaba esta exportacion en ~0,6 s: quieta 3 s, el indicador sigue ahi y no se mueve.
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await expect(indicator(page)).toBeVisible();
+    expect(await percentOf(indicator(page).getByRole("progressbar")), "retenida: el porcentaje no avanza solo").toBe(held);
+    expect(await gate.passed(), "solo pasaron las 5 hojas armadas").toBe(5);
+    expect(downloads.items, "retenida: aun no hay descarga").toHaveLength(0);
+    // Abierta, termina por su cuenta: descarga el ZIP y el indicador se va.
+    const [download] = await Promise.all([downloads.next(), gate.releaseAll()]);
+    expect(download.suggestedFilename()).toBe("acta-imagenes.zip");
+    await expect(indicator(page)).toBeHidden();
+  });
+
   test("JPG por defecto: el ZIP es IDENTICO, byte a byte, al de la herramienta suelta /pdf-to-jpg", async ({ page, context }) => {
     const pdf = await bigPdf(24, "REF");
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "ref.pdf", bytes: pdf });
-    await slowDown(page);
+    const gate = await holdExport(page);
     const target = await openConvert(page, "images");
     await target.getByRole("button", { name: E.formats.images.title }).click();
+    await gate.whenHeld();
     await expect(indicator(page)).toBeVisible();
     await goToTab(page, "pages");
     await goToTab(page, "annotate");
     await goToTab(page, "home");
-    const download = await downloads.next();
+    await expect(indicator(page)).toBeVisible();
+    const [download] = await Promise.all([downloads.next(), gate.releaseAll()]);
     expect(download.suggestedFilename()).toBe("ref-imagenes.zip");
     const proZip = await JSZip.loadAsync(await readDownload(download));
 
@@ -216,12 +245,15 @@ test.describe("1280×800", () => {
   test("cancelar desde OTRA pestaña: no se descarga nada, la tarjeta queda libre y se puede exportar otra vez", async ({ page }) => {
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(60) });
-    await slowDown(page);
+    const gate = await holdExport(page);
     await startPngExport(page);
+    await gate.whenHeld();
     await goToTab(page, "pages");
     await indicator(page).getByRole("button", { name: E.indicator.cancelLabel("imágenes") }).click();
     await expect(indicator(page)).toBeHidden();
     await expect(page.getByRole("status")).toHaveText(E.card.cancelled);
+    // El motor cancelado despierta (se suelta lo retenido): su resultado tardio no descarga nada.
+    await gate.releaseAll();
     await expectNoDownload(downloads);
 
     const target = await openConvert(page, "images");
@@ -240,8 +272,9 @@ test.describe("1280×800", () => {
   test("otra exportacion mientras corre una: la tarjeta lo explica, no arranca nada y el indicador sigue siendo el de la primera", async ({ page }) => {
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(60) });
-    await slowDown(page);
+    const gate = await holdExport(page);
     await startPngExport(page);
+    await gate.whenHeld();
     const word = await openConvert(page, "word");
     await expect(word.getByText(E.card.inProgressOther("imágenes"))).toBeVisible();
     await expect(word.getByRole("button", { name: E.formats.word.title })).toHaveAttribute("aria-disabled", "true");
@@ -250,21 +283,23 @@ test.describe("1280×800", () => {
     await expect(indicator(page)).toHaveCount(1);
     await page.getByRole("button", { name: E.indicator.cancelLabel("imágenes") }).click();
     await expect(indicator(page)).toBeHidden();
+    await gate.releaseAll();
     await expectNoDownload(downloads, 2_000);
   });
 
   test("aplicar una operacion DURANTE la exportacion: el ZIP es de la version de inicio y la tarjeta lo dice", async ({ page }) => {
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(40) });
-    await slowDown(page);
+    const gate = await holdExport(page);
     const target = await startPngExport(page);
+    await gate.whenHeld();
     await goToTab(page, "home");
     await page.getByRole("button", { name: S.operations.rotateAll90, exact: true }).click();
     await expect(page.getByText(S.suite.unsaved).first()).toBeVisible();
     // La exportacion sigue (no se reinicia ni se cancela por la operacion nueva).
     await expect(indicator(page)).toBeVisible();
 
-    const download = await downloads.next();
+    const [download] = await Promise.all([downloads.next(), gate.releaseAll()]);
     const zip = await JSZip.loadAsync(await readDownload(download));
     const names = Object.keys(zip.files).sort();
     expect(names).toHaveLength(40);
@@ -287,8 +322,9 @@ test.describe("1280×800", () => {
   test("cerrar el documento durante la exportacion pide confirmar (con su texto), cancela y no descarga nada", async ({ page }) => {
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(60) });
-    await slowDown(page);
+    const gate = await holdExport(page);
     await startPngExport(page);
+    await gate.whenHeld();
     await goToTab(page, "pages");
     await requestClose(page);
     const dialog = page.getByRole("dialog");
@@ -305,14 +341,17 @@ test.describe("1280×800", () => {
     await dialog.getByRole("button", { name: S.suite.close }).click();
     await expect(page.getByRole("heading", { level: 1, name: "PDF Pro" })).toBeVisible();
     await expect(indicator(page)).toBeHidden();
+    // El motor del documento cerrado despierta: su resultado tardio no descarga nada.
+    await gate.releaseAll();
     await expectNoDownload(downloads);
   });
 
   test("abrir OTRO documento durante la exportacion pide confirmar, cancela la exportacion y no descarga el anterior", async ({ page }) => {
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "uno.pdf", bytes: await bigPdf(60, "UNO") });
-    await slowDown(page);
+    const gate = await holdExport(page);
     await startPngExport(page);
+    await gate.whenHeld();
     await goToTab(page, "home");
     await page.locator("[data-pro-open-input]").setInputFiles({
       name: "dos.pdf",
@@ -324,6 +363,8 @@ test.describe("1280×800", () => {
     await dialog.getByRole("button", { name: S.session.replaceConfirm }).click();
     await expect(page.getByRole("heading", { level: 1, name: /dos\.pdf/ })).toBeVisible();
     await expect(indicator(page)).toBeHidden();
+    // El motor del documento anterior despierta: su resultado tardio no descarga nada.
+    await gate.releaseAll();
     await expectNoDownload(downloads);
     // La tarjeta del documento nuevo esta limpia: nada de progreso, resultado ni «cancelada» del anterior.
     const target = await openConvert(page, "images");
@@ -340,8 +381,9 @@ test.describe("movil 375×812 tactil", () => {
   test("el indicador cabe, mide 44 px, no toca el dock ni los botones de la barra, y se cancela con un toque", async ({ page }) => {
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(60) });
-    await slowDown(page);
+    const gate = await holdExport(page);
     await startPngExport(page);
+    await gate.whenHeld();
     await closeSheetIfOpen(page);
     const chip = indicator(page);
     await expect(chip).toBeVisible();
@@ -378,6 +420,7 @@ test.describe("movil 375×812 tactil", () => {
     await expect(chip).toBeHidden();
     await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
     await expect(page.getByRole("status")).toHaveText(E.card.cancelled);
+    await gate.releaseAll();
     await expectNoDownload(downloads, 2_000);
     await noHorizontalOverflow(page);
   });
@@ -385,8 +428,9 @@ test.describe("movil 375×812 tactil", () => {
   test("cerrar el documento (desde «Más acciones») durante la exportacion pide confirmar", async ({ page }) => {
     const downloads = watchDownloads(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(60) });
-    await slowDown(page);
+    const gate = await holdExport(page);
     await startPngExport(page);
+    await gate.whenHeld();
     await closeSheetIfOpen(page);
     await requestClose(page);
     const dialog = page.getByRole("dialog");
@@ -394,6 +438,7 @@ test.describe("movil 375×812 tactil", () => {
     await dialog.getByRole("button", { name: S.suite.close }).click();
     await expect(page.getByRole("heading", { level: 1, name: "PDF Pro" })).toBeVisible();
     await expect(indicator(page)).toBeHidden();
+    await gate.releaseAll();
     await expectNoDownload(downloads, 2_500);
   });
 });
@@ -480,14 +525,17 @@ test.describe("foco sin pasar por <body> (fotograma a fotograma)", () => {
   test("cancelar desde el indicador y desde la tarjeta: 0 fotogramas con el foco en <body>", async ({ page }) => {
     await installFrameObserver(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(30) });
-    await slowDown(page);
+    const gate = await holdExport(page);
     const target = await startPngExport(page);
     for (let repetition = 0; repetition < REPETITIONS; repetition += 1) {
       const fromChip = repetition % 2 === 0;
       if (repetition > 0) {
+        // Cada vuelta es una exportacion nueva: se re-arma la compuerta (suelta el motor de la cancelada).
+        await gate.hold();
         await target.getByRole("button", { name: E.formats.images.title }).click();
         await expect(indicator(page)).toBeVisible();
       }
+      await gate.whenHeld();
       const button = fromChip
         ? indicator(page).getByRole("button", { name: E.indicator.cancelLabel("imágenes") })
         : target.getByRole("button", { name: E.card.cancel });
@@ -507,12 +555,15 @@ test.describe("foco sin pasar por <body> (fotograma a fotograma)", () => {
   test("la exportacion TERMINA con el foco en «Cancelar» del indicador: el foco pasa al titulo sin tocar <body>", async ({ page }) => {
     await installFrameObserver(page);
     await openProPdf(page, { name: "acta.pdf", bytes: await bigPdf(10) });
-    await slowDown(page, 6);
+    const gate = await holdExport(page);
     await startPngExport(page);
+    await gate.whenHeld();
     await goToTab(page, "home");
     const cancel = indicator(page).getByRole("button", { name: E.indicator.cancelLabel("imágenes") });
     await cancel.focus();
     await startFrames(page);
+    // La exportacion termina SOLA (se abre la compuerta) con el foco puesto en «Cancelar».
+    await gate.releaseAll();
     await expect(indicator(page)).toBeHidden({ timeout: 90_000 });
     await nextFrames(page, 4);
     const result = await stopFrames(page);
@@ -579,7 +630,7 @@ test.describe("axe con la exportacion en curso, el resultado y la hoja de cierre
         await page.goto("/pdf-pro");
         await page.locator('input[type="file"]').first().setInputFiles({ name: "acta.pdf", mimeType: "application/pdf", buffer: await bigPdf(40) });
         await expect(page.getByRole("heading", { level: 1, name: /acta\.pdf/ })).toBeVisible();
-        await slowDown(page, 6);
+        const gate = await holdExport(page);
 
         const liveRegions = () =>
           page.evaluate(
@@ -605,6 +656,7 @@ test.describe("axe con la exportacion en curso, el resultado y la hoja de cierre
         await images.getByRole("tab", { name: X.images.dpi[3] }).click();
         await images.getByRole("button", { name: X.formats.images.title }).click();
         await expect(images.getByRole("progressbar")).toBeVisible();
+        await gate.whenHeld();
         await expect(page.locator('[data-export="word"]').getByText(X.card.inProgressOther(short))).toBeVisible();
         await assertClean("tarjeta con la exportacion en curso");
 
@@ -632,6 +684,7 @@ test.describe("axe con la exportacion en curso, el resultado y la hoja de cierre
         // Cancelar desde el indicador y comprobar el estado «cancelada» y luego un resultado terminado.
         await indicator(page).getByRole("button", { name: X.indicator.cancelLabel(short) }).click();
         await expect(indicator(page)).toBeHidden();
+        await gate.releaseAll();
         if (mobile) await page.locator('[data-dock="convert"]').click();
         else await page.locator('[role="tab"][data-tab="convert"]').click();
         await expect(images.getByText(X.card.cancelled)).toBeVisible();

@@ -98,6 +98,12 @@ describe("unloadGuardNeeded", () => {
     expect(unloadGuardNeeded({ ...base, dirty: false, autosaveEnabled: false })).toBe(false);
   });
 
+  it("con un paso en vuelo avisa aunque aun no haya cambios confirmados (y aunque el borrador funcione)", () => {
+    expect(unloadGuardNeeded({ ...base, dirty: false, stepInFlight: true })).toBe(true);
+    expect(unloadGuardNeeded({ ...base, stepInFlight: true })).toBe(true);
+    expect(unloadGuardNeeded({ ...base, dirty: false, stepInFlight: false })).toBe(false);
+  });
+
   it("con cambios y el borrador automatico funcionando, no avisa", () => {
     expect(unloadGuardNeeded(base)).toBe(false);
   });
