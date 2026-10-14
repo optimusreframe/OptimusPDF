@@ -10,6 +10,13 @@ import { PAGES_STRINGS } from "../../src/app/pdf-pro/pages/pagesStrings";
 import { WATERMARK_STRINGS } from "../../src/app/add-watermark/strings";
 
 /**
+ * Los presupuestos de tiempo son para un equipo de desarrollo. En el runner de CI (2 nucleos compartidos, 2 workers en
+ * paralelo) los mismos pasos tardan 2-3 veces mas (500 paginas: abrir 2,4-4,8 s, saltar 147-511 ms): `PERF_SLACK`
+ * multiplica solo los TECHOS absolutos de tiempo, nunca el heap ni los buffers. Local = 1.
+ */
+const PERF_SLACK = process.env.CI ? 2.5 : 1;
+
+/**
  * PDF Pro · rendimiento y memoria (Wave 7 · U8), navegador real y headless: un PDF de 500 paginas y uno de ~100 MB
  * (ruido incompresible). Para CADA operacion, modo y exportacion se mide el tiempo (hasta que el resultado esta
  * visible) y la cola de tareas largas del hilo principal (`longtask`: lo que bloquea la interfaz), y al final la
@@ -192,7 +199,7 @@ async function scenario(page: Page, name: string, file: string, fileName: string
   const ctx: Ctx = { page, cdp, scenario: name };
   startRssSampler();
   const openMs = await openFromDisk(ctx, file, fileName);
-  if (!heavy) expect(openMs, "apertura de 500 paginas").toBeLessThan(5000);
+  if (!heavy) expect(openMs, "apertura de 500 paginas").toBeLessThan(5000 * PERF_SLACK);
 
   // Salto de pagina (a la mitad y al final).
   for (const target of [250, 500]) {
@@ -202,7 +209,7 @@ async function scenario(page: Page, name: string, file: string, fileName: string
       await pageInput(page).press("Enter");
       await expect(page.locator(`article[data-page-index="${target - 1}"]`)).toBeAttached();
     });
-    if (!heavy) expect(ms, `salto a la pagina ${target}`).toBeLessThan(400);
+    if (!heavy) expect(ms, `salto a la pagina ${target}`).toBeLessThan(400 * PERF_SLACK);
   }
 
   // Operaciones de documento (Inicio).
@@ -364,6 +371,6 @@ test.describe.serial("rendimiento", () => {
       await expect(page.getByRole("heading", { level: 1, name: /cuarenta\.pdf/ })).toBeVisible();
       await expect(page.locator('article[data-state="ready"]').first()).toBeVisible({ timeout: 60_000 });
     });
-    expect(ms, "apertura de ~40 MB").toBeLessThan(3000);
+    expect(ms, "apertura de ~40 MB").toBeLessThan(3000 * PERF_SLACK);
   });
 });

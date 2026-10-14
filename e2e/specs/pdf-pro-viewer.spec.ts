@@ -7,6 +7,9 @@ import { makeViewerPdf } from "../helpers/viewer-pdfs";
 import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
 import { engineOf, tabKey } from "../helpers/engine";
 
+/** Techos de tiempo para equipo de desarrollo; el runner de CI (2 nucleos compartidos) tarda 2-3 veces mas. Local = 1. */
+const PERF_SLACK = process.env.CI ? 2.5 : 1;
+
 /**
  * PDF Pro · shell y visor de desplazamiento continuo (Wave 7 · U3), navegador real y headless:
  * abrir 5, 60 y 500 paginas (tamanos mezclados, giradas, con CropBox) y un PDF de ~40 MB; scroll y salto de
@@ -238,7 +241,7 @@ test.describe("visor continuo · escritorio", () => {
     expect(peakImages).toBeLessThanOrEqual(12);
     if (heap !== null) expect(heap, "heap JS").toBeLessThan(150);
     expect(counts.thumbs).toBeLessThanOrEqual(80);
-    expect(openMs).toBeLessThan(5000);
+    expect(openMs).toBeLessThan(5000 * PERF_SLACK);
   });
 
   // Presupuesto: 6 s. El PDF se abre POR RUTA DE DISCO: pasar el buffer de 40 MB por el protocolo de Playwright
@@ -256,7 +259,7 @@ test.describe("visor continuo · escritorio", () => {
       await page.waitForTimeout(1000);
       const heap = await heapMB(page, true);
       console.log(`[perf] PDF de ${(bytes.length / 1e6).toFixed(1)} MB: abrir ${openMs} ms; heap JS ${heap?.toFixed(1) ?? "n/d"} MB tras recoger basura`);
-      expect(openMs).toBeLessThan(6000);
+      expect(openMs).toBeLessThan(6000 * PERF_SLACK);
       if (heap !== null) expect(heap, "heap JS con un PDF de ~40 MB").toBeLessThan(150);
       await goTo(page, 90);
       await expect(page.locator('article[data-page-index="89"]')).toHaveAttribute("data-state", "ready");
