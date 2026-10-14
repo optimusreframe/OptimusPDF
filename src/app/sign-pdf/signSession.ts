@@ -20,6 +20,7 @@ import {
   type SignerBlock,
 } from "@/app/sign-pdf/docSet";
 import type { CaptureMap } from "@/app/sign-pdf/captures";
+import type { CeremonyState } from "@/app/sign-pdf/blockModel";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
 
 /*
@@ -54,6 +55,13 @@ export type SignSession = {
   placementTool: PlacementTool;
   selectedTextFieldId: string | null;
   editingTextFieldId: string | null;
+  /**
+   * Turno de la ceremonia de firma (de quien es y en que etapa). Vive aqui, no en
+   * el estado de la ceremonia, para sobrevivir a que se vuelva a montar (pestanas
+   * de documento, «Atras», recarga). Ausente/`null` = sin turno guardado: se deriva
+   * del primer firmante pendiente (`resolveCeremony`).
+   */
+  ceremony?: CeremonyState | null;
 
   /* --- Por documento --- */
   /** Estado de cada documento, indexado por `DocId`. Sin entrada = documento en blanco. */
@@ -92,6 +100,8 @@ const FRESH_ROUND: Partial<SignSession> = {
   selectedFieldId: null,
   selectedTextFieldId: null,
   editingTextFieldId: null,
+  // Los firmantes sobreviven a una ronda nueva, pero el turno no: empieza por el primero.
+  ceremony: null,
 };
 
 function sameList<T>(a: readonly T[], b: readonly T[]): boolean {
@@ -138,6 +148,7 @@ export function viewOf(
     editingTextFieldId: session.editingTextFieldId,
     textFieldsDetectedFor: doc.textFieldsDetectedFor,
     textEdits: doc.textEdits,
+    ceremony: session.ceremony,
   };
 }
 
@@ -151,6 +162,7 @@ const GLOBAL_KEYS = [
   "placementTool",
   "selectedTextFieldId",
   "editingTextFieldId",
+  "ceremony",
 ] as const satisfies readonly (keyof SignToolOptions & keyof SignSession)[];
 
 /**

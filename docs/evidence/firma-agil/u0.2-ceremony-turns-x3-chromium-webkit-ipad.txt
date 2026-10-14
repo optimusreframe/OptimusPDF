@@ -1,0 +1,4 @@
+
+Running 42 tests using 2 workers
+
+  42 passed (1.7m)

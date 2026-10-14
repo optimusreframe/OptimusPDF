@@ -180,13 +180,11 @@ export type TextSignPlacement = {
 export type SignPlacement = ImageSignPlacement | TextSignPlacement;
 
 /**
- * Pagina final opcional con el hash del documento YA firmado (todos los
- * `placements` aplicados, pero antes de anadir esta misma pagina --
- * certificar el hash de una pagina que se certifica a si misma no
- * tendria sentido), la fecha y la lista de firmantes. Trazabilidad
- * informal (se puede volver a calcular el hash y compararlo a mano),
- * NUNCA una firma electronica certificada -- por eso el texto lo deja
- * explicito (`labels.disclaimer`).
+ * Pagina final OPCIONAL «Registro de firmas» (apagada por defecto: sin ella el PDF firmado tiene exactamente las
+ * paginas del original). Lleva el hash del documento YA firmado (todos los `placements` aplicados, pero antes de
+ * anadir esta misma pagina -- poner el hash de una pagina que se incluye a si misma no tendria sentido), la fecha y la
+ * lista de firmantes. Trazabilidad informal (se puede volver a calcular el hash y compararlo a mano), NUNCA una firma
+ * electronica certificada -- por eso el texto lo deja explicito (`labels.notice` y `labels.disclaimer`).
  *
  * Los textos llegan ya resueltos en el idioma activo: este motor no
  * importa `strings.ts` (es UI), igual que el resto de `sign.ts`.
@@ -195,6 +193,8 @@ export type SignCertificateInfo = {
   signerNames: readonly string[];
   labels: {
     title: string;
+    /** Frase bajo el titulo: «No es una firma certificada: solo registra quien firmo y cuando». */
+    notice?: string;
     hashLabel: string;
     timestampLabel: string;
     signersLabel: string;
@@ -207,6 +207,25 @@ export type SignMultiOptions = {
   placements: readonly SignPlacement[];
   certificate?: SignCertificateInfo;
 };
+
+/** Productor y palabra clave que dejan los PDF firmados (sin nombres de firmantes ni ningun dato personal). */
+export const SIGNED_PDF_PRODUCER = "OptimusPDF";
+export const SIGNED_PDF_KEYWORD = "optimuspdf-signed";
+
+/**
+ * Metadatos del PDF firmado: `Producer`, `ModDate` (ahora) y la palabra clave `optimuspdf-signed` cuando se estampo
+ * alguna firma (imagen). Sustituye a la hoja de certificado como rastro por defecto: nada de nombres ni de datos
+ * personales, solo que OptimusPDF toco el archivo y cuando. Las palabras clave que ya traia el PDF se conservan.
+ */
+function stampSignedMetadata(document: PDFDocument, signed: boolean): void {
+  document.setProducer(SIGNED_PDF_PRODUCER);
+  document.setModificationDate(new Date());
+  if (!signed) return;
+  const existing = (document.getKeywords() ?? "").trim();
+  const tokens = existing.split(/[\s,;]+/).filter(Boolean);
+  if (tokens.includes(SIGNED_PDF_KEYWORD)) return;
+  document.setKeywords(existing === "" ? [SIGNED_PDF_KEYWORD] : [existing, SIGNED_PDF_KEYWORD]);
+}
 
 /** Cuerpo maximo de letra para un campo de texto, antes de encajar. */
 const MAX_TEXT_FIELD_FONT_SIZE = 24;
@@ -294,9 +313,9 @@ function drawTextPlacement(
 }
 
 /**
- * Anade una pagina final con el hash del documento (ya firmado, sin
- * contar esta pagina), la fecha y los firmantes. Mismo tamaño que la
- * ultima pagina del documento, para que no desentone.
+ * Anade la pagina final «Registro de firmas» con el hash del documento (ya
+ * firmado, sin contar esta pagina), la fecha y los firmantes. Mismo tamaño
+ * que la ultima pagina del documento, para que no desentone.
  */
 async function appendCertificatePage(
   document: PDFDocument,
@@ -335,7 +354,13 @@ async function appendCertificatePage(
     cursorY -= gap;
   };
 
-  drawLine(info.labels.title, titleFont, 18, black, 34);
+  drawLine(info.labels.title, titleFont, 18, black, info.labels.notice ? 26 : 34);
+  if (info.labels.notice) {
+    for (const line of wrapText(bodyFont, info.labels.notice, 11, maxWidth)) {
+      drawLine(line, bodyFont, 11, gray, 16);
+    }
+    cursorY -= 8;
+  }
   cursorY -= 10;
 
   drawLine(info.labels.timestampLabel, bodyFont, 11, gray, 16);
@@ -459,6 +484,12 @@ export async function signPdfMulti(
         scaleProgress((position + 1) / placements.length, 0.15, 0.85),
       );
     }
+
+    // Rastro por defecto: solo metadatos, antes del hash para que el documento que se resume sea el definitivo.
+    stampSignedMetadata(
+      document,
+      placements.some((placement) => placement.kind === "image"),
+    );
 
     if (params.certificate) {
       // El hash es del documento YA firmado (placements aplicados), pero

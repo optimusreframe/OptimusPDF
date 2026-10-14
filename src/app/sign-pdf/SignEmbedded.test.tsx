@@ -842,7 +842,8 @@ describe("SignEmbedded: etiquetas del snapshot y certificado", () => {
     expect(applied[0].label).toBe("Firmado por Luis");
   });
 
-  it("con certificado de finalizacion (ajuste por defecto) el PDF lleva una pagina mas, con el aviso de que no es firma electronica cualificada", async () => {
+  it("con el registro de firmas ACTIVADO (no es el ajuste por defecto) el PDF lleva una pagina mas, con la aclaracion de que no es una firma certificada", async () => {
+    setSignPdfFeatureFlag("completionCertificate", true);
     const { file } = await contractFile(3);
     const { applied } = setup({ file });
     await screen.findByRole("toolbar", { name: strings.paletteLabel });
@@ -851,13 +852,26 @@ describe("SignEmbedded: etiquetas del snapshot y certificado", () => {
     await waitFor(() => expect(applied).toHaveLength(1));
     expect(await pageCountOf(applied[0].bytes)).toBe(4);
     const text = await pdfjsPageText(applied[0].bytes, 4);
+    expect(text).toContain("Registro de firmas");
     expect(text).toContain(strings.certificateTitle);
+    expect(text).not.toMatch(/certificado de finalizaci/i);
+    expect(text).toContain("No es una firma certificada: solo registra quién firmó y cuándo.");
     expect(text).toContain("Ana");
     expect(text).toContain("Luis");
     expect(text).toMatch(/no es una firma electr/i);
   });
 
-  it("con el certificado apagado no se anade pagina", async () => {
+  it("con los ajustes por defecto (sin tocar nada) NO se anade pagina: el PDF firmado tiene las paginas del original", async () => {
+    const { file } = await contractFile(3);
+    const { applied } = setup({ file });
+    await screen.findByRole("toolbar", { name: strings.paletteLabel });
+    await multiRoundReady(["Ana", "Luis"]);
+    fireEvent.click(await screen.findByRole("button", { name: "Finalizar y aplicar" }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+    expect(await pageCountOf(applied[0].bytes)).toBe(3);
+  });
+
+  it("con el registro de firmas apagado explicitamente no se anade pagina", async () => {
     setSignPdfFeatureFlag("completionCertificate", false);
     const { file } = await contractFile(3);
     const { applied } = setup({ file });
@@ -939,7 +953,23 @@ async function standaloneResult(file: File, steps: () => Promise<void>): Promise
   return result;
 }
 
+/**
+ * El PDF firmado lleva ahora `ModDate` (la hora de la firma, con resolucion de segundos): para comparar byte a byte lo que
+ * generan dos rutas (la herramienta suelta y el modo embebido) se congela SOLO `Date`, no los temporizadores.
+ */
+function freezeDateForByteEquality() {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
 describe("SignEmbedded: equivalencia con la herramienta suelta (mismos bytes)", () => {
+  freezeDateForByteEquality();
+
   it("Solo yo con un campo de texto: el PDF aplicado es IDENTICO byte a byte al que descarga Firmar", async () => {
     const { file } = await contractFile(3);
     const suelta = await standaloneResult(file, async () => {
@@ -983,7 +1013,8 @@ describe("SignEmbedded: equivalencia con la herramienta suelta (mismos bytes)", 
 });
 
 describe("SignEmbedded: equivalencia en Varios firmantes", () => {
-  it("dos firmantes (sin certificado, que lleva la hora): mismos bytes que la herramienta suelta", async () => {
+  freezeDateForByteEquality();
+  it("dos firmantes (sin registro de firmas, que lleva la hora): mismos bytes que la herramienta suelta", async () => {
     setSignPdfFeatureFlag("completionCertificate", false);
     const { file } = await contractFile(3);
     // Herramienta suelta: la ronda se remata con «Firmar y descargar» y se elige no prefijar el nombre.

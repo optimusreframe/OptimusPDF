@@ -135,6 +135,22 @@ describe("SessionDraftAutosave", () => {
     expect(Array.from(loaded!.files[1].bytes)).toEqual([37, 80, 68, 70, 2]);
   });
 
+  it("el turno de la ceremonia se guarda y un cambio de turno vuelve a guardar la sesion (Fase 0 · U0.2)", async () => {
+    const LUIS: Signer = { id: "sg-2", name: "Luis", color: "#0f9d68" };
+    const files = [pdf("a.pdf", 1), pdf("b.pdf", 2)];
+    const base = sessionOf(files, { signers: [ANA, LUIS], step: "sign" });
+    const view = mount({ files, session: { ...base, ceremony: { signerId: "sg-1", stage: "handoff" } } });
+    await waitFor(async () => expect(await listSessionDrafts()).toHaveLength(1), { timeout: 3000, interval: 100 });
+    expect((await listSessionDrafts())[0].ceremony).toEqual({ signerId: "sg-1", stage: "handoff" });
+
+    // Solo cambia el turno (nada mas de la sesion): tiene que dispararse un guardado nuevo.
+    view.update({ files, session: { ...base, ceremony: { signerId: "sg-2", stage: "capture" } } });
+    await waitFor(
+      async () => expect((await listSessionDrafts())[0].ceremony).toEqual({ signerId: "sg-2", stage: "capture" }),
+      { timeout: 3000, interval: 100 },
+    );
+  });
+
   it("no guarda nada si no hay progreso", async () => {
     const files = [pdf("a.pdf"), pdf("b.pdf")];
     mount({ files, session: sessionOf(files, { signers: [] }) });

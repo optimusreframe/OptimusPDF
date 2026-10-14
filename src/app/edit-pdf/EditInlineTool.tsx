@@ -15,7 +15,10 @@ import { EDIT_STRINGS } from "@/app/edit-pdf/strings";
 import { useEditSession } from "@/app/edit-pdf/useEditSession";
 import { useI18n } from "@/lib/i18n";
 import { PdfError, withSuffix, type ProgressCallback } from "@/lib/pdf/core";
+import { resumeKindsOfTool } from "@/lib/resumeLinks";
 import { getTool } from "@/lib/tools-registry";
+import { useResumeLink, type ResumeOutcome } from "@/lib/useResumeLink";
+import { ResumeGoneNotice } from "@/components/tool/ResumeGoneNotice";
 
 /*
  * La herramienta «Editar PDF» (Wave 5 · U5): todo inline sobre el documento,
@@ -38,6 +41,8 @@ import { getTool } from "@/lib/tools-registry";
 
 const TOOL = getTool("edit-pdf");
 const DEFAULT_OPTIONS = {};
+/** `/edit-pdf?resume=edit:<huella>` (desde Recientes, U0.6): el unico tipo de trabajo que restaura el editor. */
+const RESUME_KINDS = resumeKindsOfTool("edit-pdf");
 
 function fileKeyOf(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
@@ -117,12 +122,13 @@ export function EditInlineTool() {
     setSignatureAsk(null);
   };
 
-  const resumeDraft = useCallback(async (draft: EditDraftSummary) => {
-    const loaded = await loadEditDraft(draft.id);
-    if (!loaded.ok) {
-      setResumeFailed(true);
-      return;
-    }
+  /**
+   * Abre el documento de un borrador por su id: el editor lo restaura despues por la huella del contenido (`useEditDrafts`).
+   * `gone` = ya no existe (se borro o se perdio); `failed` = no se pudo leer ahora (almacen bloqueado o sin soporte).
+   */
+  const openDraftById = useCallback(async (id: string): Promise<ResumeOutcome> => {
+    const loaded = await loadEditDraft(id);
+    if (!loaded.ok) return loaded.reason === "unavailable" || loaded.reason === "unsupported" ? "failed" : "gone";
     setResumeFailed(false);
     setDraftsOpen(false);
     loadRef.current?.([
@@ -130,7 +136,22 @@ export function EditInlineTool() {
         type: "application/pdf",
       }),
     ]);
+    return "restored";
   }, []);
+
+  const resumeDraft = useCallback(
+    async (draft: EditDraftSummary) => {
+      if ((await openDraftById(draft.id)) !== "restored") setResumeFailed(true);
+    },
+    [openDraftById],
+  );
+
+  // `/edit-pdf?resume=edit:<id>`: abre ese borrador al entrar; si ya no existe lo dice `ResumeGoneNotice`.
+  const resumeLink = useResumeLink(RESUME_KINDS, async (target) => {
+    const outcome = await openDraftById(target.id);
+    if (outcome === "failed") setResumeFailed(true);
+    return outcome;
+  });
 
   return (
     <Fragment>
@@ -155,6 +176,7 @@ export function EditInlineTool() {
         >
           {resumeFailed ? flow.draftsResumeFailed : ""}
         </p>
+        <ResumeGoneNotice state={resumeLink} className="basis-full" />
       </div>
       <EditDraftsSheet
         open={draftsOpen}

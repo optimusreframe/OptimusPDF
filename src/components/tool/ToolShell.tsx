@@ -72,7 +72,21 @@ export type ProcessResult = {
    * en la pantalla de descarga (p. ej. fuente sustituida, firma invalidada).
    */
   notices?: { title: string; items: string[] };
+  /**
+   * Segunda descarga, discreta, bajo «Descargar» (p. ej. el registro `.json` de Firmar PDF). Etiqueta ya traducida;
+   * ausente = la pantalla es la de siempre.
+   */
+  secondaryDownload?: { label: string; blob: Blob; filename: string };
 };
+
+/** La descarga secundaria de un resultado, lista para `DownloadScreen` (sin ella, `undefined`). */
+function secondaryDownloadAction(
+  extra: ProcessResult["secondaryDownload"],
+): { label: string; onDownload: () => void } | undefined {
+  return extra
+    ? { label: extra.label, onDownload: () => downloadBlob(extra.blob, extra.filename) }
+    : undefined;
+}
 
 /**
  * Resultado de `canRun` con motivo: cuando no se puede procesar, el boton
@@ -1258,6 +1272,7 @@ export function ToolShell<TOptions>({
             report={result.report}
             summary={result.summary}
             notices={result.notices}
+            secondaryDownload={secondaryDownloadAction(result.secondaryDownload)}
             continueAction={
               proResult ? (
                 <Link

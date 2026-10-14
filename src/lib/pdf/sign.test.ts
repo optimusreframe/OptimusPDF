@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDict, PDFDocument, PDFName } from "@cantoo/pdf-lib";
 import { sha256Hex } from "@/lib/pdf/core";
 import {
+  SIGNED_PDF_KEYWORD,
+  SIGNED_PDF_PRODUCER,
   buildSignerFilenamePrefix,
   dataUrlToBytes,
   normalizeFieldLabel,
@@ -10,6 +12,7 @@ import {
   signerDisplayName,
   type SignOptions,
 } from "@/lib/pdf/sign";
+import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 
 /**
  * `dataUrlToBytes` usa `window.atob` (ver `sign.ts:42`). El entorno de
@@ -313,8 +316,9 @@ async function extractPageText(bytes: Uint8Array, pageNumber: number): Promise<s
 }
 
 const CERTIFICATE_LABELS = {
-  title: "Certificado de finalización",
-  hashLabel: "Hash SHA-256 del documento firmado",
+  title: "Registro de firmas",
+  notice: "No es una firma certificada: solo registra quién firmó y cuándo.",
+  hashLabel: "Hash SHA-256 del documento firmado (sin esta página)",
   timestampLabel: "Fecha y hora",
   signersLabel: "Firmantes",
   noSignerName: "Sin nombre",
@@ -322,7 +326,16 @@ const CERTIFICATE_LABELS = {
     "Esta página es solo trazabilidad informal: el hash permite comprobar que el documento no cambió después de firmarse. No es una firma electrónica cualificada ni certificada.",
 };
 
-describe("signPdfMulti — certificado de finalizacion (Recomendacion #6)", () => {
+describe("signPdfMulti — pagina «Registro de firmas» (opcional, antes «certificado de finalizacion»)", () => {
+  // El PDF firmado lleva `ModDate` (segundos): se congela SOLO `Date` para que dos firmas del mismo documento sean byte a byte las mismas.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("sin `certificate`, el documento no gana ninguna pagina extra", async () => {
     const document = await createDocument(1);
     const file = await toFile(document);
@@ -362,7 +375,9 @@ describe("signPdfMulti — certificado de finalizacion (Recomendacion #6)", () =
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const text = await extractPageText(bytes, 2);
 
-    expect(text).toContain("Certificado de finalización");
+    expect(text).toContain("Registro de firmas");
+    expect(text).not.toContain("Certificado de finalización");
+    expect(text).toContain("No es una firma certificada: solo registra quién firmó y cuándo.");
     expect(text).toContain("Ana Perez");
     expect(text).toContain("Roberto Diaz");
     expect(text).toContain("trazabilidad informal");
@@ -409,4 +424,148 @@ describe("signPdfMulti — certificado de finalizacion (Recomendacion #6)", () =
     // hex): se comprueba que sus primeros caracteres aparecen literalmente.
     expect(text.replace(/\s+/g, "")).toContain(expectedHash.slice(0, 20));
   });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * F0-U0.5: por defecto, SIN pagina extra y solo metadatos
+ * ------------------------------------------------------------------ */
+
+const NOW = new Date("2026-10-14T12:00:00Z");
+
+async function infoOf(blob: Blob): Promise<PDFDocument> {
+  return PDFDocument.load(new Uint8Array(await blob.arrayBuffer()), { updateMetadata: false });
+}
+
+describe("signPdfMulti — metadatos del PDF firmado (sin pagina de certificado)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("con los parametros por defecto el PDF tiene EXACTAMENTE las paginas del original (1, 2 y 5 paginas)", async () => {
+    for (const pages of [1, 2, 5]) {
+      const file = await toFile(await createDocument(pages));
+      const blob = await signPdfMulti(file, {
+        placements: [
+          { kind: "image", png: dataUrlToBytes(MINIMAL_PNG_DATA_URL), ...basePlacement(0) },
+          { kind: "text", value: "Ana Perez", ...basePlacement(pages - 1) },
+        ],
+      });
+      expect((await infoOf(blob)).getPageCount()).toBe(pages);
+    }
+  });
+
+  it("deja Producer «OptimusPDF», ModDate de ahora y la palabra clave «optimuspdf-signed» al estampar una firma", async () => {
+    const file = await toFile(await createDocument(2));
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "image", png: dataUrlToBytes(MINIMAL_PNG_DATA_URL), ...basePlacement(0) }],
+    });
+    const info = await infoOf(blob);
+    expect(info.getProducer()).toBe("OptimusPDF");
+    expect(SIGNED_PDF_PRODUCER).toBe("OptimusPDF");
+    expect(info.getModificationDate()?.toISOString()).toBe(NOW.toISOString());
+    expect(info.getKeywords()).toBe("optimuspdf-signed");
+    expect(SIGNED_PDF_KEYWORD).toBe("optimuspdf-signed");
+  });
+
+  it("los metadatos NO llevan nombres de firmantes ni ningun dato del contenido (solo Producer, ModDate y la palabra clave)", async () => {
+    const original = await createDocument(1);
+    original.setTitle("Poliza 123");
+    original.setAuthor("Aseguradora SA");
+    const file = await toFile(original);
+    const blob = await signPdfMulti(file, {
+      placements: [
+        { kind: "image", png: dataUrlToBytes(MINIMAL_PNG_DATA_URL), ...basePlacement(0) },
+        { kind: "text", value: "Ana Perez", ...basePlacement(0) },
+      ],
+      certificate: undefined,
+    });
+    const info = await infoOf(blob);
+    // Lo que ya traia el PDF se respeta tal cual; nada nuevo con nombres.
+    expect(info.getTitle()).toBe("Poliza 123");
+    expect(info.getAuthor()).toBe("Aseguradora SA");
+    const written = [info.getTitle(), info.getAuthor(), info.getSubject(), info.getKeywords(), info.getCreator(), info.getProducer()]
+      .filter(Boolean)
+      .join(" | ");
+    expect(written).not.toMatch(/Ana|Perez|Roberto|Diaz/);
+  });
+
+  it("conserva las palabras clave que ya traia el PDF y no repite la palabra clave al volver a firmar", async () => {
+    const original = await createDocument(1);
+    original.setKeywords(["contrato", "2026"]);
+    const first = await signPdfMulti(await toFile(original), {
+      placements: [{ kind: "image", png: dataUrlToBytes(MINIMAL_PNG_DATA_URL), ...basePlacement(0) }],
+    });
+    expect((await infoOf(first)).getKeywords()).toBe("contrato 2026 optimuspdf-signed");
+
+    const again = await signPdfMulti(
+      new File([new Uint8Array(await first.arrayBuffer()) as unknown as BlobPart], "otra.pdf", { type: "application/pdf" }),
+      { placements: [{ kind: "image", png: dataUrlToBytes(MINIMAL_PNG_DATA_URL), ...basePlacement(0) }] },
+    );
+    const keywords = (await infoOf(again)).getKeywords() ?? "";
+    expect(keywords.split(/\s+/).filter((token) => token === "optimuspdf-signed")).toHaveLength(1);
+    expect(keywords).toContain("contrato");
+  });
+
+  it("solo campos de texto (sin ninguna firma): Producer y ModDate si, pero NO la palabra clave «signed»", async () => {
+    const file = await toFile(await createDocument(1));
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "text", value: "Madrid", ...basePlacement(0) }],
+    });
+    const info = await infoOf(blob);
+    expect(info.getProducer()).toBe("OptimusPDF");
+    expect(info.getModificationDate()?.toISOString()).toBe(NOW.toISOString());
+    expect(info.getKeywords() ?? "").not.toContain("optimuspdf-signed");
+  });
+
+  it("con la pagina de registro activada tambien lleva los metadatos, y una pagina mas", async () => {
+    const file = await toFile(await createDocument(2));
+    const blob = await signPdfMulti(file, {
+      placements: [{ kind: "image", png: dataUrlToBytes(MINIMAL_PNG_DATA_URL), ...basePlacement(0) }],
+      certificate: { signerNames: ["Ana Perez"], labels: CERTIFICATE_LABELS },
+    });
+    const info = await infoOf(blob);
+    expect(info.getPageCount()).toBe(3);
+    expect(info.getProducer()).toBe("OptimusPDF");
+    expect(info.getKeywords()).toBe("optimuspdf-signed");
+  });
+});
+
+describe("textos reales de la pagina «Registro de firmas» (ES y EN)", () => {
+  const cases = [
+    { lang: "es" as const, title: "Registro de firmas", notice: "No es una firma certificada: solo registra quién firmó y cuándo." },
+    { lang: "en" as const, title: "Signature record", notice: "This is not a certified signature: it only records who signed and when." },
+  ];
+
+  for (const { lang, title, notice } of cases) {
+    it(`${lang}: titulo «${title}», aclaracion de que no es una firma certificada y ninguna mencion a «certificado de finalizacion»`, async () => {
+      const strings = SIGN_STRINGS[lang];
+      const file = await toFile(await createDocument(1));
+      const blob = await signPdfMulti(file, {
+        placements: [{ kind: "image", png: dataUrlToBytes(MINIMAL_PNG_DATA_URL), ...basePlacement(0) }],
+        certificate: {
+          signerNames: ["Ana Perez"],
+          labels: {
+            title: strings.certificateTitle,
+            notice: strings.certificateNotice,
+            hashLabel: strings.certificateHashLabel,
+            timestampLabel: strings.certificateTimestampLabel,
+            signersLabel: strings.certificateSignersLabel,
+            noSignerName: strings.certificateNoSignerName,
+            disclaimer: strings.certificateDisclaimer,
+          },
+        },
+      });
+      const text = await extractPageText(new Uint8Array(await blob.arrayBuffer()), 2);
+      expect(text).toContain(title);
+      expect(text).toContain(notice);
+      expect(text).not.toMatch(/certificado de finalizaci|completion certificate/i);
+      expect(text).toContain("Ana Perez");
+      expect(text).toContain("SHA-256");
+    });
+  }
 });

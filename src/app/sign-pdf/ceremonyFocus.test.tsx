@@ -10,6 +10,7 @@ import { useCeremonyFocus } from "@/app/sign-pdf/useCeremonyFocus";
 import {
   __resetSignPdfFeatureFlagsCacheForTests,
 } from "@/app/sign-pdf/signFeatureFlags";
+import type { CeremonyState } from "@/app/sign-pdf/blockModel";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { detectFields } from "@/lib/pdf/detectFields";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
@@ -89,11 +90,27 @@ beforeEach(() => {
   __resetSignPdfFeatureFlagsCacheForTests();
 });
 
-function Ceremony({ captures = signedAll() }: { captures?: CaptureMap }) {
+/**
+ * El turno se DERIVA del primer firmante pendiente al montar (Fase 0 · U0.2): con todos ya firmados no hay
+ * turno que mostrar. Las pruebas que recorren el turno con los trazos precargados lo declaran guardado.
+ */
+const ANA_TURN: CeremonyState = { signerId: ANA.id, stage: "handoff" };
+const LUIS_TURN: CeremonyState = { signerId: LUIS.id, stage: "handoff" };
+
+function Ceremony({
+  captures = signedAll(),
+  ceremony,
+}: {
+  captures?: CaptureMap;
+  /** Turno guardado inicial; con valor, la ceremonia va CONTROLADA (como en la sesion real). */
+  ceremony?: CeremonyState | null;
+}) {
   const [current, setCurrent] = useState<CaptureMap>(captures);
+  const [turn, setTurn] = useState<CeremonyState | null>(ceremony ?? null);
   return (
     <LanguageProvider>
       <SigningCeremony
+        {...(ceremony !== undefined ? { ceremony: turn, onCeremonyChange: setTurn } : {})}
         signers={[ANA, LUIS]}
         fields={FIELDS}
         captures={current}
@@ -116,7 +133,7 @@ describe("SigningCeremony — el foco no cae a <body> al cambiar de etapa o de t
   });
 
   it("«Estoy listo» -> encabezado de la captura", () => {
-    render(<Ceremony />);
+    render(<Ceremony ceremony={ANA_TURN} />);
     fireEvent.click(readyButtons()[0]);
     const h = heading(strings.captureTitle("Ana"));
     expect(h.getAttribute("tabindex")).toBe("-1");
@@ -124,14 +141,14 @@ describe("SigningCeremony — el foco no cae a <body> al cambiar de etapa o de t
   });
 
   it("«Continuar» -> encabezado de la revision", () => {
-    render(<Ceremony />);
+    render(<Ceremony ceremony={ANA_TURN} />);
     fireEvent.click(readyButtons()[0]);
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     expect(document.activeElement).toBe(heading(strings.reviewTitle("Ana")));
   });
 
   it("«Rehacer» -> vuelve al encabezado de la captura", () => {
-    render(<Ceremony />);
+    render(<Ceremony ceremony={ANA_TURN} />);
     fireEvent.click(readyButtons()[0]);
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     fireEvent.click(screen.getByRole("button", { name: strings.reviewRedo }));
@@ -139,7 +156,8 @@ describe("SigningCeremony — el foco no cae a <body> al cambiar de etapa o de t
   });
 
   it("«Siguiente» -> traspaso del siguiente firmante", () => {
-    render(<Ceremony />);
+    // Luis aun no ha firmado: es el siguiente turno (a quien ya firmo no se le pasa el dispositivo).
+    render(<Ceremony ceremony={ANA_TURN} captures={{ [ANA.id]: signedAll()[ANA.id] }} />);
     fireEvent.click(readyButtons()[0]);
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     fireEvent.click(screen.getByRole("button", { name: strings.reviewNext }));
@@ -147,10 +165,8 @@ describe("SigningCeremony — el foco no cae a <body> al cambiar de etapa o de t
   });
 
   it("al pasar el ultimo turno -> balance de la ronda", () => {
-    render(<Ceremony />);
-    fireEvent.click(readyButtons()[0]);
-    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
-    fireEvent.click(screen.getByRole("button", { name: strings.reviewNext }));
+    // El ultimo turno (Luis) con todo ya recogido: al terminarlo no queda nadie y el foco va al balance.
+    render(<Ceremony ceremony={LUIS_TURN} />);
     fireEvent.click(readyButtons()[0]);
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     fireEvent.click(screen.getByRole("button", { name: strings.reviewFinish }));

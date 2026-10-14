@@ -10,6 +10,7 @@ import {
   type SignerCapture,
 } from "@/app/sign-pdf/SigningCeremony";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
+import type { CeremonyState } from "@/app/sign-pdf/blockModel";
 import type { SignatureDraft } from "@/app/sign-pdf/SignatureComposer";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
 
@@ -77,7 +78,16 @@ function moved(fields: readonly SignatureField[]): SignatureField[] {
   );
 }
 
+/**
+ * El turno se DERIVA del primer firmante pendiente al montar (Fase 0 · U0.2): con Ana ya firmada, una
+ * ronda recien montada arranca en Luis. La prueba que recorre el turno de Ana con sus trazos precargados
+ * lo declara con el turno guardado explicito (el que antes era el inicio implicito).
+ */
+const ANA_TURN: CeremonyState = { signerId: ANA.id, stage: "handoff" };
+
 type HarnessProps = {
+  /** Turno guardado inicial; con valor, la ceremonia va CONTROLADA (como en la sesion real). */
+  ceremony?: CeremonyState | null;
   captures: CaptureMap;
   onFinish: () => void;
   fields?: SignatureField[];
@@ -85,14 +95,17 @@ type HarnessProps = {
 };
 
 function Harness({
+  ceremony: initialCeremony,
   captures,
   onFinish,
   fields = FIELDS,
   documentKey = DOC,
 }: HarnessProps) {
   const [current, setCurrent] = useState<CaptureMap>(captures);
+  const [turn, setTurn] = useState<CeremonyState | null>(initialCeremony ?? null);
   return (
     <SigningCeremony
+      {...(initialCeremony !== undefined ? { ceremony: turn, onCeremonyChange: setTurn } : {})}
       signers={[ANA, LUIS, SIN_HUECOS]}
       fields={fields}
       captures={current}
@@ -164,7 +177,9 @@ describe("SigningCeremony — src/app/sign-pdf/SigningCeremony.tsx", () => {
   });
 
   it("el traspaso arranca por el primer firmante y avanza al siguiente", () => {
-    render(<Harness captures={allSigned()} onFinish={() => {}} />);
+    // Luis aun no ha firmado: es el siguiente turno (a quien ya firmo no se le pasa el dispositivo).
+    const { [ANA.id]: ana } = allSigned();
+    render(<Harness ceremony={ANA_TURN} captures={{ [ANA.id]: ana }} onFinish={() => {}} />);
 
     expect(screen.getByText(strings.handoffTitle(ANA.name))).toBeTruthy();
     expect(screen.getByText(strings.turnOf(1, 2))).toBeTruthy();

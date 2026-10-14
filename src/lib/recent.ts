@@ -1,3 +1,4 @@
+import { isValidResumeId, RESUME_KINDS, type ResumeTarget } from "@/lib/resumeLinks";
 import type { ToolSlug } from "@/lib/tools-registry";
 
 /**
@@ -6,6 +7,11 @@ import type { ToolSlug } from "@/lib/tools-registry";
  * REGLA DURA: aqui NUNCA se guarda contenido de archivo. Solo el nombre
  * mostrado, la herramienta usada y la marca de tiempo, en localStorage
  * de este dispositivo.
+ *
+ * Los trabajos SIN TERMINAR (con el documento) no viven aqui: los guardan las
+ * propias herramientas como borradores en IndexedDB y Recientes los lee de
+ * ellos (`src/app/recent/unfinishedWork.ts`). Esta lista es solo el historial;
+ * `resume` es, como mucho, un PUNTERO (tipo + id) a un borrador, nunca su contenido.
  */
 export type RecentEntry = {
   id: string;
@@ -13,6 +19,11 @@ export type RecentEntry = {
   fileName: string;
   /** ISO 8601 */
   date: string;
+  /**
+   * Borrador de la herramienta al que apunta esta entrada (solo el tipo y el id). Recientes lo usa para no repetir como
+   * historial un trabajo que ya se ofrece en «Sin terminar»; sin borrador vivo la entrada solo ofrece abrir la herramienta.
+   */
+  resume?: ResumeTarget;
 };
 
 export const RECENT_STORAGE_KEY = "optimuspdf.recent";
@@ -38,6 +49,22 @@ function isRecentEntry(value: unknown): value is RecentEntry {
   );
 }
 
+/** El puntero a un borrador que viene de localStorage no se da por bueno: tipo de la lista blanca e id con su expresion. */
+function sanitizeResume(value: unknown): ResumeTarget | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { kind, id } = value as Record<string, unknown>;
+  if (typeof kind !== "string" || !(RESUME_KINDS as readonly string[]).includes(kind)) return undefined;
+  const known = kind as ResumeTarget["kind"];
+  return isValidResumeId(known, id) ? { kind: known, id } : undefined;
+}
+
+/** Solo los campos conocidos, con el puntero saneado (o sin el). */
+function normalizeEntry(entry: RecentEntry): RecentEntry {
+  const { id, slug, fileName, date } = entry;
+  const resume = sanitizeResume(entry.resume);
+  return resume ? { id, slug, fileName, date, resume } : { id, slug, fileName, date };
+}
+
 function readStorage(): RecentEntry[] {
   if (typeof window === "undefined") return EMPTY;
   try {
@@ -45,7 +72,7 @@ function readStorage(): RecentEntry[] {
     if (!raw) return EMPTY;
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return EMPTY;
-    const entries = parsed.filter(isRecentEntry).slice(0, MAX_ENTRIES);
+    const entries = parsed.filter(isRecentEntry).slice(0, MAX_ENTRIES).map(normalizeEntry);
     return entries.length === 0 ? EMPTY : entries;
   } catch {
     return EMPTY;
@@ -68,13 +95,15 @@ export function getRecentEntries(): RecentEntry[] {
   return cache;
 }
 
-export function addRecentEntry(slug: ToolSlug, fileName: string): void {
+export function addRecentEntry(slug: ToolSlug, fileName: string, resume?: ResumeTarget): void {
   if (typeof window === "undefined") return;
+  const pointer = sanitizeResume(resume);
   const entry: RecentEntry = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     slug,
     fileName,
     date: new Date().toISOString(),
+    ...(pointer ? { resume: pointer } : {}),
   };
   const next = [entry, ...getRecentEntries()].slice(0, MAX_ENTRIES);
   cache = next;

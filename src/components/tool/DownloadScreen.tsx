@@ -2,7 +2,7 @@
 
 import { useId, type ReactNode, type Ref } from "react";
 import { motion } from "motion/react";
-import { Check, Download, Info, RotateCcw } from "lucide-react";
+import { Check, Download, FileText, Info, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ToolCard } from "@/components/tool/ToolCard";
 import {
@@ -34,6 +34,8 @@ export type DownloadScreenProps = {
   summary?: string;
   /** Avisos de la exportacion, ya traducidos (opcional): lista accesible. */
   notices?: { title: string; items: string[] };
+  /** Segunda descarga discreta (p. ej. el registro `.json` de Firmar PDF), bajo «Descargar». */
+  secondaryDownload?: { label: string; onDownload: () => void };
   /** Accion para seguir con el resultado en otro sitio («Seguir en PDF Pro»), bajo «Descargar». */
   continueAction?: ReactNode;
 };
@@ -54,6 +56,7 @@ export function DownloadScreen({
   report,
   summary,
   notices,
+  secondaryDownload,
   continueAction,
 }: DownloadScreenProps) {
   const { t, language } = useI18n();
@@ -161,6 +164,18 @@ export function DownloadScreen({
           <Download aria-hidden="true" className="size-5" />
           {t.tool.download}
         </Button>
+
+        {secondaryDownload ? (
+          <Button
+            variant="ghost"
+            size="md"
+            className="mt-2 text-muted-foreground hover:text-foreground"
+            onClick={secondaryDownload.onDownload}
+          >
+            <FileText aria-hidden="true" className="size-4" />
+            {secondaryDownload.label}
+          </Button>
+        ) : null}
 
         {continueAction}
 

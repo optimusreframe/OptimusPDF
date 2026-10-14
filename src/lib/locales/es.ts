@@ -432,10 +432,33 @@ export const es = {
   recent: {
     title: "Recientes",
     subtitle:
-      "Solo guardamos el nombre del archivo, la herramienta y la fecha, en este dispositivo. Nunca el documento.",
+      "Los trabajos sin terminar se guardan solo en este navegador, con el documento, para poder continuarlos.",
     empty: "Aún no has procesado nada en este navegador.",
     emptyCta: "Ver herramientas",
     clear: "Borrar historial",
+    // U0.6: «Sin terminar» (borradores reales de Firmar, Editar y PDF Pro) e historial honesto.
+    unfinishedTitle: "Sin terminar",
+    unfinishedHint:
+      "Trabajos que dejaste a medias. Al continuar, la herramienta recupera el documento y lo que habías hecho.",
+    historyTitle: "Historial",
+    historyHint:
+      "Del historial solo guardamos el nombre del archivo, la herramienta y la fecha: no se puede continuar desde aquí.",
+    openTool: "Abrir herramienta",
+    documentsOne: "1 documento",
+    documentsMany: "{n} documentos",
+    changesOne: "1 cambio",
+    changesMany: "{n} cambios",
+    discard: "Descartar {name}",
+    discardTitle: "¿Descartar «{name}»?",
+    discardBody:
+      "Se borrarán de este navegador el documento y todo lo que habías hecho con él. No se puede deshacer.",
+    discardConfirm: "Descartar",
+    discarded: "Trabajo descartado.",
+  },
+  // U0.6: lo que muestra una herramienta cuando «Continuar» apunta a un trabajo que ya no existe.
+  resume: {
+    gone: "Este trabajo ya no se puede recuperar en este navegador (se borró o caducó).",
+    reopen: "Abrir de nuevo",
   },
   settings: {
     title: "Ajustes",
@@ -475,8 +498,12 @@ export const es = {
         hint: "Añade casilla, fecha e inicial como tipos de campo, además del texto libre.",
       },
       completionCertificate: {
-        label: "Certificado de finalización",
-        hint: "Añade una página final con el hash del documento, la fecha y la lista de firmantes.",
+        label: "Registro de firmas (página final)",
+        hint: "Añade al final del PDF una página «Registro de firmas» con la fecha, la lista de firmantes y el hash del documento. No es una firma certificada: solo registra quién firmó y cuándo. Apagado, el PDF firmado tiene exactamente las páginas del original.",
+      },
+      signingRecordFile: {
+        label: "Incluir registro .json aparte",
+        hint: "Al firmar, ofrece un archivo registro-firmas.json con el hash SHA-256 de cada PDF firmado, la fecha, los firmantes y el número de páginas. Con varios documentos va dentro del ZIP; con uno, como descarga aparte. Nunca dentro del PDF. No es una firma certificada.",
       },
       pinchZoom: {
         label: "Zoom con pellizco",

@@ -1,0 +1,36 @@
+U0.6 · mutaciones (todas MUEREN)
+
+== Unitarias (vitest, copia aislada; python3 mutate.py) ==
+MUERE     M01 Firmar: no restaurar (no llama a onResume)
+MUERE     M02 Firmar: restaurar el borrador equivocado (el primero)
+MUERE     M03 Editar: restaurar otro borrador (id alterado)
+MUERE     M04 PDF Pro: restaurar otro borrador (id alterado)
+MUERE     M05 no limpiar la URL tras restaurar
+MUERE     M06 no limpiar la URL de un valor invalido
+MUERE     M07 aceptar tipos no listados (cualquier tipo)
+MUERE     M08 aceptar ids sin regex estricta (cualquier texto)
+MUERE     M09 una herramienta acepta tipos de otra (sin filtrar por herramienta)
+MUERE     M10 «Continuar» sin estado: el historial promete Continuar
+MUERE     M11 Continuar apunta a la herramienta vacia (sin ?resume=)
+MUERE     M12 el historial repite lo que ya sale en «Sin terminar» (sin dedupe)
+MUERE     M13 borrador desaparecido: no avisa (devuelve restored)
+MUERE     M14 PDF Pro: gone no se distingue (failed)
+MUERE     M15 Descartar no borra el borrador de Editar
+MUERE     M16 Descartar sin confirmacion (borra al pulsar el icono)
+MUERE     M17 el puntero del historial no se sanea
+MUERE     M18 la fecha corrupta rompe la pantalla (sin guardas)
+MUERE     M19 StrictMode restaura dos veces (sin guardia)
+MUERE     M20 «Abrir de nuevo» abre el selector equivocado (.zip)
+MUERE     M21 se listan borradores del editor sin cambios
+MUERE     M22 subtitulo vuelve a negar el documento
+
+== E2E (reconstruyen la build y corren recent-continue en Chromium; mutate-e2e.py) ==
+E1 Firmar: «Continuar» no restaura (el hook no llama a onResume) -> MUERE | Error: expect(locator).toBeVisible() failed | 1 failed
+E2 PDF Pro: «Continuar» restaura el borrador equivocado -> MUERE | Error: expect(locator).toBeVisible() failed | Error: expect(locator).toBeVisible() failed | 2 failed
+E3 no limpiar la URL tras restaurar -> MUERE | 3 failed
+E4 aceptar tipos no listados -> MUERE | expect(locator).toBeAttached() failed | expect(locator).toBeAttached() failed | 2 failed
+E5 el historial sin estado promete «Continuar» -> MUERE | expect(locator).toBeVisible() failed | 1 failed
+E6 «Continuar» abre la herramienta vacia (sin ?resume=) -> MUERE | Error: expect(locator).toBeVisible() failed | Error: expect(locator).toBeVisible() failed | 2 failed
+E7 borrador desaparecido: sin aviso ni «Abrir de nuevo» -> MUERE | Error: expect(locator).toBeVisible() failed | 1 failed
+E8 «Descartar» no borra el borrador de Editar -> MUERE | Error: expect(locator).toHaveCount(expected) failed | 1 failed
+E9 el subtitulo vuelve a negar el documento -> MUERE | Error: expect(locator).toBeVisible() failed | 1 failed

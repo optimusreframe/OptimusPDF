@@ -495,3 +495,86 @@ describe("restoreSession", () => {
     expect(patch.signers).toHaveLength(3);
   });
 });
+
+describe("turno de la ceremonia en el borrador (Fase 0 · U0.2)", () => {
+  const TURN = { signerId: "sg-2", stage: "capture" } as const;
+  const TWO: SignSession["signers"] = [ANA, LUIS];
+
+  /** Sesion con dos firmantes y el turno de Luis, en la captura. */
+  async function withTurn(ceremony: SignSession["ceremony"]) {
+    const live = liveSession();
+    const session: SignSession = { ...live.session, signers: TWO, blocks: [], ceremony };
+    const { params, meta } = await snap(session, [live.a, live.b]);
+    return { live, params, meta };
+  }
+
+  it("guardar incluye de quien es el turno y en que etapa", async () => {
+    const { params, meta } = await withTurn(TURN);
+    expect(params.ceremony).toEqual(TURN);
+    expect(meta.ceremony).toEqual(TURN);
+  });
+
+  it("sin turno (o con un turno de un firmante que ya no esta) no se guarda ninguno", async () => {
+    expect((await withTurn(undefined)).meta.ceremony).toBeUndefined();
+    expect((await withTurn(null)).meta.ceremony).toBeUndefined();
+    expect("ceremony" in (await withTurn(null)).meta).toBe(false);
+    const ghost = { signerId: "sg-77", stage: "handoff" } as const;
+    expect((await withTurn(ghost)).meta.ceremony).toBeUndefined();
+  });
+
+  it("al restaurar el turno vuelve igual: el mismo firmante y la misma etapa", async () => {
+    const { meta } = await withTurn(TURN);
+    const { patch } = restoreSession(meta, [file("a.pdf"), file("b.pdf")], ["key-a", "key-b"]);
+    expect(patch.ceremony).toEqual(TURN);
+  });
+
+  it("a traves de IndexedDB-like JSON (clonado estructurado) el turno sobrevive", async () => {
+    const { meta } = await withTurn({ signerId: "sg-1", stage: "review" });
+    const cloned = JSON.parse(JSON.stringify(meta)) as SessionDraftMeta;
+    const { patch } = restoreSession(cloned, [file("a.pdf"), file("b.pdf")], ["key-a", "key-b"]);
+    expect(patch.ceremony).toEqual({ signerId: "sg-1", stage: "review" });
+  });
+
+  it("un borrador anterior, sin el campo, restaura sin turno (se deriva de lo que falta)", async () => {
+    const { meta } = await withTurn(TURN);
+    const old = { ...meta } as Partial<SessionDraftMeta>;
+    delete old.ceremony;
+    const { patch } = restoreSession(old as SessionDraftMeta, [file("a.pdf"), file("b.pdf")], [null, null]);
+    expect(patch.ceremony).toBeUndefined();
+    expect("ceremony" in patch).toBe(false);
+  });
+
+  it("un turno raro o manipulado en el borrador se descarta sin romper la restauracion", async () => {
+    const { meta } = await withTurn(TURN);
+    for (const bad of [
+      { signerId: "sg-99", stage: "capture" },
+      { signerId: "sg-1", stage: "volar" },
+      { signerId: 1, stage: "capture" },
+      "sg-1",
+      42,
+      [],
+    ]) {
+      const hacked = { ...meta, ceremony: bad } as unknown as SessionDraftMeta;
+      const { patch } = restoreSession(hacked, [file("a.pdf"), file("b.pdf")], [null, null]);
+      expect(patch.ceremony).toBeUndefined();
+      expect(patch.signers).toEqual(TWO);
+    }
+  });
+
+  it("un turno cuyo firmante no esta en el borrador no se restaura", async () => {
+    const { meta } = await withTurn(TURN);
+    const gone = { ...meta, signers: [ANA] } as SessionDraftMeta;
+    const { patch } = restoreSession(gone, [file("a.pdf"), file("b.pdf")], [null, null]);
+    expect(patch.ceremony).toBeUndefined();
+  });
+
+  it("ida y vuelta: guardar tras restaurar conserva el turno", async () => {
+    const { meta } = await withTurn(TURN);
+    const a2 = file("a.pdf");
+    const b2 = file("b.pdf");
+    const restored = restoreSession(meta, [a2, b2], ["key-a", "key-b"]);
+    const session: SignSession = { ...DEFAULT_SESSION, ...restored.patch };
+    const again = await snap(session, [a2, b2], restored.identity);
+    expect(again.meta.ceremony).toEqual(TURN);
+  });
+});

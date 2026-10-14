@@ -8,9 +8,10 @@ const FAKE_CAMERA_Y4M = path.resolve(__dirname, "e2e/fixtures/fake-camera.y4m");
 /**
  * Pruebas cruzadas OPCIONALES en WebKit (Safari) y Firefox. Por defecto NO existen (ni en local ni en CI): el
  * conjunto que corre hoy es exactamente el de Chromium. Se activan con `PW_BROWSERS` (lista separada por comas):
- *   all          -> webkit + webkit-mobile + firefox
+ *   all          -> webkit + webkit-mobile + webkit-ipad + firefox
  *   webkit       -> Desktop Safari (WebKit de Playwright)
  *   webkit-mobile-> iPhone 15 Pro (WebKit movil, tactil)
+ *   webkit-ipad  -> iPad Pro 11 (WebKit tactil, 834 x 1194): el aparato del adjuster que firma contratos (Fase 0 «Firma agil»)
  *   firefox      -> Desktop Firefox
  * Cada proyecto cruzado corre solo los flujos principales (`CROSS_SPECS`); con `PW_CROSS_FULL=1` corre todos los
  * specs (menos scan-to-pdf, que necesita la camara falsa de Chromium). Detalle y comandos: `docs/COMPATIBILIDAD-NAVEGADORES.md`.
@@ -19,7 +20,7 @@ const CROSS = (process.env.PW_BROWSERS ?? "")
   .split(",")
   .map((token) => token.trim().toLowerCase())
   .filter(Boolean);
-const wantsCross = (name: "webkit" | "webkit-mobile" | "firefox") => CROSS.includes("all") || CROSS.includes(name);
+const wantsCross = (name: "webkit" | "webkit-mobile" | "webkit-ipad" | "firefox") => CROSS.includes("all") || CROSS.includes(name);
 const CROSS_SPECS =
   /(pdf-pro-(foundation|viewer|viewer-damaged|pages|tools|export|export-persistent|modes-edit|modes-sign|create|journeys|unload|history-memory|memory|shared-content-edit)|pages-migration|pages-warnings|merge-pdf|split-pdf|organize-pdf|remove-extract-pages|edit-existing-text|edit-pdf-flow|edit-quality|edit-palette-reach|sign-quality|sign-multi|signature-font|sign-edit-summary|exif-orientation|compress[\w-]*|protect-unlock|ocr-pdf|convert-out|image-conversion|a11y-sweep|tool-errors|focus-own-headers)\.spec\.ts$/;
 /** scan-to-pdf depende de `--use-fake-device-for-media-stream` (solo Chromium). */
@@ -30,6 +31,20 @@ const crossMatch = process.env.PW_CROSS_FULL ? /(?<!scan-to-pdf)\.spec\.ts$/ : C
  * flotante de escritorio y las medidas de escritorio. Sus bloques moviles (375 px, tactil) ya corren en `webkit`.
  */
 const MOBILE_EXCLUDED = /(compress[\w-]*|edit-pdf-flow|pdf-pro-viewer|pdf-pro-pages|pdf-pro-modes-sign|pdf-pro-memory|tool-errors)\.spec\.ts$/;
+
+/**
+ * Specs de la Fase 0 «Firma agil» (`docs/PLAN-FIRMA-AGIL.md` §3, U0.1): reproducen la perdida de trabajo al firmar
+ * (turno que se reinicia, BACK del navegador, Recientes -> Continuar). Solo `webkit-ipad` los suma a `CROSS_SPECS`;
+ * los demas proyectos cruzados no cambian. En Chromium corren porque `chromium` no filtra por archivo.
+ */
+const F0_SPECS = /(sign-ceremony-turns|sign-recovery|recent-continue)\.spec\.ts$/;
+/**
+ * Las pruebas que hoy DEBEN fallar (defectos aun sin corregir) llevan `@f0-pendiente` en el titulo y se EXCLUYEN de
+ * cualquier ejecucion por defecto (local y CI) para no dejar la suite en rojo. `PW_F0=1` las incluye:
+ *   PW_F0=1 npx playwright test sign-ceremony-turns sign-recovery recent-continue
+ * Cada unidad que corrige un defecto (U0.2 / U0.3 / U0.6) quita la etiqueta de las pruebas que ya pasan.
+ */
+const F0_PENDING = /@f0-pendiente/;
 
 /**
  * Suite E2E de navegador real para las rutas que dependen de pdfjs-dist /
@@ -43,6 +58,7 @@ export default defineConfig({
   testDir: "./e2e/specs",
   outputDir: ".evidence/playwright",
   fullyParallel: false,
+  grepInvert: process.env.PW_F0 === "1" ? undefined : F0_PENDING,
   workers: process.env.CI ? 2 : undefined,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI
@@ -70,7 +86,10 @@ export default defineConfig({
       : `npm run dev -- -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     // WebKit aplica `upgrade-insecure-requests` tambien a http://localhost (pagina en blanco): ver next.config.ts.
-    env: wantsCross("webkit") || wantsCross("webkit-mobile") ? { CSP_SKIP_UPGRADE_INSECURE: "1" } : undefined,
+    env:
+      wantsCross("webkit") || wantsCross("webkit-mobile") || wantsCross("webkit-ipad")
+        ? { CSP_SKIP_UPGRADE_INSECURE: "1" }
+        : undefined,
     // `PW_REUSE_SERVER=1` permite, incluso con CI=1, apuntar a una build de produccion ya levantada en PW_PORT.
     reuseExistingServer: !process.env.CI || !!process.env.PW_REUSE_SERVER,
     timeout: process.env.CI ? 600_000 : 120_000,
@@ -103,6 +122,9 @@ export default defineConfig({
       : []),
     ...(wantsCross("webkit-mobile")
       ? [{ name: "webkit-mobile", use: { ...devices["iPhone 15 Pro"] }, testMatch: crossMatch, testIgnore: MOBILE_EXCLUDED }]
+      : []),
+    ...(wantsCross("webkit-ipad")
+      ? [{ name: "webkit-ipad", use: { ...devices["iPad Pro 11"] }, testMatch: [crossMatch, F0_SPECS], testIgnore: MOBILE_EXCLUDED }]
       : []),
     ...(wantsCross("firefox")
       ? [{ name: "firefox", use: { ...devices["Desktop Firefox"] }, testMatch: crossMatch }]

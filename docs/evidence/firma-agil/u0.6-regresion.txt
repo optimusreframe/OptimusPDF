@@ -1,0 +1,16 @@
+U0.6 · regresion E2E (build de produccion con U0.6)
+
+Chromium: npx playwright test edit- pdf-pro- sign-multi sign-quality a11y-sweep focus-own-headers --project=chromium --workers=2 --retries=0
+  Slow test file: [chromium] › e2e/specs/focus-own-headers.spec.ts (31.3m)
+  Slow test file: [chromium] › e2e/specs/a11y-sweep.spec.ts (5.9m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  4 skipped
+  600 passed (49.2m)
+
+webkit-ipad: recent-continue pdf-pro-foundation pdf-pro-journeys sign-multi edit-pdf-flow edit-existing-text edit-quality a11y-sweep
+  Slow test file: [webkit-ipad] › e2e/specs/a11y-sweep.spec.ts (6.2m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  2 skipped
+  182 passed (6.2m)
+
+(focus-own-headers no se corrio en webkit-ipad: no tiene pruebas de Firmar, Editar ni PDF Pro y sus bucles x30 duran ~30 min; en Chromium corrio completo)

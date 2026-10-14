@@ -222,6 +222,27 @@ describe("borrador de sesion — guardar y leer", () => {
     expect(meta.docStates["doc-1"].fieldPageIndex).toBe(2);
   });
 
+  it("guarda y lee el turno de la ceremonia (Fase 0 · U0.2): de quien es y en que etapa, tal cual", async () => {
+    const SIGNER_2 = { id: "sg-2", name: "Luis", color: "#0f9d68" };
+    await saveSessionDraft(
+      sessionParams("s-turn", ["doc-1", "doc-2"], {
+        signers: [SIGNER, SIGNER_2],
+        step: "sign",
+        ceremony: { signerId: "sg-2", stage: "capture" },
+      }),
+    );
+    const { meta } = (await loadSessionDraft("s-turn"))!;
+    expect(meta.ceremony).toEqual({ signerId: "sg-2", stage: "capture" });
+    expect(isSessionDraftMeta(meta)).toBe(true);
+  });
+
+  it("sin turno el borrador no trae el campo (los anteriores y los nuevos sin turno son iguales)", async () => {
+    await saveSessionDraft(sessionParams("s-noturn"));
+    const { meta } = (await loadSessionDraft("s-noturn"))!;
+    expect("ceremony" in meta).toBe(false);
+    expect("ceremony" in buildSessionMeta(sessionParams("s-x"))).toBe(false);
+  });
+
   it("buildSessionMeta suma los tamanos y resume con el primer nombre", () => {
     const meta = buildSessionMeta(
       sessionParams("s-d", ["a", "b"], {

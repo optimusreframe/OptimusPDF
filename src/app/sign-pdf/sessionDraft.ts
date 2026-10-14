@@ -13,6 +13,7 @@ import {
   type SignerBlock,
 } from "@/app/sign-pdf/docSet";
 import type { CaptureMap } from "@/app/sign-pdf/captures";
+import { sanitizeCeremony } from "@/app/sign-pdf/blockModel";
 import { activeDocOf, type SignSession } from "@/app/sign-pdf/signSession";
 import { migrateStep } from "@/app/sign-pdf/signSteps";
 import type {
@@ -131,7 +132,8 @@ function mapBlock(
 export type SessionSource = Pick<
   SignSession,
   "mode" | "signMode" | "signers" | "blocks" | "docs" | "step" | "activeDocId" | "docOrder"
->;
+> &
+  Partial<Pick<SignSession, "ceremony">>;
 
 export function snapshotSession(args: {
   identity: SessionIdentity;
@@ -151,6 +153,11 @@ export function snapshotSession(args: {
   const blocks = ensureBlocks(session.signers, docOrder, session.signMode, session.blocks);
   const toStored = (docId: DocId) => identity.stored.get(docId);
   const active = activeDocOf(session, docOrder);
+  // El turno solo se guarda si su firmante sigue en la sesion (no hay turnos huerfanos).
+  const ceremony = sanitizeCeremony(
+    session.ceremony,
+    session.signers.map((signer) => signer.id),
+  );
 
   return {
     id: identity.id,
@@ -171,6 +178,7 @@ export function snapshotSession(args: {
     }),
     activeDocId: active ? (identity.stored.get(active) ?? null) : null,
     step: session.step,
+    ...(ceremony ? { ceremony } : {}),
   };
 }
 
@@ -298,6 +306,12 @@ export function restoreSession(
   const activeDocId =
     (meta.activeDocId ? toLive.get(meta.activeDocId) : undefined) ?? liveIds[0] ?? null;
 
+  // Un borrador anterior no trae turno (se deriva de lo que falta); uno raro o manipulado, tampoco.
+  const ceremony = sanitizeCeremony(
+    meta.ceremony,
+    meta.signers.map((signer) => signer.id),
+  );
+
   const identity: SessionIdentity = {
     id: meta.id,
     stored: new Map(
@@ -318,6 +332,7 @@ export function restoreSession(
       docOrder: liveIds,
       activeDocId,
       step: migrateStep(meta.step),
+      ...(ceremony ? { ceremony } : {}),
     },
     identity,
     normalized: normalized.warnings.length,

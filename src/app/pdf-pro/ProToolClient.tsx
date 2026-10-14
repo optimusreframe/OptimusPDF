@@ -17,6 +17,9 @@ import { useUnloadGuard } from "@/app/pdf-pro/session/useUnloadGuard";
 import { useProDraftList } from "@/app/pdf-pro/useProDrafts";
 import { useProSession } from "@/app/pdf-pro/useProSession";
 import { ProWorkingDocProvider, useProWorkingDoc } from "@/app/pdf-pro/useProWorkingDoc";
+import { ResumeGoneNotice } from "@/components/tool/ResumeGoneNotice";
+import { resumeKindsOfTool } from "@/lib/resumeLinks";
+import { useResumeLink } from "@/lib/useResumeLink";
 
 /**
  * Entrada de PDF Pro (`/pdf-pro`). Monta el documento de trabajo y decide entre el estado vacio
@@ -33,6 +36,9 @@ export function ProToolClient() {
 }
 
 const NO_SUBSCRIBE = () => () => {};
+
+/** `/pdf-pro?resume=pro:<huella>` (desde Recientes, U0.6): el unico tipo de trabajo que restaura PDF Pro. */
+const RESUME_KINDS = resumeKindsOfTool("pdf-pro");
 
 /** Por que no se pudo guardar el borrador automatico (para avisar), o `null` si todo va bien. */
 export type AutosaveIssue = "failed" | "tooBig" | "quota" | null;
@@ -66,6 +72,8 @@ function ProApp() {
   });
   const drafts = useProDraftList();
   const draftsSupported = useSyncExternalStore(NO_SUBSCRIBE, proDraftsSupported, () => true);
+  // Abre el borrador de `?resume=pro:<id>` (el mismo `restoreDraft` de «Documentos recientes»); si ya no existe, avisa.
+  const resumeLink = useResumeLink(RESUME_KINDS, (target) => session.restoreDraft(target.id, { quietGone: true }));
 
   // Cerrar o recargar la pestaña pide confirmacion con cambios sin descargar que el borrador no cubre (autoguardado
   // apagado, sin soporte, fallido, PDF cifrado o documento demasiado grande), con un paso en vuelo y, Wave 10, con una
@@ -207,6 +215,10 @@ function ProApp() {
         {/* `key` por anuncio: dos mensajes iguales seguidos («Rotar» dos veces) vuelven a leerse. */}
         <span key={announcement?.id ?? 0}>{announcement?.text ?? ""}</span>
       </p>
+
+      {proDocument ? null : (
+        <ResumeGoneNotice region="alert" state={resumeLink} className="mx-auto w-full max-w-[960px] px-4 pt-6 md:px-6 md:pt-10" />
+      )}
 
       {proDocument ? (
         <ProSuite

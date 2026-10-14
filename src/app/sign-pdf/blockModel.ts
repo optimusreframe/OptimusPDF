@@ -399,6 +399,116 @@ export function removeBlock(
 }
 
 /* ------------------------------------------------------------------ *
+ * Turno de la ceremonia (Fase 0 «Firma agil», U0.2)
+ * ------------------------------------------------------------------ */
+
+/** Etapas de un turno: traspaso del dispositivo, captura de los trazos y revision. */
+export type CeremonyStage = "handoff" | "capture" | "review";
+
+const CEREMONY_STAGES: readonly CeremonyStage[] = ["handoff", "capture", "review"];
+
+/**
+ * Donde esta la ronda: de quien es el turno y en que etapa. Vive en la SESION
+ * (no en el estado local de la ceremonia): tocar la pestana de otro documento,
+ * «Atras» -> «Continuar» o recargar vuelven a montar la ceremonia, y el turno
+ * tiene que seguir donde estaba. Se identifica por el id del firmante (estable
+ * entre guardados), no por la posicion en la cola (que cambia con los huecos).
+ */
+export type CeremonyState = { signerId: string; stage: CeremonyStage };
+
+/** El estado resuelto contra la cola de ahora: `index === queue.length` = ya no hay turno. */
+export type CeremonyPosition = { index: number; stage: CeremonyStage };
+
+/**
+ * Posicion (en la cola) del PRIMER firmante que aun no ha terminado; `queue.length`
+ * si todos terminaron (o la cola esta vacia). Es lo que decide a quien se le pasa
+ * el dispositivo al arrancar y al acabar un turno: nunca a quien ya firmo.
+ */
+export function firstPendingTurn(
+  queue: readonly { id: string }[],
+  isDone: (signerId: string) => boolean,
+): number {
+  const index = queue.findIndex((signer) => !isDone(signer.id));
+  return index === -1 ? queue.length : index;
+}
+
+/**
+ * El turno que se muestra: lo guardado si sigue valiendo y, si no (no hay nada
+ * guardado, el firmante ya no esta en la cola, un borrador anterior o a mano),
+ * el del primer firmante pendiente, en el traspaso.
+ *
+ * Una revision solo existe con el firmante completo: si dejo de estarlo (los
+ * huecos cambiaron) se vuelve a la captura en vez de ensenar una revision vacia.
+ */
+export function resolveCeremony(
+  stored: CeremonyState | null | undefined,
+  queue: readonly { id: string }[],
+  isDone: (signerId: string) => boolean,
+): CeremonyPosition {
+  if (stored && CEREMONY_STAGES.includes(stored.stage)) {
+    const index = queue.findIndex((signer) => signer.id === stored.signerId);
+    if (index !== -1) {
+      const stage =
+        stored.stage === "review" && !isDone(stored.signerId) ? "capture" : stored.stage;
+      return { index, stage };
+    }
+  }
+  return { index: firstPendingTurn(queue, isDone), stage: "handoff" };
+}
+
+/** Lo que se guarda para un turno de la cola; `null` si ya no hay turno (todos terminaron). */
+export function ceremonyAt(
+  queue: readonly { id: string }[],
+  index: number,
+  stage: CeremonyStage,
+): CeremonyState | null {
+  const signer = queue[index];
+  return signer ? { signerId: signer.id, stage } : null;
+}
+
+/**
+ * Lo que viene de fuera (un borrador de IndexedDB, de una version anterior o
+ * manipulado) no se da por bueno: forma exacta, etapa conocida y un firmante que
+ * existe. Todo lo demas es «sin turno guardado» y se deriva de lo que falta.
+ */
+export function sanitizeCeremony(
+  raw: unknown,
+  signerIds: readonly string[],
+): CeremonyState | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { signerId, stage } = raw as { signerId?: unknown; stage?: unknown };
+  if (typeof signerId !== "string" || !signerIds.includes(signerId)) return null;
+  if (!CEREMONY_STAGES.includes(stage as CeremonyStage)) return null;
+  return { signerId, stage: stage as CeremonyStage };
+}
+
+/** Un trazo que el turno exige (firma o iniciales de un bloque) y si ya esta hecho. */
+export type TurnItem = { blockId: string; type: SignatureFieldType; done: boolean };
+
+/**
+ * Lo que le falta a un firmante, bloque a bloque y en el orden en que se le
+ * muestra (firma antes que iniciales). `done` = el trazo vigente existe.
+ */
+export function turnProgress(
+  blocks: readonly SignerBlock[],
+  signerId: string,
+  ctx: BlockContext,
+): TurnItem[] {
+  return signerBlocks(blocks, signerId).flatMap((block) =>
+    blockRequiredTypes(block, ctx).map((type) => ({
+      blockId: block.id,
+      type,
+      done: visibleDraft(block, type, ctx) !== null,
+    })),
+  );
+}
+
+/** «Firma» / «Iniciales». */
+export function captureTypeLabel(type: SignatureFieldType, strings: SignStrings): string {
+  return type === "signature" ? strings.fieldSignature : strings.fieldInitials;
+}
+
+/* ------------------------------------------------------------------ *
  * Textos de alcance
  * ------------------------------------------------------------------ */
 
@@ -427,6 +537,23 @@ export function scopeSummary(
     inScope.slice(0, SUMMARY_NAMES).map((doc) => docLabel(doc.name)),
     Math.max(0, inScope.length - SUMMARY_NAMES),
   );
+}
+
+/**
+ * Como se nombra un trazo del turno: «Firma» y, cuando el turno tiene varios
+ * bloques (cada uno con SUS documentos), «Firma · Anexo B» -- el documento es lo
+ * que la persona reconoce, no el numero de bloque.
+ */
+export function turnItemLabel(
+  item: TurnItem,
+  blocks: readonly SignerBlock[],
+  docs: readonly DocRef[],
+  strings: SignStrings,
+  withScope: boolean,
+): string {
+  const label = captureTypeLabel(item.type, strings);
+  const block = blocks.find((candidate) => candidate.id === item.blockId);
+  return withScope && block ? `${label} · ${scopeSummary(block, docs, strings)}` : label;
 }
 
 /** Nombre de un firmante con el mismo respaldo numerado que `SignerManager`. */

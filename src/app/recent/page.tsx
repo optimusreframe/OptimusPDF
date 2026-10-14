@@ -4,7 +4,7 @@ import { RecentView } from "@/components/views/RecentView";
 export const metadata: Metadata = {
   title: "Recientes",
   description:
-    "Trabajos recientes guardados solo en este dispositivo: nombre, herramienta y fecha. Nunca el documento.",
+    "Tus trabajos sin terminar y el historial de herramientas usadas, guardados solo en este navegador. Los trabajos sin terminar incluyen el documento para poder continuarlos.",
 };
 
 export default function RecentPage() {

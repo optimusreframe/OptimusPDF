@@ -15,6 +15,7 @@ export type SignPdfFeatureFlag =
   | "reusableTemplates"
   | "richFieldTypes"
   | "completionCertificate"
+  | "signingRecordFile"
   | "pinchZoom"
   | "signatureVault"
   | "multiDocument";
@@ -26,6 +27,7 @@ export const SIGN_PDF_FEATURE_FLAGS: readonly SignPdfFeatureFlag[] = [
   "reusableTemplates",
   "richFieldTypes",
   "completionCertificate",
+  "signingRecordFile",
   "pinchZoom",
   "signatureVault",
   "multiDocument",
@@ -39,7 +41,10 @@ export const DEFAULT_SIGN_PDF_FEATURE_FLAGS: SignPdfFeatureFlagState = {
   undoDelete: true,
   reusableTemplates: true,
   richFieldTypes: true,
-  completionCertificate: true,
+  // Desde la version 2 de los ajustes (ver `SIGN_PDF_FEATURE_FLAGS_VERSION`) la hoja «Registro de firmas» y el registro
+  // `.json` aparte nacen APAGADOS: el PDF firmado tiene exactamente las paginas del original.
+  completionCertificate: false,
+  signingRecordFile: false,
   pinchZoom: true,
   signatureVault: true,
   multiDocument: true,
@@ -47,6 +52,15 @@ export const DEFAULT_SIGN_PDF_FEATURE_FLAGS: SignPdfFeatureFlagState = {
 
 export const SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY =
   "optimuspdf.signPdf.featureFlags";
+
+/**
+ * Version de los ajustes guardados. `writeFlags` guarda TODOS los interruptores, asi que quien toco CUALQUIER ajuste
+ * tiene grabado el valor que `completionCertificate` tenia por defecto (`true` hasta la version 1). Cambiar el valor por
+ * defecto no basta: hay que migrar lo ya guardado, UNA sola vez. Sin clave de version = version 1.
+ */
+export const SIGN_PDF_FEATURE_FLAGS_VERSION_KEY =
+  "optimuspdf.signPdf.featureFlags.v";
+export const SIGN_PDF_FEATURE_FLAGS_VERSION = 2;
 
 function isSignPdfFeatureFlag(value: string): value is SignPdfFeatureFlag {
   return (SIGN_PDF_FEATURE_FLAGS as readonly string[]).includes(value);
@@ -61,6 +75,31 @@ function isSignPdfFeatureFlag(value: string): value is SignPdfFeatureFlag {
 
 let cachedState: SignPdfFeatureFlagState | null = null;
 const listeners = new Set<() => void>();
+
+function readStoredVersion(): number {
+  try {
+    const raw = window.localStorage.getItem(SIGN_PDF_FEATURE_FLAGS_VERSION_KEY);
+    const parsed = raw === null ? Number.NaN : Number(raw);
+    return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function persistFlags(state: SignPdfFeatureFlagState): void {
+  try {
+    window.localStorage.setItem(
+      SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY,
+      JSON.stringify(state),
+    );
+    window.localStorage.setItem(
+      SIGN_PDF_FEATURE_FLAGS_VERSION_KEY,
+      String(SIGN_PDF_FEATURE_FLAGS_VERSION),
+    );
+  } catch {
+    // Sin almacenamiento el valor sigue en memoria; la migracion se repetira al recargar.
+  }
+}
 
 function readStoredFlags(): SignPdfFeatureFlagState {
   try {
@@ -81,6 +120,14 @@ function readStoredFlags(): SignPdfFeatureFlagState {
       if (isSignPdfFeatureFlag(key) && typeof value === "boolean") {
         result[key] = value;
       }
+    }
+
+    // Migracion unica a la version 2: lo que hubiera grabado la version 1 para `completionCertificate` (casi siempre
+    // `true`, por haber sido el valor por defecto) no es una eleccion de la persona. Se fuerza a `false` y se
+    // persiste junto con la version: desde entonces, si lo activa, se respeta en cada recarga.
+    if (readStoredVersion() < SIGN_PDF_FEATURE_FLAGS_VERSION) {
+      result.completionCertificate = false;
+      persistFlags(result);
     }
     return result;
   } catch {
@@ -111,14 +158,9 @@ function getServerSnapshot(): SignPdfFeatureFlagState {
 
 function writeFlags(next: SignPdfFeatureFlagState): void {
   cachedState = next;
-  try {
-    window.localStorage.setItem(
-      SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY,
-      JSON.stringify(next),
-    );
-  } catch {
-    // El flag sigue activo en memoria aunque no se pueda persistir.
-  }
+  // El flag sigue activo en memoria aunque no se pueda persistir. Siempre se graba tambien la version: sin ella, la
+  // siguiente carga creeria que son ajustes antiguos y volveria a apagar el registro que la persona acaba de encender.
+  persistFlags(next);
   notify();
 }
 

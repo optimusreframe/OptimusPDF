@@ -1,0 +1,18 @@
+U0.6 · comprobaciones estaticas y vitest
+
+tsc --noEmit:
+tsc exit 0
+
+eslint (0 errores; 1 aviso preexistente en src/app/inputChecks.clients.test.tsx, ajeno a U0.6):
+
+src/app/inputChecks.clients.test.tsx
+  90:42  warning  '_slug' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 1 problem (0 errors, 1 warning)
+
+eslint exit 0
+
+vitest run (completo; antes de U0.6: 373 archivos / 9286 pruebas):
+ Test Files  383 passed | 1 skipped (384)
+      Tests  9432 passed | 11 skipped (9443)
+vitest exit 0

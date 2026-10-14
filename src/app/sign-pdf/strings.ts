@@ -35,13 +35,18 @@ export type SignStrings = {
   /** Sufijo del archivo cuando solo se edito el texto original (sin ninguna firma estampada). */
   editedFilenameSuffix: string;
 
-  /* --- Certificado de finalizacion (pagina final opcional) --- */
+  /* --- Registro de firmas (pagina final OPCIONAL, apagada por defecto; las claves conservan el prefijo `certificate`) --- */
   certificateTitle: string;
+  /** Aclaracion bajo el titulo: no es una firma certificada. */
+  certificateNotice: string;
   certificateHashLabel: string;
   certificateTimestampLabel: string;
   certificateSignersLabel: string;
   certificateNoSignerName: string;
   certificateDisclaimer: string;
+  /* --- Registro .json aparte (opcional, apagado por defecto) --- */
+  /** Boton secundario bajo «Descargar», solo con el interruptor de Ajustes activo y un solo documento. */
+  signingRecordDownload: string;
 
   /* --- Eleccion de flujo --- */
   modeLabel: string;
@@ -268,6 +273,17 @@ export type SignStrings = {
   textOnlyReadyTitle: string;
   textOnlyReadyBody: string;
   finishAndDownload: string;
+
+  /* --- Ceremonia robusta: que falta y progreso del turno (F0 · U0.2) --- */
+  /** Nombre accesible de la lista de progreso del turno. */
+  ceremonyProgressLabel: (name: string) => string;
+  /** Texto oculto de un trazo hecho / por hacer en la lista de progreso. */
+  ceremonyItemDone: string;
+  ceremonyItemMissing: string;
+  /** «Falta: Iniciales · Contrato B»: junto al boton apagado. Cada elemento ya viene nombrado. */
+  ceremonyMissing: (items: readonly string[]) => string;
+  ceremonyGoToMissing: string;
+  ceremonyAllCaptured: string;
 
   /* --- Prefijo de firmantes en el nombre de archivo --- */
   filenamePrefixTitle: string;
@@ -597,13 +613,15 @@ const es: SignStrings = {
   filenameSuffix: "firmado",
   editedFilenameSuffix: "editado",
 
-  certificateTitle: "Certificado de finalización",
-  certificateHashLabel: "Hash SHA-256 del documento firmado",
+  certificateTitle: "Registro de firmas",
+  certificateNotice: "No es una firma certificada: solo registra quién firmó y cuándo.",
+  certificateHashLabel: "Hash SHA-256 del documento firmado (sin esta página)",
   certificateTimestampLabel: "Fecha y hora",
   certificateSignersLabel: "Firmantes",
   certificateNoSignerName: "Sin nombre",
   certificateDisclaimer:
     "Esta página es solo trazabilidad informal: el hash permite comprobar que el documento no cambió después de firmarse. No es una firma electrónica cualificada ni certificada.",
+  signingRecordDownload: "Descargar registro (.json)",
 
   modeLabel: "¿Quién firma?",
   modeSingle: "Solo yo",
@@ -839,6 +857,14 @@ const es: SignStrings = {
   textOnlyReadyBody:
     "Este documento no tiene firmas por recoger: aplica los campos de texto rellenos y genera el PDF final.",
   finishAndDownload: "Aplicar y descargar",
+
+  // Ceremonia robusta (F0 · U0.2): que falta y progreso del turno.
+  ceremonyProgressLabel: (name) => `Progreso de ${name}`,
+  ceremonyItemDone: "hecho",
+  ceremonyItemMissing: "falta",
+  ceremonyMissing: (items) => `Falta: ${items.join("; ")}`,
+  ceremonyGoToMissing: "Ir a lo que falta",
+  ceremonyAllCaptured: "Todo listo: ya puedes ver cómo queda.",
 
   filenamePrefixTitle: "Nombre del archivo",
   filenamePrefixBody:
@@ -1208,13 +1234,15 @@ const en: SignStrings = {
   filenameSuffix: "signed",
   editedFilenameSuffix: "edited",
 
-  certificateTitle: "Completion certificate",
-  certificateHashLabel: "SHA-256 hash of the signed document",
+  certificateTitle: "Signature record",
+  certificateNotice: "This is not a certified signature: it only records who signed and when.",
+  certificateHashLabel: "SHA-256 hash of the signed document (without this page)",
   certificateTimestampLabel: "Date and time",
   certificateSignersLabel: "Signers",
   certificateNoSignerName: "No name",
   certificateDisclaimer:
     "This page is informal traceability only: the hash lets you check the document didn't change after signing. It is not a qualified or certified electronic signature.",
+  signingRecordDownload: "Download record (.json)",
 
   modeLabel: "Who is signing?",
   modeSingle: "Just me",
@@ -1446,6 +1474,14 @@ const en: SignStrings = {
   textOnlyReadyBody:
     "This document has no signatures to collect: apply the filled text fields and generate the final PDF.",
   finishAndDownload: "Apply and download",
+
+  // Robust ceremony (F0 · U0.2): what is missing and turn progress.
+  ceremonyProgressLabel: (name) => `${name}'s progress`,
+  ceremonyItemDone: "done",
+  ceremonyItemMissing: "missing",
+  ceremonyMissing: (items) => `Missing: ${items.join("; ")}`,
+  ceremonyGoToMissing: "Go to what's missing",
+  ceremonyAllCaptured: "All set: you can now see how it looks.",
 
   filenamePrefixTitle: "File name",
   filenamePrefixBody:

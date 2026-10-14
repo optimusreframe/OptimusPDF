@@ -416,10 +416,31 @@ export const en: Dictionary = {
   recent: {
     title: "Recent",
     subtitle:
-      "We only store the file name, the tool and the date, on this device. Never the document.",
+      "Unfinished jobs are saved only in this browser, with the document, so you can continue them.",
     empty: "You have not processed anything in this browser yet.",
     emptyCta: "See tools",
     clear: "Clear history",
+    unfinishedTitle: "Unfinished",
+    unfinishedHint:
+      "Jobs you left half-done. When you continue, the tool brings back the document and what you had done.",
+    historyTitle: "History",
+    historyHint:
+      "For the history we only keep the file name, the tool and the date: you cannot continue from here.",
+    openTool: "Open tool",
+    documentsOne: "1 document",
+    documentsMany: "{n} documents",
+    changesOne: "1 change",
+    changesMany: "{n} changes",
+    discard: "Discard {name}",
+    discardTitle: "Discard “{name}”?",
+    discardBody:
+      "The document and everything you had done with it will be deleted from this browser. This cannot be undone.",
+    discardConfirm: "Discard",
+    discarded: "Job discarded.",
+  },
+  resume: {
+    gone: "This work can no longer be recovered in this browser (it was deleted or expired).",
+    reopen: "Open again",
   },
   settings: {
     title: "Settings",
@@ -459,8 +480,12 @@ export const en: Dictionary = {
         hint: "Adds checkbox, date and initials as field types, alongside free text.",
       },
       completionCertificate: {
-        label: "Completion certificate",
-        hint: "Adds a final page with the document hash, the date and the list of signers.",
+        label: "Signature record (final page)",
+        hint: "Adds a final \"Signature record\" page to the PDF with the date, the list of signers and the document hash. It is not a certified signature: it only records who signed and when. Off, the signed PDF has exactly the original pages.",
+      },
+      signingRecordFile: {
+        label: "Include a separate .json record",
+        hint: "When signing, offers a signing-record.json file with the SHA-256 hash of each signed PDF, the date, the signers and the page count. With several documents it goes inside the ZIP; with one, as a separate download. Never inside the PDF. It is not a certified signature.",
       },
       pinchZoom: {
         label: "Pinch to zoom",

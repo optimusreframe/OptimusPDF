@@ -12,10 +12,13 @@ import {
   blockRequiredTypes,
   blockSlotDocs,
   captureForBlock,
+  captureTypeLabel,
+  ceremonyAt,
   ceremonyQueue,
   changeBlockScope,
   clearBlock,
   docLabel,
+  firstPendingTurn,
   isBlockComplete,
   isSignerCompleteEverywhere,
   isSignerDone,
@@ -23,10 +26,15 @@ import {
   pendingBlockSigners,
   rememberSource,
   removeBlock,
+  resolveCeremony,
+  sanitizeCeremony,
   scopeSummary,
   signerLabel,
+  turnItemLabel,
+  turnProgress,
   visibleDraft,
   type BlockContext,
+  type CeremonyState,
   type DocRef,
 } from "@/app/sign-pdf/blockModel";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
@@ -525,5 +533,235 @@ describe("blockModel — alcance: edicion, resumen y anuncio", () => {
     expect(blockNumber(blocks, "bk-2")).toBe(1);
     expect(signerLabel([ANA, { ...LUIS, name: "  " }], LUIS.id, strings)).toBe(strings.defaultSignerName(2));
     expect(signerLabel([ANA, LUIS], ANA.id, strings)).toBe("Ana");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Turno de la ceremonia (Fase 0 · U0.2)
+ * ------------------------------------------------------------------ */
+
+const EVA: Signer = { id: "sg-3", name: "Eva", color: "#e11d48" };
+
+/** `done` por firmante: solo los ids listados han terminado. */
+const doneBy = (...ids: string[]) => (signerId: string) => ids.includes(signerId);
+
+describe("blockModel — firstPendingTurn: a quien le toca", () => {
+  it("sin firmantes (cola vacia) no hay turno: devuelve la longitud, 0", () => {
+    expect(firstPendingTurn([], doneBy())).toBe(0);
+  });
+
+  it("un firmante: pendiente = turno 0; firmado = ya no hay turno (1)", () => {
+    expect(firstPendingTurn([ANA], doneBy())).toBe(0);
+    expect(firstPendingTurn([ANA], doneBy(ANA.id))).toBe(1);
+  });
+
+  it("dos firmantes: el primero pendiente, no el primero de la cola", () => {
+    expect(firstPendingTurn([ANA, LUIS], doneBy())).toBe(0);
+    expect(firstPendingTurn([ANA, LUIS], doneBy(ANA.id))).toBe(1);
+    // Luis firmo primero (fuera de orden): le toca a Ana.
+    expect(firstPendingTurn([ANA, LUIS], doneBy(LUIS.id))).toBe(0);
+  });
+
+  it("todos firmados: devuelve la longitud de la cola", () => {
+    expect(firstPendingTurn([ANA, LUIS], doneBy(ANA.id, LUIS.id))).toBe(2);
+  });
+
+  it("un firmante sin huecos no esta en la cola y por tanto nunca tiene turno", () => {
+    const ctx = context({ [A]: docState([slot("a1", ANA.id), slot("a2", LUIS.id)]) }, KEYS, [ANA, EVA, LUIS]);
+    const queue = ceremonyQueue(ctx, [A]);
+    expect(queue.map((signer) => signer.id)).toEqual([ANA.id, LUIS.id]);
+    expect(firstPendingTurn(queue, doneBy(ANA.id))).toBe(1);
+    expect(queue[firstPendingTurn(queue, doneBy(ANA.id))].id).toBe(LUIS.id);
+  });
+
+  it("con bloques reales: Ana firmada en todos sus bloques -> el turno es de Luis", () => {
+    const docs = { ...BASE_DOCS, [A]: docState([slot("a1", ANA.id), slot("a3", LUIS.id)]) };
+    const ctx = context(docs);
+    const blocks = [block("bk-1", ANA.id, [A, B, C]), block("bk-2", LUIS.id, [A])];
+    const queue = ceremonyQueue(ctx, ORDER);
+    const isDone = (id: string) => isSignerDone(blocks, id, ctx);
+    expect(firstPendingTurn(queue, isDone)).toBe(0);
+    const signed = captureForBlock(blocks, "bk-1", { signature: SIG }, ctx);
+    const afterAna = (id: string) => isSignerDone(signed, id, ctx);
+    expect(firstPendingTurn(queue, afterAna)).toBe(1);
+    const both = captureForBlock(signed, "bk-2", { signature: SIG }, ctx);
+    expect(firstPendingTurn(queue, (id) => isSignerDone(both, id, ctx))).toBe(2);
+  });
+
+  it("con firmas distintas por documento, Ana sigue pendiente hasta firmar TODOS sus bloques", () => {
+    const docs = {
+      [A]: docState([slot("a1", ANA.id), slot("a3", LUIS.id)]),
+      [B]: docState([slot("b1", ANA.id), slot("b2", LUIS.id)]),
+    };
+    const ctx = context(docs);
+    const blocks = [
+      block("bk-1", ANA.id, [A]),
+      block("bk-2", ANA.id, [B]),
+      block("bk-3", LUIS.id, [A]),
+      block("bk-4", LUIS.id, [B]),
+    ];
+    const queue = ceremonyQueue(ctx, [A, B]);
+    const half = captureForBlock(blocks, "bk-1", { signature: SIG }, ctx);
+    expect(firstPendingTurn(queue, (id) => isSignerDone(half, id, ctx))).toBe(0);
+    const full = captureForBlock(half, "bk-2", { signature: SIG }, ctx);
+    expect(firstPendingTurn(queue, (id) => isSignerDone(full, id, ctx))).toBe(1);
+  });
+});
+
+describe("blockModel — resolveCeremony: el turno guardado, o el derivado de lo que falta", () => {
+  const queue = [ANA, LUIS];
+
+  it("sin nada guardado (borrador anterior, ronda nueva): primer pendiente, en el traspaso", () => {
+    expect(resolveCeremony(null, queue, doneBy())).toEqual({ index: 0, stage: "handoff" });
+    expect(resolveCeremony(undefined, queue, doneBy(ANA.id))).toEqual({ index: 1, stage: "handoff" });
+  });
+
+  it("sin nada guardado y todos firmados: ya no hay turno", () => {
+    expect(resolveCeremony(null, queue, doneBy(ANA.id, LUIS.id))).toEqual({ index: 2, stage: "handoff" });
+    expect(resolveCeremony(null, [], doneBy())).toEqual({ index: 0, stage: "handoff" });
+  });
+
+  it("lo guardado manda: el turno de Luis y su etapa sobreviven aunque Ana siga pendiente", () => {
+    const stored: CeremonyState = { signerId: LUIS.id, stage: "capture" };
+    expect(resolveCeremony(stored, queue, doneBy())).toEqual({ index: 1, stage: "capture" });
+  });
+
+  it("lo guardado manda tambien con el firmante ya completo (la revision de quien acaba de firmar)", () => {
+    const stored: CeremonyState = { signerId: ANA.id, stage: "review" };
+    expect(resolveCeremony(stored, queue, doneBy(ANA.id))).toEqual({ index: 0, stage: "review" });
+    expect(resolveCeremony({ signerId: ANA.id, stage: "handoff" }, queue, doneBy(ANA.id))).toEqual({
+      index: 0,
+      stage: "handoff",
+    });
+  });
+
+  it("una revision de quien ya no esta completo (los huecos cambiaron) vuelve a la captura", () => {
+    expect(resolveCeremony({ signerId: ANA.id, stage: "review" }, queue, doneBy())).toEqual({
+      index: 0,
+      stage: "capture",
+    });
+  });
+
+  it("un firmante guardado que ya no esta en la cola se descarta y se deriva", () => {
+    expect(resolveCeremony({ signerId: EVA.id, stage: "capture" }, queue, doneBy(ANA.id))).toEqual({
+      index: 1,
+      stage: "handoff",
+    });
+  });
+
+  it("una etapa desconocida (dato manipulado) se descarta y se deriva", () => {
+    const bad = { signerId: LUIS.id, stage: "hacked" } as unknown as CeremonyState;
+    expect(resolveCeremony(bad, queue, doneBy())).toEqual({ index: 0, stage: "handoff" });
+  });
+
+  it("es idempotente: resolver lo ya resuelto no cambia nada", () => {
+    for (const stored of [
+      null,
+      { signerId: ANA.id, stage: "capture" as const },
+      { signerId: LUIS.id, stage: "review" as const },
+    ]) {
+      const first = resolveCeremony(stored, queue, doneBy(ANA.id));
+      const again = resolveCeremony(ceremonyAt(queue, first.index, first.stage), queue, doneBy(ANA.id));
+      expect(again).toEqual(first);
+    }
+  });
+});
+
+describe("blockModel — ceremonyAt y sanitizeCeremony", () => {
+  it("ceremonyAt guarda el id del firmante, no la posicion; fuera de la cola = sin turno", () => {
+    expect(ceremonyAt([ANA, LUIS], 1, "capture")).toEqual({ signerId: LUIS.id, stage: "capture" });
+    expect(ceremonyAt([ANA, LUIS], 2, "handoff")).toBeNull();
+    expect(ceremonyAt([], 0, "handoff")).toBeNull();
+  });
+
+  it("sanitizeCeremony acepta la forma exacta con un firmante que existe", () => {
+    expect(sanitizeCeremony({ signerId: LUIS.id, stage: "review" }, [ANA.id, LUIS.id])).toEqual({
+      signerId: LUIS.id,
+      stage: "review",
+    });
+  });
+
+  it("sanitizeCeremony descarta todo lo demas (borrador anterior, firmante inexistente, etapa rara, tipos erroneos)", () => {
+    const ids = [ANA.id, LUIS.id];
+    for (const raw of [
+      undefined,
+      null,
+      "Ana",
+      42,
+      [],
+      {},
+      { signerId: ANA.id },
+      { stage: "handoff" },
+      { signerId: "sg-99", stage: "handoff" },
+      { signerId: ANA.id, stage: "capturing" },
+      { signerId: 7, stage: "handoff" },
+      { signerId: ANA.id, stage: 1 },
+    ]) {
+      expect(sanitizeCeremony(raw, ids)).toBeNull();
+    }
+  });
+
+  it("sanitizeCeremony devuelve una copia limpia: ignora campos extra", () => {
+    const clean = sanitizeCeremony({ signerId: ANA.id, stage: "handoff", extra: "x" }, [ANA.id]);
+    expect(clean).toEqual({ signerId: ANA.id, stage: "handoff" });
+    expect(Object.keys(clean ?? {})).toEqual(["signerId", "stage"]);
+  });
+});
+
+describe("blockModel — turnProgress y turnItemLabel: que falta, bloque a bloque", () => {
+  const docs = {
+    [A]: docState([slot("a1", ANA.id), slot("a2", ANA.id, "initials")]),
+    [B]: docState([slot("b1", ANA.id)]),
+  };
+  const ctx = context(docs);
+  const split = [block("bk-1", ANA.id, [A]), block("bk-2", ANA.id, [B])];
+  const docRefs = DOCS.filter((doc) => doc.id !== C);
+
+  it("lista firma antes que iniciales por bloque, en el orden de los bloques, todo pendiente al empezar", () => {
+    expect(turnProgress(split, ANA.id, ctx)).toEqual([
+      { blockId: "bk-1", type: "signature", done: false },
+      { blockId: "bk-1", type: "initials", done: false },
+      { blockId: "bk-2", type: "signature", done: false },
+    ]);
+  });
+
+  it("marca hecho solo el trazo vigente: firma A y iniciales A hechas, firma B pendiente", () => {
+    const blocks = captureForBlock(split, "bk-1", { signature: SIG, initials: INI }, ctx);
+    expect(turnProgress(blocks, ANA.id, ctx).map((item) => item.done)).toEqual([true, true, false]);
+  });
+
+  it("un trazo cuyo sello caduco (los huecos cambiaron) vuelve a contar como pendiente", () => {
+    const blocks = captureForBlock(split, "bk-1", { signature: SIG, initials: INI }, ctx);
+    const moved = {
+      ...docs,
+      [A]: docState([slot("a1", ANA.id, "signature", 0.5), slot("a2", ANA.id, "initials")]),
+    };
+    expect(turnProgress(blocks, ANA.id, context(moved)).map((item) => item.done)).toEqual([false, false, false]);
+  });
+
+  it("un firmante sin huecos no tiene nada que firmar; otros firmantes no se mezclan", () => {
+    expect(turnProgress(split, LUIS.id, ctx)).toEqual([]);
+    expect(turnProgress([...split, block("bk-3", LUIS.id, [A])], LUIS.id, ctx)).toEqual([]);
+  });
+
+  it("el nombre del trazo lleva el documento cuando el turno tiene varios bloques", () => {
+    const [first, , third] = turnProgress(split, ANA.id, ctx);
+    expect(turnItemLabel(first, split, docRefs, strings, true)).toBe("Firma · Contrato A");
+    expect(turnItemLabel(third, split, docRefs, strings, true)).toBe("Firma · Anexo");
+    expect(turnItemLabel(third, split, docRefs, strings, false)).toBe("Firma");
+    expect(turnItemLabel(third, split, docRefs, SIGN_STRINGS.en, true)).toBe("Signature · Anexo");
+  });
+
+  it("captureTypeLabel: firma / iniciales, ES y EN", () => {
+    expect(captureTypeLabel("signature", strings)).toBe("Firma");
+    expect(captureTypeLabel("initials", strings)).toBe("Iniciales");
+    expect(captureTypeLabel("initials", SIGN_STRINGS.en)).toBe(SIGN_STRINGS.en.fieldInitials);
+  });
+
+  it("los textos del aviso: «Falta: Iniciales · Contrato B» y el aviso de todo listo", () => {
+    expect(strings.ceremonyMissing(["Iniciales · Contrato B"])).toBe("Falta: Iniciales · Contrato B");
+    expect(strings.ceremonyMissing(["Firma · A", "Firma · B"])).toBe("Falta: Firma · A; Firma · B");
+    expect(SIGN_STRINGS.en.ceremonyMissing(["Initials · Contract B"])).toBe("Missing: Initials · Contract B");
+    expect(strings.ceremonyGoToMissing).toBe("Ir a lo que falta");
   });
 });

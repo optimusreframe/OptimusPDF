@@ -276,3 +276,86 @@ describe("sessionFromView — cargar un borrador o una configuracion", () => {
     expect(syncSession({ ...DEFAULT_SESSION, ...patch }, ["d1"]).step).toBeUndefined();
   });
 });
+
+describe("turno de la ceremonia en la sesion (Fase 0 · U0.2)", () => {
+  const TURN = { signerId: "sg-2", stage: "capture" } as const;
+
+  it("la vista de CUALQUIER documento lleva el mismo turno: no depende del documento activo", () => {
+    const s = session({ signers: [ANA, LUIS], docs: { d1: EMPTY_DOC_STATE, d2: EMPTY_DOC_STATE }, ceremony: TURN });
+    expect(viewOf(s, "d1").ceremony).toEqual(TURN);
+    expect(viewOf(s, "d2").ceremony).toEqual(TURN);
+  });
+
+  it("sin turno guardado la vista no lo trae (se deriva de lo que falta)", () => {
+    expect(viewOf(session({ signers: [ANA] }), "d1").ceremony).toBeUndefined();
+  });
+
+  it("escribir el turno desde la vista de un documento lo deja en la sesion y no toca nada mas", () => {
+    const base = session({ signers: [ANA, LUIS], docs: { d1: EMPTY_DOC_STATE }, step: "sign" });
+    const patch = applyViewPatch(base, "d1", { ceremony: TURN }, ["d1"]);
+    expect(patch).toEqual({ ceremony: TURN });
+  });
+
+  it("escribir null borra el turno (cerrar la ronda): no se confunde con «sin cambio»", () => {
+    const base = session({ signers: [ANA, LUIS], docs: { d1: EMPTY_DOC_STATE }, ceremony: TURN });
+    expect(applyViewPatch(base, "d1", { ceremony: null }, ["d1"])).toEqual({ ceremony: null });
+    expect(applyViewPatch(base, "d1", { step: "document" }, ["d1"]).ceremony).toBeUndefined();
+  });
+
+  it("el turno sobrevive al «Atras» -> «Continuar»: cambiar de paso no lo toca", () => {
+    const base = session({ signers: [ANA, LUIS], docs: { d1: EMPTY_DOC_STATE }, step: "sign", ceremony: TURN });
+    const back = { ...base, ...applyViewPatch(base, "d1", { step: "document" }, ["d1"]) };
+    const again = { ...back, ...applyViewPatch(back, "d1", { step: "sign" }, ["d1"]) };
+    expect(again.ceremony).toEqual(TURN);
+    expect(viewOf(again, "d1").ceremony).toEqual(TURN);
+  });
+
+  it("cambiar de documento activo en el paso Firmar no pierde el turno", () => {
+    const base = session({
+      signers: [ANA, LUIS],
+      docs: { d1: EMPTY_DOC_STATE, d2: EMPTY_DOC_STATE },
+      docOrder: ["d1", "d2"],
+      activeDocId: "d1",
+      step: "sign",
+      ceremony: TURN,
+    });
+    const switched = { ...base, activeDocId: "d2" };
+    // La sincronizacion con los archivos no reinicia ni el paso ni el turno.
+    const patch = syncSession(switched, ["d1", "d2"]);
+    expect(patch.ceremony).toBeUndefined();
+    expect(patch.step).toBeUndefined();
+    expect({ ...switched, ...patch }.ceremony).toEqual(TURN);
+    expect(viewOf(switched, "d2").ceremony).toEqual(TURN);
+  });
+
+  it("una ronda NUEVA (otros documentos) arranca sin turno, aunque los firmantes sobrevivan", () => {
+    const old = session({
+      signers: [ANA, LUIS],
+      docs: { d1: EMPTY_DOC_STATE },
+      docOrder: ["d1"],
+      activeDocId: "d1",
+      step: "sign",
+      ceremony: TURN,
+    });
+    const patch = syncSession(old, ["d9"]);
+    expect(patch.ceremony).toBeNull();
+    expect(patch.step).toBe("signers");
+  });
+
+  it("al quitar un documento de la misma ronda el turno se conserva", () => {
+    const old = session({
+      signers: [ANA, LUIS],
+      docs: { d1: EMPTY_DOC_STATE, d2: EMPTY_DOC_STATE },
+      docOrder: ["d1", "d2"],
+      activeDocId: "d1",
+      step: "sign",
+      ceremony: TURN,
+    });
+    expect(syncSession(old, ["d1"]).ceremony).toBeUndefined();
+  });
+
+  it("cargar un borrador con turno (sessionFromView) lo traslada a la sesion", () => {
+    const patch = sessionFromView("d1", { signers: [ANA, LUIS], ceremony: TURN });
+    expect(patch.ceremony).toEqual(TURN);
+  });
+});

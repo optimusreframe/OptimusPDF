@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowRight, Check, Smartphone } from "lucide-react";
+import { useId, useState } from "react";
+import { ArrowRight, Check, Circle, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
+import { StatusRegion } from "@/components/tool/liveRouting";
 import { cn } from "@/lib/cn";
 import {
   SignatureComposer,
@@ -13,6 +14,8 @@ import { SignatureVaultSheet } from "@/app/sign-pdf/SignatureVaultSheet";
 import { VaultNoticeLine } from "@/app/sign-pdf/VaultNoticeLine";
 import { useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
 import { useCeremonyFocus } from "@/app/sign-pdf/useCeremonyFocus";
+import { useCeremonyTurn } from "@/app/sign-pdf/useCeremonyTurn";
+import { captureTypeLabel, type CeremonyState } from "@/app/sign-pdf/blockModel";
 import {
   touchVaultEntry,
   vaultImageToDataUrl,
@@ -52,7 +55,7 @@ export {
 };
 export type { CaptureMap, SignerCapture };
 
-type Stage = "handoff" | "capture" | "review";
+type Stage = CeremonyState["stage"];
 
 /**
  * Encabezado de etapa que recibe el foco al cambiar de etapa o de turno
@@ -78,6 +81,13 @@ export type SigningCeremonyProps = {
   onFinish: () => void;
   strings: SignStrings;
   busy?: boolean;
+  /**
+   * Turno guardado en la sesion (de quien es y en que etapa). Con `onCeremonyChange`
+   * el turno sobrevive a que esta ceremonia se vuelva a montar («Atras» ->
+   * «Continuar», recarga); sin el, la ceremonia lo lleva por su cuenta.
+   */
+  ceremony?: CeremonyState | null;
+  onCeremonyChange?: (next: CeremonyState | null) => void;
 };
 
 /**
@@ -95,10 +105,28 @@ export function SigningCeremony({
   onFinish,
   strings,
   busy = false,
+  ceremony,
+  onCeremonyChange,
 }: SigningCeremonyProps) {
-  const [turn, setTurn] = useState(0);
-  const [stage, setStage] = useState<Stage>("handoff");
+  const queue = signingQueue(signers, fields);
+  // El turno se deriva de lo que falta y, desde que alguien actua, vive en la sesion.
+  const {
+    position,
+    stage,
+    goTo: goToTurn,
+    setStage,
+    advance,
+    othersPending,
+  } = useCeremonyTurn({
+    stored: ceremony,
+    onChange: onCeremonyChange,
+    queue,
+    isDone: (signerId) => isSignerComplete(fields, captures, signerId, documentKey),
+  });
   const [composer, setComposer] = useState<SignatureFieldType | null>(null);
+  /** UNA sola region viva (siempre montada): lo que queda por recoger tras cada trazo. */
+  const [liveMessage, setLiveMessage] = useState("");
+  const composeIdBase = useId();
   const vaultEnabled = useSignPdfFeatureFlag("signatureVault");
   /**
    * Hoja de firmas guardadas: abierta PARA un firmante, un tipo y un
@@ -111,8 +139,6 @@ export function SigningCeremony({
     documentKey: string;
   } | null>(null);
   const [vaultShown, setVaultShown] = useState(false);
-  const queue = signingQueue(signers, fields);
-  const position = Math.min(turn, queue.length);
   /** Etapa y turno cambian al pulsar un boton que se desmonta: el foco va al encabezado nuevo. */
   const headingRef = useCeremonyFocus(stage, position);
   /**
@@ -154,6 +180,27 @@ export function SigningCeremony({
     ? fields.filter((field) => field.signerId === current.id).length
     : 0;
   const ready = required.every((type) => capture[type] !== null);
+  const missing = required.filter((type) => capture[type] === null);
+  const composeIdOf = (type: SignatureFieldType) => `${composeIdBase}-${type}`;
+  const missingHintId = `${composeIdBase}-missing`;
+  /** «Ir a lo que falta»: lleva el foco (y la vista) al primer trazo pendiente. */
+  const goToMissing = () => {
+    const first = missing[0];
+    const target = first ? document.getElementById(composeIdOf(first)) : null;
+    if (!target) return;
+    // jsdom no implementa `scrollIntoView`; `auto` = sin animacion (tambien con movimiento reducido).
+    target.scrollIntoView?.({ block: "center", behavior: "auto" });
+    target.focus({ preventScroll: true });
+  };
+  /** Tras guardar un trazo: lo que queda por recoger, en la region viva. */
+  const announceProgress = (next: SignerCapture) => {
+    const left = required.filter((type) => next[type] === null);
+    setLiveMessage(
+      left.length === 0
+        ? strings.ceremonyAllCaptured
+        : strings.ceremonyMissing(left.map((type) => captureTypeLabel(type, strings))),
+    );
+  };
 
   /** Nombre a mostrar de un firmante, con el mismo fallback numerado que `SignerManager`. */
   const displayNameOf = (signer: Signer): string =>
@@ -168,14 +215,13 @@ export function SigningCeremony({
     if (!current) return;
     // `capture` ya viene vacio si los huecos cambiaron: lo que se guarda
     // queda atado al documento y a la disposicion de ahora mismo.
-    onCapturesChange({
-      ...captures,
-      [current.id]: {
-        ...capture,
-        [type]: draft,
-        stamp: captureStamp(documentKey, fields, current.id),
-      },
-    });
+    const next: SignerCapture = {
+      ...capture,
+      [type]: draft,
+      stamp: captureStamp(documentKey, fields, current.id),
+    };
+    onCapturesChange({ ...captures, [current.id]: next });
+    announceProgress(next);
   };
 
   /**
@@ -202,6 +248,7 @@ export function SigningCeremony({
       }
     }
     onCapturesChange({ ...captures, [current.id]: next });
+    announceProgress(next);
     void touchVaultEntry(entry.id);
     setVaultShown(false);
     showVaultNotice(current.id, stage, {
@@ -234,11 +281,6 @@ export function SigningCeremony({
     vaultFor.signerId === current.id &&
     vaultFor.documentKey === documentKey;
 
-  const goToTurn = (next: number) => {
-    setTurn(next);
-    setStage("handoff");
-  };
-
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -253,6 +295,14 @@ export function SigningCeremony({
       </div>
 
       <VaultNoticeLine notice={vaultNotice} />
+
+      {/*
+       * Region viva UNICA de la ceremonia, siempre montada: lo que falta por recoger tras cada trazo.
+       * `StatusRegion` la encamina a la region unica de PDF Pro cuando la ceremonia vive dentro de el.
+       */}
+      <StatusRegion as="p" text={liveMessage} className="sr-only">
+        {liveMessage}
+      </StatusRegion>
 
       {current && stage === "handoff" ? (
         <div className="surface-card rounded-ios p-6 text-center">
@@ -298,6 +348,19 @@ export function SigningCeremony({
             {strings.captureBody}
           </p>
 
+          {required.length > 1 ? (
+            <TurnProgressList
+              label={strings.ceremonyProgressLabel(currentDisplayName)}
+              doneText={strings.ceremonyItemDone}
+              missingText={strings.ceremonyItemMissing}
+              items={required.map((type) => ({
+                key: type,
+                label: captureTypeLabel(type, strings),
+                done: capture[type] !== null,
+              }))}
+            />
+          ) : null}
+
           <ul className="mt-4 space-y-3">
             {required.map((type) => (
               <CaptureRow
@@ -305,6 +368,7 @@ export function SigningCeremony({
                 type={type}
                 draft={capture[type]}
                 strings={strings}
+                composeId={composeIdOf(type)}
                 onCompose={() => setComposer(type)}
                 onOpenVault={
                   vaultEnabled
@@ -325,10 +389,27 @@ export function SigningCeremony({
             ))}
           </ul>
 
-          <div className="mt-4">
+          <div className="mt-4 space-y-3">
+            {/* Por que «Ver como queda» esta apagado: que falta y un salto directo a ello. */}
+            {missing.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <p
+                  id={missingHintId}
+                  className="min-w-0 flex-1 text-footnote font-medium leading-relaxed text-foreground [overflow-wrap:anywhere]"
+                >
+                  {strings.ceremonyMissing(
+                    missing.map((type) => captureTypeLabel(type, strings)),
+                  )}
+                </p>
+                <Button variant="secondary" size="md" onClick={goToMissing}>
+                  {strings.ceremonyGoToMissing}
+                </Button>
+              </div>
+            ) : null}
             <Button
               size="md"
               disabled={!ready}
+              aria-describedby={missing.length > 0 ? missingHintId : undefined}
               onClick={() => setStage("review")}
             >
               {strings.captureContinue}
@@ -362,10 +443,8 @@ export function SigningCeremony({
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            <Button size="md" onClick={() => goToTurn(position + 1)}>
-              {position + 1 < queue.length
-                ? strings.reviewNext
-                : strings.reviewFinish}
+            <Button size="md" onClick={advance}>
+              {othersPending ? strings.reviewNext : strings.reviewFinish}
             </Button>
             <Button
               variant="secondary"
@@ -416,6 +495,7 @@ export function SigningCeremony({
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="pointer-coarse:h-11 pointer-coarse:before:hidden"
                   onClick={() => goToTurn(index)}
                 >
                   {strings.handoffReady}
@@ -454,6 +534,7 @@ export function SigningCeremony({
             onClick={() => {
               onCapturesChange({});
               goToTurn(0);
+              setLiveMessage("");
             }}
           >
             {strings.restartCeremony}
@@ -518,9 +599,7 @@ export function SigningCeremony({
  * Piezas presentacionales (las reutiliza `BlockCeremony`)
  * ------------------------------------------------------------------ */
 
-function typeLabelOf(type: SignatureFieldType, strings: SignStrings): string {
-  return type === "signature" ? strings.fieldSignature : strings.fieldInitials;
-}
+const typeLabelOf = captureTypeLabel;
 
 export type CaptureRowProps = {
   type: SignatureFieldType;
@@ -536,6 +615,8 @@ export type CaptureRowProps = {
    * accesible de sus botones lleva este contexto: «Crear firma · Bloque 2».
    */
   context?: string;
+  /** `id` del boton de crear/rehacer: lo usa «Ir a lo que falta» para llevarle el foco. */
+  composeId?: string;
 };
 
 /** Una fila de captura: el trazo (o «pendiente»), «Crear/Rehacer» y «Usar una guardada». */
@@ -547,6 +628,7 @@ export function CaptureRow({
   onOpenVault,
   vaultDisabled = false,
   context,
+  composeId,
 }: CaptureRowProps) {
   const label = typeLabelOf(type, strings);
   const composeText = draft
@@ -573,6 +655,7 @@ export function CaptureRow({
         </span>
       )}
       <Button
+        id={composeId}
         variant={draft ? "ghost" : "primary"}
         size="sm"
         aria-label={context ? withContext(composeText) : undefined}
@@ -618,5 +701,43 @@ export function ReviewFigure({ type, draft, strings }: ReviewFigureProps) {
         {label}
       </figcaption>
     </figure>
+  );
+}
+
+export type TurnProgressListProps = {
+  /** Nombre accesible de la lista («Progreso de Ana»). */
+  label: string;
+  doneText: string;
+  missingText: string;
+  items: readonly { key: string; label: string; done: boolean }[];
+};
+
+/**
+ * Lo que el turno exige, trazo a trazo, con ✓ (hecho) y ○ (falta). Un icono solo
+ * no basta: cada elemento lleva tambien el estado en texto para lector de pantalla.
+ */
+export function TurnProgressList({ label, doneText, missingText, items }: TurnProgressListProps) {
+  return (
+    <ul aria-label={label} className="mt-3 flex flex-wrap gap-2">
+      {items.map((item) => (
+        <li
+          key={item.key}
+          className={cn(
+            "rounded-ios-sm flex items-center gap-1.5 border px-2.5 py-1.5 text-footnote font-medium",
+            item.done
+              ? "border-signal/40 bg-signal/10 text-foreground"
+              : "border-white/10 bg-white/5 text-muted-foreground",
+          )}
+        >
+          {item.done ? (
+            <Check aria-hidden="true" className="size-3.5 shrink-0" />
+          ) : (
+            <Circle aria-hidden="true" className="size-3.5 shrink-0" />
+          )}
+          <span className="[overflow-wrap:anywhere]">{item.label}</span>
+          <span className="sr-only">{item.done ? doneText : missingText}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

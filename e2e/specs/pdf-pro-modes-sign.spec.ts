@@ -13,6 +13,10 @@ import { SIGN_EMBEDDED_STRINGS } from "../../src/app/sign-pdf/signEmbeddedString
 import { FILL_EMBEDDED_STRINGS } from "../../src/app/sign-pdf/fillEmbeddedStrings";
 import { getModeStrings } from "../../src/app/pdf-pro/modes/modeStrings";
 import { clickUntil, stillBox } from "../helpers/engine";
+import {
+  SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY,
+  SIGN_PDF_FEATURE_FLAGS_VERSION_KEY,
+} from "../../src/app/sign-pdf/signFeatureFlags";
 
 /**
  * PDF Pro · modos Firmar y Rellenar (Wave 7 · U7), navegador real y headless en 1280×800 y 375×812 tactil.
@@ -304,7 +308,20 @@ for (const viewport of AXE_VIEWPORTS) {
       await noHorizontalOverflow(page, "final");
     });
 
-    test("Firmar con dos firmantes: «Firmado por Ana y Luis», dos imagenes y pagina de certificado", async ({ page }) => {
+    /**
+     * El recorrido entero con dos firmantes dentro de PDF Pro hasta el PDF descargado. `registroDeFirmas` siembra el
+     * ajuste «Registro de firmas (página final)» (apagado por defecto desde U0.5); sin el, se usan los ajustes por defecto.
+     */
+    async function signWithTwoSigners(page: Page, options: { registroDeFirmas: boolean }) {
+      if (options.registroDeFirmas) {
+        await page.addInitScript(
+          ([flagsKey, versionKey]) => {
+            window.localStorage.setItem(flagsKey, JSON.stringify({ completionCertificate: true }));
+            window.localStorage.setItem(versionKey, "2");
+          },
+          [SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY, SIGN_PDF_FEATURE_FLAGS_VERSION_KEY],
+        );
+      }
       await openProPdf(page, await buildContract());
       await gotoTab(page, "sign");
       await page.getByRole("tab", { name: SG.modeMulti }).click();
@@ -337,12 +354,27 @@ for (const viewport of AXE_VIEWPORTS) {
       expect(await runAxe(page), "axe en la ceremonia dentro de PDF Pro").toEqual([]);
       await hostApply(page).click();
       await expect(page.locator("[data-pro-mode-result]")).toContainText(HOST.appliedTitle("Firmado por Ana y Luis"));
-      const signed = await download(page);
-      // 3 paginas + la de certificado (ajuste por defecto de Firmar).
+      return download(page);
+    }
+
+    test("Firmar con dos firmantes (ajustes por defecto): «Firmado por Ana y Luis», dos imagenes y EXACTAMENTE las 3 paginas del original", async ({ page }) => {
+      const signed = await signWithTwoSigners(page, { registroDeFirmas: false });
+      // Sin hoja «Registro de firmas»: las 3 paginas del contrato y solo metadatos.
+      expect(await getPageCount(signed.bytes)).toBe(3);
+      expect((await getPageOperatorCounts(signed.bytes, 1)).imagePaintOps).toBeGreaterThanOrEqual(2);
+      const info = await PDFDocument.load(new Uint8Array(signed.bytes), { updateMetadata: false });
+      expect(info.getProducer()).toBe("OptimusPDF");
+      await noHorizontalOverflow(page, "dos firmantes");
+    });
+
+    test("Firmar con dos firmantes y «Registro de firmas» ACTIVADO: dos imagenes y una pagina final «Registro de firmas»", async ({ page }) => {
+      const signed = await signWithTwoSigners(page, { registroDeFirmas: true });
+      // 3 paginas + la del registro de firmas (ajuste activado en Ajustes de Firmar).
       expect(await getPageCount(signed.bytes)).toBe(4);
       expect((await getPageOperatorCounts(signed.bytes, 1)).imagePaintOps).toBeGreaterThanOrEqual(2);
       expect(await getPageText(signed.bytes, 4)).toContain(SG.certificateTitle);
-      await noHorizontalOverflow(page, "dos firmantes");
+      expect(await getPageText(signed.bytes, 4)).toContain("Registro de firmas");
+      await noHorizontalOverflow(page, "dos firmantes con registro");
     });
 
     test("Rellenar: formulario AcroForm de 5 campos -> texto, casilla y desplegable en los CAMPOS; deshacer vuelve al formulario vacio", async ({ page }) => {

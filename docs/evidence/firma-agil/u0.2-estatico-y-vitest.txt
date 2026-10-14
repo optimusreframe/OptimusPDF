@@ -1,0 +1,10 @@
+tsc --noEmit: exit 0, 0 errores
+
+eslint (npx eslint, todo el repo): exit 0, 0 errores, 1 aviso previo ajeno (src/app/inputChecks.clients.test.tsx:90 '_slug')
+
+vitest run (todo el repo):
+Test Files  374 passed | 1 skipped (375)
+Tests  9367 passed | 11 skipped (9378)
+Start at  01:51:26
+Duration  44.09s (transform 31.18s, setup 51.45s, import 107.10s, tests 420.13s, environment 111.20s)
+

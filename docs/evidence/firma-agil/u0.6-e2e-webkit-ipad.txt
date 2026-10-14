@@ -1,0 +1,41 @@
+U0.6 · recent-continue.spec.ts · webkit-ipad (iPad Pro 11, WebKit; build con CSP_SKIP_UPGRADE_INSECURE=1, puerto 3823)
+Los 2 omitidos por diseno: (e10c) teclado con Tab (Safari no enfoca enlaces con Tab) y (e12) axe-core (solo Chromium).
+
+Running 30 tests using 1 worker
+  ✓   1 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:258:9 › Recientes -> Continuar · Firmar PDF › (e0) control: el trabajo de Firmar PDF SI se recupera por la via manual que existe hoy (9.9s)
+  ✓   2 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:264:9 › Recientes -> Continuar · Firmar PDF › (e) Firmar PDF: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura (7.8s)
+  ✓   3 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:282:9 › Recientes -> Continuar · Firmar PDF › (e2) Firmar PDF: ningun «Continuar» de Recientes abre la herramienta vacia (7.9s)
+  ✓   4 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:303:9 › Recientes -> Continuar · Firmar PDF › (e3) Firmar PDF: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» (7.7s)
+  ✓   5 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:258:9 › Recientes -> Continuar · Editar PDF › (e0) control: el trabajo de Editar PDF SI se recupera por la via manual que existe hoy (2.3s)
+  ✓   6 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:264:9 › Recientes -> Continuar · Editar PDF › (e) Editar PDF: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura (1.4s)
+  ✓   7 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:282:9 › Recientes -> Continuar · Editar PDF › (e2) Editar PDF: ningun «Continuar» de Recientes abre la herramienta vacia (1.4s)
+  ✓   8 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:303:9 › Recientes -> Continuar · Editar PDF › (e3) Editar PDF: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» (1.2s)
+  ✓   9 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:258:9 › Recientes -> Continuar · PDF Pro › (e0) control: el trabajo de PDF Pro SI se recupera por la via manual que existe hoy (1.7s)
+  ✓  10 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:264:9 › Recientes -> Continuar · PDF Pro › (e) PDF Pro: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura (1.7s)
+  ✓  11 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:282:9 › Recientes -> Continuar · PDF Pro › (e2) PDF Pro: ningun «Continuar» de Recientes abre la herramienta vacia (1.6s)
+  ✓  12 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:303:9 › Recientes -> Continuar · PDF Pro › (e3) PDF Pro: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» (1.7s)
+  ✓  13 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:329:7 › Recientes: textos honestos › (e4) una entrada del historial sin trabajo guardado dice «Abrir herramienta», no «Continuar» (344ms)
+  ✓  14 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:346:7 › Recientes: textos honestos › (e5) el subtitulo y la descripcion de /recent ya no dicen «Nunca el documento» (275ms)
+  ✓  15 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:403:9 › Recientes -> ?resume= · Firmar PDF › (e6) Firmar PDF: un ?resume= manipulado no rompe, no restaura nada, no avisa y se limpia de la URL (2.0s)
+  ✓  16 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:423:9 › Recientes -> ?resume= · Firmar PDF › (e7) Firmar PDF: tras «Continuar» la URL queda limpia y «Atras» vuelve a Recientes (sin entradas atrapadas) (7.8s)
+  ✓  17 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:441:9 › Recientes -> ?resume= · Firmar PDF › (e8) Firmar PDF: «Descartar» pide confirmacion; «Cancelar» no borra y «Descartar» borra el borrador (10.7s)
+  ✓  18 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:403:9 › Recientes -> ?resume= · Editar PDF › (e6) Editar PDF: un ?resume= manipulado no rompe, no restaura nada, no avisa y se limpia de la URL (2.0s)
+  ✓  19 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:423:9 › Recientes -> ?resume= · Editar PDF › (e7) Editar PDF: tras «Continuar» la URL queda limpia y «Atras» vuelve a Recientes (sin entradas atrapadas) (1.5s)
+  ✓  20 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:441:9 › Recientes -> ?resume= · Editar PDF › (e8) Editar PDF: «Descartar» pide confirmacion; «Cancelar» no borra y «Descartar» borra el borrador (4.4s)
+  ✓  21 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:403:9 › Recientes -> ?resume= · PDF Pro › (e6) PDF Pro: un ?resume= manipulado no rompe, no restaura nada, no avisa y se limpia de la URL (2.0s)
+  ✓  22 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:423:9 › Recientes -> ?resume= · PDF Pro › (e7) PDF Pro: tras «Continuar» la URL queda limpia y «Atras» vuelve a Recientes (sin entradas atrapadas) (1.8s)
+  ✓  23 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:441:9 › Recientes -> ?resume= · PDF Pro › (e8) PDF Pro: «Descartar» pide confirmacion; «Cancelar» no borra y «Descartar» borra el borrador (4.8s)
+  ✓  24 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:473:7 › Recientes: con DOS trabajos, «Continuar» restaura el pedido y no otro › (e9) PDF Pro (2.3s)
+  ✓  25 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:498:7 › Recientes: con DOS trabajos, «Continuar» restaura el pedido y no otro › (e9) Editar PDF (2.5s)
+  ✓  26 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:519:7 › Recientes: iPad y accesibilidad › (e10) las filas se ven completas y sus controles miden al menos 44 px (1.7s)
+  ✓  27 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:533:7 › Recientes: iPad y accesibilidad › (e10b) en un telefono (375 px) la lista cabe sin desborde y los controles siguen midiendo 44 px (1.7s)
+  -  28 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:547:7 › Recientes: iPad y accesibilidad › (e10c) se llega a «Continuar» y a «Descartar» con el teclado y el foco se ve
+  ✓  29 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:581:7 › Recientes en ingles › (e11) «Unfinished», «Continue», «Open tool», el aviso de trabajo perdido y la fecha salen en ingles, sin claves crudas (1.9s)
+  -  30 [webkit-ipad] › e2e/specs/recent-continue.spec.ts:615:7 › Recientes: accesibilidad (axe) › (e12) la pagina con trabajos sin terminar y con el aviso de trabajo perdido no tiene violaciones
+  2 skipped
+  28 passed (1.6m)
+
+--- estabilidad: PW_F0=1 --repeat-each=2 ---
+······················································°°··°°
+  4 skipped
+  56 passed (1.6m)

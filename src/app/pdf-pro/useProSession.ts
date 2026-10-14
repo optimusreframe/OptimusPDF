@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useInputGuard } from "@/components/tool/InputGuardContext";
 import { useI18n } from "@/lib/i18n";
 import { addRecentEntry } from "@/lib/recent";
+import type { ResumeOutcome } from "@/lib/useResumeLink";
 import type { PdfErrorCode } from "@/lib/pdf/core";
 import type { InputGuard } from "@/lib/pdf/inputGuard";
 import type { ToolSlug } from "@/lib/tools-registry";
@@ -66,12 +67,13 @@ export function useProSession() {
         if (result.code !== "cancelled") setIntake({ phase: "problem", file, code: result.code });
         return;
       }
-      addRecentEntry("pdf-pro", file.name);
+      const fingerprint = result.document.fingerprint;
+      // Con huella y sin contrasena el historial apunta al borrador (solo tipo e id): Recientes no lo repite aparte.
+      addRecentEntry("pdf-pro", file.name, fingerprint && !wasEncrypted ? { kind: "pro", id: fingerprint } : undefined);
       setIntake({ phase: "idle" });
       setOpenedFrom(from);
       setOpenedTotal(from ? totalRef.current : 1);
       setDraftError(false);
-      const fingerprint = result.document.fingerprint;
       if (fingerprint && !wasEncrypted) {
         const drafts = await listProDrafts();
         if (attempt !== attemptRef.current) return;
@@ -121,7 +123,8 @@ export function useProSession() {
         if (result.code !== "cancelled") setIntake({ phase: "problem", file, code: result.code });
         return;
       }
-      addRecentEntry("pdf-pro", file.name);
+      const fingerprint = result.document.fingerprint;
+      addRecentEntry("pdf-pro", file.name, fingerprint ? { kind: "pro", id: fingerprint } : undefined);
       setIntake({ phase: "idle" });
       setOpenedFrom(null);
     },
@@ -169,19 +172,24 @@ export function useProSession() {
     setIntake((previous) => (previous.phase === "problem" ? { phase: "idle" } : previous));
   }, []);
 
-  /** Abre un borrador guardado (desde «Documentos recientes» o desde la oferta del documento). */
+  /**
+   * Abre un borrador guardado (desde «Documentos recientes», desde la oferta del documento o desde Recientes con
+   * `?resume=pro:<id>`). Devuelve que paso: `gone` = ya no existe (se borro, caduco o estaba danado); `failed` = no se
+   * pudo leer ahora. Con `quietGone` un `gone` no enciende el aviso de «no se pudo abrir» (lo cuenta quien llama).
+   */
   const restoreDraft = useCallback(
-    async (id: string) => {
+    async (id: string, options: { quietGone?: boolean } = {}): Promise<ResumeOutcome> => {
       const attempt = ++attemptRef.current;
       setDraftBusy(true);
       setDraftError(false);
       const loaded = await loadProDraft(id);
-      if (attempt !== attemptRef.current) return;
+      if (attempt !== attemptRef.current) return "restored";
       if (!loaded.ok) {
+        const gone = loaded.reason === "notFound" || loaded.reason === "corrupt" || loaded.reason === "invalid";
         setDraftBusy(false);
-        setDraftError(true);
+        setDraftError(!(gone && options.quietGone));
         setDraftOffer(null);
-        return;
+        return gone ? "gone" : "failed";
       }
       const { meta, bytes, history } = loaded.draft;
       const file = new File([bytes as unknown as BlobPart], meta.fileName, {
@@ -193,15 +201,16 @@ export function useProSession() {
         fingerprint: meta.id,
         restored: { savedAt: meta.savedAt, history },
       });
-      if (attempt !== attemptRef.current) return;
+      if (attempt !== attemptRef.current) return "restored";
       setDraftBusy(false);
       if (!result.ok) {
         setDraftError(true);
-        return;
+        return "failed";
       }
-      addRecentEntry("pdf-pro", meta.fileName);
+      addRecentEntry("pdf-pro", meta.fileName, { kind: "pro", id: meta.id });
       setOpenedFrom(null);
       setDraftOffer(null);
+      return "restored";
     },
     [doc],
   );

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { DownloadScreen } from "@/components/tool/DownloadScreen";
 import type { BatchReport } from "@/lib/pdf/batchReport";
 import {
@@ -28,7 +28,11 @@ function UseLanguage({ language }: { language: Language }) {
 function renderScreen(
   report?: BatchReport,
   language: Language = "es",
-  extra: { summary?: string; notices?: { title: string; items: string[] } } = {},
+  extra: {
+    summary?: string;
+    notices?: { title: string; items: string[] };
+    secondaryDownload?: { label: string; onDownload: () => void };
+  } = {},
 ) {
   return render(
     <LanguageProvider>
@@ -199,5 +203,26 @@ describe("DownloadScreen — resumen y avisos (B1)", () => {
     const text = described(button);
     expect(text.indexOf("Resumen.")).toBeLessThan(text.indexOf("Sobre el texto editado"));
     expect(text.indexOf("Sobre el texto editado")).toBeLessThan(text.indexOf("Contrato B.pdf"));
+  });
+});
+
+
+describe("DownloadScreen — descarga secundaria (registro .json de Firmar PDF)", () => {
+  it("sin `secondaryDownload` la pantalla es la de siempre: solo «Descargar» y «Empezar de nuevo»", () => {
+    renderScreen(undefined);
+    expect(screen.queryByRole("button", { name: /registro/i })).toBeNull();
+    expect(screen.getAllByRole("button").map((button) => button.textContent?.trim())).toEqual([
+      "Descargar",
+      "Empezar de nuevo",
+    ]);
+  });
+
+  it("con `secondaryDownload` aparece un boton discreto con su etiqueta, DESPUES de «Descargar», y al pulsarlo descarga", () => {
+    const onDownload = vi.fn();
+    renderScreen(undefined, "es", { secondaryDownload: { label: "Descargar registro (.json)", onDownload } });
+    const buttons = screen.getAllByRole("button").map((button) => button.textContent?.trim());
+    expect(buttons).toEqual(["Descargar", "Descargar registro (.json)", "Empezar de nuevo"]);
+    fireEvent.click(screen.getByRole("button", { name: "Descargar registro (.json)" }));
+    expect(onDownload).toHaveBeenCalledTimes(1);
   });
 });

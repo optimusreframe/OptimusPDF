@@ -1,0 +1,20 @@
+Fase 0 · U0.2 · E2E contra build de produccion (CSP_SKIP_UPGRADE_INSECURE=1, next start -p 3821), headless
+
+[chromium] sign-ceremony-turns sign-multi sign-quality signature-font sign-edit-summary pdf-pro-modes-sign a11y-sweep (--workers=2):
+2 skipped
+182 passed (7.3m)
+
+[webkit-ipad] sign-ceremony-turns sign-multi sign-quality signature-font sign-edit-summary a11y-sweep (--workers=2; pdf-pro-modes-sign esta en MOBILE_EXCLUDED del proyecto):
+150 passed (6.7m)
+
+[webkit escritorio] pdf-pro-modes-sign + sign-multi (--workers=2):
+3 skipped
+34 passed (1.1m)
+
+sign-ceremony-turns x3 repeticiones, sin reintentos, chromium + webkit-ipad (PW_F0=1):
+42 passed (1.7m)
+
+Nota (estabilidad en WebKit iPad): (b) y (b2) fallaron de forma intermitente (1 de 6-16 ejecuciones) porque el clic en «Continuar»,
+justo despues de «Atras», caia a mitad del desplazamiento del paso «Documento» (la hoja se pinta tras montar y el boton baja con ella;
+la captura mostraba el hueco de Luis seleccionado). El producto no cambia: la prueba espera al boton quieto (`stillBox`) y repite el clic
+hasta que aparece el turno (`clickUntil`, el patron del repo para este clic perdido de WebKit). Despues: 24 de 24 y 42 de 42 sin reintentos.

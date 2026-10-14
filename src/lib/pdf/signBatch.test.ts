@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
+import { PDFDocument } from "@cantoo/pdf-lib";
 import { PdfError } from "@/lib/pdf/core";
 import {
   signBatch,
@@ -393,5 +395,175 @@ describe("signBatch — src/lib/pdf/signBatch.ts", () => {
     });
     await signBatch({ documents: [doc("a"), doc("b"), doc("c")], sign, lang: "es" });
     expect(maxRunning).toBe(1);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * F0-U0.5: registro .json aparte (opcional, apagado por defecto)
+ * ------------------------------------------------------------------ */
+
+async function realPdf(pages: number, tag: string): Promise<Uint8Array> {
+  const document = await PDFDocument.create();
+  for (let index = 0; index < pages; index += 1) document.addPage([200 + tag.length, 200]);
+  return document.save({ useObjectStreams: true });
+}
+
+function realSign(pagesById: Record<string, number>, signers: Record<string, string[]>) {
+  return vi.fn(
+    async (document: SignBatchDocument): Promise<SignBatchSigned> => ({
+      bytes: await realPdf(pagesById[document.id] ?? 1, document.id),
+      signerNames: signers[document.id] ?? [],
+    }),
+  );
+}
+
+describe("signBatch — registro .json aparte", () => {
+  it("por defecto (sin `record`) el ZIP lleva SOLO los PDF: ni registro-firmas.json ni `result.record`", async () => {
+    const result = await signBatch({
+      documents: [doc("a", "A.pdf"), doc("b", "B.pdf")],
+      sign: fakeSign(),
+      lang: "es",
+    });
+    const zip = await readZip(result.blob);
+    expect(Object.keys(zip.files).sort()).toEqual(["Ana - A-firmado.pdf", "Ana - B-firmado.pdf"]);
+    expect(result.record).toBeUndefined();
+  });
+
+  it("con `record`: el ZIP añade registro-firmas.json con hash SHA-256 verificable, fecha, firmantes y paginas de cada PDF", async () => {
+    const result = await signBatch({
+      documents: [doc("a", "Contrato A.pdf"), doc("b", "Anexo.pdf")],
+      sign: realSign({ a: 2, b: 3 }, { a: ["Ana", "Luis"], b: ["Ana"] }),
+      lang: "es",
+      record: { noSignerName: "Sin nombre" },
+    });
+    const zip = await readZip(result.blob);
+    expect(Object.keys(zip.files).sort()).toEqual([
+      "Ana - Anexo-firmado.pdf",
+      "Ana y Luis - Contrato A-firmado.pdf",
+      "registro-firmas.json",
+    ]);
+
+    const record = JSON.parse((await zip.file("registro-firmas.json")!.async("string")) as string);
+    expect(record.type).toBe("optimuspdf-signing-record");
+    expect(record.hashAlgorithm).toBe("SHA-256");
+    expect(record.documents).toHaveLength(2);
+
+    // Cada fila cita el PDF con el nombre que de verdad tiene en el ZIP y su hash se puede recalcular del propio ZIP.
+    const byFile = Object.fromEntries(record.documents.map((item: { file: string }) => [item.file, item]));
+    for (const [file, pages, signers] of [
+      ["Ana y Luis - Contrato A-firmado.pdf", 2, ["Ana", "Luis"]],
+      ["Ana - Anexo-firmado.pdf", 3, ["Ana"]],
+    ] as const) {
+      const row = byFile[file];
+      expect(row).toBeTruthy();
+      const bytes = await zip.file(file)!.async("uint8array");
+      expect(row.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+      expect(row.pages).toBe(pages);
+      expect(row.signers).toEqual(signers);
+      expect(Number.isNaN(Date.parse(row.signedAt))).toBe(false);
+    }
+    // El informe del lote sigue hablando solo de los PDF.
+    expect(result.report.ok.map((item) => item.filename)).toEqual([
+      "Ana y Luis - Contrato A-firmado.pdf",
+      "Ana - Anexo-firmado.pdf",
+    ]);
+    expect(result.record?.documents).toHaveLength(2);
+  });
+
+  it("en ingles el archivo se llama signing-record.json y la nota va en ingles", async () => {
+    const result = await signBatch({
+      documents: [doc("a", "A.pdf"), doc("b", "B.pdf")],
+      sign: realSign({}, {}),
+      lang: "en",
+      record: { noSignerName: "No name" },
+    });
+    const zip = await readZip(result.blob);
+    expect(Object.keys(zip.files)).toContain("signing-record.json");
+    expect(Object.keys(zip.files)).not.toContain("registro-firmas.json");
+    const record = JSON.parse((await zip.file("signing-record.json")!.async("string")) as string);
+    expect(record.note).toContain("not a certified signature");
+  });
+
+  it("nombres repetidos: la fila usa el nombre unico «(2)» de la entrada del ZIP, no el original", async () => {
+    const result = await signBatch({
+      documents: [doc("a", "Mismo.pdf"), doc("b", "Mismo.pdf")],
+      sign: realSign({}, { a: ["Ana"], b: ["Ana"] }),
+      lang: "es",
+      record: { noSignerName: "Sin nombre" },
+    });
+    const zip = await readZip(result.blob);
+    const record = JSON.parse((await zip.file("registro-firmas.json")!.async("string")) as string);
+    expect(record.documents.map((row: { file: string }) => row.file).sort()).toEqual([
+      "Ana - Mismo-firmado (2).pdf",
+      "Ana - Mismo-firmado.pdf",
+    ]);
+    for (const row of record.documents) expect(zip.file(row.file)).toBeTruthy();
+  });
+
+  it("un documento que falla NO aparece en el registro; los firmados si", async () => {
+    const sign = vi.fn(async (document: SignBatchDocument): Promise<SignBatchSigned> => {
+      if (document.id === "b") throw new PdfError("corrupt");
+      return { bytes: await realPdf(1, document.id), signerNames: ["Ana"] };
+    });
+    const result = await signBatch({
+      documents: [doc("a", "A.pdf"), doc("b", "B.pdf"), doc("c", "C.pdf")],
+      sign,
+      lang: "es",
+      record: { noSignerName: "Sin nombre" },
+    });
+    const zip = await readZip(result.blob);
+    const record = JSON.parse((await zip.file("registro-firmas.json")!.async("string")) as string);
+    expect(record.documents.map((row: { file: string }) => row.file).sort()).toEqual([
+      "Ana - A-firmado.pdf",
+      "Ana - C-firmado.pdf",
+    ]);
+  });
+
+  it("un documento solo EDITADO (sin firma) no entra en el registro; si ninguno es firmado no se añade registro", async () => {
+    const edited = vi.fn(
+      async (document: SignBatchDocument): Promise<SignBatchSigned> => ({
+        bytes: await realPdf(1, document.id),
+        signerNames: [],
+        edited: true,
+      }),
+    );
+    const result = await signBatch({
+      documents: [doc("a", "A.pdf"), doc("b", "B.pdf")],
+      sign: edited,
+      lang: "es",
+      record: { noSignerName: "Sin nombre" },
+    });
+    const zip = await readZip(result.blob);
+    expect(Object.keys(zip.files).sort()).toEqual(["A-editado.pdf", "B-editado.pdf"]);
+    expect(result.record).toBeUndefined();
+  });
+
+  it("un solo documento: el PDF sigue suelto (sin ZIP) y el registro viaja en `result.record`", async () => {
+    const result = await signBatch({
+      documents: [doc("a", "Unico.pdf")],
+      sign: realSign({ a: 4 }, { a: ["Ana"] }),
+      lang: "es",
+      record: { noSignerName: "Sin nombre" },
+    });
+    expect(result.mimeType).toBe("application/pdf");
+    expect(result.record?.documents).toHaveLength(1);
+    const row = result.record!.documents[0];
+    const bytes = new Uint8Array(await result.blob.arrayBuffer());
+    expect(row.file).toBe(result.filename);
+    expect(row.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+    expect(row.pages).toBe(4);
+  });
+
+  it("bytes que no son un PDF (doble de prueba): se entrega igual y las paginas quedan en null", async () => {
+    const result = await signBatch({
+      documents: [doc("a", "A.pdf"), doc("b", "B.pdf")],
+      sign: fakeSign(),
+      lang: "es",
+      record: { noSignerName: "Sin nombre" },
+    });
+    const zip = await readZip(result.blob);
+    const record = JSON.parse((await zip.file("registro-firmas.json")!.async("string")) as string);
+    expect(record.documents.every((row: { pages: unknown }) => row.pages === null)).toBe(true);
   });
 });

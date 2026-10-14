@@ -79,7 +79,7 @@ vuelto a salir (modes-sign ×3 repeticiones en WebKit y en Chromium, sin fallos)
 
 Son OPCIONALES: por defecto `playwright.config.ts` solo define `chromium` y `chromium-fake-camera`, igual que antes, y la
 integración continua no cambia. Los proyectos de WebKit y Firefox solo existen si se pide con `PW_BROWSERS`
-(lista separada por comas: `webkit`, `webkit-mobile`, `firefox` o `all`).
+(lista separada por comas: `webkit`, `webkit-mobile`, `webkit-ipad`, `firefox` o `all`).
 
 ```bash
 npx playwright install webkit firefox          # una vez (descarga estándar de Playwright, ~180 MB)
@@ -103,6 +103,7 @@ CI=1 PW_REUSE_SERVER=1 PW_PORT=3780 PW_BROWSERS=all npx playwright test --projec
 - `webkit-mobile` deja fuera los specs con bloques de escritorio por diseño (rueda del ratón, que Playwright no soporta en WebKit
   móvil, arrastres con ratón, medidas de escritorio): `compress*`, `edit-pdf-flow`, `pdf-pro-viewer`, `pdf-pro-pages`,
   `pdf-pro-modes-sign`, `pdf-pro-memory`, `tool-errors`. Sus bloques de 375 px táctil ya corren en `webkit`.
+- `webkit-ipad` (`PW_BROWSERS=webkit-ipad`, y dentro de `all`): iPad Pro 11 (`devices["iPad Pro 11"]`, WebKit táctil de 834 × 1194 px, mismas limitaciones que `webkit-mobile`: Tab/foco por clic de Safari, sin CDP ni `mouse.wheel`); además de `CROSS_SPECS` corre los specs de la Fase 0 «Firma ágil» (`sign-ceremony-turns`, `sign-recovery`, `recent-continue`), cuyas pruebas `@f0-pendiente` solo se incluyen con `PW_F0=1`.
 - Siempre headless (el valor por defecto de Playwright): no se abre ninguna ventana.
 
 ## 3. Inventario: funcionalidad × navegador

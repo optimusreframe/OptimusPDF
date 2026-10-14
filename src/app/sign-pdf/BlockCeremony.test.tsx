@@ -7,6 +7,7 @@ import {
   captureForBlock,
   isBlockComplete,
   type BlockContext,
+  type CeremonyState,
   type DocRef,
 } from "@/app/sign-pdf/blockModel";
 import { EMPTY_DOC_STATE, type DocState, type SignerBlock } from "@/app/sign-pdf/docSet";
@@ -128,7 +129,17 @@ function ctxOf(
   return { signers, docs: docStates, keys };
 }
 
+/**
+ * El turno de la ceremonia se DERIVA del primer firmante pendiente al montar (Fase 0 · U0.2): con Ana ya
+ * firmada, una ronda recien montada arranca en Luis. Las pruebas que recorren el turno de Ana con sus
+ * trazos precargados lo declaran con el turno guardado explicito (el que antes era el inicio implicito).
+ */
+const ANA_TURN: CeremonyState = { signerId: ANA.id, stage: "handoff" };
+const LUIS_TURN: CeremonyState = { signerId: LUIS.id, stage: "handoff" };
+
 type HarnessProps = {
+  /** Turno guardado inicial; con valor, la ceremonia va CONTROLADA (como en la sesion real). */
+  ceremony?: CeremonyState | null;
   blocks?: SignerBlock[];
   docs?: DocRef[];
   docStates?: Record<string, DocState>;
@@ -141,6 +152,7 @@ type HarnessProps = {
 };
 
 function Harness({
+  ceremony: initialCeremony,
   blocks: initial = SAME_BLOCKS,
   docs = DOCS,
   docStates = DOC_STATES,
@@ -152,9 +164,11 @@ function Harness({
   onBlocks,
 }: HarnessProps) {
   const [blocks, setBlocks] = useState(initial);
+  const [turn, setTurn] = useState<CeremonyState | null>(initialCeremony ?? null);
   return (
     <LanguageProvider>
       <BlockCeremony
+        {...(initialCeremony !== undefined ? { ceremony: turn, onCeremonyChange: setTurn } : {})}
         signers={signers}
         docs={docs}
         docStates={docStates}
@@ -274,7 +288,7 @@ describe("BlockCeremony — arranque y turnos", () => {
     expect(continueButton().disabled).toBe(true);
     one.unmount();
 
-    render(<Harness blocks={signed(SPLIT_BLOCKS, ["bk-1", "bk-3"])} />);
+    render(<Harness ceremony={ANA_TURN} blocks={signed(SPLIT_BLOCKS, ["bk-1", "bk-3"])} />);
     toCapture();
     expect(continueButton().disabled).toBe(false);
   });
@@ -295,14 +309,14 @@ describe("BlockCeremony — foco al cambiar de etapa y de turno (no se pierde en
   });
 
   it("«Continuar»: el foco va al encabezado de la revision", () => {
-    render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
+    render(<Harness ceremony={ANA_TURN} blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
     toCapture();
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     expect(document.activeElement).toBe(heading(strings.reviewTitle("Ana Pérez")));
   });
 
   it("«Rehacer» en la revision devuelve el foco al encabezado de la captura", () => {
-    render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
+    render(<Harness ceremony={ANA_TURN} blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
     toCapture();
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     fireEvent.click(screen.getByRole("button", { name: strings.reviewRedo }));
@@ -310,7 +324,8 @@ describe("BlockCeremony — foco al cambiar de etapa y de turno (no se pierde en
   });
 
   it("«Siguiente» lleva el foco al traspaso del siguiente firmante", () => {
-    render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} />);
+    // Luis aun no ha firmado: el siguiente turno es el suyo (a quien ya firmo no se le pasa el dispositivo).
+    render(<Harness ceremony={ANA_TURN} blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
     toCapture();
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     fireEvent.click(screen.getByRole("button", { name: strings.reviewNext }));
@@ -319,11 +334,9 @@ describe("BlockCeremony — foco al cambiar de etapa y de turno (no se pierde en
   });
 
   it("al terminar el ultimo turno el foco va al balance de la ronda", () => {
-    render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} />);
+    // El ultimo turno (Luis) con todo ya recogido: al terminarlo no queda nadie y el foco va al balance.
+    render(<Harness ceremony={LUIS_TURN} blocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} />);
     toCapture();
-    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
-    fireEvent.click(screen.getByRole("button", { name: strings.reviewNext }));
-    fireEvent.click(screen.getAllByRole("button", { name: strings.handoffReady })[0]);
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     fireEvent.click(screen.getByRole("button", { name: strings.reviewFinish }));
     expect(document.activeElement).toBe(heading(strings.allSignedTitle));
@@ -536,7 +549,7 @@ describe("BlockCeremony — firma nueva con el compositor y «Recordar»", () =>
   });
 
   it("rehacer deja el boton como «Rehacer» con el trazo visible", async () => {
-    render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
+    render(<Harness ceremony={ANA_TURN} blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
     toCapture();
     expect(screen.getAllByRole("button", { name: strings.captureRedo })).toHaveLength(2);
     expect(screen.getAllByAltText(strings.fieldSignature).length).toBeGreaterThan(0);
@@ -604,7 +617,7 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
 
   it("ampliar el alcance de un bloque ya firmado lo deja pendiente para los documentos nuevos", () => {
     const done = signed(SPLIT_BLOCKS, ["bk-1", "bk-3"]);
-    render(<Harness blocks={done} />);
+    render(<Harness ceremony={ANA_TURN} blocks={done} />);
     toCapture();
     expect((screen.getByRole("button", { name: strings.captureContinue }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 1", "Ana Pérez") }));
@@ -742,5 +755,373 @@ describe("BlockCeremony — textos en ingles", () => {
     expect(screen.getByRole("heading", { name: en.handoffTitle("Ana Pérez") })).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: en.handoffReady })[0]);
     expect(screen.getByText(en.blockAppliesTo("All (3)"))).toBeTruthy();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Turno que sobrevive, que falta y progreso (Fase 0 · U0.2)
+ * ------------------------------------------------------------------ */
+
+/**
+ * La sesion de verdad: el turno y los bloques viven FUERA de la ceremonia, que se desmonta y se vuelve a
+ * montar (tocar la pestana de otro documento, «Atras» -> «Continuar»). `remount` simula ese remontaje.
+ */
+function SessionHost({
+  initialBlocks = SAME_BLOCKS,
+  initialCeremony = null,
+  docStates = DOC_STATES,
+  docs = DOCS,
+  keys = KEYS,
+  signers = [ANA, LUIS],
+  onCeremony,
+}: {
+  initialBlocks?: SignerBlock[];
+  initialCeremony?: CeremonyState | null;
+  docStates?: Record<string, DocState>;
+  docs?: DocRef[];
+  keys?: Record<string, string | null>;
+  signers?: Signer[];
+  onCeremony?: (next: CeremonyState | null) => void;
+}) {
+  const [blocks, setBlocks] = useState(initialBlocks);
+  const [ceremony, setCeremony] = useState<CeremonyState | null>(initialCeremony);
+  const [generation, setGeneration] = useState(0);
+  return (
+    <LanguageProvider>
+      <button type="button" onClick={() => setGeneration((count) => count + 1)}>
+        remontar
+      </button>
+      <output data-testid="stored">{ceremony ? `${ceremony.signerId}:${ceremony.stage}` : "none"}</output>
+      <BlockCeremony
+        key={generation}
+        signers={signers}
+        docs={docs}
+        docStates={docStates}
+        keys={keys}
+        blocks={blocks}
+        onBlocksChange={setBlocks}
+        blockerMessages={[]}
+        blocked={false}
+        onFinish={() => {}}
+        strings={strings}
+        ceremony={ceremony}
+        onCeremonyChange={(next) => {
+          setCeremony(next);
+          onCeremony?.(next);
+        }}
+      />
+    </LanguageProvider>
+  );
+}
+
+const remount = () => fireEvent.click(screen.getByRole("button", { name: "remontar" }));
+const stored = () => screen.getByTestId("stored").textContent;
+
+describe("BlockCeremony — el turno se deriva de lo que falta al montar", () => {
+  it("con Ana ya firmada, la ronda arranca en el turno de Luis (no vuelve a pasarle el dispositivo a Ana)", () => {
+    render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
+    expect(screen.getByText(strings.turnOf(2, 2))).toBeTruthy();
+    expect(heading(strings.handoffTitle("Luis"))).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana Pérez") })).toBeNull();
+  });
+
+  it("con todos firmados no hay turno que pasar: se ve el balance «Ya han firmado todos»", () => {
+    render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} />);
+    expect(screen.queryByText(/^Turno \d+ de \d+$/)).toBeNull();
+    expect(heading(strings.allSignedTitle)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: strings.handoffReady })).toBeNull();
+  });
+
+  it("con nadie firmado arranca en el primero de la cola", () => {
+    render(<Harness />);
+    expect(screen.getByText(strings.turnOf(1, 2))).toBeTruthy();
+    expect(heading(strings.handoffTitle("Ana Pérez"))).toBeTruthy();
+  });
+
+  it("derivar el turno no roba el foco al montar", () => {
+    render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1"])} />);
+    expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe("BlockCeremony — el turno guardado en la sesion sobrevive a remontar la ceremonia", () => {
+  it("tras el turno de Ana, tocar otra pestana (remontar) deja el turno de Luis, no vuelve a Ana", () => {
+    render(<SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-1"])} initialCeremony={ANA_TURN} />);
+    toCapture();
+    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
+    fireEvent.click(screen.getByRole("button", { name: strings.reviewNext }));
+    expect(stored()).toBe("sg-2:handoff");
+    expect(screen.getByText(strings.turnOf(2, 2))).toBeTruthy();
+
+    remount();
+    expect(screen.getByText(strings.turnOf(2, 2))).toBeTruthy();
+    expect(heading(strings.handoffTitle("Luis"))).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana Pérez") })).toBeNull();
+  });
+
+  it("la etapa tambien sobrevive: captura de Luis a medias -> remontar -> sigue en su captura", () => {
+    render(<SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-1"])} initialCeremony={LUIS_TURN} />);
+    toCapture();
+    expect(heading(strings.captureTitle("Luis"))).toBeTruthy();
+    remount();
+    expect(heading(strings.captureTitle("Luis"))).toBeTruthy();
+    expect(stored()).toBe("sg-2:capture");
+  });
+
+  it("la revision de quien acaba de firmar sobrevive al remontaje (Ana no vuelve al traspaso)", () => {
+    render(<SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-1"])} initialCeremony={ANA_TURN} />);
+    toCapture();
+    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
+    expect(heading(strings.reviewTitle("Ana Pérez"))).toBeTruthy();
+    remount();
+    expect(heading(strings.reviewTitle("Ana Pérez"))).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana Pérez") })).toBeNull();
+  });
+
+  it("remontar sin haber actuado no escribe nada en la sesion (no hay turnos inventados)", () => {
+    const writes: Array<CeremonyState | null> = [];
+    render(<SessionHost onCeremony={(next) => writes.push(next)} />);
+    remount();
+    remount();
+    expect(writes).toEqual([]);
+    expect(stored()).toBe("none");
+  });
+
+  it("remontar mientras llegan las huellas (keys null) ensena la espera y NO pisa el turno guardado", () => {
+    const view = render(
+      <SessionHost
+        initialBlocks={signed(SAME_BLOCKS, ["bk-1"])}
+        initialCeremony={LUIS_TURN}
+        keys={{ ...KEYS, [B]: null }}
+      />,
+    );
+    expect(screen.getByText(strings.checkingDocument)).toBeTruthy();
+    expect(stored()).toBe("sg-2:handoff");
+    view.unmount();
+  });
+
+  it("un turno guardado de un firmante que ya no tiene huecos se descarta y se deriva (sin romper)", () => {
+    const eva: CeremonyState = { signerId: SOLO_FIRMA.id, stage: "capture" };
+    render(<SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-1"])} initialCeremony={eva} signers={[ANA, LUIS, SOLO_FIRMA]} />);
+    expect(heading(strings.handoffTitle("Luis"))).toBeTruthy();
+  });
+
+  it("«Empezar la ronda de nuevo» guarda el primer turno del traspaso y vacia los trazos", () => {
+    render(<SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} initialCeremony={LUIS_TURN} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.restartCeremony }));
+    expect(stored()).toBe("sg-1:handoff");
+    expect(screen.getByText(strings.turnOf(1, 2))).toBeTruthy();
+    expect(finish().disabled).toBe(true);
+  });
+});
+
+describe("BlockCeremony — al completar un turno salta al siguiente firmante PENDIENTE", () => {
+  const THREE = [ANA, LUIS, SOLO_FIRMA];
+  const DOCS_3 = {
+    ...DOC_STATES,
+    [C]: docState([slot("c1", ANA.id), slot("c2", SOLO_FIRMA.id)]),
+  };
+  const BLOCKS_3 = [
+    block("bk-1", ANA.id, [A, B, C], { auto: true }),
+    block("bk-2", LUIS.id, [A, B], { auto: true }),
+    block("bk-3", SOLO_FIRMA.id, [C], { auto: true }),
+  ];
+
+  it("se salta a quien ya firmo: de Ana pasa directamente a Eva, con Luis firmado", () => {
+    const blocks = signed(BLOCKS_3, ["bk-1", "bk-2"], DOCS_3);
+    render(<SessionHost initialBlocks={blocks} initialCeremony={ANA_TURN} docStates={DOCS_3} signers={THREE} />);
+    toCapture();
+    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
+    fireEvent.click(screen.getByRole("button", { name: strings.reviewNext }));
+    expect(heading(strings.handoffTitle("Eva"))).toBeTruthy();
+    expect(screen.getByText(strings.turnOf(3, 3))).toBeTruthy();
+    expect(stored()).toBe("sg-3:handoff");
+  });
+
+  it("firmando fuera de orden, al terminar vuelve al primero pendiente (Luis termina y le toca a Ana)", () => {
+    // Luis y Ana estan pendientes; se elige a Luis desde la lista de la ronda y, ya firmado, le toca a Ana.
+    render(<SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-2"])} initialCeremony={LUIS_TURN} />);
+    toCapture();
+    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
+    expect(screen.getByRole("button", { name: strings.reviewNext })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: strings.reviewNext }));
+    expect(heading(strings.handoffTitle("Ana Pérez"))).toBeTruthy();
+    expect(stored()).toBe("sg-1:handoff");
+  });
+
+  it("si despues del turno no queda nadie pendiente el boton dice «He terminado» y la ronda se cierra", () => {
+    render(<SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} initialCeremony={LUIS_TURN} />);
+    toCapture();
+    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
+    expect(screen.queryByRole("button", { name: strings.reviewNext })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: strings.reviewFinish }));
+    expect(stored()).toBe("none");
+    expect(heading(strings.allSignedTitle)).toBeTruthy();
+    // Y remontar despues de cerrar la ronda tampoco resucita el turno de Ana.
+    remount();
+    expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana Pérez") })).toBeNull();
+    expect(heading(strings.allSignedTitle)).toBeTruthy();
+  });
+});
+
+describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
+  const missingText = (items: string[]) => strings.ceremonyMissing(items);
+  const continueButton = () =>
+    screen.getByRole("button", { name: strings.captureContinue }) as HTMLButtonElement;
+
+  it("con varios bloques nombra cada trazo pendiente con su documento y enlaza el boton con la frase", () => {
+    render(<Harness blocks={SPLIT_BLOCKS} />);
+    toCapture();
+    const hint = screen.getByText(
+      missingText([
+        "Firma · Contrato A, Anexo",
+        "Iniciales · Contrato A, Anexo",
+        "Firma · Acta",
+      ]),
+    );
+    expect(continueButton().disabled).toBe(true);
+    expect(continueButton().getAttribute("aria-describedby")).toBe(hint.id);
+    expect(hint.id).not.toBe("");
+  });
+
+  it("al firmar un bloque la frase se acorta y al completar todo desaparece y se habilita", () => {
+    const one = render(<Harness blocks={signed(SPLIT_BLOCKS, ["bk-1"])} ceremony={ANA_TURN} />);
+    toCapture();
+    expect(screen.getByText(missingText(["Firma · Acta"]))).toBeTruthy();
+    expect(continueButton().disabled).toBe(true);
+    one.unmount();
+
+    render(<Harness blocks={signed(SPLIT_BLOCKS, ["bk-1", "bk-3"])} ceremony={ANA_TURN} />);
+    toCapture();
+    expect(screen.queryByText(/^Falta:/)).toBeNull();
+    expect(screen.queryByRole("button", { name: strings.ceremonyGoToMissing })).toBeNull();
+    expect(continueButton().disabled).toBe(false);
+    expect(continueButton().getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("con un solo bloque la frase nombra solo el tipo («Falta: Firma; Iniciales»), sin documento", () => {
+    render(<Harness />);
+    toCapture();
+    expect(screen.getByText(missingText(["Firma", "Iniciales"]))).toBeTruthy();
+  });
+
+  it("«Ir a lo que falta» lleva el foco y la vista al primer trazo pendiente", () => {
+    const scrollSpy = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollSpy;
+    try {
+      render(<Harness blocks={signed(SPLIT_BLOCKS, ["bk-1"])} ceremony={ANA_TURN} />);
+      toCapture();
+      const go = screen.getByRole("button", { name: strings.ceremonyGoToMissing });
+      go.focus();
+      fireEvent.click(go);
+      const target = screen.getByRole("button", { name: `${strings.captureSignature} · Bloque 2` });
+      expect(document.activeElement).toBe(target);
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(scrollSpy.mock.instances[0]).toBe(target);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("«Ir a lo que falta» funciona aunque el navegador no tenga scrollIntoView (jsdom antiguo)", () => {
+    const original = Element.prototype.scrollIntoView;
+    // @ts-expect-error simula un entorno sin la API
+    Element.prototype.scrollIntoView = undefined;
+    try {
+      render(<Harness blocks={SPLIT_BLOCKS} />);
+      toCapture();
+      fireEvent.click(screen.getByRole("button", { name: strings.ceremonyGoToMissing }));
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: `${strings.captureSignature} · Bloque 1` }),
+      );
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("«Ir a lo que falta» mide 44 px con puntero grueso (boton md) y no es un enlace ambiguo", () => {
+    render(<Harness blocks={SPLIT_BLOCKS} />);
+    toCapture();
+    const go = screen.getByRole("button", { name: strings.ceremonyGoToMissing });
+    expect(go.className).toContain("h-11");
+  });
+
+  it("la lista de progreso marca hecho/falta por trazo y bloque, con el estado tambien en texto", () => {
+    render(<Harness blocks={signed(SPLIT_BLOCKS, ["bk-1"])} ceremony={ANA_TURN} />);
+    toCapture();
+    const list = screen.getByRole("list", { name: strings.ceremonyProgressLabel("Ana Pérez") });
+    const items = within(list).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      `Firma · Contrato A, Anexo${strings.ceremonyItemDone}`,
+      `Iniciales · Contrato A, Anexo${strings.ceremonyItemDone}`,
+      `Firma · Acta${strings.ceremonyItemMissing}`,
+    ]);
+    // ✓ (check) en lo hecho y ○ (circle) en lo que falta.
+    expect(items[0].querySelector("svg.lucide-check")).not.toBeNull();
+    expect(items[2].querySelector("svg.lucide-circle")).not.toBeNull();
+    expect(items[2].querySelector("svg.lucide-check")).toBeNull();
+  });
+
+  it("con un solo trazo que recoger no se pinta lista de progreso (la propia fila ya lo dice)", () => {
+    render(<Harness blocks={[block("bk-1", ANA.id, [B, C]), block("bk-2", LUIS.id, [A, B])]} />);
+    toCapture();
+    expect(screen.queryByRole("list", { name: strings.ceremonyProgressLabel("Ana Pérez") })).toBeNull();
+    expect(screen.getByText(missingText(["Firma"]))).toBeTruthy();
+  });
+
+  it("anuncia lo que falta tras guardar un trazo, en UNA sola region viva (no se anade otra)", async () => {
+    render(<Harness blocks={SPLIT_BLOCKS} />);
+    toCapture();
+    const announced = missingText(["Firma · Contrato A, Anexo", "Iniciales · Contrato A, Anexo"]);
+    const carrying = () => screen.getAllByRole("status").filter((node) => node.textContent === announced);
+    const regionsBefore = screen.getAllByRole("status").length;
+    expect(carrying()).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: `${strings.captureSignature} · Bloque 2` }));
+    fireEvent.click(await screen.findByRole("tab", { name: strings.modeType }));
+    fireEvent.change(screen.getByLabelText(strings.typeLabel), { target: { value: "Ana" } });
+    fireEvent.click(screen.getByRole("button", { name: strings.save }));
+    await waitFor(() => expect(carrying()).toHaveLength(1));
+    expect(carrying()[0].getAttribute("aria-live")).toBe("polite");
+    // La region ya estaba montada (vacia) antes de anunciar: el lector de pantalla lee el CAMBIO.
+    expect(screen.getAllByRole("status").length).toBe(regionsBefore);
+  });
+
+  it("al aplicar una firma guardada se anuncia lo que falta (o que ya esta todo)", async () => {
+    await seed("Ana Pérez");
+    render(<Harness blocks={SPLIT_BLOCKS} />);
+    toCapture();
+    fireEvent.click(screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Bloque 1` }));
+    fireEvent.click(await screen.findByRole("button", { name: strings.vaultUseFor("Ana Pérez") }));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").some((node) => node.textContent === missingText(["Firma · Acta"])),
+      ).toBe(true),
+    );
+  });
+
+  it("en ingles: la frase, el boton y la lista salen en ingles", () => {
+    const en = SIGN_STRINGS.en;
+    render(
+      <LanguageProvider>
+        <BlockCeremony
+          signers={[ANA, LUIS]}
+          docs={DOCS}
+          docStates={DOC_STATES}
+          keys={KEYS}
+          blocks={SPLIT_BLOCKS}
+          onBlocksChange={() => {}}
+          blockerMessages={[]}
+          blocked={false}
+          onFinish={() => {}}
+          strings={en}
+        />
+      </LanguageProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: en.handoffReady })[0]);
+    expect(screen.getByText(en.ceremonyMissing(["Signature · Contrato A, Anexo", "Initials · Contrato A, Anexo", "Signature · Acta"]))).toBeTruthy();
+    expect(screen.getByRole("button", { name: en.ceremonyGoToMissing })).toBeTruthy();
+    expect(screen.getByRole("list", { name: en.ceremonyProgressLabel("Ana Pérez") })).toBeTruthy();
   });
 });

@@ -77,7 +77,7 @@ export function SessionDraftAutosave({
   onTooBig,
 }: SessionDraftAutosaveProps) {
   const generationRef = useRef(0);
-  const { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder } =
+  const { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder, ceremony } =
     session;
 
   useEffect(() => {
@@ -151,7 +151,7 @@ export function SessionDraftAutosave({
 
     const snapshot = snapshotSession({
       identity,
-      session: { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder },
+      session: { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder, ceremony },
       files,
       getBytes: bytesOf,
     });
@@ -195,6 +195,7 @@ export function SessionDraftAutosave({
     step,
     activeDocId,
     docOrder,
+    ceremony,
     identityRef,
     onTooBig,
   ]);

@@ -1,4 +1,5 @@
 import type { CaptureMap } from "@/app/sign-pdf/SigningCeremony";
+import type { CeremonyState } from "@/app/sign-pdf/blockModel";
 import type {
   DocState,
   SignMode as BlockSignMode,
@@ -92,6 +93,11 @@ export type SessionDraftMeta = {
   docStates: Record<string, DocState>;
   activeDocId: string | null;
   step: LegacyMultiStep;
+  /**
+   * Turno de la ceremonia (de quien es y en que etapa) al guardar. Ausente en borradores
+   * anteriores: se deriva del primer firmante pendiente. Al leer pasa por `sanitizeCeremony`.
+   */
+  ceremony?: CeremonyState;
   /** Suma de los PDF: es lo que cuenta para el presupuesto. */
   fileSize: number;
   /** Nombre del primer documento (resumen para listas simples). */
@@ -667,6 +673,8 @@ export type SaveSessionParams = {
   documents: SessionDocInput[];
   activeDocId: string | null;
   step: MultiStep;
+  /** Turno de la ceremonia; ausente = sin turno guardado. */
+  ceremony?: CeremonyState;
   /**
    * Se consulta justo antes de escribir (y tras leer los bytes): `false` =
    * este guardado ya lo reemplazo otro mas nuevo (o un borrado) y no debe
@@ -702,6 +710,7 @@ export function buildSessionMeta(
     docStates,
     activeDocId: params.activeDocId,
     step: params.step,
+    ...(params.ceremony ? { ceremony: params.ceremony } : {}),
     fileSize: params.documents.reduce((sum, doc) => sum + doc.size, 0),
     fileName: params.documents[0]?.fileName ?? "",
     documentCount: params.documents.length,

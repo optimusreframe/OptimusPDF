@@ -167,8 +167,9 @@ test.describe("sign-pdf con varios documentos", () => {
 
     for (const name of names) {
       const pdf = Buffer.from(await zip.file(name)!.async("uint8array"));
-      // 2 paginas del documento + la pagina del certificado de finalizacion (activo por defecto).
-      expect(await getPageCount(pdf)).toBe(3);
+      // Ajustes por defecto: EXACTAMENTE las 2 paginas del documento (la hoja «Registro de firmas» ya no se anade sola;
+      // con el ajuste activado se prueba en sign-record.spec.ts).
+      expect(await getPageCount(pdf)).toBe(2);
       // Pagina 1: las dos firmas (una imagen por hueco); pagina 2, sin huecos: ninguna.
       const first = await getPageOperatorCounts(pdf, 1);
       expect(first.imagePaintOps).toBe(2);

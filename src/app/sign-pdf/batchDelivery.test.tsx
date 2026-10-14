@@ -470,3 +470,103 @@ describe("prepareDocumentJob — firmantes del certificado por documento", () =>
     expect(vi.isMockFunction(signPdfMulti)).toBe(true);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * F0-U0.5: por defecto el PDF firmado tiene las paginas del original; el registro .json es opcional y va aparte
+ * ------------------------------------------------------------------ */
+
+async function pageCountIn(zip: JSZip, entry: string): Promise<number> {
+  const bytes = await zip.file(entry)!.async("uint8array");
+  return (await PDFDocument.load(bytes, { updateMetadata: false })).getPageCount();
+}
+
+describe("signDocumentsBatch — ajustes por defecto (sin pagina de registro ni .json)", () => {
+  const DEFAULT_CONTEXT: DocumentJobContext = { language: "es", strings, certificateEnabled: false };
+
+  it("cada PDF del ZIP tiene EXACTAMENTE las paginas de su original y el ZIP no lleva nada mas", async () => {
+    const result = await run([FILE_A, FILE_B], mixedSession(), { context: DEFAULT_CONTEXT });
+    const zip = await unzip(result.blob);
+    expect(Object.keys(zip.files).sort()).toEqual([
+      "Ana Pérez - Anexo-firmado.pdf",
+      "Ana Pérez y Luis - Contrato A-firmado.pdf",
+    ]);
+    expect(await pageCountIn(zip, "Ana Pérez y Luis - Contrato A-firmado.pdf")).toBe(1);
+    expect(await pageCountIn(zip, "Ana Pérez - Anexo-firmado.pdf")).toBe(2);
+    expect(result.secondaryDownload).toBeUndefined();
+  });
+
+  it("el motor no recibe `certificate` y deja los metadatos de OptimusPDF en cada PDF", async () => {
+    const result = await run([FILE_A, FILE_B], mixedSession(), { context: DEFAULT_CONTEXT });
+    expect(signSpy.calls.every((call) => (call.params as SignMultiOptions).certificate === undefined)).toBe(true);
+    const zip = await unzip(result.blob);
+    for (const entry of Object.keys(zip.files)) {
+      const pdf = await PDFDocument.load(await zip.file(entry)!.async("uint8array"), { updateMetadata: false });
+      expect(pdf.getProducer()).toBe("OptimusPDF");
+      expect(pdf.getKeywords()).toContain("optimuspdf-signed");
+      // Sin nombres de firmantes en ningun metadato.
+      const meta = [pdf.getTitle(), pdf.getAuthor(), pdf.getSubject(), pdf.getKeywords(), pdf.getCreator(), pdf.getProducer()].join(" ");
+      expect(meta).not.toMatch(/Ana|Luis|Pérez/);
+    }
+  });
+});
+
+describe("signDocumentsBatch — «Incluir registro .json aparte» activado", () => {
+  const RECORD_CONTEXT: DocumentJobContext = {
+    language: "es",
+    strings,
+    certificateEnabled: false,
+    recordEnabled: true,
+  };
+
+  it("el ZIP añade registro-firmas.json: hash SHA-256 recalculable de cada PDF, firmantes de ESE documento y paginas; el PDF sigue sin pagina extra", async () => {
+    const result = await run([FILE_A, FILE_B], mixedSession(), { context: RECORD_CONTEXT });
+    const zip = await unzip(result.blob);
+    expect(Object.keys(zip.files).sort()).toEqual([
+      "Ana Pérez - Anexo-firmado.pdf",
+      "Ana Pérez y Luis - Contrato A-firmado.pdf",
+      "registro-firmas.json",
+    ]);
+    // Los PDF siguen siendo los del original: el registro NUNCA va dentro.
+    expect(await pageCountIn(zip, "Ana Pérez y Luis - Contrato A-firmado.pdf")).toBe(1);
+    expect(await pageCountIn(zip, "Ana Pérez - Anexo-firmado.pdf")).toBe(2);
+
+    const record = JSON.parse(await zip.file("registro-firmas.json")!.async("string")) as {
+      documents: { file: string; sha256: string; pages: number; signers: string[]; signedAt: string }[];
+    };
+    expect(record.documents).toHaveLength(2);
+    const expected = {
+      "Ana Pérez y Luis - Contrato A-firmado.pdf": { pages: 1, signers: ["Ana Pérez", "Luis"] },
+      "Ana Pérez - Anexo-firmado.pdf": { pages: 2, signers: ["Ana Pérez"] },
+    } as const;
+    for (const row of record.documents) {
+      const bytes = await zip.file(row.file)!.async("uint8array");
+      const digest = await crypto.subtle.digest("SHA-256", bytes as unknown as BufferSource);
+      const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      expect(row.sha256).toBe(hex);
+      expect(row.pages).toBe(expected[row.file as keyof typeof expected].pages);
+      expect(row.signers).toEqual(expected[row.file as keyof typeof expected].signers);
+      expect(Number.isNaN(Date.parse(row.signedAt))).toBe(false);
+    }
+  });
+
+  it("con el registro de firmas (pagina) Y el .json activados conviven: una pagina mas en el PDF y el .json en el ZIP", async () => {
+    const result = await run([FILE_A, FILE_B], mixedSession(), {
+      context: { ...RECORD_CONTEXT, certificateEnabled: true },
+    });
+    const zip = await unzip(result.blob);
+    expect(await pageCountIn(zip, "Ana Pérez y Luis - Contrato A-firmado.pdf")).toBe(2);
+    expect(await pageCountIn(zip, "Ana Pérez - Anexo-firmado.pdf")).toBe(3);
+    const record = JSON.parse(await zip.file("registro-firmas.json")!.async("string")) as { documents: { pages: number }[] };
+    // El registro cuenta las paginas del archivo ENTREGADO (con la pagina de registro).
+    expect(record.documents.map((row) => row.pages).sort()).toEqual([2, 3]);
+  });
+
+  it("en ingles el archivo se llama signing-record.json", async () => {
+    const result = await run([FILE_A, FILE_B], mixedSession(), {
+      context: { ...RECORD_CONTEXT, language: "en", strings: SIGN_STRINGS.en },
+    });
+    const names = Object.keys((await unzip(result.blob)).files);
+    expect(names).toContain("signing-record.json");
+    expect(names).not.toContain("registro-firmas.json");
+  });
+});

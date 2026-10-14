@@ -9,6 +9,14 @@ import {
 } from "@/lib/pdf/core";
 import { MAX_ZIP_FILES, MAX_ZIP_TOTAL_BYTES } from "@/lib/pdf/zipLimits";
 import {
+  buildSigningRecord,
+  buildSigningRecordEntry,
+  serializeSigningRecord,
+  signingRecordFilename,
+  type SigningRecord,
+  type SigningRecordEntry,
+} from "@/lib/pdf/signRecord";
+import {
   signedFilename,
   uniqueNames,
   zipFilename,
@@ -34,6 +42,12 @@ import {
  * documento (los de los bloques cuyo `appliesTo` lo incluye), no a todos los
  * firmantes de la sesion. `signPdfMulti` ya lo permite sin cambios: imprime
  * exactamente lo que recibe en `certificate.signerNames`.
+ *
+ * Registro aparte (opcional, `params.record`): con varios documentos el ZIP
+ * lleva ademas `registro-firmas.json` (hash SHA-256 de cada PDF tal como va
+ * en el ZIP, fecha, firmantes y paginas); con uno solo el PDF sigue suelto y
+ * el registro se devuelve en `result.record` para que la interfaz ofrezca
+ * descargarlo. Nunca va dentro del PDF.
  */
 
 /** Lo minimo que el motor necesita de cada documento; quien llama puede anadir mas campos. */
@@ -73,6 +87,11 @@ export type SignBatchParams<D extends SignBatchDocument = SignBatchDocument> = {
   onProgress?: ProgressCallback;
   signal?: AbortSignal;
   limits?: SignBatchLimits;
+  /**
+   * Ausente = sin registro aparte (lo de siempre). Presente: se genera el
+   * registro; `noSignerName` es el texto de un firmante sin nombre.
+   */
+  record?: { noSignerName: string };
 };
 
 /** Compatible con `ProcessResult` de `ToolShell` (que ignora `mimeType`). */
@@ -81,6 +100,8 @@ export type SignBatchResult = {
   filename: string;
   mimeType: "application/pdf" | "application/zip";
   report: BatchReport;
+  /** Solo si se pidio `params.record`. Con varios documentos ya va dentro del ZIP. */
+  record?: SigningRecord;
 };
 
 /** Los documentos ocupan 0..95 %; el 5 % final es empaquetar el ZIP. */
@@ -116,7 +137,12 @@ export async function signBatch<D extends SignBatchDocument>(
   throwIfAborted(signal);
   emit(0);
 
-  type Signed = { document: D; bytes: Uint8Array; filename: string };
+  type Signed = {
+    document: D;
+    bytes: Uint8Array;
+    filename: string;
+    entry?: SigningRecordEntry;
+  };
   const signed: Signed[] = [];
   const failed: BatchReport["failed"] = [];
   let firstError: PdfError | null = null;
@@ -139,15 +165,26 @@ export async function signBatch<D extends SignBatchDocument>(
         throw new PdfError("unknown");
       }
       outputBytes += output.bytes.length;
+      const filename = signedFilename({
+        signerNames: output.signerNames,
+        documentName: document.name,
+        lang,
+        edited: output.edited,
+      });
       signed.push({
         document,
         bytes: output.bytes,
-        filename: signedFilename({
-          signerNames: output.signerNames,
-          documentName: document.name,
-          lang,
-          edited: output.edited,
-        }),
+        filename,
+        // Hash y paginas del archivo EXACTO que se entrega. Un documento solo editado (sin firma) no es «firmado».
+        entry:
+          params.record && !output.edited
+            ? await buildSigningRecordEntry({
+                file: filename,
+                bytes: output.bytes,
+                signerNames: output.signerNames,
+                noSignerName: params.record.noSignerName,
+              })
+            : undefined,
       });
     } catch (caught) {
       // Cancelar no es un fallo del documento: aborta todo el lote.
@@ -180,17 +217,34 @@ export async function signBatch<D extends SignBatchDocument>(
       filename: only.filename,
       mimeType: "application/pdf",
       report,
+      ...(params.record && only.entry
+        ? { record: buildSigningRecord([only.entry], lang) }
+        : {}),
     };
   }
 
   // Varios documentos: ZIP con los buenos (aunque haya fallado alguno).
   const entryNames = uniqueNames(signed.map((item) => item.filename));
+  // El registro cita cada PDF con el nombre que de verdad tiene dentro del ZIP.
+  const record = params.record
+    ? buildSigningRecord(
+        signed.flatMap((item, position) =>
+          item.entry ? [{ ...item.entry, file: entryNames[position] }] : [],
+        ),
+        lang,
+      )
+    : undefined;
   try {
     const Zip = await loadJSZip();
     const zip = new Zip();
     signed.forEach((item, position) => {
       zip.file(entryNames[position], item.bytes, { createFolders: false });
     });
+    if (record && record.documents.length > 0) {
+      zip.file(signingRecordFilename(lang), serializeSigningRecord(record), {
+        createFolders: false,
+      });
+    }
     // `generateAsync` no se puede cortar a medias: se comprueba la senal
     // justo antes (mejor esfuerzo), igual que `pdfsToZip.ts`.
     throwIfAborted(signal);
@@ -210,6 +264,7 @@ export async function signBatch<D extends SignBatchDocument>(
         })),
         failed,
       },
+      ...(record && record.documents.length > 0 ? { record } : {}),
     };
   } catch (error) {
     throw toPdfError(error);

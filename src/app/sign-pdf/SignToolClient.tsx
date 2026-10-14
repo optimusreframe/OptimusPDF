@@ -47,6 +47,8 @@ import {
 } from "@/app/sign-pdf/signVault";
 import { rememberDrafts, type VaultNotice } from "@/app/sign-pdf/vaultMessages";
 import { DraftsSheet } from "@/app/sign-pdf/DraftsSheet";
+import { useResumeFromUrl } from "@/app/sign-pdf/useResumeFromUrl";
+import { ResumeGoneNotice } from "@/components/tool/ResumeGoneNotice";
 import { draftStatusLine } from "@/app/sign-pdf/draftStatus";
 import { flushOnPageHide } from "@/app/sign-pdf/flushOnPageHide";
 import { SessionDraftAutosave } from "@/app/sign-pdf/SessionDraftAutosave";
@@ -126,6 +128,7 @@ import {
   scopeMoveAnnouncement,
   signerBlocks,
   signerLabel,
+  type CeremonyState,
   type DocRef,
 } from "@/app/sign-pdf/blockModel";
 import {
@@ -202,6 +205,12 @@ import {
 } from "@/lib/pdf/sign";
 import type { NormalizedRect } from "@/lib/pdf/watermark";
 import { signBatch } from "@/lib/pdf/signBatch";
+import {
+  buildSigningRecord,
+  buildSigningRecordEntry,
+  signingRecordBlob,
+  signingRecordFilename,
+} from "@/lib/pdf/signRecord";
 import { getTool } from "@/lib/tools-registry";
 import { recordValue } from "@/lib/valueHistory";
 
@@ -292,6 +301,13 @@ export type SignToolOptions = {
    * contenido original.
    */
   textEdits?: TextEdit[];
+
+  /**
+   * Turno de la ceremonia de firma (de quien es y en que etapa), guardado en la sesion: el estado
+   * de la ceremonia se pierde al volver a montarla (pestanas de documento, «Atras»), este no.
+   * Ausente/`null` = sin turno guardado (se deriva del primer firmante pendiente).
+   */
+  ceremony?: CeremonyState | null;
 };
 
 /**
@@ -315,6 +331,7 @@ const CLEARED_DOCUMENT_STATE: Partial<SignToolOptions> = {
   editingTextFieldId: null,
   textFieldsDetectedFor: null,
   textEdits: [],
+  ceremony: null,
 };
 
 /**
@@ -460,6 +477,11 @@ export type DocumentJobContext = {
   language: Language;
   strings: SignStrings;
   certificateEnabled: boolean;
+  /**
+   * Registro `.json` aparte (Ajustes, apagado por defecto): con varios documentos va dentro del ZIP; con uno, se
+   * ofrece como descarga secundaria. Ausente = apagado.
+   */
+  recordEnabled?: boolean;
   /**
    * Firmantes del certificado de ESTE documento. Con varios documentos son
    * solo los que firman ese documento (`signersForDoc`), no todos los de la
@@ -628,6 +650,7 @@ export async function prepareDocumentJob(
             signerNames: signerNames ?? options.signers.map((signer) => signer.name),
             labels: {
               title: strings.certificateTitle,
+              notice: strings.certificateNotice,
               hashLabel: strings.certificateHashLabel,
               timestampLabel: strings.certificateTimestampLabel,
               signersLabel: strings.certificateSignersLabel,
@@ -678,6 +701,9 @@ export async function signDocumentsBatch({
     signal,
     onProgress,
     limits: { maxDocuments: MAX_DOCUMENTS, maxTotalBytes: MAX_TOTAL_BYTES },
+    record: context.recordEnabled
+      ? { noSignerName: context.strings.certificateNoSignerName }
+      : undefined,
     sign: async (document, progress) => {
       const signerNames =
         session.mode === "multi"
@@ -704,6 +730,16 @@ export async function signDocumentsBatch({
     filename: result.filename,
     report: result.report,
     ...editResultText(editEntries, context.language, context.strings, { named: true }),
+    // Un solo documento firmado: el PDF va suelto y el registro, como descarga secundaria (con varios, va en el ZIP).
+    ...(result.mimeType === "application/pdf" && result.record
+      ? {
+          secondaryDownload: {
+            label: context.strings.signingRecordDownload,
+            blob: signingRecordBlob(result.record),
+            filename: signingRecordFilename(context.language),
+          },
+        }
+      : {}),
   };
 }
 
@@ -742,6 +778,7 @@ export function SignToolClient() {
   const completionCertificateEnabled = useSignPdfFeatureFlag(
     "completionCertificate",
   );
+  const signingRecordEnabled = useSignPdfFeatureFlag("signingRecordFile");
   /**
    * Varios documentos a la vez. Apagado, la herramienta es la de siempre: un
    * solo archivo (`multiple: false`). El registro no cambia; solo la copia
@@ -1011,6 +1048,8 @@ export function SignToolClient() {
     },
     [handleResumeDraft, handleResumeSession],
   );
+  // `/sign-pdf?resume=<tipo>:<id>` (desde Recientes): retoma ese borrador al abrir la herramienta (U0.6).
+  const resumeLink = useResumeFromUrl(handleResumeEntry);
 
   const handleImportConfig = useCallback(
     async (zipFile: File) => {
@@ -1266,9 +1305,31 @@ export function SignToolClient() {
         session.mode !== "single" && signerPrefixRef.current && !isEditOnlyJob(job)
           ? buildSignerFilenamePrefix(session.signers.map((signer) => signer.name))
           : null;
-      return documentResult({ blob, edits, file, editedOnly: isEditOnlyJob(job), prefix, language, strings });
+      const result = documentResult({ blob, edits, file, editedOnly: isEditOnlyJob(job), prefix, language, strings });
+      // Registro `.json` aparte (opcional): hash y paginas del PDF EXACTO que se descarga, nunca dentro del PDF.
+      if (!signingRecordEnabled || isEditOnlyJob(job)) return result;
+      const record = buildSigningRecord(
+        [
+          await buildSigningRecordEntry({
+            file: result.filename,
+            bytes: new Uint8Array(await blob.arrayBuffer()),
+            signerNames:
+              session.mode === "multi" ? signersForDoc(session, docId).map((signer) => signer.name) : [],
+            noSignerName: strings.certificateNoSignerName,
+          }),
+        ],
+        language,
+      );
+      return {
+        ...result,
+        secondaryDownload: {
+          label: strings.signingRecordDownload,
+          blob: signingRecordBlob(record),
+          filename: signingRecordFilename(language),
+        },
+      };
     },
-    [strings, language, completionCertificateEnabled],
+    [strings, language, completionCertificateEnabled, signingRecordEnabled],
   );
 
   const processBatch = useCallback(
@@ -1283,9 +1344,14 @@ export function SignToolClient() {
         session,
         onProgress,
         signal,
-        context: { language, strings, certificateEnabled: completionCertificateEnabled },
+        context: {
+          language,
+          strings,
+          certificateEnabled: completionCertificateEnabled,
+          recordEnabled: signingRecordEnabled,
+        },
       }),
-    [language, strings, completionCertificateEnabled],
+    [language, strings, completionCertificateEnabled, signingRecordEnabled],
   );
 
   /**
@@ -1343,6 +1409,7 @@ export function SignToolClient() {
           {t.tool.errors[loadError]}
         </p>
       ) : null}
+      <ResumeGoneNotice state={resumeLink} className="basis-full" />
       {/* Region viva siempre montada: lo que no cupo en la ronda (documentos, peso). */}
       <p
         role="status"
@@ -2691,6 +2758,8 @@ export function MultiFlow({
             keys={stampKeys}
             blocks={blocksNow}
             onBlocksChange={(blocks) => multi.bridge.commit(() => ({ blocks }))}
+            ceremony={options.ceremony}
+            onCeremonyChange={(ceremony) => setOptions({ ceremony })}
             blockerMessages={blockerMessages(
               // Los pendientes y la cobertura ya tienen su propio sitio en la ceremonia.
               multiBlockers.filter(
@@ -2713,6 +2782,8 @@ export function MultiFlow({
             documentName={file?.name}
             onFinish={onFinish}
             strings={strings}
+            ceremony={options.ceremony}
+            onCeremonyChange={(ceremony) => setOptions({ ceremony })}
           />
         )
       ) : null}

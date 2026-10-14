@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, Check, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
+import { StatusRegion } from "@/components/tool/liveRouting";
 import { cn } from "@/lib/cn";
 import {
   SignatureComposer,
@@ -17,6 +18,7 @@ import {
   CEREMONY_HEADING_CLASS,
   CaptureRow,
   ReviewFigure,
+  TurnProgressList,
 } from "@/app/sign-pdf/SigningCeremony";
 import {
   addBlock,
@@ -35,8 +37,11 @@ import {
   scopeSummary,
   signerBlocks,
   signerLabel,
+  turnItemLabel,
+  turnProgress,
   visibleDraft,
   type BlockContext,
+  type CeremonyState,
   type DocRef,
 } from "@/app/sign-pdf/blockModel";
 import {
@@ -54,9 +59,10 @@ import {
 import type { SignStrings } from "@/app/sign-pdf/strings";
 import { rememberDrafts, type VaultNotice } from "@/app/sign-pdf/vaultMessages";
 import { useCeremonyFocus } from "@/app/sign-pdf/useCeremonyFocus";
+import { useCeremonyTurn } from "@/app/sign-pdf/useCeremonyTurn";
 import type { SignatureFieldType, Signer } from "@/lib/pdf/sign";
 
-type Stage = "handoff" | "capture" | "review";
+type Stage = CeremonyState["stage"];
 
 export type BlockCeremonyProps = {
   signers: Signer[];
@@ -75,6 +81,13 @@ export type BlockCeremonyProps = {
   onFinish: () => void;
   strings: SignStrings;
   busy?: boolean;
+  /**
+   * Turno guardado en la sesion (de quien es y en que etapa). Con `onCeremonyChange`
+   * el turno sobrevive a que esta ceremonia se vuelva a montar (pestanas de
+   * documento, «Atras», recarga); sin el, la ceremonia lo lleva por su cuenta.
+   */
+  ceremony?: CeremonyState | null;
+  onCeremonyChange?: (next: CeremonyState | null) => void;
 };
 
 /**
@@ -100,9 +113,26 @@ export function BlockCeremony({
   onFinish,
   strings,
   busy = false,
+  ceremony,
+  onCeremonyChange,
 }: BlockCeremonyProps) {
-  const [turn, setTurn] = useState(0);
-  const [stage, setStage] = useState<Stage>("handoff");
+  const docIds = docs.map((doc) => doc.id);
+  const ctx: BlockContext = { signers, docs: docStates, keys };
+  const queue = ceremonyQueue(ctx, docIds);
+  // El turno se deriva de lo que falta y, desde que alguien actua, vive en la sesion.
+  const {
+    position,
+    stage,
+    goTo: goToTurn,
+    setStage,
+    advance,
+    othersPending,
+  } = useCeremonyTurn({
+    stored: ceremony,
+    onChange: onCeremonyChange,
+    queue,
+    isDone: (signerId) => isSignerDone(blocks, signerId, ctx),
+  });
   const [composer, setComposer] = useState<{
     blockId: string;
     type: SignatureFieldType;
@@ -119,8 +149,12 @@ export function BlockCeremony({
     signerId: string;
     stage: Stage;
   } | null>(null);
-  /** Anuncio de la ultima edicion de alcance / bloque. */
-  const [scopeMessage, setScopeMessage] = useState("");
+  /**
+   * UNA sola region viva (siempre montada): el ultimo anuncio de alcance / bloque
+   * y lo que queda por recoger tras cada trazo.
+   */
+  const [liveMessage, setLiveMessage] = useState("");
+  const composeIdBase = useId();
   const vaultEnabled = useSignPdfFeatureFlag("signatureVault");
   /**
    * «Anadir bloque para X» se desmonta al resolverse el aviso de cobertura:
@@ -136,10 +170,6 @@ export function BlockCeremony({
     document.getElementById(balanceId)?.focus({ preventScroll: true });
   }, [addedBlocks, balanceId]);
 
-  const docIds = docs.map((doc) => doc.id);
-  const ctx: BlockContext = { signers, docs: docStates, keys };
-  const queue = ceremonyQueue(ctx, docIds);
-  const position = Math.min(turn, queue.length);
   const current = queue[position] ?? null;
   const headingRef = useCeremonyFocus(stage, position);
 
@@ -174,6 +204,36 @@ export function BlockCeremony({
       )
     : [];
   const ready = currentBlocks.every((block) => isBlockComplete(block, ctx));
+  const progress = current ? turnProgress(blocks, current.id, ctx) : [];
+  const missing = progress.filter((item) => !item.done);
+  const itemLabel = (item: (typeof progress)[number]) =>
+    turnItemLabel(item, blocks, docs, strings, currentBlocks.length > 1);
+  const composeIdOf = (item: (typeof progress)[number]) =>
+    `${composeIdBase}-${item.blockId}-${item.type}`;
+  const missingHintId = `${composeIdBase}-missing`;
+  /** «Ir a lo que falta»: lleva el foco (y la vista) al primer trazo pendiente. */
+  const goToMissing = () => {
+    const first = missing[0];
+    const target = first ? document.getElementById(composeIdOf(first)) : null;
+    if (!target) return;
+    // jsdom no implementa `scrollIntoView`; `auto` = sin animacion (tambien con movimiento reducido).
+    target.scrollIntoView?.({ block: "center", behavior: "auto" });
+    target.focus({ preventScroll: true });
+  };
+  /** Tras guardar un trazo: lo que queda por recoger, en la region viva. */
+  const announceProgress = (nextBlocks: SignerBlock[]) => {
+    if (!current) return;
+    const left = turnProgress(nextBlocks, current.id, ctx).filter((item) => !item.done);
+    setLiveMessage(
+      left.length === 0
+        ? strings.ceremonyAllCaptured
+        : strings.ceremonyMissing(
+            left.map((item) =>
+              turnItemLabel(item, nextBlocks, docs, strings, currentBlocks.length > 1),
+            ),
+          ),
+    );
+  };
   const scopeBlock = blocks.find((block) => block.id === scopeBlockId) ?? null;
   const composerBlock = composer
     ? (blocks.find((block) => block.id === composer.blockId) ?? null)
@@ -197,7 +257,9 @@ export function BlockCeremony({
   const vaultOpen = vaultShown && vaultFor !== null && vaultBlock !== null && current !== null;
 
   const saveDraft = (blockId: string, type: SignatureFieldType, draft: SignatureDraft) => {
-    onBlocksChange(captureForBlock(blocks, blockId, { [type]: draft }, ctx));
+    const next = captureForBlock(blocks, blockId, { [type]: draft }, ctx);
+    onBlocksChange(next);
+    announceProgress(next);
   };
 
   /**
@@ -218,6 +280,7 @@ export function BlockCeremony({
     };
     const result = applySavedToBlocks(blocks, vaultFor.blockId, saved, applyToAll, ctx);
     onBlocksChange(result.blocks);
+    announceProgress(result.blocks);
     void touchVaultEntry(entry.id);
     setVaultShown(false);
     showVaultNotice(current.id, stage, {
@@ -231,16 +294,11 @@ export function BlockCeremony({
     });
   };
 
-  const goToTurn = (next: number) => {
-    setTurn(next);
-    setStage("handoff");
-  };
-
   const editScope = (blockId: string, scope: DocId[]) => {
     const edit = changeBlockScope(blocks, blockId, scope, docs, strings);
     if (edit.blocks === blocks) return;
     onBlocksChange(edit.blocks);
-    setScopeMessage(edit.message);
+    setLiveMessage(edit.message);
   };
 
   const addBlockFor = (signerId: string, docId: DocId) => {
@@ -249,7 +307,7 @@ export function BlockCeremony({
     onBlocksChange(added.blocks);
     focusBalanceRef.current = true;
     setAddedBlocks((count) => count + 1);
-    setScopeMessage(
+    setLiveMessage(
       strings.blockAdded(
         signerLabel(signers, signerId, strings),
         signerBlocks(added.blocks, signerId).findIndex(
@@ -301,10 +359,13 @@ export function BlockCeremony({
 
       <VaultNoticeLine notice={vaultNotice} />
 
-      {/* Region viva siempre montada: alcance editado y bloques anadidos. */}
-      <p role="status" aria-live="polite" className="sr-only">
-        {scopeMessage}
-      </p>
+      {/*
+       * Region viva UNICA de la ceremonia, siempre montada: alcance editado, bloques anadidos y lo que falta por
+       * recoger. `StatusRegion` la encamina a la region unica de PDF Pro cuando la ceremonia vive dentro de el.
+       */}
+      <StatusRegion as="p" text={liveMessage} className="sr-only">
+        {liveMessage}
+      </StatusRegion>
 
       {current && stage === "handoff" ? (
         <div className="surface-card rounded-ios p-6 text-center">
@@ -350,6 +411,19 @@ export function BlockCeremony({
             {strings.blockCaptureBody}
           </p>
 
+          {progress.length > 1 ? (
+            <TurnProgressList
+              label={strings.ceremonyProgressLabel(currentName)}
+              doneText={strings.ceremonyItemDone}
+              missingText={strings.ceremonyItemMissing}
+              items={progress.map((item) => ({
+                key: `${item.blockId}-${item.type}`,
+                label: itemLabel(item),
+                done: item.done,
+              }))}
+            />
+          ) : null}
+
           <ul className="mt-4 space-y-4">
             {currentBlocks.map((block) => (
               <li
@@ -371,6 +445,7 @@ export function BlockCeremony({
                       draft={visibleDraft(block, type, ctx)}
                       strings={strings}
                       context={showHeadings ? blockTitle(block) : undefined}
+                      composeId={composeIdOf({ blockId: block.id, type, done: false })}
                       onCompose={() => setComposer({ blockId: block.id, type })}
                       onOpenVault={
                         vaultEnabled
@@ -388,8 +463,27 @@ export function BlockCeremony({
             ))}
           </ul>
 
-          <div className="mt-4">
-            <Button size="md" disabled={!ready} onClick={() => setStage("review")}>
+          <div className="mt-4 space-y-3">
+            {/* Por que «Ver como queda» esta apagado: que falta y un salto directo a ello. */}
+            {missing.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <p
+                  id={missingHintId}
+                  className="min-w-0 flex-1 text-footnote font-medium leading-relaxed text-foreground [overflow-wrap:anywhere]"
+                >
+                  {strings.ceremonyMissing(missing.map(itemLabel))}
+                </p>
+                <Button variant="secondary" size="md" onClick={goToMissing}>
+                  {strings.ceremonyGoToMissing}
+                </Button>
+              </div>
+            ) : null}
+            <Button
+              size="md"
+              disabled={!ready}
+              aria-describedby={missing.length > 0 ? missingHintId : undefined}
+              onClick={() => setStage("review")}
+            >
               {strings.captureContinue}
               <ArrowRight aria-hidden="true" className="size-4" />
             </Button>
@@ -435,8 +529,8 @@ export function BlockCeremony({
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            <Button size="md" onClick={() => goToTurn(position + 1)}>
-              {position + 1 < queue.length ? strings.reviewNext : strings.reviewFinish}
+            <Button size="md" onClick={advance}>
+              {othersPending ? strings.reviewNext : strings.reviewFinish}
             </Button>
             <Button variant="secondary" size="md" onClick={() => setStage("capture")}>
               {strings.reviewRedo}
@@ -535,6 +629,7 @@ export function BlockCeremony({
               for (const block of blocks) cleared = clearBlock(cleared, block.id);
               onBlocksChange(cleared);
               goToTurn(0);
+              setLiveMessage("");
             }}
           >
             {strings.restartCeremony}
