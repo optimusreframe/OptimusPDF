@@ -3,7 +3,8 @@ import {
   getPageGeometry,
   loadPdf,
   normalizedRectToUserBox,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   toPdfError,
   type NormalizedRect,
   type ProgressCallback,
@@ -85,6 +86,18 @@ export async function cropPdf(
   options: CropOptions,
   onProgress?: ProgressCallback,
 ): Promise<Blob> {
+  return pdfBytesToBlob(await cropPdfToBytes(file, options, onProgress));
+}
+
+/**
+ * Igual que `cropPdf`, pero devuelve los BYTES del PDF resultante (`Uint8Array`) sin pasar por un `Blob`: para quien sigue
+ * trabajando con bytes (PDF Pro). Mismos bytes que el `Blob` de `cropPdf`.
+ */
+export async function cropPdfToBytes(
+  file: File,
+  options: CropOptions,
+  onProgress?: ProgressCallback,
+): Promise<Uint8Array> {
   try {
     const document = await loadPdf(file);
     onProgress?.(0.2);
@@ -119,9 +132,9 @@ export async function cropPdf(
       onProgress?.(0.2 + ((step + 1) / targets.length) * 0.75);
     }
 
-    const blob = await savePdfToBlob(document);
+    const bytes = await savePdfToBytes(document);
     onProgress?.(1);
-    return blob;
+    return bytes;
   } catch (error) {
     throw toPdfError(error);
   }

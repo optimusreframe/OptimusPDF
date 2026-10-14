@@ -12,12 +12,13 @@ import "@/app/pdf-pro/modes/signModes";
 
 /**
  * Contenido del panel contextual de cada pestaña de la suite (mapa `pestaña → componente`). La suite pinta
- * `PRO_TAB_CONTENT[tab]`; una pestaña sin entrada muestra su aviso «Próximamente».
+ * `PRO_TAB_CONTENT[tab]`. Las pestañas SIN entrada (`edit`, `annotate`, `sign`) son modos con sesion propia: ocupan la
+ * region central (`ProModeHost`) y no tienen panel; la suite no pinta ninguno para ellas (ni «Próximamente»).
  *
  *  - `home` (Inicio): resumen, herramientas de documento, acciones rapidas e historial (Wave 7 · U5).
+ *  - `pages` (Páginas): el organizador de paginas (U4).
  *  - `protect` (Proteger): «Guardar con contraseña…» y «Quitar protección» (U5).
- *  - `convert` (Convertir): contenedor de exportaciones (U5; las implementa U8).
- *  - `pages` / `edit` / `annotate` / `sign`: las añaden U4 y las unidades de modos.
+ *  - `convert` (Convertir): las ocho exportaciones (U5 el contenedor, U8 los motores).
  */
 export const PRO_TAB_CONTENT: Partial<Record<ProTabId, ComponentType>> = {
   home: DocumentTab,

@@ -1,8 +1,8 @@
 import type { Language } from "@/lib/i18n";
-import { withSuffix } from "@/lib/pdf/core";
-import { ProtectValidationError, protectPdf, validateProtectOptions, type ProtectOptions } from "@/lib/pdf/protect";
+import { pdfBytesToBlob, withSuffix } from "@/lib/pdf/core";
+import { ProtectValidationError, protectPdfToBytes, validateProtectOptions, type ProtectOptions } from "@/lib/pdf/protect";
 import { PROTECT_STRINGS } from "@/app/protect-pdf/strings";
-import { asPdfFile, blobToBytes } from "@/app/pdf-pro/ops/opUtils";
+import { asEngineFile } from "@/app/pdf-pro/ops/opUtils";
 
 /**
  * «Guardar con contraseña…» de PDF Pro (Wave 7 · U5): cifrar es una OPCION DE EXPORTACION, no un paso del
@@ -32,12 +32,18 @@ export async function buildProtectedExport(
 ): Promise<ProtectedExport> {
   const invalid = validateProtectOptions(options);
   if (invalid) throw new ProtectValidationError(invalid);
-  const blob = await protectPdf(asPdfFile(bytes), options, onProgress);
+  // Wave 10: el motor devuelve los BYTES (sin ir a `Blob` y volver a leerlo) y el `Blob` de la descarga se crea una vez;
+  // el motor solo lee el archivo con `loadPdf`, asi que se le da un `File` que sirve los bytes sin copiarlos.
+  const { bytes: protectedBytes, appliedEncryptionRevision, legacyRevisionIgnoredRestrictions } = await protectPdfToBytes(
+    asEngineFile(bytes),
+    options,
+    onProgress,
+  );
   return {
-    bytes: await blobToBytes(blob),
-    blob,
-    appliedEncryptionRevision: blob.appliedEncryptionRevision,
-    legacyRevisionIgnoredRestrictions: blob.legacyRevisionIgnoredRestrictions,
+    bytes: protectedBytes,
+    blob: pdfBytesToBlob(protectedBytes),
+    appliedEncryptionRevision,
+    legacyRevisionIgnoredRestrictions,
   };
 }
 

@@ -7,6 +7,7 @@ import {
   RasterCancelledError,
   RasterUnavailableError,
   bucketZoom,
+  createNonOpaqueContext,
   isRasterCancelled,
   planRaster,
   renderPageRaster,
@@ -259,5 +260,29 @@ describe("renderPageRaster — el contexto 2D lo crea la aplicacion, no pdf.js",
     const { render, page } = setup({ context: false });
     await expect(renderPageRaster(page, plan)).rejects.toBeInstanceOf(RasterUnavailableError);
     expect(render).not.toHaveBeenCalled();
+  });
+});
+
+/** Wave 10 · C-A1: el helper que comparten Firmar/PDF Pro (`renderPageRaster`) y la superficie de Editar. */
+describe("createNonOpaqueContext", () => {
+  it("pide el contexto 2D con `alpha: true` y deja pasar `willReadFrequently`", () => {
+    const getContext = vi.fn(() => ({}));
+    const canvas = { getContext } as unknown as HTMLCanvasElement;
+    expect(createNonOpaqueContext(canvas)).toEqual({});
+    expect(getContext).toHaveBeenLastCalledWith("2d", { alpha: true });
+    createNonOpaqueContext(canvas, { willReadFrequently: true });
+    expect(getContext).toHaveBeenLastCalledWith("2d", { alpha: true, willReadFrequently: true });
+  });
+
+  it("`alpha` no se puede desactivar ni siquiera a la fuerza (lo pisa)", () => {
+    const getContext = vi.fn(() => ({}));
+    const canvas = { getContext } as unknown as HTMLCanvasElement;
+    createNonOpaqueContext(canvas, { alpha: false } as never);
+    expect(getContext).toHaveBeenLastCalledWith("2d", { alpha: true });
+  });
+
+  it("sin contexto 2D devuelve null (sin lanzar)", () => {
+    const canvas = { getContext: () => null } as unknown as HTMLCanvasElement;
+    expect(createNonOpaqueContext(canvas)).toBeNull();
   });
 });

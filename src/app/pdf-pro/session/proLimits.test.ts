@@ -104,6 +104,19 @@ describe("unloadGuardNeeded", () => {
     expect(unloadGuardNeeded({ ...base, dirty: false, stepInFlight: false })).toBe(false);
   });
 
+  // Wave 10 · C-B2: una exportacion en curso se pierde al cerrar la pestaña y ningun borrador la cubre.
+  it("con una exportacion en curso avisa siempre: sin cambios, con el borrador al dia y aunque el documento sea pequeño", () => {
+    expect(unloadGuardNeeded({ ...base, dirty: false, exportRunning: true })).toBe(true);
+    expect(unloadGuardNeeded({ ...base, exportRunning: true })).toBe(true);
+    expect(unloadGuardNeeded({ ...base, dirty: false, draftWritePending: false, exportRunning: true })).toBe(true);
+  });
+
+  it("sin exportacion en curso (`false` o ausente) no cambia nada de lo demas", () => {
+    expect(unloadGuardNeeded({ ...base, dirty: false, exportRunning: false })).toBe(false);
+    expect(unloadGuardNeeded({ ...base, exportRunning: false })).toBe(false);
+    expect(unloadGuardNeeded({ ...base, autosaveEnabled: false, exportRunning: false })).toBe(true);
+  });
+
   it("con cambios y el borrador automatico funcionando, no avisa", () => {
     expect(unloadGuardNeeded(base)).toBe(false);
   });

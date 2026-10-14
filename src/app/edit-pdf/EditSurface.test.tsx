@@ -301,3 +301,88 @@ describe("EditSurface", () => {
     expect(handle.current!.sampleBackground({ x: 0, y: 0, width: 10, height: 10 })).toBeNull();
   });
 });
+
+/**
+ * Wave 10 · C-A1: el contexto 2D del lienzo en que pdf.js dibuja la hoja lo crea la aplicacion, ANTES de `render` y NO
+ * opaco. Si no existiera, pdf.js crearia el suyo con `{ alpha: false, willReadFrequently: true }` y Chromium en Linux
+ * (fontconfig de Ubuntu) y en Windows (ClearType) dibujaria el texto con antialiasing LCD: franjas de color en el
+ * lienzo, distinto al texto de Firmar (que ya crea su contexto no opaco, `pageRaster.test.ts`). Medido en Linux con
+ * Docker: 46.577 pixeles con color a DPR 1 (maxima diferencia entre canales 151) frente a 0 con el lienzo no opaco. En
+ * macOS no hay LCD, asi que solo esta prueba (y `e2e/specs/edit-quality.spec.ts` en Linux) lo detectan.
+ */
+describe("EditSurface · el contexto 2D de la hoja no es opaco (C-A1)", () => {
+  type Attributes = { alpha?: boolean; willReadFrequently?: boolean } | undefined;
+
+  function spyContexts() {
+    return vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation(() => ({ drawImage, getImageData }) as unknown as CanvasRenderingContext2D);
+  }
+
+  /** (lienzo, atributos, orden de llamada) de cada `getContext("2d", ...)`. */
+  function contextCalls(spy: ReturnType<typeof spyContexts>) {
+    return spy.mock.calls.map((args, index) => ({
+      canvas: spy.mock.contexts[index] as HTMLCanvasElement,
+      type: args[0] as string,
+      attributes: args[1] as Attributes,
+      order: spy.mock.invocationCallOrder[index],
+    }));
+  }
+
+  it("el lienzo fuera de pantalla recibe su contexto 2D NO opaco ANTES de que pdf.js dibuje, con `willReadFrequently` como antes", async () => {
+    const spy = spyContexts();
+    const page = fakePage([0, 0, 400, 300]);
+    render(<Harness doc={fakeDoc([page])} />);
+    await waitFor(() => expect(page.render).toHaveBeenCalledTimes(1));
+    const { canvas } = page.render.mock.calls[0][0];
+    const own = contextCalls(spy).filter((call) => call.canvas === canvas);
+    expect(own.length, "el lienzo que se pasa a pdf.js ya tiene contexto propio").toBeGreaterThanOrEqual(1);
+    expect(own[0].type).toBe("2d");
+    // Explicito `true` (no basta con «no es false»): un lienzo no opaco es lo que garantiza el antialiasing en grises.
+    expect(own[0].attributes?.alpha).toBe(true);
+    // Lo que pdf.js ponia por su cuenta (la lectura de pixeles de la hoja la hace el muestreo de fondo): no se degrada.
+    expect(own[0].attributes?.willReadFrequently).toBe(true);
+    // Y antes de dibujar: despues de `render` ya seria tarde (pdf.js habria creado el suyo).
+    expect(own[0].order).toBeLessThan(page.render.mock.invocationCallOrder[0]);
+  });
+
+  it("dibuja en ESE lienzo (con `intent: display`), lo copia al visible y ningun contexto de la superficie pide `alpha: false`", async () => {
+    const spy = spyContexts();
+    const handle = createRef<SurfaceHandle>();
+    const page = fakePage([0, 0, 400, 300]);
+    render(<Harness doc={fakeDoc([page])} handleRef={handle} />);
+    await waitFor(() => expect(host().getAttribute("data-render-state")).toBe("ready"));
+    // El muestreo de fondo tambien pide el contexto del lienzo visible.
+    handle.current!.sampleBackground({ x: 40, y: 250, width: 100, height: 20 });
+    const { canvas, intent } = page.render.mock.calls[0][0];
+    expect(intent).toBe("display");
+    const visible = document.querySelector<HTMLCanvasElement>("[data-edit-canvas]")!;
+    expect(visible).not.toBe(canvas);
+    const calls = contextCalls(spy);
+    const visibleCalls = calls.filter((call) => call.canvas === visible);
+    expect(visibleCalls.length).toBeGreaterThanOrEqual(2); // al copiar el render y al muestrear
+    for (const call of calls) {
+      expect(call.type).toBe("2d");
+      expect(call.attributes?.alpha, "ningun contexto de la superficie es opaco").not.toBe(false);
+    }
+    for (const call of visibleCalls) expect(call.attributes?.alpha).toBe(true);
+    expect(drawImage).toHaveBeenCalledWith(canvas, 0, 0);
+  });
+
+  it("cada render nuevo (zoom) crea otra vez el contexto no opaco del lienzo nuevo antes de dibujar", async () => {
+    const spy = spyContexts();
+    const page = fakePage([0, 0, 400, 300]);
+    const doc = fakeDoc([page]);
+    const { rerender } = render(<Harness doc={doc} zoom={1} />);
+    await waitFor(() => expect(host().getAttribute("data-render-state")).toBe("ready"));
+    rerender(<Harness doc={doc} zoom={2} />);
+    await waitFor(() => expect(page.render).toHaveBeenCalledTimes(2));
+    const calls = contextCalls(spy);
+    for (const [index, [params]] of page.render.mock.calls.entries()) {
+      const own = calls.filter((call) => call.canvas === params.canvas);
+      expect(own[0]?.attributes?.alpha, `render ${index + 1}`).toBe(true);
+      expect(own[0].order).toBeLessThan(page.render.mock.invocationCallOrder[index]);
+    }
+    expect(page.render.mock.calls[0][0].canvas).not.toBe(page.render.mock.calls[1][0].canvas);
+  });
+});

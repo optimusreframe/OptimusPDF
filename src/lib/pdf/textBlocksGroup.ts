@@ -520,20 +520,22 @@ function prepare(items: RawTextItem[], angle: number): Prep[] {
         : str.length * size * 0.5;
     const u = item.x * cos + item.y * sin;
     const v = -item.x * sin + item.y * cos;
-    // Duplicado (negrita falsa): mismo texto y tamano con un desfase minimo.
+    // Duplicado (negrita falsa): mismo texto y tamano con un desfase minimo respecto de una pasada ANTERIOR, la
+    // conservada o una ya descartada. Se anota la posicion de TODAS las pasadas (tambien las descartadas): una negrita
+    // de 3-4 pasadas a 0,3 pt cada una (cuerpo 15) tiene la 3.ª a 0,6 pt de la 1.ª (> 0,45) pero a 0,3 de la 2.ª; si
+    // solo se comparara con la conservada, la 3.ª sobreviviria como un texto aparte y el bloque saldria duplicado
+    // («Hola mundoHola mundo»: el editor lo mostraba doble y el perfil de glifos no cuadraba con las 3 pasadas del
+    // flujo, asi que el texto original no se quitaba). Cada pasada se encadena con la anterior.
     const same = kept.get(str);
-    if (
-      same?.some(
-        (d) =>
-          Math.abs(d.u - u) <= DUPLICATE_OFFSET_EM * size &&
-          Math.abs(d.v - v) <= DUPLICATE_OFFSET_EM * size &&
-          Math.abs(d.size - size) <= 0.01 * size,
-      )
-    ) {
-      continue;
-    }
+    const duplicate = same?.some(
+      (d) =>
+        Math.abs(d.u - u) <= DUPLICATE_OFFSET_EM * size &&
+        Math.abs(d.v - v) <= DUPLICATE_OFFSET_EM * size &&
+        Math.abs(d.size - size) <= 0.01 * size,
+    );
     if (same) same.push({ u, v, size });
     else kept.set(str, [{ u, v, size }]);
+    if (duplicate) continue;
     let ascent = Number.isFinite(item.ascent) ? item.ascent : 0.8;
     let descent = Number.isFinite(item.descent) ? item.descent : -0.2;
     if (ascent <= 0.05) ascent = 0.8;

@@ -718,13 +718,31 @@ export async function loadPdf(
   }
 }
 
+/**
+ * Serializa un documento pdf-lib a BYTES (`Uint8Array`, respaldado por un `ArrayBuffer` propio y del tamaño justo),
+ * sin pasar por un `Blob`. Para quien sigue trabajando con los bytes (el documento de trabajo de PDF Pro los guarda
+ * como snapshot): ir a `Blob` y volver a leerlo (`blob.arrayBuffer()`) son dos copias enteras de un PDF que, con 100 MB,
+ * suman ~200 MB de pico y ~50 ms por operacion. Los bytes son EXACTAMENTE los de `savePdfToBlob`: misma llamada.
+ */
+export async function savePdfToBytes(document: PDFDocument): Promise<Uint8Array> {
+  return document.save({ useObjectStreams: true });
+}
+
+/**
+ * Envuelve unos bytes de PDF en un `Blob` descargable. Un fallo de memoria al crearlo se tipa como cualquier otro error
+ * del motor (antes ocurria dentro del `try` de cada motor, que lo pasaba por `toPdfError`).
+ */
+export function pdfBytesToBlob(bytes: Uint8Array): Blob {
+  try {
+    return new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
+  } catch (error) {
+    throw toPdfError(error);
+  }
+}
+
 /** Serializa un documento pdf-lib a Blob descargable. */
 export async function savePdfToBlob(document: PDFDocument): Promise<Blob> {
-  const bytes = await document.save({ useObjectStreams: true });
-  // `bytes` es un Uint8Array respaldado por un ArrayBuffer propio.
-  return new Blob([bytes as unknown as BlobPart], {
-    type: "application/pdf",
-  });
+  return pdfBytesToBlob(await savePdfToBytes(document));
 }
 
 /* ------------------------------------------------------------------ *

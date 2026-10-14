@@ -15,7 +15,8 @@ import {
   originForCenter,
   readFileBytes,
   rotatedBounds,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   standardFontFor,
   toPdfError,
   toWinAnsiSafe,
@@ -257,6 +258,18 @@ export async function addWatermark(
   options: WatermarkOptions,
   onProgress?: ProgressCallback,
 ): Promise<Blob> {
+  return pdfBytesToBlob(await addWatermarkToBytes(file, options, onProgress));
+}
+
+/**
+ * Igual que `addWatermark`, pero devuelve los BYTES del PDF resultante (`Uint8Array`) sin pasar por un `Blob`: para quien sigue
+ * trabajando con bytes (PDF Pro). Mismos bytes que el `Blob` de `addWatermark`.
+ */
+export async function addWatermarkToBytes(
+  file: File,
+  options: WatermarkOptions,
+  onProgress?: ProgressCallback,
+): Promise<Uint8Array> {
   try {
     const text = toWinAnsiSafe(options.text.trim());
     if (options.kind === "text" && text.length === 0) {
@@ -335,9 +348,9 @@ export async function addWatermark(
       onProgress?.(0.3 + ((index - from + 1) / (to - from + 1)) * 0.65);
     }
 
-    const blob = await savePdfToBlob(document);
+    const bytes = await savePdfToBytes(document);
     onProgress?.(1);
-    return blob;
+    return bytes;
   } catch (error) {
     throw toPdfError(error);
   }

@@ -1352,6 +1352,166 @@ describe("F2 ronda 3 · N3b · texto dibujado varias veces para simular negrita"
   });
 });
 
+/**
+ * Wave 10 · C-A2 · negrita simulada con 3 o 4 pasadas FINAS (cuerpo 15).
+ *
+ * Causa: el agrupado de fragmentos (`textBlocksGroup.prepare`) descartaba una pasada como duplicado solo si caia a
+ * <= 0,03 em (0,45 pt a 15) de una pasada CONSERVADA. En una negrita de 3-4 pasadas a 0,25-0,4 pt cada una la 3.ª
+ * cae a 0,6 pt de la 1.ª pero a 0,3 de la 2.ª (descartada): sobrevivia como texto aparte y el bloque salia DUPLICADO
+ * («Hola mundoHola mundo»: el editor lo mostraba doble y su perfil de glifos, 2 copias, no cuadraba con las 3-4
+ * pasadas del flujo). `removeOriginalText` hacia lo correcto (no borrar ante la duda) y daba `ambiguous`.
+ * Con 2 pasadas, con 3-4 a 0,15 y con 3-4 a >= 0,6 (todas conservadas, perfil con TODAS las copias) ya funcionaba.
+ * Ahora cada pasada se encadena con la anterior, tambien con las descartadas. La validacion de `removeOriginalText`
+ * (`collapseOverstrike`: misma fuente, mismo codigo, mismo cuerpo, <= 12 % del cuerpo y <= 35 % del ancho del glifo)
+ * NO cambia, y sigue sin borrar nada ante la duda.
+ */
+describe("Wave 10 · C-A2 · negrita simulada con 3 o 4 pasadas finas", () => {
+  const FONT15 = "BT /F1 15 Tf";
+  const pass = (x: number, y: number, text = "Hola mundo", size = 15) => `BT /F1 ${size} Tf ${x} ${y} Td (${text}) Tj ET`;
+  /** `n` pasadas acumuladas: la k-esima cae a k*d de la primera, en horizontal o en diagonal. */
+  const passes = (n: number, d: number, kind: "horizontal" | "diagonal") =>
+    Array.from({ length: n }, (_, k) => pass(20 + k * d, kind === "diagonal" ? 100 + k * d : 100)).join(" ");
+  const withFooter = (content: string) => `${content} BT /F1 8 Tf 20 30 Td (Pie intacto) Tj ET`;
+
+  const FINE: Array<[string, number, number, "horizontal" | "diagonal"]> = [
+    ["3 pasadas horizontales a 0,25 pt", 3, 0.25, "horizontal"],
+    ["3 pasadas horizontales a 0,3 pt", 3, 0.3, "horizontal"],
+    ["3 pasadas horizontales a 0,33 pt", 3, 0.33, "horizontal"],
+    ["3 pasadas horizontales a 0,35 pt", 3, 0.35, "horizontal"],
+    ["3 pasadas horizontales a 0,4 pt", 3, 0.4, "horizontal"],
+    ["4 pasadas horizontales a 0,25 pt", 4, 0.25, "horizontal"],
+    ["4 pasadas horizontales a 0,3 pt", 4, 0.3, "horizontal"],
+    ["4 pasadas horizontales a 0,33 pt", 4, 0.33, "horizontal"],
+    ["4 pasadas horizontales a 0,35 pt", 4, 0.35, "horizontal"],
+    ["3 pasadas en diagonal a 0,25 pt", 3, 0.25, "diagonal"],
+    ["3 pasadas en diagonal a 0,3 pt", 3, 0.3, "diagonal"],
+    ["3 pasadas en diagonal a 0,35 pt", 3, 0.35, "diagonal"],
+    ["3 pasadas en diagonal a 0,4 pt", 3, 0.4, "diagonal"],
+    ["4 pasadas en diagonal a 0,2 pt", 4, 0.2, "diagonal"],
+  ];
+
+  it.each(FINE)(
+    "%s: el bloque sale UNA vez (no «Hola mundoHola mundo»), se quitan todas las pasadas y fuera de la zona hay 0 px de diferencia",
+    async (_name, n, d, kind) => {
+      const source = await rawPdf(withFooter(passes(n, d, kind)));
+      const blocks = await blocksOf(source);
+      const block = blocks.find((b) => b.text.includes("Hola"));
+      expect(block, "bloque detectado").toBeDefined();
+      // La causa: el bloque tenia que salir una vez, no una por cada pasada que no se encadenaba.
+      expect(block!.text).toBe("Hola mundo");
+      const e = blockEdit(block!, "Nuevo");
+      const result = await applyTextEdits(source, [e]);
+      expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+      expect(remains(result.warningsByEdit[e.id])).toBeNull();
+      await expectBlockReplaced(source, result.bytes, e, { gone: ["Hola", "mundo"], present: ["Nuevo"], untouched: ["Pie intacto"] });
+      const after = await pageContent(result.bytes);
+      expect(after).not.toContain("(Hola mundo)");
+      expect(after).toContain("(Pie intacto)");
+    },
+  );
+
+  it("con TJ y kerning (3 pasadas a 0,3 pt) tambien se quitan, y `pdftotext -layout` ya no ve el original", async () => {
+    const tj = (x: number) => `${FONT15} ${x} 100 Td [(Ho) -20 (la mundo)] TJ ET`;
+    const source = await rawPdf(withFooter([tj(20), tj(20.3), tj(20.6)].join(" ")));
+    const block = (await blocksOf(source)).find((b) => b.text.includes("Hola"));
+    expect(block?.text).toBe("Hola mundo");
+    const e = blockEdit(block!, "Nuevo");
+    const result = await applyTextEdits(source, [e]);
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    await expectBlockReplaced(source, result.bytes, e, { gone: ["Hola", "mundo"], present: ["Nuevo"], untouched: ["Pie intacto"] });
+    const text = pdftotext(result.bytes);
+    if (text !== null) expect(text.replace(/\s+/g, " ")).not.toMatch(/Ho\s?la/);
+  });
+
+  it("TrueType embebida (Identity-H, ToUnicode exacto) dibujada 4 veces a 0,3 pt: se quitan las 4 pasadas", async () => {
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(fontkit);
+    const ttf = fs.readFileSync(path.join(FONTS_DIR, "LiberationSans-Regular.ttf"));
+    const font = await doc.embedFont(ttf, { subset: true });
+    const page = doc.addPage([300, 200]);
+    for (let k = 0; k < 4; k += 1) page.drawText("Importe 1.250,00", { x: 40 + k * 0.3, y: 100, size: 15, font });
+    page.drawText("Cliente ACME", { x: 40, y: 60, size: 15, font });
+    const source = await doc.save();
+    const block = (await blocksOf(source)).find((b) => b.text.includes("Importe"));
+    expect(block?.text).toBe("Importe 1.250,00");
+    const e = blockEdit(block!, "Importe 999,00");
+    const result = await applyTextEdits(source, [e]);
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    await expectBlockReplaced(source, result.bytes, e, { gone: ["1.250,00"], present: ["999,00"], untouched: ["Cliente ACME"] });
+  });
+
+  /* ------------------------ adversas: ante la duda NO se borra ------------------------ */
+
+  /** Edicion de mano (caja ancha y perfil de «Hola mundo»): no depende de lo que detecte el agrupado. */
+  const wide = { x: 19.5, y: 96, width: 100, height: 20 };
+  const hand = (text = "Hola mundo") =>
+    edit({ box: wide, coverBox: wide, text: "Nuevo", fontSize: 15, originalGlyphs: glyphProfile(text) });
+
+  async function expectNothingRemoved(source: Uint8Array, e: TextEdit, strings: string[]) {
+    const result = await applyTextEdits(source, [e]);
+    expect(removed(result.warningsByEdit[e.id])).toBe(false);
+    expect(remains(result.warningsByEdit[e.id])).toEqual({ kind: "original-text-remains", reason: "ambiguous" });
+    const content = await pageContent(result.bytes);
+    for (const text of strings) expect(content).toContain(text);
+  }
+
+  it("adverso: 3 pasadas finas y un glifo AJENO dentro de la caja: el perfil de una copia + el ajeno no cuadra, no se borra nada", async () => {
+    const source = await rawPdf(`${passes(3, 0.3, "horizontal")} ${pass(95, 100, "x")}`);
+    await expectNothingRemoved(source, hand(), ["(Hola mundo) Tj", "(x) Tj"]);
+  });
+
+  it("adverso: 3 pasadas finas y un glifo ajeno que cae EXACTAMENTE sobre una letra de la pasada (otro codigo): no se funde con ella", async () => {
+    // Una «x» dibujada sobre la «H» (mismo punto): su codigo es otro, asi que es un glifo mas y el perfil no cuadra.
+    const source = await rawPdf(`${passes(3, 0.3, "horizontal")} ${pass(20.1, 100, "x")}`);
+    await expectNothingRemoved(source, hand(), ["(Hola mundo) Tj", "(x) Tj"]);
+  });
+
+  it("adverso: dos pasadas separadas 2,5 pt (17 % del cuerpo) no son copias aunque midan < 35 % del ancho de la «o»: no se borra nada", async () => {
+    // El limite del cuerpo (12 %) es independiente del del glifo (35 %): en letras anchas el segundo seria 4-5 pt.
+    const source = await rawPdf(`${pass(20, 100, "Wo")} ${pass(22.5, 100, "Wo")}`);
+    await expectNothingRemoved(source, hand("Wo"), ["(Wo) Tj"]);
+  });
+
+  it("adverso: la tercera pasada es de OTRO cuerpo (14,2 frente a 15): no es una copia, no se borra nada", async () => {
+    const source = await rawPdf(`${pass(20, 100)} ${pass(20.3, 100)} ${pass(20.6, 100, "Hola mundo", 14.2)}`);
+    await expectNothingRemoved(source, hand(), ["(Hola mundo) Tj"]);
+  });
+
+  it("adverso: la tercera pasada lleva OTRA letra del mismo ancho (Hole): no se confunde con una copia, no se borra nada", async () => {
+    const source = await rawPdf(`${pass(20, 100)} ${pass(20.3, 100)} ${pass(20.6, 100, "Hole mundo")}`);
+    await expectNothingRemoved(source, hand(), ["(Hola mundo) Tj", "(Hole mundo) Tj"]);
+  });
+
+  it("adverso: 5 pasadas a 0,3 pt NO son una negrita simulada (maximo 4): el bloque se detecta una vez pero no se borra nada", async () => {
+    const source = await rawPdf(withFooter(passes(5, 0.3, "horizontal")));
+    const block = (await blocksOf(source)).find((b) => b.text.includes("Hola"));
+    expect(block?.text).toBe("Hola mundo");
+    const e = blockEdit(block!, "Nuevo");
+    await expectNothingRemoved(source, e, ["(Hola mundo) Tj", "(Pie intacto) Tj"]);
+  });
+
+  it("adverso: 4 pasadas cuya dispersion total (1,2 pt) pasa del 35 % del ancho de la «l» (1,17 pt): no se borra nada", async () => {
+    const source = await rawPdf(passes(4, 0.4, "horizontal"));
+    const block = (await blocksOf(source)).find((b) => b.text.includes("Hola"));
+    expect(block?.text).toBe("Hola mundo");
+    await expectNothingRemoved(source, blockEdit(block!, "Nuevo"), ["(Hola mundo) Tj"]);
+  });
+
+  it("adverso: el mismo texto a otra altura (3 pasadas finas encima de otras 3 a 9 pt) no se funde: cada bloque se edita aparte", async () => {
+    const source = await rawPdf(withFooter(`${passes(3, 0.3, "horizontal")} ${[0, 1, 2].map((k) => pass(20 + k * 0.3, 70)).join(" ")}`));
+    const blocks = (await blocksOf(source)).filter((b) => b.text.includes("Hola"));
+    expect(blocks.map((b) => b.text)).toEqual(["Hola mundo", "Hola mundo"]);
+    const upper = blocks.find((b) => b.box.y > 90)!;
+    const e = blockEdit(upper, "Nuevo");
+    const result = await applyTextEdits(source, [e]);
+    expect(result.warningsByEdit[e.id]).toContainEqual({ kind: "original-text-removed" });
+    // Solo se quitan las 3 pasadas de arriba: las de abajo siguen en el flujo y en pdf.js.
+    const content = await pageContent(result.bytes);
+    expect(content.match(/\(Hola mundo\) Tj/g)?.length).toBe(3);
+    expect((await strings(result.bytes)).join(" ")).toContain("Hola mundo");
+  });
+});
+
 describe("F2 ronda 3 · N4 · /Contents como array indirecto compartido y edicion que NO consigue quitar el original", () => {
   const shared = "BT /F1 20 Tf 40 100 Td (Original) Tj ET BT /F1 12 Tf 40 30 Td (Pie comun) Tj ET";
 

@@ -1,4 +1,4 @@
-import type { ChunkPlan } from "@/app/pdf-pro/proChunks";
+import { chunkIndexOf, yieldToMain, type ChunkIndex, type ChunkPlan } from "@/app/pdf-pro/proChunks";
 
 /**
  * Filas de IndexedDB para snapshots TROCEADOS por contenido (Wave 9). Las usan los dos almacenes de PDF Pro
@@ -14,6 +14,10 @@ import type { ChunkPlan } from "@/app/pdf-pro/proChunks";
  * `BATCH_BYTES` por tanda) y todo, trozos nuevos + manifiesto, se confirma o se descarta JUNTO (nunca queda un manifiesto
  * sin sus trozos). El orden importa: el manifiesto se pide el ULTIMO.
  *
+ * Lectura (`readChunked`, Wave 10): un buffer del tamaño final reservado una vez; los trozos que YA tiene un snapshot
+ * residente (se conoce su plan) se copian de la RAM por hash (nunca por posicion) y los demas se piden a IndexedDB con una
+ * ventana deslizante de peticiones. Entre dos pasos consecutivos de un PDF grande solo cambia ~7 % de los trozos.
+ *
  * Recoleccion de basura (`collectChunkGarbage`): marca y barrido sobre todos los manifiestos de ese almacen; un trozo
  * que ningun manifiesto nombra se borra. Es obvia y robusta (sin contadores de referencias que puedan desfasarse).
  */
@@ -24,8 +28,21 @@ const CHUNK_RANGE_END = "~c;"; // ';' va justo despues de ':'
 const MANIFEST_RANGE_END = "~m;";
 /** Bytes de trozos NUEVOS que se piden por tanda antes de esperar a que el navegador los acepte. */
 const BATCH_BYTES = 8 * 1024 * 1024;
-/** Trozos que se leen por tanda (~6 MB): lo leido se copia a su sitio y se suelta antes de pedir mas. */
-const READ_BATCH = 128;
+/**
+ * Peticiones de lectura en vuelo a la vez (~3 MB como mucho). Ventana DESLIZANTE: cada trozo que llega pide el siguiente,
+ * asi la cola de IndexedDB nunca se vacia (con tandas fijas de 128 hay un hueco entre tanda y tanda; medido con 100 MB:
+ * 94 ms por tandas frente a 51 ms con ventana) y lo leido se copia a su sitio y se suelta sin acumular una copia entera.
+ */
+const READ_WINDOW = 64;
+/** Tiempo maximo seguido copiando desde la RAM antes de ceder el hilo (ms) y tamaño maximo de una copia (bytes). */
+let copySliceMs = 6;
+let copyPieceBytes = 8 * 1024 * 1024;
+
+/** Solo para pruebas: con `0` ms y piezas pequeñas CADA copia cede el hilo (recorre el camino asincrono con pocos datos). */
+export function __setCopySliceForTests(ms: number | null, pieceBytes: number | null = null): void {
+  copySliceMs = ms ?? 6;
+  copyPieceBytes = pieceBytes ?? 8 * 1024 * 1024;
+}
 
 export const chunkKey = (hash: string): string => `${CHUNK_PREFIX}${hash}`;
 export const manifestKey = (id: string): string => `${MANIFEST_PREFIX}${id}`;
@@ -129,15 +146,174 @@ export function putChunked(
     });
 }
 
+/** Un snapshot ya en RAM cuyo plan de trozos se conoce: sus trozos no hace falta volver a leerlos de disco. */
+export type ChunkSource = { bytes: Uint8Array; plan: ChunkPlan };
+
 export type ChunkedRead =
   /** No hay manifiesto troceado con ese id. */
   | { kind: "none" }
   /** Hay manifiesto pero falta un trozo, no cuadra una longitud o la fila esta rota. */
   | { kind: "corrupt" }
-  | { kind: "ok"; bytes: Uint8Array };
+  | {
+      kind: "ok";
+      bytes: Uint8Array;
+      /** El plan del manifiesto (los bytes se identificaron trozo a trozo por su SHA-256 al escribirse). */
+      plan: ChunkPlan;
+      /** Bytes copiados de snapshots residentes (`sources`) en lugar de leerse de disco. */
+      reusedBytes: number;
+      /** Filas de trozos pedidas a IndexedDB. */
+      readChunks: number;
+    };
 
-/** Lee un snapshot troceado: el manifiesto y, uno a uno, sus trozos (cada uno se copia y se suelta enseguida). */
-export function readChunked(store: IDBObjectStore, id: string, done: (result: ChunkedRead) => void): void {
+type CopyRun = { source: Uint8Array; from: number; to: number; length: number };
+type SourceEntry = { source: ChunkSource; index: ChunkIndex };
+type ActiveRun = CopyRun & { entry: SourceEntry };
+
+/**
+ * Reparte los trozos del manifiesto entre «ya esta en RAM» (copias, con los trozos contiguos juntos en UNA copia) y
+ * «hay que leerlo de disco». Un trozo se reutiliza solo si un origen tiene el MISMO hash (mismo contenido) y la misma
+ * longitud: nunca por posicion ni por tamaño.
+ */
+function planReuse(
+  hashes: readonly string[],
+  sizes: readonly number[],
+  offsets: readonly number[],
+  sources: readonly ChunkSource[],
+): { runs: CopyRun[]; missing: number[]; reusedBytes: number } {
+  const usable: SourceEntry[] = sources
+    .filter((source) => source.bytes.byteLength === source.plan.byteLength)
+    .map((source) => ({ source, index: chunkIndexOf(source.plan) }));
+  const runs: CopyRun[] = [];
+  const missing: number[] = [];
+  let reusedBytes = 0;
+  let run: ActiveRun | null = null;
+  for (let position = 0; position < hashes.length; position += 1) {
+    const hash = hashes[position];
+    const size = sizes[position];
+    let hit: { entry: SourceEntry; at: number } | null = null;
+    // Preferir el origen del tramo en curso si sigue siendo contiguo (menos copias, mas largas).
+    if (run) {
+      const found: number | undefined = run.entry.index.firstByHash.get(hash);
+      if (found !== undefined && run.entry.source.plan.sizes[found] === size && run.entry.index.offsets[found] === run.from + run.length) {
+        hit = { entry: run.entry, at: found };
+      }
+    }
+    if (!hit) {
+      for (const entry of usable) {
+        const found: number | undefined = entry.index.firstByHash.get(hash);
+        if (found !== undefined && entry.source.plan.sizes[found] === size) {
+          hit = { entry, at: found };
+          break;
+        }
+      }
+    }
+    if (!hit) {
+      if (run) runs.push(run);
+      run = null;
+      missing.push(position);
+      continue;
+    }
+    const from: number = hit.entry.index.offsets[hit.at];
+    if (run && run.entry === hit.entry && run.from + run.length === from && run.to + run.length === offsets[position]) {
+      run.length += size;
+    } else {
+      if (run) runs.push(run);
+      run = { entry: hit.entry, source: hit.entry.source.bytes, from, to: offsets[position], length: size };
+    }
+    reusedBytes += size;
+  }
+  if (run) runs.push(run);
+  return { runs, missing, reusedBytes };
+}
+
+/**
+ * Copia las tiradas desde la RAM al buffer de salida cediendo el hilo cada ~6 ms (una copia nunca pasa de 8 MB): leer
+ * de disco el resto sigue mientras tanto. Sin nada que ceder, termina en el acto (sincrono). `done(false)` si una copia
+ * falla (por ejemplo, unos bytes transferidos entretanto): el snapshot no se da por bueno.
+ */
+function copyRuns(runs: readonly CopyRun[], out: Uint8Array, done: (ok: boolean) => void): void {
+  let runIndex = 0;
+  let inside = 0;
+  const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+  const step = () => {
+    const started = now();
+    try {
+      while (runIndex < runs.length) {
+        const run = runs[runIndex];
+        const piece = Math.min(copyPieceBytes, run.length - inside);
+        out.set(run.source.subarray(run.from + inside, run.from + inside + piece), run.to + inside);
+        inside += piece;
+        if (inside >= run.length) {
+          runIndex += 1;
+          inside = 0;
+        }
+        if (runIndex < runs.length && now() - started > copySliceMs) {
+          void yieldToMain().then(step);
+          return;
+        }
+      }
+    } catch {
+      done(false);
+      return;
+    }
+    done(true);
+  };
+  step();
+}
+
+/** Lee de disco los trozos `missing` con una ventana deslizante de `READ_WINDOW` peticiones y los copia a su sitio. */
+function readMissing(
+  store: IDBObjectStore,
+  hashes: readonly string[],
+  sizes: readonly number[],
+  offsets: readonly number[],
+  missing: readonly number[],
+  out: Uint8Array,
+  broken: () => void,
+  done: () => void,
+): void {
+  if (missing.length === 0) {
+    done();
+    return;
+  }
+  let next = 0;
+  let inFlight = 0;
+  let finished = 0;
+  const pump = () => {
+    while (inFlight < READ_WINDOW && next < missing.length) {
+      const index = missing[next];
+      next += 1;
+      inFlight += 1;
+      const request = store.get(chunkKey(hashes[index]));
+      request.onsuccess = () => {
+        const part = request.result ? asBytes((request.result as { data?: unknown }).data) : null;
+        if (!part || part.byteLength !== sizes[index]) broken();
+        else out.set(part, offsets[index]);
+        inFlight -= 1;
+        finished += 1;
+        if (finished === missing.length) done();
+        else pump();
+      };
+    }
+  };
+  pump();
+}
+
+/**
+ * Lee un snapshot troceado: el manifiesto y sus trozos, a un buffer del tamaño final reservado una vez (sin
+ * concatenaciones intermedias). Con `sources` (snapshots ya residentes cuyo plan se conoce) los trozos que ya tienen se
+ * COPIAN de la RAM y solo se leen de disco los que no: dos pasos consecutivos de un PDF grande comparten >90 % de los
+ * trozos, asi un deshacer/rehacer en frio lee ~7 % y no el 100 %.
+ *
+ * `done` se llama cuando todo esta en su sitio; con copias desde la RAM puede ser DESPUES de que la transaccion termine
+ * (por eso el llamador no debe esperar a `oncomplete`).
+ */
+export function readChunked(
+  store: IDBObjectStore,
+  id: string,
+  done: (result: ChunkedRead) => void,
+  options: { sources?: readonly ChunkSource[] } = {},
+): void {
   const manifestRequest = store.get(manifestKey(id));
   manifestRequest.onsuccess = () => {
     const row: unknown = manifestRequest.result;
@@ -156,42 +332,27 @@ export function readChunked(store: IDBObjectStore, id: string, done: (result: Ch
       done({ kind: "corrupt" });
       return;
     }
+    const plan: ChunkPlan = { byteLength: row.byteLength, hashes: row.hashes, sizes: row.sizes };
     if (row.hashes.length === 0) {
-      done({ kind: "ok", bytes: out });
+      done({ kind: "ok", bytes: out, plan, reusedBytes: 0, readChunks: 0 });
       return;
     }
-    // Por tandas: pedir los ~2000 trozos de un PDF de 100 MB de golpe dejaria sus resultados vivos (otra copia entera)
-    // hasta que termine la transaccion. Cada tanda se copia a `out` y se suelta antes de pedir la siguiente.
-    const hashes = row.hashes;
-    const sizes = row.sizes;
-    const offsets = new Array<number>(hashes.length);
-    let total = 0;
-    for (let index = 0; index < hashes.length; index += 1) {
-      offsets[index] = total;
-      total += sizes[index];
-    }
-    let next = 0;
+    const { offsets } = chunkIndexOf(plan);
+    const { runs, missing, reusedBytes } = planReuse(row.hashes, row.sizes, offsets, options.sources ?? []);
     let broken = false;
-    const pumpBatch = () => {
-      const end = Math.min(hashes.length, next + READ_BATCH);
-      if (next >= end) {
-        done(broken ? { kind: "corrupt" } : { kind: "ok", bytes: out });
-        return;
-      }
-      let remaining = end - next;
-      for (; next < end; next += 1) {
-        const index = next;
-        const request = store.get(chunkKey(hashes[index]));
-        request.onsuccess = () => {
-          const part = request.result ? asBytes((request.result as { data?: unknown }).data) : null;
-          if (!part || part.byteLength !== sizes[index]) broken = true;
-          else out.set(part, offsets[index]);
-          remaining -= 1;
-          if (remaining === 0) pumpBatch();
-        };
+    let pending = 2;
+    const part = () => {
+      pending -= 1;
+      if (pending === 0) {
+        done(broken ? { kind: "corrupt" } : { kind: "ok", bytes: out, plan, reusedBytes, readChunks: missing.length });
       }
     };
-    pumpBatch();
+    // Primero se piden los trozos de disco (corren en paralelo) y mientras tanto se copia lo que ya esta en RAM.
+    readMissing(store, row.hashes, row.sizes, offsets, missing, out, () => (broken = true), part);
+    copyRuns(runs, out, (ok) => {
+      if (!ok) broken = true;
+      part();
+    });
   };
 }
 

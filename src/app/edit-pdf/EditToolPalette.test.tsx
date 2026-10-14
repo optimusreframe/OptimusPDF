@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MousePointer2, Redo2, Type, Undo2 } from "lucide-react";
@@ -128,5 +129,20 @@ describe("EditToolPalette", () => {
     expect(paletteItemClass(true)).toContain("bg-signal/25");
     expect(paletteItemClass(false, true)).toContain("opacity-40");
     expect(paletteItemClass(false)).toContain("focus-visible:outline-2");
+  });
+
+  it("(W10-C-A3) deja pasar `style` (variables de colocacion que mide quien la monta) a la barra de herramientas", () => {
+    render(
+      <EditToolPalette
+        tool="select"
+        tools={TOOLS}
+        onToolChange={vi.fn()}
+        actions={actions()}
+        label="Herramientas de edición"
+        style={{ "--edit-palette-bottom": "168px" } as CSSProperties}
+      />,
+    );
+    const toolbar = screen.getByRole("toolbar", { name: "Herramientas de edición" });
+    expect(toolbar.style.getPropertyValue("--edit-palette-bottom")).toBe("168px");
   });
 });

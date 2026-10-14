@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -54,6 +55,8 @@ export type EditToolPaletteProps = {
   actions: readonly PaletteAction[];
   label: string;
   className?: string;
+  /** (W10-C-A3) Variables CSS de colocacion que mide quien la monta (p. ej. `--edit-palette-bottom`). */
+  style?: CSSProperties;
 };
 
 export function EditToolPalette({
@@ -63,6 +66,7 @@ export function EditToolPalette({
   actions,
   label,
   className,
+  style,
 }: EditToolPaletteProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const vertical = useMediaQuery("(min-width: 768px)");
@@ -107,6 +111,7 @@ export function EditToolPalette({
       aria-label={label}
       aria-orientation={vertical ? "vertical" : "horizontal"}
       data-tool-palette=""
+      style={style}
       onKeyDown={onKeyDown}
       className={cn(
         "material-thick shadow-elevation-2 rounded-ios p-1",

@@ -12,6 +12,9 @@
  *    compartan todos los pasos del historial (los pasos consecutivos de un PDF grande comparten >90 %). Un historial de
  *    31 pasos de 100 MB ocupa ~330 MB en vez de ~3 GB: ya no choca con el techo de cuota de blobs de Chromium
  *    (~1,5 GB, medido en perfiles efimeros) ni escribe 100 MB por paso. Los demas, como `Blob` por trozos de 8 MB.
+ *  - (Wave 10) Leerlos en frio es una peticion por trozo (~2100 con 100 MB): la lectura va con una ventana deslizante de
+ *    peticiones y, si se le dan los bytes de los snapshots que ya estan en RAM (`get(id, resident)`), copia de ellos los
+ *    trozos que comparten (se identifican por hash) y solo pide a disco los distintos (~7 % entre pasos consecutivos).
  *  - Sin fugas: al cerrar el documento se vacia; al desmontar la suite se borra la base; y al arrancar, cada
  *    pestaña borra las bases de sesiones MUERTAS (las reconoce porque su Web Lock ya no lo sostiene nadie).
  *
@@ -19,8 +22,22 @@
  * cuota agotada, base bloqueada) y el documento de trabajo degrada con aviso al recorte por bytes de siempre.
  */
 
-import { collectChunkGarbage, deleteManifest, putChunked, readChunked, type ChunkedRead } from "@/app/pdf-pro/proChunkRows";
-import { CHUNK_MIN_TOTAL_BYTES, planChunks, shouldChunk, type ChunkPlan } from "@/app/pdf-pro/proChunks";
+import {
+  collectChunkGarbage,
+  deleteManifest,
+  putChunked,
+  readChunked,
+  type ChunkedRead,
+  type ChunkSource,
+} from "@/app/pdf-pro/proChunkRows";
+import {
+  CHUNK_MIN_TOTAL_BYTES,
+  peekChunkPlan,
+  planChunks,
+  rememberChunkPlan,
+  shouldChunk,
+  type ChunkPlan,
+} from "@/app/pdf-pro/proChunks";
 
 export const PRO_HISTORY_DB_PREFIX = "optimuspdf-pro-history-";
 const STORE = "snapshots";
@@ -29,8 +46,13 @@ const DB_VERSION = 1;
 export type ProHistoryStore = {
   /** Guarda los bytes de un snapshot. Rechaza si no se pudo (cuota, base cerrada...). */
   put(id: string, bytes: Uint8Array): Promise<void>;
-  /** Bytes guardados, o `null` si no estan (expulsados por el navegador, otra sesion los borro...). */
-  get(id: string): Promise<Uint8Array | null>;
+  /**
+   * Bytes guardados, o `null` si no estan (expulsados por el navegador, otra sesion los borro...). Con `resident` (bytes de
+   * snapshots que YA estan en RAM) un snapshot troceado se reconstruye copiando de ellos los trozos que comparte (solo se
+   * leen de disco los distintos: ~7 % entre pasos consecutivos de un PDF grande) siempre que su plan de trozos ya se haya
+   * calculado; los que no lo tengan se ignoran y se lee todo de disco. El resultado es el mismo en los dos casos.
+   */
+  get(id: string, resident?: readonly Uint8Array[]): Promise<Uint8Array | null>;
   /** Borra esos snapshots (los que no existan se ignoran). Nunca rechaza. */
   remove(ids: readonly string[]): Promise<void>;
   /** Vacia el almacen (documento cerrado). Nunca rechaza. */
@@ -298,6 +320,16 @@ export function createProHistoryStore(options: ProHistoryStoreOptions = {}): Pro
         }),
     );
 
+  /**
+   * Lee un snapshot troceado. Se resuelve cuando `readChunked` termina (todo en su sitio), NO al completarse la
+   * transaccion: con copias desde la RAM puede acabar despues, y esperar el `oncomplete` suma un viaje de ida y vuelta.
+   * Si la transaccion falla o se aborta antes, rechaza.
+   */
+  const readChunkedRows = (id: string, sources: readonly ChunkSource[]): Promise<ChunkedRead> =>
+    new Promise<ChunkedRead>((resolve, reject) => {
+      inTxChain("readonly", (store) => readChunked(store, id, resolve, { sources })).catch(reject);
+    });
+
   return {
     name,
     async put(id, bytes) {
@@ -345,11 +377,19 @@ export function createProHistoryStore(options: ProHistoryStoreOptions = {}): Pro
         await writeRows(false);
       }
     },
-    async get(id) {
-      const chunked: { value: ChunkedRead } = { value: { kind: "none" } };
-      await inTxChain("readonly", (store) => readChunked(store, id, (result) => (chunked.value = result)));
-      if (chunked.value.kind === "ok") return chunked.value.bytes;
-      if (chunked.value.kind === "corrupt") return null;
+    async get(id, resident = []) {
+      const sources: ChunkSource[] = [];
+      for (const bytes of resident) {
+        const plan = peekChunkPlan(bytes);
+        if (plan) sources.push({ bytes, plan });
+      }
+      const chunked = await readChunkedRows(id, sources);
+      if (chunked.kind === "ok") {
+        // Estos bytes salen de un manifiesto: su plan ya se conoce y no hay que calcularlo para usarlos de origen o volcarlos.
+        rememberChunkPlan(chunked.bytes, chunked.plan);
+        return chunked.bytes;
+      }
+      if (chunked.kind === "corrupt") return null;
       const manifest = await inTx<ManifestRow | undefined>("readonly", (store) => store.get(id) as IDBRequest<ManifestRow | undefined>);
       if (!manifest || typeof manifest.chunks !== "number" || typeof manifest.byteLength !== "number") return null;
       const rows = await inTx<ChunkRow[]>("readonly", (store) =>

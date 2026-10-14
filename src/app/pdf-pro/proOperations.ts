@@ -1,4 +1,4 @@
-import { rotatePdf } from "@/lib/pdf/rotate";
+import { rotatePdfToBytes } from "@/lib/pdf/rotate";
 import { compressOperation, DOCUMENT_OPERATIONS } from "@/app/pdf-pro/ops/docOperations";
 import type { ProOperation, ProOperationContext, ProOperationResult } from "@/app/pdf-pro/proTypes";
 import { pagesApplyOperation } from "@/app/pdf-pro/pages/pagesOperation";
@@ -18,10 +18,6 @@ export { compressOperation };
  * `preservesPageCount: true` evita recontar paginas al confirmar.
  */
 
-async function blobToBytes(blob: Blob): Promise<Uint8Array> {
-  return new Uint8Array(await blob.arrayBuffer());
-}
-
 export type RotateAllOptions = { degrees?: 90 | 180 | 270 };
 
 export const rotateAllOperation: ProOperation<RotateAllOptions | undefined> = {
@@ -31,8 +27,7 @@ export const rotateAllOperation: ProOperation<RotateAllOptions | undefined> = {
   preservesPageCount: true,
   async run(bytes, options, ctx: ProOperationContext): Promise<ProOperationResult> {
     const degrees = options?.degrees ?? 90;
-    const blob = await rotatePdf(asEngineFile(bytes), { base: degrees }, ctx.onProgress);
-    return { bytes: await blobToBytes(blob) };
+    return { bytes: await rotatePdfToBytes(asEngineFile(bytes), { base: degrees }, ctx.onProgress) };
   },
 };
 

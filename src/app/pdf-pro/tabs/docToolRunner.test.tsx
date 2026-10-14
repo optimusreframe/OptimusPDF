@@ -18,7 +18,8 @@ const ocr = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/pdf/ocr", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pdf/ocr")>();
-  return { ...actual, ocrPdf: (...args: unknown[]) => ocr.run(...args) };
+  // (Wave 10) la operacion pide los BYTES al motor (`ocrPdfToBytes`): el motor sustituido devuelve `Uint8Array`.
+  return { ...actual, ocrPdfToBytes: (...args: unknown[]) => ocr.run(...args) };
 });
 const reload = vi.hoisted(() => ({ page: vi.fn() }));
 vi.mock("@/lib/reloadPage", () => ({ reloadPage: () => reload.page() }));
@@ -50,13 +51,13 @@ async function openOcr() {
 const apply = () => screen.getByRole("button", { name: /^(Aplicar|Aplicando…)$/ });
 
 function controllable(bytes: Uint8Array) {
-  let resolve!: (blob: Blob) => void;
+  let resolve!: (out: Uint8Array) => void;
   let reject!: (error: unknown) => void;
   let signal: AbortSignal | undefined;
   let progress: ((value: number) => void) | undefined;
   ocr.run.mockImplementation(
     (_file: File, _options: unknown, onProgress: (value: number) => void, abort: AbortSignal) =>
-      new Promise<Blob>((res, rej) => {
+      new Promise<Uint8Array>((res, rej) => {
         resolve = res;
         reject = rej;
         signal = abort;
@@ -64,7 +65,7 @@ function controllable(bytes: Uint8Array) {
       }),
   );
   return {
-    finish: () => resolve(new Blob([bytes as unknown as BlobPart])),
+    finish: () => resolve(bytes),
     fail: (error: unknown) => reject(error),
     progress: (value: number) => progress?.(value),
     get signal() {

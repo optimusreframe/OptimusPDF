@@ -813,4 +813,22 @@ describe("distribucion de movil (375 px)", () => {
     fireEvent.keyDown(document.body, { key: "k", ctrlKey: true });
     expect(await screen.findByRole("combobox")).toBeTruthy();
   });
+
+  // Wave 10 · C-B1: las pestañas Editar, Anotar y Firmar son modos (ocupan la region central), no paneles. El comando
+  // «Mostrar u ocultar el panel de herramienta» abria en movil una hoja con un aviso «Próximamente en PDF Pro» que ya
+  // no es verdad: con un modo abierto no hay panel que mostrar.
+  it.each(["edit", "annotate", "sign"] as const)(
+    "con el modo «%s» abierto, «Mostrar u ocultar el panel» no abre una hoja ni dice «Próximamente»",
+    async (tab) => {
+      await openPro(5);
+      fireEvent.click(screen.getByRole("button", { name: S.suite.tabs[tab] }));
+      await settle();
+      fireEvent.keyDown(document.body, { key: "k", ctrlKey: true });
+      await screen.findByRole("combobox", { name: S.palette.label });
+      fireEvent.click(document.querySelector('[data-command-id="view:panel"]') as HTMLElement);
+      await sleep(60);
+      expect(screen.queryByText(/Próximamente|Coming soon/)).toBeNull();
+      expect(screen.queryByRole("dialog")).toBeNull();
+    },
+  );
 });

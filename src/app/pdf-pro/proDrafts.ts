@@ -734,14 +734,11 @@ function deleteDraftTx(db: IDBDatabase, id: string): Promise<void> {
 /** Lee los bytes de un borrador TROCEADO (manifiesto + trozos) en una transaccion de solo lectura. */
 function readChunkedDraft(db: IDBDatabase, id: string): Promise<ChunkedRead> {
   return new Promise((resolve, reject) => {
-    const box: { value: ChunkedRead } = { value: { kind: "none" } };
     const tx = db.transaction(FILES_STORE, "readonly");
-    tx.oncomplete = () => resolve(box.value);
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
-    readChunked(tx.objectStore(FILES_STORE), id, (result) => {
-      box.value = result;
-    });
+    // Se resuelve cuando `readChunked` termina, no al completarse la transaccion (Wave 10: ver `readChunked`).
+    readChunked(tx.objectStore(FILES_STORE), id, resolve);
   });
 }
 

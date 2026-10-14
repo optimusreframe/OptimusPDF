@@ -623,6 +623,41 @@ describe("regresiones de la verificacion (pura)", () => {
     expect(group([base, { ...base, x: 43 }]).visible[0].text).toBe("Duplicate boldDuplicate bold");
   });
 
+  /**
+   * Wave 10 · C-A2: una pasada se descarta como duplicado si cae a <= 0,03 em de CUALQUIER pasada anterior (la
+   * conservada o una ya descartada). Antes solo contaba la conservada: la 3.ª de una negrita de 3-4 pasadas a 0,3 pt
+   * (cuerpo 15) caia a 0,6 pt de la 1.ª, sobrevivia y el bloque salia duplicado.
+   */
+  describe("negrita falsa de 3-4 pasadas finas (cuerpo 15, 0,3 pt)", () => {
+    const base = item({ str: "Hola mundo", x: 40, y: 300, fontSize: 15, width: 80 });
+    const pass = (k: number, step = 0.3, dy = 0) => ({ ...base, x: 40 + k * step, y: 300 + k * dy });
+
+    it("cada pasada se encadena con la anterior: 3 y 4 pasadas a 0,3 pt dan UN bloque «Hola mundo»", () => {
+      expect(group([pass(0), pass(1), pass(2)]).visible.map((b) => b.text)).toEqual(["Hola mundo"]);
+      expect(group([pass(0), pass(1), pass(2), pass(3)]).visible.map((b) => b.text)).toEqual(["Hola mundo"]);
+    });
+
+    it("tambien en diagonal y con cualquier orden de llegada", () => {
+      const diagonal = [0, 1, 2, 3].map((k) => pass(k, 0.25, 0.25));
+      expect(group(diagonal).visible.map((b) => b.text)).toEqual(["Hola mundo"]);
+      expect(group([...diagonal].reverse()).visible.map((b) => b.text)).toEqual(["Hola mundo"]);
+    });
+
+    it("una pasada a MAS de 0,03 em de todas las anteriores (0,5 pt a 15) se conserva: es otra copia, no un duplicado", () => {
+      expect(group([pass(0, 0.5), pass(1, 0.5), pass(2, 0.5)]).visible[0].text).toBe("Hola mundoHola mundoHola mundo");
+    });
+
+    it("el encadenado no cruza tamanos distintos ni textos distintos ni otra altura: cada uno sigue siendo su propio texto", () => {
+      const texts = (items: RawTextItem[]) => group(items).visible.map((b) => b.text).sort();
+      // La 3.ª pasada a 16 pt (otro cuerpo) NO es copia de las de 15: queda como un bloque aparte.
+      expect(texts([pass(0), pass(1), { ...pass(2), fontSize: 16 }])).toEqual(["Hola mundo", "Hola mundo"]);
+      // Con otro texto («mundi») tampoco: las dos «Hola mundo» se dedupan entre si y «Hola mundi» sigue en pie.
+      expect(texts([pass(0), pass(1), { ...pass(2), str: "Hola mundi" }]).join("|")).toContain("Hola mundi");
+      // A otra altura (15 pt mas abajo) es otra LINEA (el bloque trae las dos), no un duplicado.
+      expect(texts([pass(0), pass(1), { ...pass(2), y: 285 }])).toEqual(["Hola mundo Hola mundo"]);
+    });
+  });
+
   it("fragmentos de una misma instruccion con huecos grandes forman una linea", () => {
     const words = ["Palabras", "muy", "separadas"];
     let x = 72;

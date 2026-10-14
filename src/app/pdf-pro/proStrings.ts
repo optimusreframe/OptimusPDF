@@ -64,8 +64,6 @@ export type ProStrings = {
     thumbsPlaceholder: (count: number) => string;
     viewerTitle: string;
     viewerPlaceholder: string;
-    contextTitle: string;
-    comingSoon: Record<"pages" | "edit" | "annotate" | "sign" | "protect" | "convert", string>;
     quickTitle: string;
     historyTitle: string;
     historyEmpty: string;
@@ -205,15 +203,6 @@ const es: ProStrings = {
     thumbsPlaceholder: (count) => `Miniaturas de las ${count} páginas`,
     viewerTitle: "Documento",
     viewerPlaceholder: "Aquí se mostrará el documento, página a página.",
-    contextTitle: "Panel de herramienta",
-    comingSoon: {
-      pages: "Próximamente en PDF Pro: reordenar, girar, eliminar, dividir y unir páginas.",
-      edit: "Próximamente en PDF Pro: editar el texto, las imágenes y las formas del documento.",
-      annotate: "Próximamente en PDF Pro: resaltar, comentar y dibujar sobre el documento.",
-      sign: "Próximamente en PDF Pro: firmar y rellenar formularios sobre el documento.",
-      protect: "Próximamente en PDF Pro: proteger con contraseña, censurar y desbloquear.",
-      convert: "Próximamente en PDF Pro: exportar a imágenes, texto y otros formatos.",
-    },
     quickTitle: "Acciones rápidas",
     historyTitle: "Historial de cambios",
     historyEmpty: "Aún no hay cambios: el documento está como lo abriste.",
@@ -346,15 +335,6 @@ const en: ProStrings = {
     thumbsPlaceholder: (count) => `Thumbnails of the ${count} pages`,
     viewerTitle: "Document",
     viewerPlaceholder: "The document will be shown here, page by page.",
-    contextTitle: "Tool panel",
-    comingSoon: {
-      pages: "Coming soon to PDF Pro: reorder, rotate, delete, split and merge pages.",
-      edit: "Coming soon to PDF Pro: edit the text, images and shapes of the document.",
-      annotate: "Coming soon to PDF Pro: highlight, comment and draw on the document.",
-      sign: "Coming soon to PDF Pro: sign and fill in forms on the document.",
-      protect: "Coming soon to PDF Pro: password-protect, redact and unlock.",
-      convert: "Coming soon to PDF Pro: export to images, text and other formats.",
-    },
     quickTitle: "Quick actions",
     historyTitle: "Change history",
     historyEmpty: "No changes yet: the document is as you opened it.",

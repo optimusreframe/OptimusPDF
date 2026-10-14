@@ -38,7 +38,8 @@ import { makePdfBytes } from "@/app/pdf-pro/proTestUtils";
 const ocrMock = vi.hoisted(() => ({ run: vi.fn() }));
 vi.mock("@/lib/pdf/ocr", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pdf/ocr")>();
-  return { ...actual, ocrPdf: (...args: unknown[]) => ocrMock.run(...args) };
+  // (Wave 10) la operacion pide los BYTES al motor (`ocrPdfToBytes`), no un Blob: el motor sustituido devuelve `Uint8Array`.
+  return { ...actual, ocrPdfToBytes: (...args: unknown[]) => ocrMock.run(...args) };
 });
 
 beforeEach(() => {
@@ -303,7 +304,7 @@ describe("OCR (motor sustituido)", () => {
     const input = await makePdfBytes(1);
     ocrMock.run.mockImplementation(async (_file: File, _options: unknown, onProgress: (v: number) => void) => {
       onProgress(0.5);
-      return new Blob([input as unknown as BlobPart]);
+      return input;
     });
     const seen: number[] = [];
     const outcome = await runOperation(ocrOperation, input, { language: "eng" }, { onProgress: (v) => seen.push(v) });
@@ -315,7 +316,7 @@ describe("OCR (motor sustituido)", () => {
 
   it("sin opciones usa el espanol por defecto", async () => {
     const input = await makePdfBytes(1);
-    ocrMock.run.mockResolvedValue(new Blob([input as unknown as BlobPart]));
+    ocrMock.run.mockResolvedValue(input);
     await runOperation(ocrOperation, input, undefined);
     expect(ocrMock.run.mock.calls[0][1]).toEqual({ language: "spa" });
   });
@@ -325,10 +326,10 @@ describe("OCR (motor sustituido)", () => {
     let aborted = false;
     ocrMock.run.mockImplementation(
       (_file: File, _options: unknown, _progress: unknown, signal: AbortSignal) =>
-        new Promise<Blob>((resolve) => {
+        new Promise<Uint8Array>((resolve) => {
           signal.addEventListener("abort", () => {
             aborted = true;
-            setTimeout(() => resolve(new Blob([input as unknown as BlobPart])), 10);
+            setTimeout(() => resolve(input), 10);
           });
         }),
     );

@@ -61,9 +61,14 @@ export function unloadGuardNeeded(input: {
   draftWritePending?: boolean;
   /** Hay una operacion o confirmacion de paso en vuelo: su resultado aun no es un snapshot, ni cuenta como borrador. */
   stepInFlight?: boolean;
+  /**
+   * Hay una exportacion EN CURSO (Wave 10 · C-B2): su resultado (el archivo que se descargara al terminar) vive solo en
+   * esta pestaña y se perderia al cerrarla o recargarla; ningun borrador lo cubre (exportar no toca el historial).
+   */
+  exportRunning?: boolean;
 }): boolean {
-  // Un paso en vuelo se perderia al cerrar: avisa aunque todavia no haya cambios confirmados.
-  if (input.stepInFlight) return true;
+  // Un paso en vuelo o una exportacion en curso se perderian al cerrar: avisa aunque no haya cambios confirmados.
+  if (input.stepInFlight || input.exportRunning) return true;
   if (!input.dirty) return false;
   const covered =
     !input.draftWritePending &&

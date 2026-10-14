@@ -310,3 +310,82 @@ describe("cerrar el documento o abrir otro con una exportacion en curso", () => 
     expect(within(card("word")).queryByText(E.card.cancelled)).toBeNull();
   });
 });
+
+/**
+ * Wave 10 · C-B2: cerrar o recargar el NAVEGADOR (no el documento) con una exportacion en curso pide confirmacion, igual
+ * que con cambios sin guardar o un paso en vuelo: el archivo que se iba a descargar vive solo en esta pestaña. Se retira
+ * en cuanto la exportacion termina, se cancela, falla o el documento se cierra.
+ */
+describe("cerrar o recargar el navegador con una exportacion en curso", () => {
+  /** Dispara `beforeunload` como lo haria el navegador y dice si se pidio confirmacion (`preventDefault`). */
+  function beforeUnloadPrevented(): boolean {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it("sin exportacion y sin cambios, no pide confirmacion; con una exportacion en curso, si", async () => {
+    pendingEngine();
+    await openPro();
+    expect(beforeUnloadPrevented()).toBe(false);
+    await startExport("word");
+    expect(beforeUnloadPrevented()).toBe(true);
+    // En cualquier pestaña: el aviso es de la pagina, no de la tarjeta.
+    goTo("Inicio");
+    await settle();
+    expect(beforeUnloadPrevented()).toBe(true);
+  });
+
+  it("al terminar la exportacion el aviso se retira", async () => {
+    const engine = pendingEngine();
+    await openPro();
+    await startExport("word");
+    expect(beforeUnloadPrevented()).toBe(true);
+    await act(async () => engine.resolve("informe-word.docx"));
+    expect(downloaded.blobs).toHaveLength(1);
+    expect(beforeUnloadPrevented()).toBe(false);
+  });
+
+  it("al cancelarla desde el indicador el aviso se retira", async () => {
+    const engine = pendingEngine();
+    await openPro();
+    await startExport("excel");
+    goTo("Inicio");
+    await settle();
+    expect(beforeUnloadPrevented()).toBe(true);
+    fireEvent.click(within(indicator()!).getByRole("button", { name: E.indicator.cancelLabel("Excel") }));
+    expect(engine.signal().aborted).toBe(true);
+    expect(beforeUnloadPrevented()).toBe(false);
+  });
+
+  it("si la exportacion falla el aviso se retira", async () => {
+    const engine = pendingEngine();
+    await openPro();
+    await startExport("json");
+    expect(beforeUnloadPrevented()).toBe(true);
+    await act(async () => engine.reject(new PdfError("offline")));
+    expect(beforeUnloadPrevented()).toBe(false);
+  });
+
+  it("al cerrar el documento (confirmando) el aviso se retira junto con la exportacion", async () => {
+    const engine = pendingEngine();
+    await openPro();
+    await startExport("word");
+    fireEvent.click(screen.getByRole("button", { name: S.suite.close }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: S.suite.close }));
+    expect(await screen.findByText(es.tool.dropTitle)).toBeTruthy();
+    expect(engine.signal().aborted).toBe(true);
+    expect(beforeUnloadPrevented()).toBe(false);
+  });
+
+  it("una exportacion ya terminada no deja el aviso puesto aunque su resultado siga en la tarjeta", async () => {
+    const engine = pendingEngine();
+    await openPro();
+    await startExport("csv");
+    await act(async () => engine.resolve("datos.csv"));
+    goTo("Convertir");
+    expect(await within(card("csv")).findByText(E.card.result("datos.csv", "Original"))).toBeTruthy();
+    expect(beforeUnloadPrevented()).toBe(false);
+  });
+});

@@ -13,7 +13,8 @@ import {
   loadPdf,
   openPdfDocument,
   renderPageToCanvas,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   throwIfAborted,
   toPdfError,
   toWinAnsiSafe,
@@ -177,13 +178,26 @@ export async function ocrPdf(
   file: File,
   options: OcrOptions = DEFAULT_OCR_OPTIONS,
   onProgress?: ProgressCallback,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return pdfBytesToBlob(await ocrPdfToBytes(file, options, onProgress, signal));
+}
+
+/**
+ * Igual que `ocrPdf`, pero devuelve los BYTES del PDF resultante (sin pasar por un `Blob`): para quien sigue trabajando
+ * con bytes (PDF Pro). Mismos bytes que el `Blob` de `ocrPdf`.
+ */
+export async function ocrPdfToBytes(
+  file: File,
+  options: OcrOptions = DEFAULT_OCR_OPTIONS,
+  onProgress?: ProgressCallback,
   /**
    * Cancelacion real: el reconocimiento de una pagina cuesta segundos,
    * asi que se comprueba antes de empezar cada una en vez de dejar que
    * el trabajo siga consumiendo CPU despues de cancelar.
    */
   signal?: AbortSignal,
-): Promise<Blob> {
+): Promise<Uint8Array> {
   const language: OcrLanguage = OCR_LANGUAGES.includes(options.language)
     ? options.language
     : "spa";
@@ -269,9 +283,9 @@ export async function ocrPdf(
       report(1);
     }
 
-    const blob = await savePdfToBlob(document);
+    const bytes = await savePdfToBytes(document);
     onProgress?.(1);
-    return blob;
+    return bytes;
   } catch (error) {
     throw toPdfError(error);
   } finally {

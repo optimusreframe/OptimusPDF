@@ -1,14 +1,14 @@
-import { addHeaderFooter, type HeaderFooterOptions } from "@/lib/pdf/headerFooter";
-import { addPageNumbers } from "@/lib/pdf/pageNumbers";
-import { addWatermark, type WatermarkOptions } from "@/lib/pdf/watermark";
-import { compressPdf, DEFAULT_COMPRESS_OPTIONS, type CompressOptions } from "@/lib/pdf/compress";
-import { cropPdf, cropTargets, type CropScope } from "@/lib/pdf/crop";
+import { addHeaderFooterToBytes, type HeaderFooterOptions } from "@/lib/pdf/headerFooter";
+import { addPageNumbersToBytes } from "@/lib/pdf/pageNumbers";
+import { addWatermarkToBytes, type WatermarkOptions } from "@/lib/pdf/watermark";
+import { compressPdfToBytes, DEFAULT_COMPRESS_OPTIONS, type CompressOptions } from "@/lib/pdf/compress";
+import { cropPdfToBytes, cropTargets, type CropScope } from "@/lib/pdf/crop";
 import { getPageGeometry, loadPdf, toPdfError } from "@/lib/pdf/core";
 import { readMetadata, stripMetadata, writeMetadata, type PdfMetadataInfo } from "@/lib/pdf/metadata";
-import { DEFAULT_OCR_OPTIONS, ocrPdf, type OcrOptions } from "@/lib/pdf/ocr";
-import { repairPdf, type RepairReport } from "@/lib/pdf/repair";
-import { rotatePdf } from "@/lib/pdf/rotate";
-import { removeProtection, type UnlockOptions } from "@/lib/pdf/unlock";
+import { DEFAULT_OCR_OPTIONS, ocrPdfToBytes, type OcrOptions } from "@/lib/pdf/ocr";
+import { repairPdfToBytes, type RepairReport } from "@/lib/pdf/repair";
+import { rotatePdfToBytes } from "@/lib/pdf/rotate";
+import { removeProtectionToBytes, type UnlockOptions } from "@/lib/pdf/unlock";
 import type { PageNumbersToolOptions } from "@/app/add-page-numbers/PageNumbersOptionsPanel";
 import { rotateAllPlan, rotateRangePlan } from "@/app/rotate-pdf/rotatePlan";
 import {
@@ -19,7 +19,7 @@ import {
   type PageMm,
 } from "@/app/pdf-pro/ops/cropMath";
 import { hasPatch, patchFromForm, type MetadataFormFields } from "@/app/pdf-pro/ops/metadataForm";
-import { asEngineFile, asPdfFile, blobToBytes, sameBytes } from "@/app/pdf-pro/ops/opUtils";
+import { asEngineFile, sameBytes } from "@/app/pdf-pro/ops/opUtils";
 import type { ProOperation, ProOperationResult } from "@/app/pdf-pro/proTypes";
 
 /**
@@ -42,7 +42,7 @@ export const watermarkOperation: ProOperation<WatermarkOptions> = {
   kind: "document",
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
-    return { bytes: await blobToBytes(await addWatermark(asEngineFile(bytes), options, ctx.onProgress)) };
+    return { bytes: await addWatermarkToBytes(asEngineFile(bytes), options, ctx.onProgress) };
   },
 };
 
@@ -53,7 +53,7 @@ export const pageNumbersOperation: ProOperation<PageNumbersToolOptions> = {
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
     // `preset` solo lo usa la interfaz (igual que en la herramienta suelta): el motor lo ignora.
-    return { bytes: await blobToBytes(await addPageNumbers(asEngineFile(bytes), options, ctx.onProgress)) };
+    return { bytes: await addPageNumbersToBytes(asEngineFile(bytes), options, ctx.onProgress) };
   },
 };
 
@@ -63,7 +63,7 @@ export const headerFooterOperation: ProOperation<HeaderFooterOptions> = {
   kind: "document",
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
-    return { bytes: await blobToBytes(await addHeaderFooter(asEngineFile(bytes), options, ctx.onProgress)) };
+    return { bytes: await addHeaderFooterToBytes(asEngineFile(bytes), options, ctx.onProgress) };
   },
 };
 
@@ -86,17 +86,17 @@ export const compressOperation: ProOperation<CompressOptions | undefined> = {
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
     const effective = options ?? DEFAULT_COMPRESS_OPTIONS;
-    const result = await compressPdf(asPdfFile(bytes), effective, ctx.onProgress, ctx.signal);
+    const result = await compressPdfToBytes(asEngineFile(bytes), effective, ctx.onProgress, ctx.signal);
     const report: ProCompressReport = {
       originalSize: result.originalSize,
       compressedSize: result.compressedSize,
       alreadyOptimized: result.alreadyOptimized,
       mode: effective.mode,
     };
-    if (result.alreadyOptimized) {
+    if (result.alreadyOptimized || !result.bytes) {
       return { bytes, pageCount: result.pages, warnings: [{ code: "unchanged" }], report };
     }
-    return { bytes: await blobToBytes(result.blob), pageCount: result.pages, report };
+    return { bytes: result.bytes, pageCount: result.pages, report };
   },
 };
 
@@ -153,12 +153,13 @@ export const cropOperation: ProOperation<ProCropOptions> = {
     const page = await referencePageMm(bytes, options);
     const rect = marginsToRect(sanitizeMargins(options.margins), page);
     ctx.onProgress(0.1);
-    const blob = await cropPdf(
-      asEngineFile(bytes),
-      { rect, scope: options.scope, pageIndex: 0, fromPage: options.fromPage, toPage: options.toPage },
-      (value) => ctx.onProgress(0.1 + value * 0.9),
-    );
-    return { bytes: await blobToBytes(blob) };
+    return {
+      bytes: await cropPdfToBytes(
+        asEngineFile(bytes),
+        { rect, scope: options.scope, pageIndex: 0, fromPage: options.fromPage, toPage: options.toPage },
+        (value) => ctx.onProgress(0.1 + value * 0.9),
+      ),
+    };
   },
 };
 
@@ -195,7 +196,7 @@ export const rotateOperation: ProOperation<ProRotateOptions> = {
       const document = await loadPdf(bytes);
       plan = rotateRangePlan(options, document.getPageCount());
     }
-    return { bytes: await blobToBytes(await rotatePdf(asEngineFile(bytes), plan, ctx.onProgress)) };
+    return { bytes: await rotatePdfToBytes(asEngineFile(bytes), plan, ctx.onProgress) };
   },
 };
 
@@ -208,9 +209,9 @@ export const repairOperation: ProOperation<undefined> = {
   labelKey: "repair",
   kind: "document",
   async run(bytes, _options, ctx): Promise<ProOperationResult> {
-    const outcome = await repairPdf(asPdfFile(bytes), {}, ctx.onProgress, ctx.signal);
+    const outcome = await repairPdfToBytes(asEngineFile(bytes), {}, ctx.onProgress, ctx.signal);
     const report: RepairReport = outcome.report;
-    const out = await blobToBytes(outcome.blob);
+    const out = outcome.bytes;
     // Sin danos ni acciones el motor devuelve los mismos bytes: no hay snapshot que crear.
     if (report.damage.length === 0 && report.actions.length === 0 && sameBytes(out, bytes)) {
       return { bytes, pageCount: report.pagesRecovered, warnings: [{ code: "unchanged" }], report };
@@ -226,8 +227,7 @@ export const ocrOperation: ProOperation<OcrOptions | undefined> = {
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
     // La guarda de 20 s y el error claro sin red viven en `ocr.ts` (`createOcrWorker`, Wave 6).
-    const blob = await ocrPdf(asPdfFile(bytes), options ?? DEFAULT_OCR_OPTIONS, ctx.onProgress, ctx.signal);
-    return { bytes: await blobToBytes(blob) };
+    return { bytes: await ocrPdfToBytes(asEngineFile(bytes), options ?? DEFAULT_OCR_OPTIONS, ctx.onProgress, ctx.signal) };
   },
 };
 
@@ -293,12 +293,12 @@ export const unlockOperation: ProOperation<ProUnlockOptions> = {
   preservesPageCount: true,
   async run(bytes, options, ctx): Promise<ProOperationResult> {
     // El documento de trabajo ya esta sin cifrar: aqui solo se retiran restricciones de firma (con consentimiento).
-    const result = await removeProtection(
-      asPdfFile(bytes),
+    const result = await removeProtectionToBytes(
+      asEngineFile(bytes),
       { password: "", acknowledgeSignatureInvalidation: options.acknowledgeSignatureInvalidation },
       ctx.onProgress,
     );
-    return { bytes: await blobToBytes(result.blob), report: { action: result.action } };
+    return { bytes: result.bytes, report: { action: result.action } };
   },
 };
 

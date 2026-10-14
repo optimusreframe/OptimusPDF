@@ -12,7 +12,8 @@ import type { PDFObject } from "@cantoo/pdf-lib";
 import {
   PdfError,
   readFileBytes,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
@@ -382,6 +383,12 @@ export type ProtectionAction =
 
 export type RemoveProtectionResult = {
   blob: Blob;
+  action: ProtectionAction;
+};
+
+/** Lo mismo que `RemoveProtectionResult` pero con los BYTES del PDF resultante (`removeProtectionToBytes`). */
+export type RemoveProtectionBytesResult = {
+  bytes: Uint8Array;
   action: ProtectionAction;
 };
 
@@ -1578,6 +1585,20 @@ export async function removeProtection(
   options: UnlockOptions,
   onProgress?: ProgressCallback,
 ): Promise<RemoveProtectionResult> {
+  const { bytes, action } = await removeProtectionToBytes(file, options, onProgress);
+  return { blob: pdfBytesToBlob(bytes), action };
+}
+
+/**
+ * Igual que `removeProtection` (mismas comprobaciones, antes y despues de guardar), pero entrega los BYTES del PDF
+ * resultante sin pasar por un `Blob`: para quien sigue trabajando con bytes (PDF Pro). La relectura estricta de los
+ * bytes guardados usa esos mismos bytes: ya no hace falta volver a leerlos de un `Blob`.
+ */
+export async function removeProtectionToBytes(
+  file: File,
+  options: UnlockOptions,
+  onProgress?: ProgressCallback,
+): Promise<RemoveProtectionBytesResult> {
   const bytes = await readFileBytes(file);
   if (bytes.byteLength === 0) throw new PdfError("corrupt");
 
@@ -1706,10 +1727,9 @@ export async function removeProtection(
       throw new UnlockError("inspectionIncomplete");
     }
 
-    const blob = await savePdfToBlob(document);
+    const savedBytes = await savePdfToBytes(document);
 
     // 7b) Relectura estricta de los bytes reales ya guardados.
-    const savedBytes = new Uint8Array(await blob.arrayBuffer());
     let reloaded: PDFDocument;
     try {
       reloaded = await PDFDocument.load(savedBytes, { updateMetadata: false });
@@ -1778,7 +1798,7 @@ export async function removeProtection(
           ? "passwordAndSignaturesInvalidated"
           : "passwordRemoved";
 
-    return { blob, action };
+    return { bytes: savedBytes, action };
   } catch (error) {
     if (error instanceof UnlockError) throw error;
     throw toPdfError(error);
@@ -1815,15 +1835,15 @@ export async function decryptPdfCopy(file: File, password: string): Promise<Blob
   const document = await loadDecrypted(bytes, password, envelope.securityHandler);
   try {
     stripEncryption(document, encryptRef);
-    const blob = await savePdfToBlob(document);
+    const savedBytes = await savePdfToBytes(document);
     // Comprobacion sobre los bytes reales: se tienen que poder releer sin contrasena.
-    const reloaded = await PDFDocument.load(new Uint8Array(await blob.arrayBuffer()), {
+    const reloaded = await PDFDocument.load(savedBytes, {
       updateMetadata: false,
     });
     if (readEncryptionEnvelope(reloaded).status !== "notEncrypted") {
       throw new UnlockError("inspectionIncomplete");
     }
-    return blob;
+    return pdfBytesToBlob(savedBytes);
   } catch (error) {
     if (error instanceof UnlockError) throw error;
     throw toPdfError(error);

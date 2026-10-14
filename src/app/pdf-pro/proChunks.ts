@@ -16,6 +16,9 @@
  *    navegador fuera del hilo principal.
  *  - El resultado (`ChunkPlan`: hashes y longitudes, ~100 KB por cada 100 MB) se recuerda por objeto `Uint8Array`
  *    (`WeakMap`): el borrador y el historial piden el plan del mismo snapshot y solo se calcula una vez.
+ *  - (Wave 10) Tambien se recuerda el plan de los bytes que se RECONSTRUYEN desde un manifiesto (`rememberChunkPlan`) y
+ *    se puede consultar sin esperar (`peekChunkPlan`) con un indice hash → posicion por plan (`chunkIndexOf`): la lectura
+ *    del historial copia de la RAM los trozos que un snapshot residente ya tiene y solo pide a disco los distintos.
  */
 
 /** Por debajo de este tamaño un snapshot se guarda entero (sin trocear): no compensa y los PDF pequeños no cambian. */
@@ -91,7 +94,7 @@ const waiting: Array<() => void> = [];
  * a un solo esperador, en orden. (Una version con un `onmessage` por llamada dejaba colgado al primero cuando el segundo
  * lo sustituia: el plan no terminaba nunca y el volcado a disco esperaba su plazo entero.)
  */
-function yieldToMain(): Promise<void> {
+export function yieldToMain(): Promise<void> {
   try {
     if (typeof MessageChannel !== "undefined") {
       if (!channel) {
@@ -148,6 +151,8 @@ export async function computeChunkPlan(bytes: Uint8Array): Promise<ChunkPlan> {
 }
 
 const plans = new WeakMap<Uint8Array, Promise<ChunkPlan>>();
+/** Los planes YA calculados (lectura sin esperar): `peekChunkPlan`. */
+const resolvedPlans = new WeakMap<Uint8Array, ChunkPlan>();
 
 /**
  * El plan de ESTOS bytes (inmutables): se calcula una vez por objeto aunque lo pidan a la vez el borrador y el
@@ -158,15 +163,63 @@ export function planChunks(bytes: Uint8Array): Promise<ChunkPlan> {
   if (known) return known;
   const promise = computeChunkPlan(bytes);
   plans.set(bytes, promise);
-  promise.catch(() => {
-    if (plans.get(bytes) === promise) plans.delete(bytes);
-  });
+  promise.then(
+    (plan) => {
+      if (plans.get(bytes) === promise) resolvedPlans.set(bytes, plan);
+    },
+    () => {
+      if (plans.get(bytes) === promise) plans.delete(bytes);
+    },
+  );
   return promise;
+}
+
+/**
+ * El plan de estos bytes si YA esta calculado (o recordado), sin esperar ni calcular nada; `undefined` si no. Wave 10:
+ * lo usa la lectura del historial para reconstruir un snapshot copiando de la RAM los trozos que ya tiene un snapshot
+ * residente en vez de volver a leerlos de disco. Un plan de otra longitud (bytes ya transferidos o sustituidos) no vale.
+ */
+export function peekChunkPlan(bytes: Uint8Array): ChunkPlan | undefined {
+  const plan = resolvedPlans.get(bytes);
+  return plan && plan.byteLength === bytes.byteLength ? plan : undefined;
+}
+
+/**
+ * Recuerda el plan de unos bytes cuya composicion se CONOCE sin calcular nada: los que acaban de reconstruirse desde un
+ * manifiesto (cada trozo se identifico por su SHA-256 al escribirse y su longitud se comprobo al leerlo). Asi el snapshot
+ * recuperado de disco tambien sirve de origen para el siguiente, y volcarlo otra vez no repite el SHA-256 de 100 MB.
+ */
+export function rememberChunkPlan(bytes: Uint8Array, plan: ChunkPlan): void {
+  if (plan.byteLength !== bytes.byteLength) return;
+  plans.set(bytes, Promise.resolve(plan));
+  resolvedPlans.set(bytes, plan);
+}
+
+/** Indice de un plan: donde empieza cada trozo y en que posicion esta cada hash (el primero si se repite). */
+export type ChunkIndex = { offsets: readonly number[]; firstByHash: ReadonlyMap<string, number> };
+const indexes = new WeakMap<ChunkPlan, ChunkIndex>();
+
+/** El indice de ese plan (se construye una vez por objeto de plan: ~0,2 ms por cada 2000 trozos). */
+export function chunkIndexOf(plan: ChunkPlan): ChunkIndex {
+  const known = indexes.get(plan);
+  if (known) return known;
+  const offsets = new Array<number>(plan.sizes.length);
+  const firstByHash = new Map<string, number>();
+  let total = 0;
+  for (let index = 0; index < plan.sizes.length; index += 1) {
+    offsets[index] = total;
+    total += plan.sizes[index];
+    if (!firstByHash.has(plan.hashes[index])) firstByHash.set(plan.hashes[index], index);
+  }
+  const built: ChunkIndex = { offsets, firstByHash };
+  indexes.set(plan, built);
+  return built;
 }
 
 /** Solo para pruebas: olvida el plan recordado de esos bytes. */
 export function __forgetChunkPlanForTests(bytes: Uint8Array): void {
   plans.delete(bytes);
+  resolvedPlans.delete(bytes);
 }
 
 /** `true` si un snapshot de ese tamaño se guarda troceado. */

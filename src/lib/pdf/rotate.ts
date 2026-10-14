@@ -2,7 +2,8 @@ import { degrees } from "@cantoo/pdf-lib";
 import {
   PdfError,
   loadPdf,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
@@ -34,6 +35,18 @@ export async function rotatePdf(
   plan: RotatePlan,
   onProgress?: ProgressCallback,
 ): Promise<Blob> {
+  return pdfBytesToBlob(await rotatePdfToBytes(file, plan, onProgress));
+}
+
+/**
+ * Igual que `rotatePdf`, pero devuelve los BYTES del PDF resultante (`Uint8Array`) sin pasar por un `Blob`: para quien sigue
+ * trabajando con bytes (PDF Pro). Mismos bytes que el `Blob` de `rotatePdf`.
+ */
+export async function rotatePdfToBytes(
+  file: File,
+  plan: RotatePlan,
+  onProgress?: ProgressCallback,
+): Promise<Uint8Array> {
   try {
     const document = await loadPdf(file);
     onProgress?.(0.25);
@@ -54,9 +67,9 @@ export async function rotatePdf(
       onProgress?.(0.25 + ((index + 1) / pages.length) * 0.6);
     }
 
-    const blob = await savePdfToBlob(document);
+    const bytes = await savePdfToBytes(document);
     onProgress?.(1);
-    return blob;
+    return bytes;
   } catch (error) {
     throw toPdfError(error);
   }

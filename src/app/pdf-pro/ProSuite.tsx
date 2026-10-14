@@ -336,6 +336,8 @@ function ProSuiteBody({
 
   const togglePanel = useCallback(() => {
     if (!isDesktop) {
+      // Un modo (Editar, Anotar, Firmar) ocupa la region central y no tiene panel de herramienta: no hay hoja que abrir.
+      if (modeActive) return;
       setSheet((value) => (value === "panel" ? null : "panel"));
       return;
     }
@@ -344,7 +346,7 @@ function ProSuiteBody({
     } else {
       updateLayout({ contextOpen: false });
     }
-  }, [isDesktop, fitted.contextAutoHidden, layoutPrefs, updateLayout, setSheet]);
+  }, [isDesktop, modeActive, fitted.contextAutoHidden, layoutPrefs, updateLayout, setSheet]);
 
   const applyOperation = useCallback(
     (operation: ProOperation<unknown>) => {
@@ -469,15 +471,10 @@ function ProSuiteBody({
 
   if (!document) return null;
 
+  // Solo los modos (Editar, Anotar, Firmar) no tienen entrada en `PRO_TAB_CONTENT`: ocupan la region central y no
+  // se pintan en el panel (ni lateral ni hoja), asi que aqui nunca hay un panel «vacio» que explicar.
   const TabContent = PRO_TAB_CONTENT[tab];
-  const panelBody = TabContent ? (
-    <TabContent />
-  ) : (
-    <section aria-label={s.contextTitle}>
-      <h2 className="ui-label mb-2 text-muted-foreground">{s.tabs[tab]}</h2>
-      <p className="text-subheadline text-muted-foreground">{tab === "home" ? null : s.comingSoon[tab]}</p>
-    </section>
-  );
+  const panelBody = TabContent ? <TabContent /> : null;
 
   const saveStrings = strings.save;
   const createStrings = strings.create;

@@ -25,6 +25,7 @@ import {
 } from "@/app/edit-pdf/editCanvasMath";
 import type { BackgroundSample } from "@/lib/pdf/editBackground";
 import type { UserBox } from "@/lib/pdf/editTypes";
+import { createNonOpaqueContext } from "@/lib/pdf/pageRaster";
 
 /*
  * Superficie de la pagina del editor inline (W5-U4a).
@@ -206,6 +207,10 @@ export function EditSurface({
       const off = document.createElement("canvas");
       off.width = Math.max(1, Math.floor(viewport.width));
       off.height = Math.max(1, Math.floor(viewport.height));
+      // El contexto se crea AQUI, antes de `render`, y NO opaco: si no, pdf.js crea el suyo con `alpha: false` y
+      // Chromium en Linux y Windows dibuja el texto con antialiasing LCD (franjas de color en el lienzo, distinto al
+      // de Firmar). `willReadFrequently: true` es lo que ya usaba pdf.js. Ver `createNonOpaqueContext`.
+      createNonOpaqueContext(off, { willReadFrequently: true });
       try {
         const task = current.page.render({ canvas: off, viewport, intent: "display" });
         renderTaskRef.current = task;
@@ -213,7 +218,7 @@ export function EditSurface({
         if (cancelled) return;
         canvas.width = off.width;
         canvas.height = off.height;
-        canvas.getContext("2d", { willReadFrequently: true })?.drawImage(off, 0, 0);
+        createNonOpaqueContext(canvas, { willReadFrequently: true })?.drawImage(off, 0, 0);
         setRendered({ pageIndex: current.pageIndex, width: cssWidth });
         onRendered?.({ pageIndex: current.pageIndex });
         setFailed(false);
@@ -252,7 +257,7 @@ export function EditSurface({
         return { x: r.left * k, y: r.top * k, width: r.width * k, height: r.height * k };
       };
       const sample = sampleCanvasBackground(
-        canvas.getContext("2d", { willReadFrequently: true }),
+        createNonOpaqueContext(canvas, { willReadFrequently: true }),
         { width: canvas.width, height: canvas.height },
         { x: rect.left * k, y: rect.top * k, width: rect.width * k, height: rect.height * k },
         quad?.map((point) => {

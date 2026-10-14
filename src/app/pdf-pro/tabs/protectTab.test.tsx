@@ -29,7 +29,8 @@ vi.mock("@/lib/pdf/unlock", async (importOriginal) => {
   return {
     ...actual,
     inspectProtection: (...args: unknown[]) => unlockMock.inspect(...args),
-    removeProtection: (...args: unknown[]) => unlockMock.remove(...args),
+    // (Wave 10) la operacion pide los BYTES al motor (`removeProtectionToBytes`).
+    removeProtectionToBytes: (...args: unknown[]) => unlockMock.remove(...args),
   };
 });
 
@@ -226,7 +227,7 @@ describe("Quitar protección", () => {
   it("con restricciones de firma pide consentimiento y solo entonces aplica (un snapshot)", async () => {
     unlockMock.inspect.mockResolvedValue({ kind: "ready", profile: { hasSignatureRestrictions: true, encrypted: false } });
     const { doc } = await mountTab(<ProtectTab />, { signatures: "active" });
-    unlockMock.remove.mockImplementation(async () => ({ blob: new Blob([doc.current()!.slice() as unknown as BlobPart]), action: "signaturesInvalidated" }));
+    unlockMock.remove.mockImplementation(async () => ({ bytes: doc.current()!.slice(), action: "signaturesInvalidated" }));
     await screen.findByText(T.unlock.restrictionsFound);
     const apply = screen.getByRole("button", { name: T.runner.apply });
     expect(apply.getAttribute("aria-disabled")).toBe("true");

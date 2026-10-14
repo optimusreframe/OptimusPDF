@@ -185,6 +185,110 @@ test.describe.serial("PDF Pro · documentos grandes", () => {
     expect((await downloadedFirstRotation(page)).rotation).toBe(0); // 4 × 90° = 360° ≡ 0°
   });
 
+  test("deshacer y rehacer EN FRIO (PDF de 40 MB): leen de disco solo los trozos que cambian y cada paso vuelve EXACTO", async ({ page }) => {
+    // Ventana caliente a 0: solo el actual y el anterior estan en RAM; saltar y rehacer son siempre lecturas de disco.
+    await page.addInitScript(
+      ([hotKey, prefix]) => {
+        window.localStorage.setItem(hotKey, "0");
+        const counter = { chunkGets: 0 };
+        const original = IDBObjectStore.prototype.get;
+        IDBObjectStore.prototype.get = function patched(this: IDBObjectStore, ...args: Parameters<typeof original>) {
+          const key = args[0];
+          if (this.transaction.db.name.startsWith(prefix) && typeof key === "string" && key.startsWith("~c:")) counter.chunkGets += 1;
+          return original.apply(this, args as never);
+        } as typeof original;
+        (window as unknown as { __chunkReads: (reset?: boolean) => number }).__chunkReads = (reset) => {
+          const value = counter.chunkGets;
+          if (reset) counter.chunkGets = 0;
+          return value;
+        };
+      },
+      [FLAGS.hot, HISTORY_PREFIX] as const,
+    );
+    const chunkReads = (reset = true) => page.evaluate((flag) => (window as unknown as { __chunkReads: (reset?: boolean) => number }).__chunkReads(flag), reset);
+    await openBig(page);
+    for (let i = 1; i <= 4; i += 1) await rotateOnce(page);
+    // El plan de trozos de cada paso se calcula en reposo (como tarde 1,5 s tras nacer) y el volcado a disco lo necesita.
+    await page.waitForTimeout(5000);
+    await page.locator("body").click({ position: { x: 4, y: 4 } });
+    await chunkReads();
+
+    // Salto en frio al original: sin copiar de la RAM serian TODOS los trozos del documento (~800 de ~48 KB).
+    await expectNewAnnouncement(page, () => page.locator('[data-history-index="0"]').click(), /^(Deshecho|Vuelto a):/);
+    await expect(page.locator('[data-history-index="0"]')).toHaveAttribute("aria-current", "step");
+    const jumpReads = await chunkReads();
+    console.log(`[pro-memory] salto en frio al original: ${jumpReads} trozos leidos de disco`);
+    expect(jumpReads, "el salto lee de disco solo lo que difiere de lo que hay en RAM").toBeLessThan(300);
+    const original = await downloadedFirstRotation(page);
+    expect(original.rotation).toBe(0);
+    expect(createHash("sha256").update(original.bytes).digest("hex")).toBe(createHash("sha256").update(bigBytes).digest("hex"));
+    await chunkReads();
+
+    // Rehacer paso a paso: cada uno es en frio y vuelve exacto (la rotacion de la primera pagina es la del paso).
+    for (let step = 1; step <= 4; step += 1) {
+      await expectNewAnnouncement(page, () => page.keyboard.press("Control+Shift+z"), /^Rehecho:/);
+      await expect(page.locator(`[data-history-index="${step}"]`)).toHaveAttribute("aria-current", "step");
+      const reads = await chunkReads();
+      expect(reads, `rehacer al paso ${step}: ${reads} trozos leidos`).toBeLessThan(300);
+      const here = await downloadedFirstRotation(page);
+      expect(here.rotation, `paso ${step}`).toBe((step * 90) % 360);
+      expect((await PDFDocument.load(here.bytes, { updateMetadata: false })).getPageCount()).toBe(120);
+      await chunkReads();
+      // Dejar que el reequilibrio termine antes del siguiente (el siguiente rehacer vuelve a ser en frio).
+      await page.waitForTimeout(800);
+    }
+  });
+
+  test("una operacion sobre un PDF de 40 MB no crea ningun Blob del tamaño del documento ni lee uno de vuelta (bytes de punta a punta)", async ({ page }) => {
+    // Cuenta (en la pagina) los Blob/File que se construyen con >= 30 MB y las lecturas `blob.arrayBuffer()` de ese tamaño.
+    await page.addInitScript(() => {
+      const BIG = 30 * 1024 * 1024;
+      const state = { constructed: 0, readBack: 0, resets: 0 };
+      const sizeOfParts = (parts: unknown): number => {
+        if (!Array.isArray(parts)) return 0;
+        let total = 0;
+        for (const part of parts) {
+          if (ArrayBuffer.isView(part)) total += part.byteLength;
+          else if (part instanceof ArrayBuffer) total += part.byteLength;
+          else if (part instanceof Blob) total += part.size;
+        }
+        return total;
+      };
+      for (const name of ["Blob", "File"] as const) {
+        const Original = window[name] as typeof Blob;
+        (window as unknown as Record<string, unknown>)[name] = new Proxy(Original, {
+          construct(target, args, newTarget) {
+            if (sizeOfParts(args[0]) >= BIG) state.constructed += 1;
+            return Reflect.construct(target, args, newTarget === (window as unknown as Record<string, unknown>)[name] ? target : newTarget);
+          },
+        });
+      }
+      const originalArrayBuffer = Blob.prototype.arrayBuffer;
+      Blob.prototype.arrayBuffer = function patched(this: Blob) {
+        if (this.size >= BIG) state.readBack += 1;
+        return originalArrayBuffer.apply(this);
+      };
+      (window as unknown as { __bigBlobs: (reset?: boolean) => { constructed: number; readBack: number } }).__bigBlobs = (reset) => {
+        const copy = { constructed: state.constructed, readBack: state.readBack };
+        if (reset) {
+          state.constructed = 0;
+          state.readBack = 0;
+        }
+        return copy;
+      };
+    });
+    const bigBlobs = (reset = true) => page.evaluate((flag) => (window as unknown as { __bigBlobs: (reset?: boolean) => { constructed: number; readBack: number } }).__bigBlobs(flag), reset);
+    await openBig(page);
+    await page.waitForTimeout(1500);
+    await bigBlobs(); // lo que costo abrir el archivo no cuenta
+    await rotateOnce(page);
+    const afterRotate = await bigBlobs();
+    // Antes: `savePdfToBlob` construia un Blob de ~39 MB y `blobToBytes` lo leia de vuelta (2 copias enteras por operacion).
+    expect(afterRotate, "girar todo: sin Blob del tamaño del documento ni lectura de vuelta").toEqual({ constructed: 0, readBack: 0 });
+    // El resultado es el correcto (una rotacion de 90° de la primera pagina) y se puede descargar.
+    expect((await downloadedFirstRotation(page)).rotation).toBe(90);
+  });
+
   test("borrador en el peor momento: recargar justo tras aplicar un cambio nunca deja un borrador roto", async ({ page }) => {
     page.on("dialog", (dialog) => void dialog.accept());
     for (const delay of [0, 500, 1200, 4000]) {

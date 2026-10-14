@@ -1,6 +1,8 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "../helpers/tool-flow";
-import { openProPdf } from "../helpers/pro-flow";
+import { goToTab, openProPdf } from "../helpers/pro-flow";
+import { holdExport } from "../helpers/export-gate";
+import { makePdf } from "../helpers/test-files";
 import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
 
 /**
@@ -11,7 +13,9 @@ import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
  *  - sin borrador automatico (apagado en Ajustes) y con cambios: el navegador pregunta;
  *  - con borrador funcionando pero la escritura aun pendiente (justo despues de aplicar): tambien pregunta;
  *  - con el borrador ya guardado: cierra sin molestar;
- *  - sin cambios: cierra sin molestar.
+ *  - sin cambios: cierra sin molestar;
+ *  - (Wave 10 · C-B2) con una EXPORTACION en curso, aunque no haya cambios: el navegador pregunta («Quedarse» la deja
+ *    correr); al terminar o cancelarla, cierra sin molestar.
  */
 
 const S = PRO_STRINGS.es;
@@ -112,5 +116,85 @@ test("con el borrador funcionando pero la escritura aun pendiente, tambien avisa
 test("sin cambios, cerrar la pestaña no muestra nada", async ({ page }) => {
   await openProPdf(page, { name: "limpio.pdf", pages: 2 });
   expect(await closeWithBeforeUnload(page, "accept"), "sin cambios: debe cerrar sin preguntar").toBeNull();
+  expect(page.isClosed()).toBe(true);
+});
+
+/*
+ * Wave 10 · C-B2: cerrar o recargar con una exportacion EN CURSO. El archivo que se iba a descargar vive solo en esta
+ * pestaña, asi que el navegador debe preguntar aunque el documento no tenga cambios. La exportacion se mantiene viva de
+ * forma determinista con la compuerta de `e2e/helpers/export-gate.ts` (no depende de la velocidad de la maquina).
+ */
+const E = S.export;
+const exportIndicator = (page: Page) => page.locator("[data-export-indicator]");
+
+/** Pulsa «Exportar a imagenes» (JPG por defecto) en la pestaña «Convertir» y espera a que la compuerta la retenga. */
+async function startHeldImageExport(page: Page, gate: Awaited<ReturnType<typeof holdExport>>): Promise<void> {
+  await goToTab(page, "convert");
+  const target = page.locator('[data-export="images"]');
+  await expect(target).toBeVisible();
+  await target.scrollIntoViewIfNeeded();
+  await target.getByRole("button", { name: E.formats.images.title }).click();
+  await gate.whenHeld();
+  await expect(exportIndicator(page)).toBeVisible();
+}
+
+/** ¿Se cancelaria el cierre ahora? (el evento sintetico: lo que ve el manejador, sin abrir un dialogo). */
+const beforeUnloadPrevented = (page: Page) =>
+  page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+
+test("con una exportacion en curso (y sin cambios) cerrar la pestaña muestra el aviso real; «Quedarse» la deja correr", async ({ page }) => {
+  await openProPdf(page, { name: "acta.pdf", bytes: await makePdf({ pages: 24, label: "ACTA", size: [612, 792] }) });
+  expect(await beforeUnloadPrevented(page), "antes de exportar: sin cambios, sin aviso").toBe(false);
+  const gate = await holdExport(page, { pages: 2 });
+  await startHeldImageExport(page, gate);
+  expect(await beforeUnloadPrevented(page), "exportando: el cierre debe pedir confirmacion").toBe(true);
+  // El aviso lo pone el navegador de verdad; «Quedarse» deja la pagina y la exportacion como estaban.
+  expect(await closeWithBeforeUnload(page, "dismiss")).toBe("beforeunload");
+  expect(page.isClosed()).toBe(false);
+  await expect(exportIndicator(page)).toBeVisible();
+  // Tambien desde otra pestaña de la suite.
+  await goToTab(page, "pages");
+  expect(await beforeUnloadPrevented(page)).toBe(true);
+  // «Salir» cierra de verdad.
+  expect(await closeWithBeforeUnload(page, "accept")).toBe("beforeunload");
+  expect(page.isClosed()).toBe(true);
+});
+
+test("al cancelar la exportacion el aviso se retira y cerrar ya no pregunta", async ({ page, browserName }) => {
+  await openProPdf(page, { name: "acta.pdf", bytes: await makePdf({ pages: 24, label: "ACTA", size: [612, 792] }) });
+  const gate = await holdExport(page, { pages: 2 });
+  await startHeldImageExport(page, gate);
+  expect(await beforeUnloadPrevented(page)).toBe(true);
+  await exportIndicator(page).getByRole("button", { name: E.indicator.cancelLabel("imágenes") }).click();
+  await expect(exportIndicator(page)).toBeHidden();
+  await expect.poll(() => beforeUnloadPrevented(page), { message: "cancelada: el cierre ya no debe molestar" }).toBe(false);
+  await gate.releaseAll();
+  if (browserName === "webkit") {
+    test.info().annotations.push({ type: "sin-cobertura", description: "cierre real sin aviso: page.close(runBeforeUnload) no termina en el WebKit de Playwright" });
+    return;
+  }
+  expect(await closeWithBeforeUnload(page, "accept"), "cancelada: debe cerrar sin preguntar").toBeNull();
+  expect(page.isClosed()).toBe(true);
+});
+
+test("al terminar la exportacion el aviso se retira y cerrar ya no pregunta", async ({ page, browserName }) => {
+  await openProPdf(page, { name: "acta.pdf", bytes: await makePdf({ pages: 24, label: "ACTA", size: [612, 792] }) });
+  const gate = await holdExport(page, { pages: 2 });
+  await startHeldImageExport(page, gate);
+  expect(await beforeUnloadPrevented(page)).toBe(true);
+  const download = page.waitForEvent("download", { timeout: 60_000 });
+  await gate.releaseAll();
+  expect((await download).suggestedFilename()).toBe("acta-imagenes.zip");
+  await expect(exportIndicator(page)).toBeHidden();
+  await expect.poll(() => beforeUnloadPrevented(page), { message: "terminada: el cierre ya no debe molestar" }).toBe(false);
+  if (browserName === "webkit") {
+    test.info().annotations.push({ type: "sin-cobertura", description: "cierre real sin aviso: page.close(runBeforeUnload) no termina en el WebKit de Playwright" });
+    return;
+  }
+  expect(await closeWithBeforeUnload(page, "accept"), "terminada: debe cerrar sin preguntar").toBeNull();
   expect(page.isClosed()).toBe(true);
 });

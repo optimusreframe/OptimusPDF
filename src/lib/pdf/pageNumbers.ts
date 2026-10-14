@@ -5,7 +5,8 @@ import {
   hexToPdfColor,
   loadPdf,
   originForCenter,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   standardFontFor,
   toPdfError,
   toWinAnsiSafe,
@@ -95,6 +96,18 @@ export async function addPageNumbers(
   options: PageNumbersOptions,
   onProgress?: ProgressCallback,
 ): Promise<Blob> {
+  return pdfBytesToBlob(await addPageNumbersToBytes(file, options, onProgress));
+}
+
+/**
+ * Igual que `addPageNumbers`, pero devuelve los BYTES del PDF resultante (`Uint8Array`) sin pasar por un `Blob`: para quien sigue
+ * trabajando con bytes (PDF Pro). Mismos bytes que el `Blob` de `addPageNumbers`.
+ */
+export async function addPageNumbersToBytes(
+  file: File,
+  options: PageNumbersOptions,
+  onProgress?: ProgressCallback,
+): Promise<Uint8Array> {
   try {
     const document = await loadPdf(file);
     onProgress?.(0.15);
@@ -175,9 +188,9 @@ export async function addPageNumbers(
       onProgress?.(0.25 + ((index - from + 1) / count) * 0.7);
     }
 
-    const blob = await savePdfToBlob(document);
+    const bytes = await savePdfToBytes(document);
     onProgress?.(1);
-    return blob;
+    return bytes;
   } catch (error) {
     throw toPdfError(error);
   }

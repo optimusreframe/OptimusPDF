@@ -5,7 +5,8 @@ import {
   openPdfDocument,
   readFileBytes,
   renderPageToCanvas,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   scaleProgress,
   throwIfAborted,
   type ProgressCallback,
@@ -162,6 +163,12 @@ export type RepairReport = {
 
 export type RepairOutcome = {
   blob: Blob;
+  report: RepairReport;
+};
+
+/** Lo mismo que `RepairOutcome` pero con los BYTES del PDF reparado en lugar de un `Blob` (`repairPdfToBytes`). */
+export type RepairBytesOutcome = {
+  bytes: Uint8Array;
   report: RepairReport;
 };
 
@@ -594,6 +601,20 @@ export async function repairPdf(
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
 ): Promise<RepairOutcome> {
+  const { bytes, report } = await repairPdfToBytes(file, options, onProgress, signal);
+  return { blob: pdfBytesToBlob(bytes), report };
+}
+
+/**
+ * Igual que `repairPdf`, pero entrega los BYTES del PDF reparado (sin pasar por un `Blob`): para quien sigue trabajando
+ * con bytes (PDF Pro). Mismos bytes e informe que `repairPdf`.
+ */
+export async function repairPdfToBytes(
+  file: Blob,
+  options: RepairOptions = {},
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal,
+): Promise<RepairBytesOutcome> {
   try {
     return await repairPdfCore(file, options, onProgress, signal);
   } catch (error) {
@@ -621,7 +642,7 @@ async function repairPdfCore(
   options: RepairOptions,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
-): Promise<RepairOutcome> {
+): Promise<RepairBytesOutcome> {
   throwIfAborted(signal);
   const original = await readFileBytes(file);
   if (original.length === 0) throw new RepairError("empty");
@@ -653,9 +674,7 @@ async function repairPdfCore(
       if (pages > 0) {
         onProgress?.(1);
         return {
-          blob: new Blob([original as unknown as BlobPart], {
-            type: "application/pdf",
-          }),
+          bytes: original,
           report: {
             ...base,
             mode: "structural",
@@ -703,10 +722,10 @@ async function repairPdfCore(
       }
 
       onProgress?.(scaleProgress((index + 1) / attempts.length, 0.1, 0.8));
-      const blob = await savePdfToBlob(document);
+      const bytes = await savePdfToBytes(document);
       onProgress?.(1);
       return {
-        blob,
+        bytes,
         report: {
           ...base,
           mode: "structural",
@@ -715,7 +734,7 @@ async function repairPdfCore(
           bytesDiscarded: attempt.discarded,
           textPreserved: true,
           failedPages,
-          outputBytes: blob.size,
+          outputBytes: bytes.byteLength,
         },
       };
     } catch (error) {
@@ -754,10 +773,10 @@ async function repairPdfCore(
         total > 0 ? "noPagesRecovered" : "unreadable",
       );
     }
-    const blob = await savePdfToBlob(document);
+    const bytes = await savePdfToBytes(document);
     onProgress?.(1);
     return {
-      blob,
+      bytes,
       report: {
         ...base,
         mode: "raster",
@@ -769,7 +788,7 @@ async function repairPdfCore(
         bytesDiscarded: 0,
         textPreserved: false,
         failedPages,
-        outputBytes: blob.size,
+        outputBytes: bytes.byteLength,
       },
     };
   } catch (error) {

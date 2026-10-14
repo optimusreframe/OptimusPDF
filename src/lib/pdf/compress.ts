@@ -15,7 +15,8 @@ import {
   openPdfDocument,
   readFileBytes,
   renderPageToCanvas,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   throwIfAborted,
   toPdfError,
   type ProgressCallback,
@@ -138,6 +139,12 @@ export type CompressResult = {
    */
   alreadyOptimized: boolean;
 };
+
+/**
+ * Resultado de `compressPdfToBytes`: lo mismo que `CompressResult` pero con los BYTES del PDF comprimido en lugar de un
+ * `Blob`. `bytes` es `null` cuando `alreadyOptimized` (el resultado no pesaba menos): el llamador conserva el original.
+ */
+export type CompressBytesResult = Omit<CompressResult, "blob"> & { bytes: Uint8Array | null };
 
 /**
  * Lado maximo del canvas por pagina en modo "flatten". Los navegadores
@@ -346,12 +353,11 @@ async function tryRecompressImage(
 }
 
 async function recompressPdf(
-  file: File,
   originalBytes: Uint8Array,
   preset: CompressionPreset,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
-): Promise<CompressResult> {
+): Promise<CompressBytesResult> {
   const pdfDocument = await loadPdf(originalBytes);
   const pages = pdfDocument.getPageCount();
   if (pages === 0) throw new PdfError("corrupt");
@@ -366,7 +372,7 @@ async function recompressPdf(
   }
   if (total === 0) onProgress?.(0.92);
 
-  const result = await finalizeWithSizeGuard(pdfDocument, originalBytes, file, pages);
+  const result = await finalizeWithSizeGuard(pdfDocument, originalBytes, pages);
   onProgress?.(1);
   return result;
 }
@@ -376,12 +382,11 @@ async function recompressPdf(
  * ------------------------------------------------------------------ */
 
 async function flattenPdf(
-  file: File,
   originalBytes: Uint8Array,
   preset: CompressionPreset,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
-): Promise<CompressResult> {
+): Promise<CompressBytesResult> {
   let source: PDFDocumentProxy | null = null;
   try {
     source = await openPdfDocument(originalBytes);
@@ -425,7 +430,7 @@ async function flattenPdf(
       onProgress?.(((index + 1) / total) * 0.92);
     }
 
-    const result = await finalizeWithSizeGuard(output, originalBytes, file, total);
+    const result = await finalizeWithSizeGuard(output, originalBytes, total);
     onProgress?.(1);
     return result;
   } finally {
@@ -440,15 +445,14 @@ async function flattenPdf(
 async function finalizeWithSizeGuard(
   pdfDocument: PDFDocument,
   originalBytes: Uint8Array,
-  originalFile: File,
   pages: number,
-): Promise<CompressResult> {
-  const blob = await savePdfToBlob(pdfDocument);
+): Promise<CompressBytesResult> {
+  const bytes = await savePdfToBytes(pdfDocument);
   const originalSize = originalBytes.byteLength;
 
-  if (blob.size >= originalSize) {
+  if (bytes.byteLength >= originalSize) {
     return {
-      blob: originalFile,
+      bytes: null,
       originalSize,
       compressedSize: originalSize,
       pages,
@@ -457,9 +461,9 @@ async function finalizeWithSizeGuard(
   }
 
   return {
-    blob,
+    bytes,
     originalSize,
-    compressedSize: blob.size,
+    compressedSize: bytes.byteLength,
     pages,
     alreadyOptimized: false,
   };
@@ -481,6 +485,22 @@ export async function compressPdf(
    */
   signal?: AbortSignal,
 ): Promise<CompressResult> {
+  const { bytes, ...rest } = await compressPdfToBytes(file, options, onProgress, signal);
+  // Ya optimizado: se devuelve el archivo de entrada tal cual, igual que siempre.
+  return { ...rest, blob: bytes ? pdfBytesToBlob(bytes) : file };
+}
+
+/**
+ * Igual que `compressPdf`, pero entrega los BYTES del PDF comprimido (`bytes`, o `null` si ya estaba optimizado: el
+ * llamador conserva el original) sin pasar por un `Blob`: para quien sigue trabajando con bytes (PDF Pro). Mismos bytes
+ * que el `Blob` de `compressPdf`.
+ */
+export async function compressPdfToBytes(
+  file: File,
+  options: CompressOptions = DEFAULT_COMPRESS_OPTIONS,
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal,
+): Promise<CompressBytesResult> {
   const preset = presetFor(options.level);
 
   try {
@@ -488,9 +508,9 @@ export async function compressPdf(
     if (originalBytes.byteLength === 0) throw new PdfError("corrupt");
 
     if (options.mode === "flatten") {
-      return await flattenPdf(file, originalBytes, preset, onProgress, signal);
+      return await flattenPdf(originalBytes, preset, onProgress, signal);
     }
-    return await recompressPdf(file, originalBytes, preset, onProgress, signal);
+    return await recompressPdf(originalBytes, preset, onProgress, signal);
   } catch (error) {
     throw toPdfError(error);
   }

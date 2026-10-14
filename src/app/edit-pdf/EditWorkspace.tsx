@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -28,6 +29,7 @@ import { EditFloatingBar, glyphNotice, type BarTextState } from "@/app/edit-pdf/
 import { EditNavBar, ZOOM_STEPS } from "@/app/edit-pdf/EditNavBar";
 import { EditSurface, type SurfaceHandle } from "@/app/edit-pdf/EditSurface";
 import { EditToolPalette, type PaletteTool } from "@/app/edit-pdf/EditToolPalette";
+import { useBottomBarsClearance } from "@/app/edit-pdf/useBottomBarsClearance";
 import {
   ANNOTATE_TOOL_ORDER,
   TOOL_ORDER,
@@ -292,6 +294,8 @@ export function EditWorkspace({
   const stripId = useId();
 
   const rootRef = useRef<HTMLDivElement>(null);
+  /* (W10-C-A3) Movil, herramienta suelta: la paleta es una banda fija que se coloca sobre las barras fijas de abajo. */
+  const barsClearance = useBottomBarsClearance(rootRef, !embedded);
   const stageRef = useRef<HTMLDivElement>(null);
   /** (W7-U6) Region con desplazamiento propio (solo `embedded`). */
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1935,10 +1939,19 @@ export function EditWorkspace({
             },
           ]}
           label={s.paletteLabel}
+          // Medido (no supuesto): con el motivo de «Procesar» la barra fija de abajo es mas alta que 4,75 rem y tapaba la
+          // segunda fila. Sin medida (escritorio, sin barras) vale la distancia de siempre, `9.25rem` + zona segura.
+          // En el movil sube a `z-30` (el nivel de la barra de zoom y paginas, que va ANTES en el DOM): en una pantalla
+          // baja (360x640) esa barra, aun sin pegarse arriba, cae detras de la paleta y no debe taparla.
+          style={
+            !embedded && barsClearance !== null
+              ? ({ "--edit-palette-bottom": `${barsClearance}px` } as CSSProperties)
+              : undefined
+          }
           className={
             embedded
               ? "z-20 shrink-0 max-md:order-last max-md:grid max-md:grid-cols-[repeat(auto-fit,minmax(2.75rem,1fr))] max-md:justify-items-center max-md:[&_[role=separator]]:hidden md:min-h-0 md:max-h-full md:w-12 md:self-start md:overflow-y-auto md:overscroll-contain"
-              : "z-20 max-md:fixed max-md:inset-x-0 max-md:bottom-[calc(9.25rem+env(safe-area-inset-bottom,0px))] max-md:grid max-md:grid-cols-5 max-md:rounded-none max-md:px-1 max-md:[&_[role=separator]]:hidden md:sticky md:top-24 md:w-12 md:shrink-0"
+              : "z-20 max-md:z-30 max-md:fixed max-md:inset-x-0 max-md:bottom-[var(--edit-palette-bottom,calc(9.25rem+env(safe-area-inset-bottom,0px)))] max-md:grid max-md:grid-cols-5 max-md:rounded-none max-md:px-1 max-md:[&_[role=separator]]:hidden md:sticky md:top-24 md:w-12 md:shrink-0"
           }
         />
 

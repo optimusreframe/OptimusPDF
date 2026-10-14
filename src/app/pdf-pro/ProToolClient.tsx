@@ -10,6 +10,7 @@ import { ProSuite } from "@/app/pdf-pro/ProSuite";
 import { useProDraftAutosave } from "@/app/pdf-pro/proDraftAutosave";
 import { proDraftsSupported, type SaveProDraftResult } from "@/app/pdf-pro/proDrafts";
 import { useProCreate } from "@/app/pdf-pro/create/useProCreate";
+import { useExportRunning } from "@/app/pdf-pro/export/useExportStore";
 import { unloadGuardNeeded } from "@/app/pdf-pro/session/proLimits";
 import { useReplaceGuard } from "@/app/pdf-pro/session/useReplaceGuard";
 import { useUnloadGuard } from "@/app/pdf-pro/session/useUnloadGuard";
@@ -66,8 +67,10 @@ function ProApp() {
   const drafts = useProDraftList();
   const draftsSupported = useSyncExternalStore(NO_SUBSCRIBE, proDraftsSupported, () => true);
 
-  // Cerrar o recargar la pestaña pide confirmacion SOLO con cambios sin descargar que el borrador no cubre
-  // (autoguardado apagado, sin soporte, fallido, PDF cifrado o documento demasiado grande).
+  // Cerrar o recargar la pestaña pide confirmacion con cambios sin descargar que el borrador no cubre (autoguardado
+  // apagado, sin soporte, fallido, PDF cifrado o documento demasiado grande), con un paso en vuelo y, Wave 10, con una
+  // exportacion en curso (se perderia el archivo que esta a punto de descargarse).
+  const exportRunning = useExportRunning();
   const currentBytes = workingDocument ? (workingDocument.snapshots[workingDocument.cursor]?.byteLength ?? 0) : 0;
   useUnloadGuard(
     unloadGuardNeeded({
@@ -79,6 +82,7 @@ function ProApp() {
       currentBytes,
       draftWritePending,
       stepInFlight,
+      exportRunning,
     }),
   );
 

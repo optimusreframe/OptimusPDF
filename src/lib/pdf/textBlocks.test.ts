@@ -1825,6 +1825,14 @@ describe("D7 negrita falsa", () => {
     expect(textsOf(result.blocks)).toEqual(["Duplicate bold"]);
   });
 
+  it("3 y 4 pasadas finas (cuerpo 15, 0,3 pt) se deduplican en UN bloque (Wave 10 · C-A2: antes salia «…bold» doble)", async () => {
+    const pass = (x: number) => `BT /F1 15 Tf ${x} 300 Td (Duplicate bold) Tj ET`;
+    const three = await analyzeBytes(await rawPdf([40, 40.3, 40.6].map(pass).join(" ")));
+    expect(textsOf(three.blocks)).toEqual(["Duplicate bold"]);
+    const four = await analyzeBytes(await rawPdf([40, 40.3, 40.6, 40.9].map(pass).join(" ")));
+    expect(textsOf(four.blocks)).toEqual(["Duplicate bold"]);
+  });
+
   it("texto repetido a otra altura NO se deduplica", async () => {
     const result = await analyzeBytes(
       await rawPdf(

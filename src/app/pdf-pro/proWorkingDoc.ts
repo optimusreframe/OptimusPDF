@@ -37,6 +37,10 @@ import type {
  * paso cuesta ~7 % de su peso a disco, no el 100 %. El plan de trozos de cada snapshot se calcula en segundo plano en
  * cuanto nace (`prewarmChunkPlan`), para que ni el volcado ni el borrador esperen ese calculo. Palanca de memoria que NO
  * se ha movido: `PRO_HOT_SNAPSHOT_BYTES` (con 40 MB deja 4 snapshots residentes; con la mitad, 2).
+ *
+ * Wave 10 · deshacer/rehacer en frio: la lectura de un paso volcado recibe los bytes de los snapshots residentes
+ * (`residentBytes`) y copia de ellos lo que comparten (solo se lee de disco lo distinto); y un deshacer que llega mientras
+ * el reequilibrio ya trae ese paso por adelantado ESPERA esa lectura en vez de lanzar otra (`fetchBytes`).
  */
 
 /**
@@ -252,7 +256,8 @@ export class ProWorkingDoc {
   private readonly storedIds = new Set<string>();
   /** Escrituras y lecturas en vuelo (no se repiten). */
   private readonly putting = new Map<string, Promise<void>>();
-  private readonly fetching = new Set<string>();
+  /** Lecturas de disco en vuelo por id: deshacer/rehacer hacia un paso que ya se esta trayendo ESPERA esa lectura. */
+  private readonly fetching = new Map<string, Promise<Uint8Array | null>>();
   /** Movimiento pendiente de recuperar bytes de disco: el ultimo pedido gana. */
   private moveToken = 0;
   private pendingTarget: number | null = null;
@@ -552,7 +557,7 @@ export class ProWorkingDoc {
     const run = async () => {
       let bytes: Uint8Array | null = null;
       try {
-        bytes = this.store ? await this.store.get(target.id) : null;
+        bytes = await this.fetchBytes(target.id);
       } catch {
         bytes = null;
       }
@@ -825,14 +830,38 @@ export class ProWorkingDoc {
     this.recompute();
   }
 
-  private prefetch(snapshot: ProSnapshot): void {
+  /**
+   * Bytes de un snapshot volcado a disco. Si ya hay una lectura de ese paso en vuelo (el `prefetch` que lanzo el
+   * reequilibrio) se espera ESA en vez de leer otra vez (dos Ctrl+Z seguidos antes de que termine la primera lectura
+   * leian el disco dos veces y retenian dos copias). Lo que comparte con los snapshots residentes se copia de la RAM
+   * (`ProHistoryStore.get`): solo se lee de disco lo distinto.
+   */
+  private fetchBytes(id: string): Promise<Uint8Array | null> {
+    const known = this.fetching.get(id);
+    if (known) return known;
     const store = this.store;
-    if (!store) return;
+    if (!store) return Promise.resolve(null);
+    const promise = store.get(id, this.residentBytes());
+    this.fetching.set(id, promise);
+    const clear = () => {
+      if (this.fetching.get(id) === promise) this.fetching.delete(id);
+    };
+    promise.then(clear, clear);
+    return promise;
+  }
+
+  /** Los bytes de los snapshots que estan ahora en RAM (origen de los trozos que no hace falta leer de disco). */
+  private residentBytes(): Uint8Array[] {
+    const document = this.document;
+    if (!document) return [];
+    return document.snapshots.filter((snapshot) => !snapshot.offloaded && snapshot.bytes.byteLength > 0).map((snapshot) => snapshot.bytes);
+  }
+
+  private prefetch(snapshot: ProSnapshot): void {
+    if (!this.store) return;
     const epoch = this.epoch;
-    this.fetching.add(snapshot.id);
-    store.get(snapshot.id).then(
+    this.fetchBytes(snapshot.id).then(
       (bytes) => {
-        this.fetching.delete(snapshot.id);
         if (!bytes || epoch !== this.epoch || !this.document) return;
         const index = this.document.snapshots.findIndex((item) => item.id === snapshot.id);
         if (index < 0 || !this.document.snapshots[index].offloaded) return;
@@ -840,9 +869,7 @@ export class ProWorkingDoc {
         this.replaceSnapshot(index, { ...this.document.snapshots[index], bytes, offloaded: false });
         this.recompute();
       },
-      () => {
-        this.fetching.delete(snapshot.id);
-      },
+      () => undefined,
     );
   }
 

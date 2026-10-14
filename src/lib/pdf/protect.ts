@@ -3,7 +3,8 @@ import type { SecurityOptions } from "@cantoo/pdf-lib";
 import {
   PdfError,
   loadPdf,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
@@ -15,8 +16,8 @@ import {
  * con `userPassword`, `ownerPassword` y `permissions` — comprobado en
  * `node_modules/@cantoo/pdf-lib/cjs/api/PDFDocument.d.ts` (linea 772) y en
  * `core/security/PDFSecurity.d.ts`. El cifrado se aplica al serializar,
- * tanto con flujos de objetos como sin ellos, asi que `savePdfToBlob`
- * sirve tal cual.
+ * tanto con flujos de objetos como sin ellos, asi que `savePdfToBytes`
+ * (y `savePdfToBlob`) sirven tal cual.
  *
  * Decisiones explicitas:
  * - `ownerPassword` SIEMPRE es `options.password`, exista o no
@@ -274,6 +275,30 @@ export async function protectPdf(
   options: ProtectOptions,
   onProgress?: ProgressCallback,
 ): Promise<ProtectedPdfBlob> {
+  const { bytes, appliedEncryptionRevision, legacyRevisionIgnoredRestrictions } = await protectPdfToBytes(
+    file,
+    options,
+    onProgress,
+  );
+  return Object.assign(pdfBytesToBlob(bytes), { appliedEncryptionRevision, legacyRevisionIgnoredRestrictions });
+}
+
+/** Lo que devuelve `protectPdfToBytes`: el PDF cifrado y los dos avisos que `protectPdf` cuelga de su `Blob`. */
+export type ProtectedPdfBytes = {
+  bytes: Uint8Array;
+  appliedEncryptionRevision: number;
+  legacyRevisionIgnoredRestrictions: boolean;
+};
+
+/**
+ * Igual que `protectPdf`, pero devuelve los BYTES del PDF cifrado (sin pasar por un `Blob`): para quien necesita los
+ * bytes (PDF Pro). Mismos bytes que el `Blob` de `protectPdf`.
+ */
+export async function protectPdfToBytes(
+  file: File,
+  options: ProtectOptions,
+  onProgress?: ProgressCallback,
+): Promise<ProtectedPdfBytes> {
   const failure = validateProtectOptions(options);
   if (failure) throw new ProtectValidationError(failure);
 
@@ -296,13 +321,10 @@ export async function protectPdf(
     });
     onProgress?.(0.6);
 
-    const blob = await savePdfToBlob(document);
+    const bytes = await savePdfToBytes(document);
     onProgress?.(1);
 
-    return Object.assign(blob, {
-      appliedEncryptionRevision,
-      legacyRevisionIgnoredRestrictions,
-    });
+    return { bytes, appliedEncryptionRevision, legacyRevisionIgnoredRestrictions };
   } catch (error) {
     throw toPdfError(error);
   }

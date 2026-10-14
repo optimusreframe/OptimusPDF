@@ -5,7 +5,8 @@ import {
   hexToPdfColor,
   loadPdf,
   originForCenter,
-  savePdfToBlob,
+  pdfBytesToBlob,
+  savePdfToBytes,
   standardFontFor,
   toPdfError,
   toWinAnsiSafe,
@@ -142,6 +143,18 @@ export async function addHeaderFooter(
   options: HeaderFooterOptions,
   onProgress?: ProgressCallback,
 ): Promise<Blob> {
+  return pdfBytesToBlob(await addHeaderFooterToBytes(file, options, onProgress));
+}
+
+/**
+ * Igual que `addHeaderFooter`, pero devuelve los BYTES del PDF resultante (`Uint8Array`) sin pasar por un `Blob`: para quien sigue
+ * trabajando con bytes (PDF Pro). Mismos bytes que el `Blob` de `addHeaderFooter`.
+ */
+export async function addHeaderFooterToBytes(
+  file: File | Blob,
+  options: HeaderFooterOptions,
+  onProgress?: ProgressCallback,
+): Promise<Uint8Array> {
   try {
     const slots = slotsOf(options);
     if (slots.length === 0) throw new PdfError("nothingSelected");
@@ -210,9 +223,9 @@ export async function addHeaderFooter(
       onProgress?.(0.25 + ((offset + 1) / count) * 0.7);
     }
 
-    const blob = await savePdfToBlob(document);
+    const bytes = await savePdfToBytes(document);
     onProgress?.(1);
-    return blob;
+    return bytes;
   } catch (error) {
     throw toPdfError(error);
   }

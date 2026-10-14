@@ -105,14 +105,24 @@ describe("claves que usa el codigo", () => {
     expect(proOperationLabel("es", "noExiste")).toBe("noExiste");
   });
 
-  it("cada pestana de la suite tiene nombre; las demas pestanas que no son Inicio tienen su aviso", () => {
+  it("cada pestana de la suite tiene nombre", () => {
     for (const language of ["es", "en"] as const) {
-      for (const tab of PRO_TAB_IDS) {
-        expect(PRO_STRINGS[language].suite.tabs[tab]).toBeTruthy();
-        if (tab !== "home") expect(PRO_STRINGS[language].suite.comingSoon[tab]).toBeTruthy();
-      }
+      for (const tab of PRO_TAB_IDS) expect(PRO_STRINGS[language].suite.tabs[tab]).toBeTruthy();
     }
     expect(PRO_TAB_IDS).toEqual(["home", "pages", "edit", "annotate", "sign", "protect", "convert"]);
+  });
+
+  // Wave 10 · C-B1: las siete pestañas ya existen (panel o modo), asi que ya no hay avisos «Próximamente en PDF Pro»
+  // por pestaña ni un titulo para un panel vacio: ningun texto de la suite promete algo que ya esta hecho.
+  it("la suite no guarda avisos «Próximamente» por pestaña (ni su titulo de panel vacio)", () => {
+    for (const language of ["es", "en"] as const) {
+      const suite = PRO_STRINGS[language].suite as Record<string, unknown>;
+      expect(suite).not.toHaveProperty("comingSoon");
+      expect(suite).not.toHaveProperty("contextTitle");
+      // Ningun texto de la suite promete «Próximamente en PDF Pro» (el marcador de una exportacion SIN motor, en
+      // `docTools.convert`, es otro contrato y se conserva: lo prueban `convertTab.test.tsx`).
+      expect(paths(suite).filter((path) => /soon|proximamente/i.test(path))).toEqual([]);
+    }
   });
 
   it("cada codigo de aviso (ProWarningCode) tiene texto en los dos idiomas", () => {
