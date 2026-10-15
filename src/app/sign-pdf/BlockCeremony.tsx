@@ -546,10 +546,10 @@ export function BlockCeremony({
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            <Button size="md" onClick={advance}>
+            <Button size="md" wrap onClick={advance}>
               {othersPending ? strings.reviewNext : strings.reviewFinish}
             </Button>
-            <Button variant="secondary" size="md" onClick={() => setStage("capture")}>
+            <Button variant="secondary" size="md" wrap onClick={() => setStage("capture")}>
               {strings.reviewRedo}
             </Button>
           </div>
@@ -644,6 +644,7 @@ export function BlockCeremony({
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             size="lg"
+            wrap
             disabled={blocked || pending.length > 0 || queue.length === 0 || busy}
             onClick={onFinish}
           >
@@ -652,6 +653,7 @@ export function BlockCeremony({
           <Button
             variant="ghost"
             size="lg"
+            wrap
             onClick={() => {
               let cleared = blocks;
               for (const block of blocks) cleared = clearBlock(cleared, block.id);

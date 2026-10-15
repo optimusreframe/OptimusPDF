@@ -737,7 +737,8 @@ function SoloApplyAll({
           ref={applyRef}
           variant="secondary"
           size="sm"
-          className="pointer-coarse:h-11 pointer-coarse:before:hidden aria-disabled:opacity-50"
+          wrap
+          className="pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:before:hidden aria-disabled:opacity-50"
           aria-busy={busy}
           // `aria-disabled` y no `disabled`: un boton que se desactiva con el foco lo pierde (cae a <body>).
           aria-disabled={busy}

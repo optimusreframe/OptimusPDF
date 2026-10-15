@@ -201,6 +201,14 @@ describe("SigningCeremony — src/app/sign-pdf/SigningCeremony.tsx", () => {
 
     expect(finishButton().disabled).toBe(false);
 
+    // Rotulos largos: ambos botones parten el texto en vez de desbordar con una tipografia ancha (F0-fix3).
+    for (const label of [strings.applyAndDownload, strings.restartCeremony]) {
+      expect(
+        screen.getByRole("button", { name: label }).className.split(/\s+/),
+        label,
+      ).toEqual(expect.arrayContaining(["whitespace-normal!", "max-w-full"]));
+    }
+
     fireEvent.click(
       screen.getByRole("button", { name: strings.restartCeremony }),
     );

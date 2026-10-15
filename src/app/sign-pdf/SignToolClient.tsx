@@ -2295,7 +2295,8 @@ function SignAgainPrompt({ onAccept, strings }: SignAgainPromptProps) {
       <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
         {strings.signAgainBody}
       </p>
-      <Button size="md" onClick={onAccept}>
+      {/* Rotulo largo: con una tipografia ancha (DejaVu en Linux) a 375 px el boton ocupaba mas que la tarjeta; `wrap` lo parte. */}
+      <Button size="md" wrap onClick={onAccept}>
         {strings.signAgainAccept}
       </Button>
     </div>

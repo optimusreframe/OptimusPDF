@@ -607,6 +607,12 @@ describe("SignToolClient — flujo completo (firmar -> prompt -> aceptar)", () =
     await waitFor(() =>
       expect(screen.getByText(strings.signAgainTitle)).toBeTruthy(),
     );
+    // El rotulo es largo: el boton parte en lineas en vez de desbordar con una tipografia ancha (F0-fix3).
+    expect(
+      screen
+        .getByRole("button", { name: strings.signAgainAccept })
+        .className.split(/\s+/),
+    ).toEqual(expect.arrayContaining(["whitespace-normal!", "max-w-full"]));
     fireEvent.click(
       screen.getByRole("button", { name: strings.signAgainAccept }),
     );

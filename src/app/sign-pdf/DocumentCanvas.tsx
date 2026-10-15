@@ -169,6 +169,11 @@ const BORDERED_SM_COARSE = "pointer-coarse:before:-inset-y-[5px]";
  * ampliada del `::before` ya no hace falta y vuelve a la caja del boton.
  */
 const COARSE_TALL = "pointer-coarse:h-11 pointer-coarse:before:hidden";
+/**
+ * `COARSE_TALL` + alto minimo, para botones con `wrap` (rotulo largo que parte en lineas): `wrap` fija `h-auto!`, que gana
+ * a `pointer-coarse:h-11`; el `min-h-11` mantiene los 44 px con puntero grueso cuando el rotulo cabe en una linea.
+ */
+const COARSE_TALL_MIN = `${COARSE_TALL} pointer-coarse:min-h-11`;
 
 /**
  * En movil la paleta de herramientas es `fixed` (9.25 rem sobre el borde inferior + su alto, hasta dos filas): al
@@ -2463,7 +2468,8 @@ function DocumentCanvasInner({
         <Button
           variant="secondary"
           size="sm"
-          className={cn(COARSE_TALL, ABOVE_FLOATING_PALETTE)}
+          wrap
+          className={cn(COARSE_TALL_MIN, ABOVE_FLOATING_PALETTE)}
           disabled={clearPageDisabled}
           onClick={clearPage}
         >
@@ -2476,7 +2482,8 @@ function DocumentCanvasInner({
         <Button
           variant="ghost"
           size="sm"
-          className={cn(COARSE_TALL, ABOVE_FLOATING_PALETTE)}
+          wrap
+          className={cn(COARSE_TALL_MIN, ABOVE_FLOATING_PALETTE)}
           disabled={clearAllDisabled}
           onClick={() => setConfirmClearAllOpen(true)}
         >

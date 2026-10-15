@@ -463,10 +463,11 @@ export function SigningCeremony({
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            <Button size="md" onClick={advance}>
+            <Button size="md" wrap onClick={advance}>
               {othersPending ? strings.reviewNext : strings.reviewFinish}
             </Button>
             <Button
+              wrap
               variant="secondary"
               size="md"
               onClick={() => setStage("capture")}
@@ -552,6 +553,7 @@ export function SigningCeremony({
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             size="lg"
+            wrap
             disabled={pending.length > 0 || queue.length === 0 || busy}
             onClick={onFinish}
           >
@@ -560,6 +562,7 @@ export function SigningCeremony({
           <Button
             variant="ghost"
             size="lg"
+            wrap
             onClick={() => {
               onCapturesChange({});
               goToTurn(0);

@@ -686,6 +686,12 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
   it("«Empezar de nuevo» borra los trazos de todos los bloques y vuelve al primer turno", () => {
     let last: SignerBlock[] = [];
     render(<Harness blocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} onBlocks={(next) => (last = next)} />);
+    // Rotulos largos: ambos botones parten el texto en vez de desbordar con una tipografia ancha (F0-fix3).
+    for (const label of [strings.applyAndDownload, strings.restartCeremony]) {
+      expect(screen.getByRole("button", { name: label }).className.split(/\s+/), label).toEqual(
+        expect.arrayContaining(["whitespace-normal!", "max-w-full"]),
+      );
+    }
     fireEvent.click(screen.getByRole("button", { name: strings.restartCeremony }));
     expect(last.every((item) => item.signature === null && item.initials === null)).toBe(true);
     expect(last.every((item) => Object.keys(item.stamps).length === 0)).toBe(true);

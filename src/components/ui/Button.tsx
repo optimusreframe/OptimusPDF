@@ -53,23 +53,40 @@ const SIZES: Record<ButtonSize, string> = {
   lg: "h-14 rounded-ios px-7 text-headline",
 };
 
+/*
+ * `wrap`: para rotulos largos (traducciones, tipografias del sistema mas anchas que SF Pro: DejaVu en Linux, Roboto en
+ * Android). El boton base no parte el texto (`whitespace-nowrap`) y tiene alto fijo: un rotulo de ~35 caracteres a
+ * 320-375 px ocupaba mas que su contenedor y la pagina ganaba scroll horizontal. Con `wrap` parte en lineas, nunca es mas
+ * ancho que su contenedor y conserva el alto minimo de su tamano (44 px en `md`), asi que no cambia nada cuando cabe en
+ * una linea. Los `!` ganan a `h-*`/`whitespace-nowrap` del tamano base, que comparten especificidad.
+ */
+const WRAP_BASE = "h-auto! max-w-full py-2 text-center whitespace-normal!";
+const WRAP_MIN_HEIGHT: Record<ButtonSize, string> = {
+  sm: "min-h-9",
+  md: "min-h-11",
+  lg: "min-h-14",
+};
+
 export function buttonClasses(
   variant: ButtonVariant = "primary",
   size: ButtonSize = "md",
   className?: string,
+  wrap = false,
 ): string {
-  return cn(BASE, VARIANTS[variant], SIZES[size], className);
+  return cn(BASE, VARIANTS[variant], SIZES[size], wrap && [WRAP_BASE, WRAP_MIN_HEIGHT[size]], className);
 }
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
   fullWidth?: boolean;
+  /** Rotulo largo: parte el texto en varias lineas en lugar de desbordar (ver `WRAP_BASE`). */
+  wrap?: boolean;
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   function Button(
-    { variant = "primary", size = "md", fullWidth, className, type, ...props },
+    { variant = "primary", size = "md", fullWidth, wrap, className, type, ...props },
     ref,
   ) {
     return (
@@ -80,6 +97,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           variant,
           size,
           cn(fullWidth && "w-full", className),
+          wrap,
         )}
         {...props}
       />
