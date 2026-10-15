@@ -38,6 +38,11 @@ export type DownloadScreenProps = {
   secondaryDownload?: { label: string; onDownload: () => void };
   /** Accion para seguir con el resultado en otro sitio («Seguir en PDF Pro»), bajo «Descargar». */
   continueAction?: ReactNode;
+  /**
+   * Opciones propias del resultado, justo bajo «Descargar» y dentro de la tarjeta (p. ej. la casilla «Borrar el borrador de
+   * esta firma» y la opcion «E-sign» de Firmar PDF). Ancho acotado y alineadas a la izquierda, como un formulario.
+   */
+  extras?: ReactNode;
 };
 
 /**
@@ -58,6 +63,7 @@ export function DownloadScreen({
   notices,
   secondaryDownload,
   continueAction,
+  extras,
 }: DownloadScreenProps) {
   const { t, language } = useI18n();
   const reportId = useId();
@@ -164,6 +170,15 @@ export function DownloadScreen({
           <Download aria-hidden="true" className="size-5" />
           {t.tool.download}
         </Button>
+
+        {extras ? (
+          <div
+            data-download-extras=""
+            className="mt-4 flex w-full max-w-md flex-col items-stretch gap-3 text-left"
+          >
+            {extras}
+          </div>
+        ) : null}
 
         {secondaryDownload ? (
           <Button

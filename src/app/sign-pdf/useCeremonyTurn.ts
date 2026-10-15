@@ -22,6 +22,11 @@ export type CeremonyTurnArgs = {
   queue: readonly { id: string }[];
   /** El firmante ya tiene todo lo suyo. */
   isDone: (signerId: string) => boolean;
+  /**
+   * El primer firmante cuya firma YA hecha dejo de valer (F0-fix, D7): el turno vuelve a el en lugar de quedarse con otro.
+   * Ver `resolveCeremony`.
+   */
+  staleSignerId?: string | null;
 };
 
 export type CeremonyTurn = {
@@ -54,11 +59,12 @@ export function useCeremonyTurn({
   onChange,
   queue,
   isDone,
+  staleSignerId,
 }: CeremonyTurnArgs): CeremonyTurn {
   const [local, setLocal] = useState<CeremonyState | null>(null);
   const controlled = onChange !== undefined;
   const current = controlled ? (stored ?? null) : local;
-  const { index: position, stage } = resolveCeremony(current, queue, isDone);
+  const { index: position, stage } = resolveCeremony(current, queue, isDone, staleSignerId);
 
   const write = (next: CeremonyState | null) => {
     if (onChange) onChange(next);

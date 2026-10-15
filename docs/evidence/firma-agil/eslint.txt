@@ -1,0 +1,7 @@
+
+<copia-aislada>/src/app/inputChecks.clients.test.tsx
+  90:42  warning  '_slug' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 1 problem (0 errors, 1 warning)
+
+eslint exit=0

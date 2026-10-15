@@ -1,0 +1,107 @@
+U0.3 · mutaciones (todas MUEREN, por fallo de asercion; ninguna solo por tiempo agotado)
+
+Cada mutante cambia UNA linea de la fuente, corre los tests indicados con el informador JSON de vitest y se restaura el archivo
+(python3 mutate.py, copia aislada). `fallos` = pruebas que fallan con el mutante; entre parentesis, las primeras.
+
+KILLED   M01  no restaurar con ?s= (la recarga no hace nada)  [10 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: la sesion en la URL (?s=) recargar con ?s=<id> restaura la sesion SOLA, sin tocar nada, y sin parpadeo de la tarjeta de entrada
+            - src/app/sign-pdf/resumeFlow.test.tsx: la sesion en la URL (?s=) si la carga del borrador FALLA (le faltan sus bytes) lo dice y no deja `?s=` en la direccion
+            - src/app/sign-pdf/resumeFlow.test.tsx: «Atras» del navegador con trabajo, el «Atras» pregunta «¿Salir de la firma?»; «Seguir firmando» lo conserva todo y vuelve a proteger
+KILLED   M02  restaurar el borrador EQUIVOCADO por huella (cualquiera con huellas)  [6 fallos]
+            - src/app/sign-pdf/draftLookup.test.ts: draftDocumentKeys / findDraftForUpload: ¿son ESTOS los PDF? un subconjunto o un superconjunto NO encuentra nada (seria mezclar trabajos)
+            - src/app/sign-pdf/draftLookup.test.ts: draftDocumentKeys / findDraftForUpload: ¿son ESTOS los PDF? otro PDF distinto con el mismo numero de archivos NO encuentra el borrador (huella, no nombre ni cantidad)
+            - src/app/sign-pdf/draftLookup.test.ts: draftDocumentKeys / findDraftForUpload: ¿son ESTOS los PDF? dos copias identicas se cuentan dos veces: una sola copia no es el mismo trabajo
+KILLED   M03  un SUBCONJUNTO de huellas basta (mezcla trabajos)  [1 fallos]
+            - src/app/sign-pdf/draftLookup.test.ts: draftDocumentKeys / findDraftForUpload: ¿son ESTOS los PDF? un subconjunto o un superconjunto NO encuentra nada (seria mezclar trabajos)
+KILLED   M04  pushState duplicado en bucle (nunca reconoce su propia entrada)  [3 fallos]
+            - src/app/sign-pdf/sessionUrl.test.tsx: showSessionInUrl / hideSessionFromUrl con progreso añade UNA entrada de historial con ?s=<id> y la repeticion no añade ninguna mas
+            - src/app/sign-pdf/sessionUrl.test.tsx: showSessionInUrl / hideSessionFromUrl una direccion con `?s=` pegada a mano (sin nuestra marca) crea la entrada base detras
+            - src/app/sign-pdf/sessionUrl.test.tsx: showSessionInUrl / hideSessionFromUrl tras una recarga (misma entrada, con su marca) no se duplica: la marca viaja en el estado de la entrada
+KILLED   M05  no limpiar `s` de la URL (hide es un no-op)  [14 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: la sesion en la URL (?s=) un ?s= de un borrador que ya no existe avisa con el mensaje de siempre y se limpia
+            - src/app/sign-pdf/resumeFlow.test.tsx: la sesion en la URL (?s=) un ?s= manipulado no restaura nada, no avisa y se limpia
+            - src/app/sign-pdf/resumeFlow.test.tsx: la sesion en la URL (?s=) si la carga del borrador FALLA (le faltan sus bytes) lo dice y no deja `?s=` en la direccion
+KILLED   M06  guarda SIEMPRE (beforeunload molesta con todo guardado)  [7 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: aviso al cerrar (beforeunload) con la herramienta real con UN documento tambien: mientras su borrador esta agendado el navegador pregunta, y al guardarse deja de hacerlo
+            - src/app/sign-pdf/resumeFlow.test.tsx: aviso al cerrar (beforeunload) con la herramienta real con todos los trazos recogidos y el borrador al dia ya no pregunta
+            - src/app/sign-pdf/resumeFlow.test.tsx: aviso al cerrar (beforeunload) con la herramienta real con progreso pero sin firmas recogidas y todo guardado, tampoco pregunta; «Solo yo» sin nada guardado, jamas
+KILLED   M07  guarda NUNCA (beforeunload jamas molesta)  [8 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: aviso al cerrar (beforeunload) con la herramienta real con la ronda a medias (firmo Ana, falta Luis) el navegador pregunta aunque todo este guardado
+            - src/app/sign-pdf/resumeFlow.test.tsx: aviso al cerrar (beforeunload) con la herramienta real con UN documento tambien: mientras su borrador esta agendado el navegador pregunta, y al guardarse deja de hacerlo
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: shouldWarnBeforeUnload (la decision pura) avisa con un cambio sin volcar, con un borrador que no cabe o con la ronda a medias
+KILLED   M08  borrar el borrador de sesion ANTES del undo (sin espera)  [3 fallos]
+            - src/app/sign-pdf/SessionDraftAutosave.test.tsx: SessionDraftAutosave al quedar UN solo documento borra el borrador de sesion y suelta la identidad (relevo al flujo de un documento), pero solo cuando expira el «Deshacer»
+            - src/app/sign-pdf/SessionDraftAutosave.test.tsx: SessionDraftAutosave «Deshacer» a tiempo (la ronda vuelve a tener dos documentos) cancela el borrado: el borrador y su id se conservan
+            - src/app/sign-pdf/resumeFlow.test.tsx: quitar un documento con trabajo hecho avisa «Quitaste ...» con «Deshacer»; el borrador de la sesion se conserva; deshacer devuelve la ronda entera
+KILLED   M09  los enlaces no se cancelan (GuardedLink sin preventDefault)  [2 fallos]
+            - src/components/layout/GuardedLink.test.tsx: GuardedLink una guarda que dice «cancela» impide la navegacion y recibe el destino
+            - src/components/layout/GuardedLink.test.tsx: GuardedLink `proceed` repite el clic sobre el MISMO enlace saltandose la guarda: la navegacion sigue
+KILLED   M10  el «Atras» no abre la hoja (popstate ignorado)  [9 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: «Atras» del navegador con trabajo, el «Atras» pregunta «¿Salir de la firma?»; «Seguir firmando» lo conserva todo y vuelve a proteger
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: «Atras» del navegador con progreso, volver a la entrada sin `s` abre la hoja; «Seguir firmando» la cierra y vuelve a poner ?s=
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: «Atras» del navegador volver ADELANTE a la entrada con `s` cierra la hoja: ya no hay nada que preguntar
+KILLED   M11  «Seguir firmando» no vuelve a poner ?s=  [2 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: «Atras» del navegador con trabajo, el «Atras» pregunta «¿Salir de la firma?»; «Seguir firmando» lo conserva todo y vuelve a proteger
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: «Atras» del navegador con progreso, volver a la entrada sin `s` abre la hoja; «Seguir firmando» la cierra y vuelve a poner ?s=
+KILLED   M12  «Salir» no salta la guarda (sin bypass)  [3 fallos]
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: «Atras» del navegador «Salir» sigue el camino del navegador (un paso atras) y NO vuelve a preguntar ni a avisar al cerrar
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: «Atras» del navegador si «Salir» no saca de la pagina (no habia a donde volver), pasado un rato vuelve la proteccion y ?s=
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: volver desde la cache de atras/adelante (bfcache) la guarda recupera su estado normal: el permiso de salida de «Salir» no se queda puesto
+KILLED   M13  «firmas recogidas» al reves (Ana pendiente, Luis ✓)  [3 fallos]
+            - src/app/sign-pdf/draftLookup.test.ts: summarizeDraft: quien ya firmo con varios documentos cuenta a cada firmante con huecos como recogido o pendiente
+            - src/app/sign-pdf/draftLookup.test.ts: summarizeDraft: quien ya firmo los dos firmantes con sus trazos vigentes salen recogidos
+            - src/app/sign-pdf/draftLookup.test.ts: summarizeDraft: quien ya firmo un trazo cuyo sello ya no vale (el documento cambio) cuenta como PENDIENTE, no como recogido
+KILLED   M14  Deshacer no devuelve la ronda (undo sin efecto)  [1 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: quitar un documento con trabajo hecho avisa «Quitaste ...» con «Deshacer»; el borrador de la sesion se conserva; deshacer devuelve la ronda entera
+KILLED   M15  quitar un documento no ofrece Deshacer  [3 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: quitar un documento con trabajo hecho avisa «Quitaste ...» con «Deshacer»; el borrador de la sesion se conserva; deshacer devuelve la ronda entera
+            - src/app/sign-pdf/resumeFlow.test.tsx: quitar un documento con trabajo hecho el aviso se retira solo al expirar el «Deshacer»
+            - src/app/sign-pdf/resumeFlow.test.tsx: quitar un documento con trabajo hecho añadir archivos despues de quitar descarta el «Deshacer» (ya no describe la ronda de ahora)
+KILLED   M16  la oferta ignora `enabled` (se ofrece pisando trabajo en pantalla)  [2 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: oferta «Retomar lo que tenias» al subir los mismos PDF con trabajo ya empezado (un firmante) la oferta no se muestra: no pisa lo que hay
+            - src/app/sign-pdf/resumeFlow.test.tsx: quitar un documento con trabajo hecho avisa «Quitaste ...» con «Deshacer»; el borrador de la sesion se conserva; deshacer devuelve la ronda entera
+KILLED   M17  la ronda a medias nunca avisa (roundOpen siempre falso)  [1 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: aviso al cerrar (beforeunload) con la herramienta real con la ronda a medias (firmo Ana, falta Luis) el navegador pregunta aunque todo este guardado
+KILLED   M18  «Solo yo» tambien cuenta como progreso guardado  [2 fallos]
+            - src/app/sign-pdf/signWork.test.ts: hasSavedProgress: solo «Varios firmantes» se guarda «Solo yo» NUNCA cuenta (no guarda borrador): ni con firma colocada ni con varios documentos
+            - src/app/sign-pdf/signWork.test.ts: hasSavedProgress: solo «Varios firmantes» se guarda sessionHasSavedProgress lo lee de la sesion canonica (documento activo incluido)
+KILLED   M19  «Descartar» confirmado no borra el borrador  [3 fallos]
+            - src/app/sign-pdf/ResumeOffer.test.tsx: ResumeCard «Descartar» pide confirmacion: «Cancelar» no borra nada; confirmar borra el borrador de verdad y avisa
+            - src/app/sign-pdf/ResumeOffer.test.tsx: ResumeCard descartar uno de VARIOS deja el foco en el «Retomar» de la tarjeta, que pasa a mostrar el siguiente
+            - src/app/sign-pdf/resumeFlow.test.tsx: tarjeta «Tienes una firma sin terminar» al entrar «Descartar» confirma antes de borrar; al confirmar el borrador desaparece y se anuncia
+KILLED   M20  volver a cargar los mismos archivos deja la herramienta sin montar (loadWith sin re-comprobar)  [2 fallos]
+            - src/components/tool/ToolShell.loadAgain.test.tsx: ToolShell: cargar con loadRef cargar los MISMOS archivos otra vez (el «Deshacer» de Firmar) vuelve a montar el contenido: se comprueban de nuevo
+            - src/components/tool/ToolShell.loadAgain.test.tsx: ToolShell: renderIdle y onFilesChanged `onFilesChanged` recibe la lista nueva y la anterior al subir, quitar y reordenar; NO al cargar con loadRef
+KILLED   M21  la tarjeta de entrada no ofrece «Retomar» (el boton no llama a onResume)  [2 fallos]
+            - src/app/sign-pdf/ResumeOffer.test.tsx: ResumeCard «Retomar» y «Ver todos» llaman a sus manejadores con el borrador mas reciente
+            - src/app/sign-pdf/resumeFlow.test.tsx: tarjeta «Tienes una firma sin terminar» al entrar con un borrador guardado, entrar en la herramienta lo ofrece; «Retomar» carga los dos documentos y los firmantes
+KILLED   M22  reanudar una sesion que YA esta en pantalla la vuelve a cargar (pisa lo ultimo hecho)  [1 fallos]
+            - src/app/sign-pdf/sessionPersistence.test.tsx: borrador de sesion con varios documentos tras retomar, el siguiente autoguardado actualiza la MISMA sesion (no la duplica)
+KILLED   M23  volver de la cache de atras/adelante deja puesto el permiso de salida  [1 fallos]
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: volver desde la cache de atras/adelante (bfcache) la guarda recupera su estado normal: el permiso de salida de «Salir» no se queda puesto
+KILLED   M24  un enlace a la MISMA pagina tambien pregunta «¿Salir?»  [1 fallos]
+            - src/components/layout/GuardedLink.test.tsx: GuardedLink un enlace a la MISMA pagina no es «salir»: no consulta la guarda y navega
+KILLED   M25  la lista de borradores se relee en cada aviso (sin calma)  [1 fallos]
+            - src/app/sign-pdf/useRecoverableDrafts.test.tsx: useRecoverableDrafts una rafaga de cambios seguidos produce UNA relectura al final, no una por cambio
+KILLED   M26  una carga fallida deja `?s=` en la direccion  [1 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: la sesion en la URL (?s=) si la carga del borrador FALLA (le faltan sus bytes) lo dice y no deja `?s=` en la direccion
+KILLED   M27  tras terminar, el «Atras» cae en la entrada base muerta (no se salta)  [1 fallos]
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: la sesion terminada deja una entrada base que se salta al terminar (sin progreso) un solo «Atras» sale: la entrada base que dejo la sesion se salta
+KILLED   M28  la entrada base no se marca (no se puede reconocer para saltarla)  [4 fallos]
+            - src/app/sign-pdf/sessionUrl.test.tsx: la entrada base (detras de ?s=) al empujar la entrada de la sesion la de detras queda marcada como BASE; la de la sesion no lo es
+            - src/app/sign-pdf/sessionUrl.test.tsx: la entrada base (detras de ?s=) el estado de la entrada base conserva lo que ya tenia (el del router de Next incluido)
+            - src/app/sign-pdf/sessionUrl.test.tsx: la entrada base (detras de ?s=) reutilizar la entrada (el progreso se fue y volvio) no crea otra base: solo una entrada nueva en total
+KILLED   M29  el autoguardado de la sesion no marca su escritura pendiente  [4 fallos]
+            - src/app/sign-pdf/SessionDraftAutosave.test.tsx: SessionDraftAutosave mientras el guardado esta agendado o escribiendo hay una escritura pendiente (lo que decide el aviso al cerrar); al terminar, ninguna
+            - src/app/sign-pdf/SessionDraftAutosave.test.tsx: SessionDraftAutosave guarda la sesion pasado el debounce, con todos los documentos y sus bytes
+            - src/app/sign-pdf/SessionDraftAutosave.test.tsx: SessionDraftAutosave el turno de la ceremonia se guarda y un cambio de turno vuelve a guardar la sesion (Fase 0 · U0.2)
+KILLED   M30  el autoguardado de UN documento no marca su escritura pendiente  [1 fallos]
+            - src/app/sign-pdf/resumeFlow.test.tsx: aviso al cerrar (beforeunload) con la herramienta real con UN documento tambien: mientras su borrador esta agendado el navegador pregunta, y al guardarse deja de hacerlo
+KILLED   M31  «Retomar lo que tenias» ignora el orden de los PDF (compara por posicion)  [2 fallos]
+            - src/app/sign-pdf/draftLookup.test.ts: draftDocumentKeys / findDraftForUpload: ¿son ESTOS los PDF? el MISMO conjunto de PDF encuentra su borrador, aunque se suban en otro orden
+            - src/app/sign-pdf/ResumeOffer.test.tsx: UploadOfferHost subidos en otro orden tambien es el mismo trabajo
+KILLED   M32  el aviso del navegador no distingue «borrador que no cabe»  [2 fallos]
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: shouldWarnBeforeUnload (la decision pura) avisa con un cambio sin volcar, con un borrador que no cabe o con la ronda a medias
+            - src/app/sign-pdf/useLeaveGuard.test.tsx: beforeunload molesta con un borrador demasiado grande (salir lo pierde) y con la ronda de firmas a medias
+
+Resultado: 32/32 mutantes muertos.

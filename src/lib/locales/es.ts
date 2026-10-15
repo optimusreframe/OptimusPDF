@@ -469,7 +469,7 @@ export const es = {
     languageBody: "Cambia el idioma de toda la interfaz.",
     dataTitle: "Datos locales",
     dataBody:
-      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y firmas; PDF completo y capturas de firma). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña. El editor de PDF también guarda un borrador automático (IndexedDB) con el documento completo y tus ediciones, para retomarlo si cierras la pestaña; tampoco sale del dispositivo y «Borrar datos locales» lo elimina (no se guarda borrador de los PDF protegidos con contraseña). PDF Pro hace lo mismo con su documento de trabajo (el PDF actual y la lista de cambios, en una base propia) y también lo elimina «Borrar datos locales».",
+      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y campos, y el PDF completo; las firmas ya recogidas solo si dejas activado «Guardar las firmas recogidas en el borrador», y se borran a los 7 días). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña. El editor de PDF también guarda un borrador automático (IndexedDB) con el documento completo y tus ediciones, para retomarlo si cierras la pestaña; tampoco sale del dispositivo y «Borrar datos locales» lo elimina (no se guarda borrador de los PDF protegidos con contraseña). PDF Pro hace lo mismo con su documento de trabajo (el PDF actual y la lista de cambios, en una base propia) y también lo elimina «Borrar datos locales».",
     clearData: "Borrar datos locales",
     cleared: "Datos locales borrados.",
     aboutTitle: "Sobre la aplicación",
@@ -512,6 +512,10 @@ export const es = {
       signatureVault: {
         label: "Firmas guardadas",
         hint: "Permite recordar tus firmas e iniciales en este dispositivo para reutilizarlas en otros documentos. Es opcional: solo se guarda lo que tú marques, y nunca sale del navegador.",
+      },
+      signaturesInDraft: {
+        label: "Guardar las firmas recogidas en el borrador",
+        hint: "Guarda también los trazos de las firmas e iniciales ya recogidas, para no perderlas si recargas o sales. Se guardan solo en este dispositivo y se borran a los 7 días. Apagado, el borrador guarda todo menos las firmas: al retomarlo se piden de nuevo. Los borradores ya guardados conservan sus firmas hasta que caduquen o las quites.",
       },
       multiDocument: {
         label: "Varios documentos a la vez",

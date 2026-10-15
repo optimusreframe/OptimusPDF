@@ -431,9 +431,21 @@ for (const tool of TOOLS) {
 
       // El parametro ya no esta en la direccion: recargar no vuelve a restaurar ni queda un enlace atrapado.
       expect(new URL(page.url()).pathname).toBe(`/${tool.slug}`);
-      await expect.poll(() => new URL(page.url()).search).toBe("");
-
-      await page.goBack();
+      if (tool.slug === "sign-pdf") {
+        // U0.3 (punto 3): `?resume=` se CONVIERTE en `?s=<idOpaco>` (la sesion en la URL, que SI restaura al recargar y
+        // protege el «Atras»). `resume` ya no esta; `s` es un id de sesion sin nombres de archivo.
+        await expect.poll(() => new URL(page.url()).searchParams.get("s")).toMatch(/^s-[a-z0-9]+-[a-z0-9]+$/);
+        expect(new URL(page.url()).searchParams.has("resume")).toBe(false);
+        expect(page.url()).not.toMatch(/\.pdf|Contrato|Anexo/);
+        // «Atras» vuelve a /sign-pdf sin `s` (misma pagina): pregunta antes de irse; «Salir» llega a Recientes, a UN paso.
+        await page.goBack();
+        const leave = page.getByRole("dialog", { name: /Salir de la firma/ });
+        await expect(leave).toBeVisible();
+        await leave.getByRole("button", { name: "Salir", exact: true }).click();
+      } else {
+        await expect.poll(() => new URL(page.url()).search).toBe("");
+        await page.goBack();
+      }
       await expect(page).toHaveURL(/\/recent$/);
       await expect(page.getByRole("heading", { level: 1, name: "Recientes" })).toBeVisible();
     });

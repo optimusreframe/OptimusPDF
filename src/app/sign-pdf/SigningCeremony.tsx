@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ArrowRight, Check, Circle, Smartphone } from "lucide-react";
+import { ArrowRight, Check, Circle, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusRegion } from "@/components/tool/liveRouting";
@@ -11,6 +11,7 @@ import {
   type SignatureDraft,
 } from "@/app/sign-pdf/SignatureComposer";
 import { SignatureVaultSheet } from "@/app/sign-pdf/SignatureVaultSheet";
+import { StaleSignatureNotice } from "@/app/sign-pdf/StaleSignatureNotice";
 import { VaultNoticeLine } from "@/app/sign-pdf/VaultNoticeLine";
 import { useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
 import { useCeremonyFocus } from "@/app/sign-pdf/useCeremonyFocus";
@@ -37,6 +38,7 @@ import {
   pendingSigners,
   requiredCaptureTypes,
   signingQueue,
+  staleCaptureReason,
   validCapture,
   type CaptureMap,
   type SignerCapture,
@@ -109,6 +111,13 @@ export function SigningCeremony({
   onCeremonyChange,
 }: SigningCeremonyProps) {
   const queue = signingQueue(signers, fields);
+  // Firmantes cuya firma YA hecha dejo de valer (se cambio el texto del documento o sus huecos): vuelven a estar pendientes
+  // y se dice por que (F0-fix, D7). El turno vuelve al primero de ellos.
+  const stale = queue.flatMap((signer) => {
+    if (isSignerComplete(fields, captures, signer.id, documentKey)) return [];
+    const reason = staleCaptureReason(captures, fields, signer.id, documentKey);
+    return reason ? [{ signerId: signer.id, reason }] : [];
+  });
   // El turno se deriva de lo que falta y, desde que alguien actua, vive en la sesion.
   const {
     position,
@@ -122,6 +131,7 @@ export function SigningCeremony({
     onChange: onCeremonyChange,
     queue,
     isDone: (signerId) => isSignerComplete(fields, captures, signerId, documentKey),
+    staleSignerId: stale[0]?.signerId ?? null,
   });
   const [composer, setComposer] = useState<SignatureFieldType | null>(null);
   /** UNA sola region viva (siempre montada): lo que queda por recoger tras cada trazo. */
@@ -210,6 +220,11 @@ export function SigningCeremony({
       strings.defaultSignerName,
     );
   const currentDisplayName = current ? displayNameOf(current) : "";
+  const staleReasonOf = new Map(stale.map((item) => [item.signerId, item.reason]));
+  const staleNotes = stale.flatMap((item) => {
+    const signer = signers.find((candidate) => candidate.id === item.signerId);
+    return signer ? [{ signerId: item.signerId, text: strings.staleSignature(displayNameOf(signer), item.reason) }] : [];
+  });
 
   const saveDraft = (type: SignatureFieldType, draft: SignatureDraft) => {
     if (!current) return;
@@ -300,9 +315,11 @@ export function SigningCeremony({
        * Region viva UNICA de la ceremonia, siempre montada: lo que falta por recoger tras cada trazo.
        * `StatusRegion` la encamina a la region unica de PDF Pro cuando la ceremonia vive dentro de el.
        */}
-      <StatusRegion as="p" text={liveMessage} className="sr-only">
-        {liveMessage}
+      <StatusRegion as="p" text={liveMessage || staleNotes.map((note) => note.text).join(" ")} className="sr-only">
+        {liveMessage || staleNotes.map((note) => note.text).join(" ")}
       </StatusRegion>
+
+      <StaleSignatureNotice items={staleNotes} />
 
       {current && stage === "handoff" ? (
         <div className="surface-card rounded-ios p-6 text-center">
@@ -353,10 +370,13 @@ export function SigningCeremony({
               label={strings.ceremonyProgressLabel(currentDisplayName)}
               doneText={strings.ceremonyItemDone}
               missingText={strings.ceremonyItemMissing}
+              staleText={strings.ceremonyItemStale}
               items={required.map((type) => ({
                 key: type,
                 label: captureTypeLabel(type, strings),
                 done: capture[type] !== null,
+                // Ya estaba hecho (hay trazo guardado) pero su sello dejo de valer.
+                stale: capture[type] === null && staleReasonOf.has(current.id) && captures[current.id]?.[type] != null,
               }))}
             />
           ) : null}
@@ -466,10 +486,12 @@ export function SigningCeremony({
             signer.id,
             documentKey,
           );
+          const staleReason = done ? undefined : staleReasonOf.get(signer.id);
           return (
             <li
               key={signer.id}
-              className="rounded-ios-sm flex items-center gap-3 border border-white/10 bg-white/5 p-3"
+              data-stale-signer={staleReason ? signer.id : undefined}
+              className="rounded-ios-sm flex flex-wrap items-center gap-x-3 gap-y-1 border border-white/10 bg-white/5 p-3"
             >
               <span
                 aria-hidden="true"
@@ -488,6 +510,8 @@ export function SigningCeremony({
               >
                 {done ? (
                   <Check aria-hidden="true" className="size-3.5" />
+                ) : staleReason ? (
+                  <X aria-hidden="true" className="size-3.5" />
                 ) : null}
                 {done ? strings.statusSigned : strings.statusPending}
               </span>
@@ -500,6 +524,11 @@ export function SigningCeremony({
                 >
                   {strings.handoffReady}
                 </Button>
+              ) : null}
+              {staleReason ? (
+                <p data-stale-reason="" className="basis-full pl-6 text-caption text-foreground [overflow-wrap:anywhere]">
+                  {strings.statusStale} · {strings.staleReasonShort(staleReason)}
+                </p>
               ) : null}
             </li>
           );
@@ -709,14 +738,16 @@ export type TurnProgressListProps = {
   label: string;
   doneText: string;
   missingText: string;
-  items: readonly { key: string; label: string; done: boolean }[];
+  /** Lo que se dice de un trazo que ya estaba hecho y dejo de valer («ya no es valida»). */
+  staleText?: string;
+  items: readonly { key: string; label: string; done: boolean; stale?: boolean }[];
 };
 
 /**
- * Lo que el turno exige, trazo a trazo, con ✓ (hecho) y ○ (falta). Un icono solo
- * no basta: cada elemento lleva tambien el estado en texto para lector de pantalla.
+ * Lo que el turno exige, trazo a trazo, con ✓ (hecho), ○ (falta) y ✗ (ya estaba hecho y dejo de valer, con el motivo a la
+ * vista). Un icono solo no basta: cada elemento lleva tambien el estado en texto.
  */
-export function TurnProgressList({ label, doneText, missingText, items }: TurnProgressListProps) {
+export function TurnProgressList({ label, doneText, missingText, staleText, items }: TurnProgressListProps) {
   return (
     <ul aria-label={label} className="mt-3 flex flex-wrap gap-2">
       {items.map((item) => (
@@ -731,11 +762,16 @@ export function TurnProgressList({ label, doneText, missingText, items }: TurnPr
         >
           {item.done ? (
             <Check aria-hidden="true" className="size-3.5 shrink-0" />
+          ) : item.stale ? (
+            <X aria-hidden="true" className="size-3.5 shrink-0" />
           ) : (
             <Circle aria-hidden="true" className="size-3.5 shrink-0" />
           )}
           <span className="[overflow-wrap:anywhere]">{item.label}</span>
-          <span className="sr-only">{item.done ? doneText : missingText}</span>
+          {item.stale && !item.done && staleText ? (
+            <span className="[overflow-wrap:anywhere]">· {staleText}</span>
+          ) : null}
+          <span className="sr-only">{item.done ? doneText : item.stale && staleText ? staleText : missingText}</span>
         </li>
       ))}
     </ul>

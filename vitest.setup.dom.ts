@@ -106,3 +106,12 @@ for (const key of ["localStorage", "sessionStorage"] as const) {
 }
 
 afterEach(cleanup);
+
+/**
+ * La sesion de Firmar vive en la direccion (`/sign-pdf?s=<id>`, F0 · U0.3) y jsdom conserva `window.location` entre los
+ * casos de un mismo archivo: sin esto, un caso que dejo trabajo en pantalla haria que el SIGUIENTE montase la herramienta
+ * y restaurase su borrador (lo mismo que hace una recarga real). Cada caso empieza en `/`, como una pestana nueva.
+ */
+afterEach(() => {
+  window.history.replaceState(null, "", "/");
+});

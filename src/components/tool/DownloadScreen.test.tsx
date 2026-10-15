@@ -226,3 +226,37 @@ describe("DownloadScreen — descarga secundaria (registro .json de Firmar PDF)"
     expect(onDownload).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("DownloadScreen — opciones propias del resultado (`extras`)", () => {
+  it("sin `extras` no existe el contenedor (cero cambio visible)", () => {
+    const { container } = renderScreen();
+    expect(container.querySelector("[data-download-extras]")).toBeNull();
+  });
+
+  it("con `extras` salen dentro de la tarjeta, justo despues de «Descargar» y antes de la descarga secundaria", () => {
+    const { container } = render(
+      <LanguageProvider>
+        <UseLanguage language="es" />
+        <DownloadScreen
+          slug="sign-pdf"
+          filename="a.pdf"
+          size={10}
+          onDownload={vi.fn()}
+          onStartOver={vi.fn()}
+          secondaryDownload={{ label: "Descargar registro (.json)", onDownload: vi.fn() }}
+          extras={<p>mi opcion</p>}
+        />
+      </LanguageProvider>,
+    );
+    const card = container.querySelector("section") as HTMLElement;
+    const extras = card.querySelector("[data-download-extras]") as HTMLElement;
+    expect(within(extras).getByText("mi opcion")).toBeTruthy();
+    const download = within(card).getByRole("button", { name: "Descargar" });
+    const secondary = within(card).getByRole("button", { name: "Descargar registro (.json)" });
+    expect(download.compareDocumentPosition(extras) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(extras.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Acotado y alineado a la izquierda, como un formulario dentro de una tarjeta centrada.
+    expect(extras.className).toContain("max-w-md");
+    expect(extras.className).toContain("text-left");
+  });
+});

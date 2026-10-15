@@ -1,0 +1,11 @@
+DIAG antes de tocar nada: Turno 2 de 2 | Pásale el dispositivo a Luis | marca=mismo-nodo
+DIAG tocar la pestana del documento YA activo (1): Turno 2 de 2 | Pásale el dispositivo a Luis | marca=mismo-nodo
+DIAG tocar la pestana del OTRO documento (2): Turno 1 de 2 | Pásale el dispositivo a Ana | marca=(nodo nuevo: remontado)
+DIAG antes del BACK: borradores de sesion = 1 | bloques con trazo = 4
+DIAG tras el BACK del navegador: URL = http://localhost:3811/
+DIAG tras volver y subir los MISMOS PDF: borradores de sesion = 1 | texto «Retomar lo que tenías» visible = false
+DIAG borradores de sesion tras firmar y descargar = 1
+DIAG Recientes: filas = [
+DIAG Recientes: encabezado «Sin terminar» = 0
+DIAG tras «Continuar»: URL = http://localhost:3811/sign-pdf | pestanas de documento = 0 | zona de carga visible = true
+  3 passed (24.0s)

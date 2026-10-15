@@ -28,7 +28,7 @@ const inflight = new WeakMap<File, Promise<string>>();
  * documento activo) y `useDocumentKeys` (toda la cola) para no leer dos veces
  * el mismo PDF.
  */
-function contentKeyOnce(file: File): Promise<string> {
+export function contentKeyOnce(file: File): Promise<string> {
   const known = computed.get(file);
   if (known !== undefined) return Promise.resolve(known);
   let pending = inflight.get(file);

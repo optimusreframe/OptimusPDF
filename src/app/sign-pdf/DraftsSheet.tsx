@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { Sheet } from "@/components/ui/Sheet";
 import { Spinner } from "@/components/ui/Spinner";
+import { summarizeDraft } from "@/app/sign-pdf/draftLookup";
 import { useI18n, localeTag } from "@/lib/i18n";
 import { formatFileSize } from "@/lib/pdf/core";
 import {
@@ -114,6 +115,10 @@ export function DraftsSheet({ open, onClose, onResume, strings }: DraftsSheetPro
               const names = draftDocumentNames(entry);
               const label = names.join(", ");
               const isSession = entry.kind === "session";
+              // Quienes firman (con varios borradores del mismo PDF, la plantilla de otros clientes, es lo que los distingue).
+              const signerNames = summarizeDraft(entry).signers.map(
+                (signer) => signer.name || strings.resume.signerFallback(signer.index + 1),
+              );
               const infoId = `${baseId}-${entryKey(entry)}`;
               return (
                 <li key={entryKey(entry)}>
@@ -145,6 +150,16 @@ export function DraftsSheet({ open, onClose, onResume, strings }: DraftsSheetPro
                         {" · "}
                         {formatFileSize(entry.meta.fileSize, localeTag(language))}
                       </p>
+                      {signerNames.length > 0 ? (
+                        <p className="text-caption text-muted-foreground" data-draft-signers="">
+                          {strings.resume.cardSigners(signerNames)}
+                        </p>
+                      ) : null}
+                      {entry.meta.copyOf ? (
+                        <p className="text-caption font-medium text-foreground" data-draft-copy="">
+                          {strings.resume.copyTag}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <Button

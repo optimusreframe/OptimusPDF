@@ -1,9 +1,21 @@
 import "fake-indexeddb/auto";
 import { createRef, type MutableRefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, waitFor } from "@testing-library/react";
-import { SESSION_SAVE_DEBOUNCE_MS, SessionDraftAutosave } from "@/app/sign-pdf/SessionDraftAutosave";
-import { EMPTY_DOC_STATE, docIdOf, type DocState } from "@/app/sign-pdf/docSet";
+import { act, render, waitFor } from "@testing-library/react";
+import {
+  DOCUMENT_UNDO_MS,
+  SESSION_DELETE_GRACE_MS,
+  SESSION_SAVE_DEBOUNCE_MS,
+  SessionDraftAutosave,
+  __setSessionDeleteGraceForTests,
+} from "@/app/sign-pdf/SessionDraftAutosave";
+import { EMPTY_DOC_STATE, docIdOf, type DocState, type SignerBlock } from "@/app/sign-pdf/docSet";
+import {
+  SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY,
+  __resetSignPdfFeatureFlagsCacheForTests,
+  setSignPdfFeatureFlag,
+} from "@/app/sign-pdf/signFeatureFlags";
+import { __resetDraftActivityForTests, hasPendingDraftWrite } from "@/app/sign-pdf/draftActivity";
 import type { SessionIdentity } from "@/app/sign-pdf/sessionDraft";
 import {
   clearAllDrafts,
@@ -15,7 +27,9 @@ import {
   wasDraftSavedHere,
   warmDraftsConnection,
   __closeWarmDraftsConnectionForTests,
+  __createTabForTests,
   __hasWarmDraftsConnectionForTests,
+  __useTabForTests,
 } from "@/app/sign-pdf/signDrafts";
 import { DEFAULT_SESSION, type SignSession } from "@/app/sign-pdf/signSession";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
@@ -121,9 +135,29 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 beforeEach(async () => {
   await clearAllDrafts();
+  __setSessionDeleteGraceForTests(null);
 });
 
 describe("SessionDraftAutosave", () => {
+  it("mientras el guardado esta agendado o escribiendo hay una escritura pendiente (lo que decide el aviso al cerrar); al terminar, ninguna", async () => {
+    __resetDraftActivityForTests();
+    const files = [pdf("a.pdf", 1), pdf("b.pdf", 2)];
+    const view = mount({ files, session: sessionOf(files) });
+    expect(hasPendingDraftWrite()).toBe(true);
+    await waitFor(async () => expect(await listSessionDrafts()).toHaveLength(1), { timeout: 3000, interval: 50 });
+    await waitFor(() => expect(hasPendingDraftWrite()).toBe(false), { timeout: 3000, interval: 50 });
+    // Un cambio nuevo la vuelve a abrir.
+    view.update({ files, session: sessionOf(files, { signers: [ANA, { id: "sg-2", name: "Luis", color: "#0f9d68" }] }) });
+    expect(hasPendingDraftWrite()).toBe(true);
+    await waitFor(() => expect(hasPendingDraftWrite()).toBe(false), { timeout: 3000, interval: 50 });
+    // Borrar tambien cuenta: quitar el ultimo firmante borra el borrador y mientras tanto esta pendiente.
+    view.update({ files, session: sessionOf(files, { signers: [] }) });
+    expect(hasPendingDraftWrite()).toBe(true);
+    await waitFor(async () => expect(await listSessionDrafts()).toEqual([]), { timeout: 3000, interval: 50 });
+    await waitFor(() => expect(hasPendingDraftWrite()).toBe(false), { timeout: 3000, interval: 50 });
+    view.unmount();
+  });
+
   it("guarda la sesion pasado el debounce, con todos los documentos y sus bytes", async () => {
     const files = [pdf("a.pdf", 1), pdf("b.pdf", 2)];
     mount({ files, session: sessionOf(files) });
@@ -244,7 +278,12 @@ describe("SessionDraftAutosave", () => {
     expect(await listSessionDrafts()).toEqual([]);
   });
 
-  it("al quedar UN solo documento borra el borrador de sesion y suelta la identidad (relevo al flujo de un documento)", async () => {
+  it("la espera del borrado diferido cubre el «Deshacer» de quitar un documento (nunca menos que la ventana)", () => {
+    expect(SESSION_DELETE_GRACE_MS).toBeGreaterThan(DOCUMENT_UNDO_MS);
+  });
+
+  it("al quedar UN solo documento borra el borrador de sesion y suelta la identidad (relevo al flujo de un documento), pero solo cuando expira el «Deshacer»", async () => {
+    __setSessionDeleteGraceForTests(900);
     const files = [pdf("a.pdf"), pdf("b.pdf")];
     const view = mount({ files, session: sessionOf(files) });
     view.unmount();
@@ -256,9 +295,48 @@ describe("SessionDraftAutosave", () => {
       identityRef: view.identityRef,
       onTooBig,
     });
-    await waitFor(async () => expect(await listSessionDrafts()).toEqual([]), { timeout: 1000, interval: 25 });
+    // Durante la ventana el borrador sigue entero y la identidad tambien: nada se borra todavia.
+    await sleep(500);
+    expect(await listSessionDrafts()).toHaveLength(1);
+    expect(view.identityRef.current).not.toBeNull();
+    await waitFor(async () => expect(await listSessionDrafts()).toEqual([]), { timeout: 3000, interval: 25 });
     await waitFor(() => expect(view.identityRef.current).toBeNull());
     single.unmount();
+  });
+
+  it("«Deshacer» a tiempo (la ronda vuelve a tener dos documentos) cancela el borrado: el borrador y su id se conservan", async () => {
+    __setSessionDeleteGraceForTests(600);
+    const files = [pdf("a.pdf"), pdf("b.pdf")];
+    const view = mount({ files, session: sessionOf(files) });
+    await waitFor(async () => expect(await listSessionDrafts()).toHaveLength(1), { timeout: 1500, interval: 25 });
+    const [saved] = await listSessionDrafts();
+    const identity = view.identityRef.current;
+
+    // Se quita un documento...
+    view.update({ files: [files[0]], session: sessionOf([files[0]]) });
+    await sleep(300);
+    expect(await listSessionDrafts()).toHaveLength(1);
+    // ...y se deshace antes de que expire la espera.
+    view.update({ files, session: sessionOf(files) });
+    await sleep(1200);
+    const after = await listSessionDrafts();
+    expect(after).toHaveLength(1);
+    expect(after[0].id).toBe(saved.id);
+    expect(after[0].documents.map((doc) => doc.fileName)).toEqual(["a.pdf", "b.pdf"]);
+    expect(view.identityRef.current).toBe(identity);
+    expect((await loadSessionDraft(saved.id))!.files).toHaveLength(2);
+    view.unmount();
+  });
+
+  it("desmontar durante la ventana del «Deshacer» no borra el borrador de la sesion", async () => {
+    __setSessionDeleteGraceForTests(400);
+    const files = [pdf("a.pdf"), pdf("b.pdf")];
+    const view = mount({ files, session: sessionOf(files) });
+    await waitFor(async () => expect(await listSessionDrafts()).toHaveLength(1), { timeout: 1500, interval: 25 });
+    view.update({ files: [files[0]], session: sessionOf([files[0]]) });
+    view.unmount();
+    await sleep(1000);
+    expect(await listSessionDrafts()).toHaveLength(1);
   });
 
   it("con un solo documento y sin sesion guardada no toca la base", async () => {
@@ -481,6 +559,120 @@ describe("SessionDraftAutosave", () => {
     } finally {
       add.mockRestore();
       remove.mockRestore();
+    }
+  });
+});
+
+describe("firmas en el borrador (F0 · U0.4)", () => {
+  const STROKE = { dataUrl: "data:image/png;base64,TRAZO-SECRETO", ratio: 0.3 };
+
+  /** Una sesion con la firma de Ana ya recogida en un bloque que cubre los dos documentos. */
+  function signedSession(files: File[]): SignSession {
+    const ids = files.map(docIdOf);
+    const block: SignerBlock = {
+      id: "bk-1",
+      signerId: "sg-1",
+      appliesTo: ids,
+      signature: STROKE,
+      initials: null,
+      stamps: Object.fromEntries(ids.map((id) => [id, `huella-${id}`])),
+      auto: true,
+    };
+    return sessionOf(files, { blocks: [block], step: "sign" });
+  }
+
+  beforeEach(() => {
+    window.localStorage.removeItem(SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY);
+    __resetSignPdfFeatureFlagsCacheForTests();
+  });
+
+  it("con el ajuste encendido (por defecto) la firma recogida viaja en el borrador, con su fecha de caducidad", async () => {
+    const files = [pdf("a.pdf", 1), pdf("b.pdf", 2)];
+    mount({ files, session: signedSession(files) });
+    await waitFor(async () => expect(await listSessionDrafts()).toHaveLength(1), { timeout: 3000, interval: 50 });
+    const [meta] = await listSessionDrafts();
+    expect(meta.blocks[0].signature).toEqual(STROKE);
+    expect(typeof meta.expiresAt).toBe("string");
+    expect(meta.signaturesOmitted).toBeUndefined();
+  });
+
+  it("con el ajuste apagado el resto de la sesion se guarda y NINGUN trazo llega a IndexedDB", async () => {
+    setSignPdfFeatureFlag("signaturesInDraft", false);
+    const files = [pdf("a.pdf", 1), pdf("b.pdf", 2)];
+    mount({ files, session: signedSession(files) });
+    await waitFor(async () => expect(await listSessionDrafts()).toHaveLength(1), { timeout: 3000, interval: 50 });
+    const [meta] = await listSessionDrafts();
+    expect(JSON.stringify(meta)).not.toContain("TRAZO-SECRETO");
+    expect(meta.blocks[0]).toMatchObject({ signerId: "sg-1", signature: null, initials: null, stamps: {} });
+    expect(meta.signers.map((signer) => signer.name)).toEqual(["Ana"]);
+    expect(meta.documents.map((doc) => doc.fileName)).toEqual(["a.pdf", "b.pdf"]);
+    expect(meta.signaturesOmitted).toBe(true);
+    expect(meta.expiresAt).toBeUndefined();
+  });
+
+  it("apagar el ajuste con la sesion en pantalla vuelve a guardar al instante y quita de la base las firmas ya guardadas", async () => {
+    const files = [pdf("a.pdf", 1), pdf("b.pdf", 2)];
+    mount({ files, session: signedSession(files) });
+    await waitFor(async () => expect((await listSessionDrafts())[0]?.blocks[0].signature).toEqual(STROKE), {
+      timeout: 3000,
+      interval: 50,
+    });
+    act(() => setSignPdfFeatureFlag("signaturesInDraft", false));
+    await waitFor(async () => expect((await listSessionDrafts())[0]?.blocks[0].signature).toBeNull(), {
+      timeout: 3000,
+      interval: 50,
+    });
+    // Y al reves: volver a encenderlo guarda de nuevo las firmas que siguen en pantalla.
+    act(() => setSignPdfFeatureFlag("signaturesInDraft", true));
+    await waitFor(async () => expect((await listSessionDrafts())[0]?.blocks[0].signature).toEqual(STROKE), {
+      timeout: 3000,
+      interval: 50,
+    });
+  });
+
+  it("abrir la MISMA sesion en otra pestaña y no tocar nada NO reescribe el borrador (F0-fix2, N3); la primera edicion real si", async () => {
+    const files = [pdf("a.pdf", 1), pdf("b.pdf", 2)];
+    const tabA = __createTabForTests("t-aaaa");
+    const tabB = __createTabForTests("t-bbbb");
+    const original = __useTabForTests(tabA);
+    // Los bloques ya existen (con sus ids), como en una sesion restaurada: `ensureBlocks` no inventa ids nuevos.
+    const blocks: SignerBlock[] = [
+      { id: "bk-1", signerId: "sg-1", appliesTo: files.map(docIdOf), signature: null, initials: null, stamps: {}, auto: true },
+    ];
+    const live = (over: Partial<SignSession> = {}) => sessionOf(files, { blocks, ...over });
+    try {
+      const first = mount({ files, session: live() });
+      await waitFor(async () => expect(await listSessionDrafts()).toHaveLength(1), { timeout: 3000, interval: 50 });
+      const [saved] = await listSessionDrafts();
+      expect(saved.rev).toBe(1);
+      const identity = first.identityRef.current!;
+
+      // Otra pestaña abre esa sesion: la carga y monta el autoguardado con lo restaurado.
+      __useTabForTests(tabB);
+      expect(await loadSessionDraft(saved.id)).not.toBeNull();
+      const restoredIdentity: SessionIdentity = { id: identity.id, stored: new Map(identity.stored), saved: true };
+      const second = mount({ files, session: live(), identityRef: { current: restoredIdentity } });
+      await sleep(SESSION_SAVE_DEBOUNCE_MS + 700);
+      await waitFor(() => expect(hasPendingDraftWrite()).toBe(false), { timeout: 3000, interval: 50 });
+      const [untouched] = await listSessionDrafts();
+      expect(untouched.rev).toBe(1);
+      expect(untouched.writerId).toBe("t-aaaa");
+      expect(untouched.savedAt).toBe(saved.savedAt);
+
+      // La pestaña A, que ya estaba abierta, hace un cambio real: se guarda sin «Copia aparte».
+      __useTabForTests(tabA);
+      first.update({ files, session: live({ step: "document" }) });
+      await waitFor(async () => expect((await listSessionDrafts())[0]?.rev).toBe(2), { timeout: 3000, interval: 50 });
+      expect(await listSessionDrafts()).toHaveLength(1);
+
+      // La primera edicion REAL de la pestaña B: va por detras de la rev 2 que no conocia, asi que se guarda aparte (D1), no se pisa.
+      __useTabForTests(tabB);
+      second.update({ files, session: live({ step: "sign" }) });
+      await waitFor(async () => expect(await listSessionDrafts()).toHaveLength(2), { timeout: 3000, interval: 50 });
+      second.unmount();
+      first.unmount();
+    } finally {
+      __useTabForTests(original);
     }
   });
 });

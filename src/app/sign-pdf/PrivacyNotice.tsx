@@ -4,13 +4,15 @@ import { useState } from "react";
 import { Info, X } from "lucide-react";
 import { StatusRegion } from "@/components/tool/liveRouting";
 import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { clearValueHistory } from "@/lib/valueHistory";
 import {
   clearLocalSignData,
   type ClearFailure,
 } from "@/app/sign-pdf/clearLocalSignData";
-import { useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
+import { StripSavedSignatures } from "@/app/sign-pdf/StripSavedSignatures";
+import { setSignPdfFeatureFlag, useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
 import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 
@@ -46,11 +48,18 @@ export type PrivacyNoticeProps = {
  * alcanzable con el icono "i". El botón de borrado vive siempre en la
  * misma fila, no solo dentro del aviso: la idea explícita del producto es
  * que "Borrar datos" nunca dependa de haber abierto el aviso primero.
+ *
+ * Firmas en el borrador (Fase 0 «Firma agil», U0.4): el aviso abierto trae el interruptor «Guardar tambien las firmas
+ * recogidas para no perderlas» (encendido por defecto; el mismo ajuste que Ajustes) y el texto dice, segun su estado, si las
+ * firmas ya recogidas viajan en el borrador (solo en este dispositivo, 7 dias) o se piden de nuevo al retomarlo. Debajo, el boton
+ * «Quitar ahora las firmas de los borradores guardados» (F0-fix2, N2): apagar el interruptor no purga lo ya guardado.
  */
 export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
   const [open, setOpen] = useState(() => !hasSeenNotice());
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const vaultEnabled = useSignPdfFeatureFlag("signatureVault");
+  const signaturesInDraft = useSignPdfFeatureFlag("signaturesInDraft");
+  const privacy = strings.draftPrivacy;
   const [cleared, setCleared] = useState(false);
   /** Almacenes que no se pudieron vaciar en el ultimo intento (vacio = bien). */
   const [failed, setFailed] = useState<ClearFailure[]>([]);
@@ -105,10 +114,21 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
           />
-          <p className="flex-1 text-xs leading-relaxed text-muted-foreground">
-            {strings.privacyNoticeBody}
-            {vaultEnabled ? ` ${strings.privacyNoticeVaultNote}` : ""}
-          </p>
+          <div className="min-w-0 flex-1 space-y-2">
+            <Checkbox
+              label={privacy.signaturesLabel}
+              hint={privacy.signaturesHint}
+              checked={signaturesInDraft}
+              onChange={(enabled) => setSignPdfFeatureFlag("signaturesInDraft", enabled)}
+            />
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {strings.privacyNoticeBody}{" "}
+              {signaturesInDraft ? privacy.noticeSignaturesOn : privacy.noticeSignaturesOff}
+              {vaultEnabled ? ` ${strings.privacyNoticeVaultNote}` : ""}
+            </p>
+            {/* F0-fix2 (N2): apagar el interruptor no toca lo ya guardado; este boton lo quita ya. */}
+            <StripSavedSignatures strings={strings} />
+          </div>
           <button
             type="button"
             aria-label={strings.confirmClose}

@@ -62,6 +62,15 @@ describe("signFeatureFlags — valores por defecto", () => {
     }
   });
 
+  it("«Guardar las firmas recogidas en el borrador» (U0.4) nace ENCENDIDO, esta en la lista de Ajustes y se puede apagar", () => {
+    expect(SIGN_PDF_FEATURE_FLAGS).toContain("signaturesInDraft");
+    expect(DEFAULT_SIGN_PDF_FEATURE_FLAGS.signaturesInDraft).toBe(true);
+    expect(flagsNow().signaturesInDraft).toBe(true);
+    setSignPdfFeatureFlag("signaturesInDraft", false);
+    reload();
+    expect(flagsNow().signaturesInDraft).toBe(false);
+  });
+
   it("sin datos guardados (usuario nuevo) la pagina de registro y el .json estan apagados", () => {
     const flags = flagsNow();
     expect(flags.completionCertificate).toBe(false);

@@ -277,6 +277,51 @@ sola cuando su puerta da VERIFIED (commit/deploy solo con autorización del usua
 **Puerta V0** (Sonnet, contexto limpio): las 5 E2E de U0.1 + regresión `sign-multi`, `sign-quality`, `pdf-pro-modes-sign`,
 `a11y-sweep` en Chromium y `webkit-ipad`; `tsc`, `eslint`, `vitest` completos. **Se despliega Fase 0 sola.**
 
+**F0-fix (2026-10-14, tras la verificación independiente de V0, que REFUTÓ la Fase 0 por tres defectos mayores).** Estado: construida
+y verificada por el constructor; pendiente de la nueva puerta.
+- **D2 · el borrador no puede decir «guardado» si no se pudo guardar.** Antes `saved = !tooBig` y `SessionDraftAutosave` ignoraba el
+  `{ ok: false, reason: "unavailable" }` de `saveSessionDraft` (y `saveDraft` ni lo devolvía): con la cuota llena o el almacenamiento
+  bloqueado (Safari privado: `SecurityError` al abrir) la hoja de «Atrás» decía «Todo está guardado… podrás retomarlo». Ahora
+  `saveDraft`/`saveSessionDraft` informan de TODO fallo de escritura, ambos autoguardados lo cuentan (`DraftWriteReport`,
+  `draftWriteReport.ts`) y `SessionWorkSync` fija `saved: false` con su razón (`unsaved: "tooBig" | "failed" | "solo"`). La hoja dice
+  «No se pudo guardar tu trabajo en este dispositivo: si sales se perderá» («Seguir firmando» sigue siendo la acción primaria), el
+  `beforeunload` nativo se activa y `DraftHealthNotice` muestra «Sin autoguardado: el navegador no deja guardar aquí. Descarga antes de
+  salir» mientras dure; el siguiente cambio reintenta y el aviso se retira solo. «Solo yo» (no guarda borrador) con trabajo hecho
+  (firma creada, valores escritos, texto editado) ahora SÍ pregunta antes de salir y la hoja dice «Este modo no guarda borrador»
+  (`?s=solo`: valor reservado, no es un id válido y recargar no restaura nada).
+- **D3 · «Empezar de nuevo» con el mismo PDF no pisa el borrador del primero.** El id del borrador de UN documento ya no es la
+  huella del PDF sino `huella (32 hex) + nonce (32 hex)` (`draftIds.ts`: 64 hex, la misma forma, así que `?s=`, `?resume=` y Recientes
+  lo siguen validando); la huella completa va aparte (`DraftMeta.fingerprint`, que es lo que busca la oferta al subir los mismos PDF).
+  Cada sesión de trabajo estrena su id (`singleDraft.ts`: lo guarda `SignToolClient`, por documento vivo y huella) y retomar un borrador
+  sigue sobre SU id. Con varios borradores del mismo PDF la oferta presenta el más reciente («Hay N más sin terminar», «Ver todos») y
+  «Ver borradores» los distingue por fecha y firmantes. Migración: un borrador anterior (sin `fingerprint`, id = huella) se lee y se
+  sigue guardando bajo su id (`draftFingerprint`). **Diagnóstico de otras herramientas:** las sesiones de VARIOS documentos ya tenían id
+  propio por sesión (`newSessionId`; comprobado con la prueba `d3-multi`). Editar PDF y PDF Pro nombran su borrador con la huella del PDF
+  y lo RESTAURAN al reabrir el mismo archivo (no ofrecen «empezar de nuevo» sobre él), así que no hay pisado silencioso entre trabajos;
+  sí comparten el patrón «última escritura gana» entre pestañas (D1). No se tocaron.
+- **D1 · dos pestañas con la misma sesión.** Cada borrador (sesión y documento suelto) lleva `rev` (contador) y `writerId` (id por
+  pestaña, `draftIds.newTabId`). La escritura compara DENTRO de su transacción de IndexedDB (`isStaleWrite`): si lo guardado lo escribió
+  OTRA pestaña con una `rev` mayor que la que esta cargó o escribió por última vez, NO lo pisa: aborta y reintenta escribiendo la copia
+  (archivos incluidos) bajo un id nuevo (`copyOf` = el original), avisa («Otra pestaña modificó esta firma; esta copia se guardó aparte» +
+  «Ver borradores») y sigue guardando sobre la copia. `BroadcastChannel` (con `storage` de `localStorage` como respaldo) avisa a la
+  pestaña vieja en cuanto la otra guarda («Recarga para ver la versión más reciente; lo que cambies aquí se guardará como copia aparte»).
+  Los borrados que decide el autoguardado (sin progreso, ronda de un solo documento, relevo de un documento suelto por una sesión)
+  usan `unlessNewer`: una pestaña desactualizada no borra lo de otra. Una sola pestaña no cambia en nada (mismo `writerId`; una
+  lectura más dentro de la misma transacción).
+- **D4 · caducidad.** Un borrador con firmas guardado antes de U0.4 (sin `expiresAt`) recibe `savedAt + 7 días` y se guarda al
+  listarlo (`purgeExpiredDrafts`), abrirlo o filtrarlo (`withLegacyExpiry`), sin tocar `rev` ni `writerId`; si ya pasó, caduca.
+- **D5 · borrar tras «Descargar».** LÍMITE: la página no puede confirmar que el archivo LLEGÓ (un `<a download>` no avisa; en Safari de
+  iPad puede quedarse en una hoja de descargas o fallar sin decirlo). Por eso el borrado se retrasa `DELIVERED_DELETE_DELAY_MS` (8 s)
+  con un aviso «El borrador se borrará en unos segundos» y «Deshacer» (44 px); «Deshacer» conserva el borrador y desmarca la casilla;
+  irse de la página antes del plazo no borra nada (ante la duda el borrador se queda y caduca a los 7 días). Redacción honesta: no
+  dice «borrado» hasta que el borrado está comprobado.
+- **D6 · prueba.** `resumeFlow.test.tsx` espera con `waitFor` la región viva en lugar de leerla de golpe.
+- **D7 · firma que deja de valer.** Si se edita el texto original (F2) —o los huecos— después de que alguien firmó, su sello por
+  documento deja de coincidir. `staleSigners` / `staleCaptureReason` (con `staleReason`: texto / huecos / documento) lo detectan y la
+  ceremonia dice «La firma de Ana ya no es válida porque cambiaste el texto del documento: Ana debe volver a firmar», marca a Ana con ✗
+  «Debe volver a firmar» en la lista de la ronda y el trazo con «ya no es válida» en la lista de progreso, y el turno vuelve a Ana
+  (`resolveCeremony(..., redirectTo)`; derivado, no se guarda).
+
 ### Fase 1 — Asignación simple: firmas A/B, copias, orden (≈ 14-18 h)
 
 **Modelo**: sin cambiar el núcleo (`SignerBlock` sigue igual), se añade una capa de presentación: un **grupo de firma** es un

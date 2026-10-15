@@ -50,6 +50,35 @@ export function captureStamp(
   return [documentKey, ...own].join("~");
 }
 
+/** Por que una firma ya hecha dejo de valer (F0-fix, D7): cambio el texto del documento, los huecos de firma, o el documento. */
+export type StaleReason = "text" | "fields" | "document";
+
+/**
+ * Por que un sello guardado ya no vale frente al de ahora (`null` = sigue valiendo, o no habia sello que comparar).
+ * El sello es `huella~hueco~hueco...` (ver `captureStamp`) y la huella es `archivo` o `archivo+t<ediciones>` (`stampKeyOf`):
+ * misma huella y otros huecos = «huecos»; mismo archivo y otras ediciones de texto = «texto»; otro archivo = «documento».
+ */
+export function staleReason(storedStamp: string, currentStamp: string): StaleReason | null {
+  if (storedStamp === "" || storedStamp === currentStamp) return null;
+  const storedKey = storedStamp.split("~")[0];
+  const currentKey = currentStamp.split("~")[0];
+  if (storedKey === currentKey) return "fields";
+  const fileOf = (key: string) => key.split("+t")[0];
+  return fileOf(storedKey) === fileOf(currentKey) ? "text" : "document";
+}
+
+/** El trazo de este firmante YA estaba hecho (firma o iniciales) pero su sello ya no vale: por que. `null` = no es el caso. */
+export function staleCaptureReason(
+  captures: CaptureMap,
+  fields: readonly SignatureField[],
+  signerId: string,
+  documentKey: string | null,
+): StaleReason | null {
+  const stored = captures[signerId];
+  if (!documentKey || !stored || (!stored.signature && !stored.initials)) return null;
+  return staleReason(stored.stamp, captureStamp(documentKey, fields, signerId));
+}
+
 /**
  * La captura guardada solo vale si su huella coincide con la de ahora.
  * Ante cualquier duda se devuelve vacia: reaplicar una firma antigua en un

@@ -1,0 +1,6 @@
+[128/130] [chromium] › e2e/specs/a11y-sweep.spec.ts:420:11 › forced-colors: active — controles distinguibles › /organize-pdf · 1280px
+[129/130] [chromium] › e2e/specs/a11y-sweep.spec.ts:420:11 › forced-colors: active — controles distinguibles › /organize-pdf · 375px
+[130/130] [chromium] › e2e/specs/a11y-sweep.spec.ts:463:7 › forced-colors: active — controles distinguibles › la casilla marcada se rellena en Highlight y se distingue de la desmarcada (compress-pdf)
+  Slow test file: [chromium] › e2e/specs/a11y-sweep.spec.ts (5.8m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  130 passed (5.9m)

@@ -102,10 +102,13 @@ export async function placeSlotsInBothDocuments(page: Page): Promise<void> {
 }
 
 /** Un hueco por firmante en el unico documento (2 huecos). */
-export async function placeSlotsInSingleDocument(page: Page): Promise<void> {
+export async function placeSlotsInSingleDocument(
+  page: Page,
+  names: readonly [string, string] = [SIGNER_1, SIGNER_2],
+): Promise<void> {
   await page.getByRole("button", { name: "2. Documento" }).click();
-  await placeSlot(page, SIGNER_1, 100);
-  await placeSlot(page, SIGNER_2, 200);
+  await placeSlot(page, names[0], 100);
+  await placeSlot(page, names[1], 200);
 }
 
 /** Preparacion comun: 2 documentos, 2 firmantes, modo de firmas elegido, huecos en ambos documentos. */
@@ -341,4 +344,215 @@ export async function expectCollectedWorkRestored(page: Page, docs: readonly Syn
   await page.getByRole("button", { name: "3. Firmar" }).click();
   await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Firmar y descargar" })).toBeEnabled();
+}
+
+/* ------------------------------------------------------------------ *
+ * Retomar sin buscar y aviso al salir (Fase 0 «Firma agil», U0.3)
+ * ------------------------------------------------------------------ */
+
+/** `?s=` de la URL de ahora (`null` si no hay). */
+export function sessionParam(page: Page): string | null {
+  return new URL(page.url()).searchParams.get("s");
+}
+
+/** Entradas del historial de esta pestana (`history.length`): sube cuando se empuja una entrada nueva. */
+export async function historyLength(page: Page): Promise<number> {
+  return page.evaluate(() => window.history.length);
+}
+
+/**
+ * ¿Pediria el navegador confirmacion al cerrar o recargar AHORA? Se lanza un `beforeunload` cancelable y se mira si
+ * alguien lo cancelo; no cierra nada. (El aviso real lo pone el navegador; Safari en iPhone/iPad lo ignora.)
+ */
+export async function beforeUnloadPrevented(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+}
+
+/** Cuantos borradores de UN documento (v1) hay ahora mismo en IndexedDB (-1 = no hay base legible). */
+export async function singleDraftCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const request = indexedDB.open("optimuspdf-sign-drafts");
+        request.onerror = () => resolve(-1);
+        request.onsuccess = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains("draftMeta")) {
+            db.close();
+            resolve(-1);
+            return;
+          }
+          const count = db.transaction("draftMeta", "readonly").objectStore("draftMeta").count();
+          count.onsuccess = () => {
+            db.close();
+            resolve(count.result);
+          };
+          count.onerror = () => {
+            db.close();
+            resolve(-1);
+          };
+        };
+      }),
+  );
+}
+
+/** La hoja «¿Salir de la firma?» (el dialogo, no el boton). */
+export function leaveSheet(page: Page): Locator {
+  return page.getByRole("dialog", { name: /Salir de la firma|Leave signing/ });
+}
+
+/** Un PDF sintetico DISTINTO (otra huella) con el mismo formato que los de la ronda. */
+export async function makeOtherDoc(name: string, label: string): Promise<SyntheticDoc> {
+  return { name, mimeType: "application/pdf", buffer: await makeSyntheticPdf(label) };
+}
+
+/** Espera a que el borrador de sesion este al dia (hay uno y ninguna escritura sigue pendiente). */
+export async function waitForDraftSettled(page: Page): Promise<void> {
+  await expect.poll(() => sessionDraftCount(page), { timeout: 15_000 }).toBe(1);
+  await expect.poll(() => beforeUnloadPrevented(page), { timeout: 15_000 }).toBe(false);
+}
+
+/* ------------------------------------------------------------------ *
+ * F0-fix: borradores en IndexedDB, fallos de almacenamiento y dos pestanas
+ * ------------------------------------------------------------------ */
+
+/** Una fila de borrador (sin bytes), tal y como la ve el navegador. */
+export type DraftRow = {
+  kind: "session" | "document";
+  id: string;
+  /** Huella del PDF (documento suelto); un borrador anterior no la lleva (su id ES la huella). */
+  fingerprint?: string;
+  signers: string[];
+  /** Bloques/capturas con trazo (firma o iniciales). */
+  strokes: number;
+  /** Huecos de firma (documento suelto) o suma de huecos de todos los documentos (sesion). */
+  fields: number;
+  rev?: number;
+  writerId?: string;
+  copyOf?: string;
+  savedAt: string;
+  expiresAt?: string;
+};
+
+/** Lo minimo que se lee de una fila de IndexedDB (sin bytes). */
+type RawMeta = {
+  id: string;
+  fingerprint?: string;
+  signers?: Array<{ name: string }>;
+  blocks?: Array<{ signature?: unknown; initials?: unknown }>;
+  captures?: Record<string, { signature?: unknown; initials?: unknown } | undefined>;
+  docStates?: Record<string, { fields?: unknown[] } | undefined>;
+  fields?: unknown[];
+  rev?: number;
+  writerId?: string;
+  copyOf?: string;
+  savedAt: string;
+  expiresAt?: string;
+};
+
+/** TODOS los borradores guardados (sesiones y documentos sueltos), el mas reciente primero. */
+export async function draftRows(page: Page): Promise<DraftRow[]> {
+  return page.evaluate(
+    () =>
+      new Promise<DraftRow[]>((resolve) => {
+        const request = indexedDB.open("optimuspdf-sign-drafts");
+        request.onerror = () => resolve([]);
+        request.onsuccess = () => {
+          const db = request.result;
+          const rows: DraftRow[] = [];
+          const names = ["draftMeta", "sessionMeta"].filter((name) => db.objectStoreNames.contains(name));
+          let pending = names.length;
+          const finish = () => {
+            db.close();
+            resolve(rows.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
+          };
+          if (pending === 0) return finish();
+          for (const name of names) {
+            const all = db.transaction(name, "readonly").objectStore(name).getAll();
+            all.onsuccess = () => {
+              for (const meta of all.result as RawMeta[]) {
+                const isSession = name === "sessionMeta";
+                const strokeCount = isSession
+                  ? (meta.blocks ?? []).filter((block) => block.signature || block.initials).length
+                  : Object.values(meta.captures ?? {}).filter((capture) => capture && (capture.signature || capture.initials)).length;
+                const fieldCount = isSession
+                  ? Object.values(meta.docStates ?? {}).reduce((sum, state) => sum + (state?.fields?.length ?? 0), 0)
+                  : (meta.fields ?? []).length;
+                rows.push({
+                  kind: isSession ? "session" : "document",
+                  id: meta.id,
+                  fingerprint: meta.fingerprint,
+                  signers: (meta.signers ?? []).map((signer) => signer.name),
+                  strokes: strokeCount,
+                  fields: fieldCount,
+                  rev: meta.rev,
+                  writerId: meta.writerId,
+                  copyOf: meta.copyOf,
+                  savedAt: meta.savedAt,
+                  expiresAt: meta.expiresAt,
+                });
+              }
+              if (--pending === 0) finish();
+            };
+            all.onerror = () => {
+              if (--pending === 0) finish();
+            };
+          }
+        };
+      }),
+  );
+}
+
+export type IndexedDbFailure = "quota" | "noidb" | null;
+
+/**
+ * Hace que IndexedDB falle como en un navegador con la cuota llena (`QuotaExceededError` al escribir un borrador) o con
+ * el almacenamiento bloqueado (Safari en navegacion privada: `SecurityError` al abrir la base). Solo toca la base de
+ * borradores de Firmar. Se instala en TODA carga de pagina (`addInitScript`); `setIndexedDbFailure` lo enciende y apaga
+ * sin recargar.
+ */
+export async function failIndexedDb(page: Page, mode: IndexedDbFailure): Promise<void> {
+  await page.addInitScript((initial) => {
+    const w = window as unknown as { __idbFail: IndexedDbFailure };
+    w.__idbFail = initial as IndexedDbFailure;
+    const originalPut = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function patchedPut(this: IDBObjectStore, ...args: Parameters<IDBObjectStore["put"]>) {
+      if (w.__idbFail === "quota" && (this.name === "sessionMeta" || this.name === "draftMeta")) {
+        throw new DOMException("QuotaExceededError (simulado)", "QuotaExceededError");
+      }
+      return originalPut.apply(this, args);
+    };
+    const originalOpen = indexedDB.open.bind(indexedDB);
+    (indexedDB as unknown as { open: unknown }).open = (name: string, version?: number) => {
+      if (w.__idbFail === "noidb" && name.includes("sign-drafts")) {
+        throw new DOMException("almacenamiento bloqueado (simulado)", "SecurityError");
+      }
+      return version === undefined ? originalOpen(name) : originalOpen(name, version);
+    };
+  }, mode);
+}
+
+/** Enciende o apaga el fallo simulado de `failIndexedDb` en la pagina que ya esta abierta. */
+export async function setIndexedDbFailure(page: Page, mode: IndexedDbFailure): Promise<void> {
+  await page.evaluate((value) => {
+    (window as unknown as { __idbFail: IndexedDbFailure }).__idbFail = value as IndexedDbFailure;
+  }, mode);
+}
+
+/** El aviso persistente de borradores de Firmar (sin autoguardado, otra pestana...). */
+export function draftHealth(page: Page): Locator {
+  return page.locator("[data-draft-health]");
+}
+
+/** Recoge todo lo del primer firmante (2 documentos, firmas distintas) y se queda en el traspaso del segundo. */
+export async function collectFirstSigner(page: Page, docs: readonly SyntheticDoc[]): Promise<void> {
+  await page.goto("/");
+  await prepareTwoDocsTwoSigners(page, docs, "independent");
+  await continueToSign(page);
+  await signWholeTurn(page, 2, 10, false);
+  await expect(page.getByText("Turno 2 de 2")).toBeVisible();
 }

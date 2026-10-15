@@ -1,0 +1,769 @@
+
+Running 25 tests using 2 workers
+
+[1/25] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:52:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a) 2 docs x 2 firmantes x firmas distintas: tras el turno 1, tocar la pestana del documento 2 NO vuelve a «Turno 1 de 2»
+[2/25] [chromium] › e2e/specs/recent-continue.spec.ts:250:9 › Recientes -> Continuar · Firmar PDF › (e0) control: el trabajo de Firmar PDF SI se recupera por la via manual que existe hoy
+  1) [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:52:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a) 2 docs x 2 firmantes x firmas distintas: tras el turno 1, tocar la pestana del documento 2 NO vuelve a «Turno 1 de 2» 
+
+    Error: el turno no puede retroceder al remontar la ceremonia
+
+    expect(locator).toHaveText(expected) failed
+
+    Locator:  getByText(/^Turno \d+ de \d+$/)
+    Expected: "Turno 2 de 2"
+    Received: "Turno 1 de 2"
+    Timeout:  5000ms
+
+    Call log:
+      - el turno no puede retroceder al remontar la ceremonia with timeout 5000ms
+      - waiting for getByText(/^Turno \d+ de \d+$/)
+        14 × locator resolved to <span class="text-footnote font-medium text-foreground tabular-nums">Turno 1 de 2</span>
+           - unexpected value "Turno 1 de 2"
+
+
+      65 |
+      66 |     // CORRECTO: la ceremonia sigue donde estaba (turno de Luis). HOY: se remonta y pide otra vez el Turno 1 a Ana.
+    > 67 |     await expect(turnCounter(page), "el turno no puede retroceder al remontar la ceremonia").toHaveText("Turno 2 de 2");
+         |                                                                                              ^
+      68 |     await expect(handoffHeading(page, SIGNER_2)).toBeVisible();
+      69 |     await expect(handoffHeading(page, SIGNER_1), "Ana ya firmo: no se le vuelve a pasar el dispositivo").toHaveCount(0);
+      70 |   });
+        at <copia-aislada>/e2e/specs/sign-ceremony-turns.spec.ts:67:94
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-083d7--NO-vuelve-a-«Turno-1-de-2»-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/sign-ceremony-turns-ceremo-083d7--NO-vuelve-a-«Turno-1-de-2»-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-083d7--NO-vuelve-a-«Turno-1-de-2»-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/sign-ceremony-turns-ceremo-083d7--NO-vuelve-a-«Turno-1-de-2»-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[3/25] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:72:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a2) con la revision de Ana a medias, tocar la pestana del documento 2 no le vuelve a pedir su turno desde el principio
+[4/25] [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e) Firmar PDF: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura
+  2) [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:72:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a2) con la revision de Ana a medias, tocar la pestana del documento 2 no le vuelve a pedir su turno desde el principio 
+
+    Error: Ana ya firmo sus dos bloques: no se le vuelve a pasar el dispositivo desde cero
+
+    expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('heading', { name: 'Pásale el dispositivo a Ana' })
+    Expected: 0
+    Received: 1
+    Timeout:  5000ms
+
+    Call log:
+      - Ana ya firmo sus dos bloques: no se le vuelve a pasar el dispositivo desde cero with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Pásale el dispositivo a Ana' })
+        14 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      86 |       handoffHeading(page, SIGNER_1),
+      87 |       "Ana ya firmo sus dos bloques: no se le vuelve a pasar el dispositivo desde cero",
+    > 88 |     ).toHaveCount(0);
+         |       ^
+      89 |     await expect(turnCounter(page)).toBeVisible();
+      90 |   });
+      91 |
+        at <copia-aislada>/e2e/specs/sign-ceremony-turns.spec.ts:88:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-9842e-su-turno-desde-el-principio-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/sign-ceremony-turns-ceremo-9842e-su-turno-desde-el-principio-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-9842e-su-turno-desde-el-principio-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/sign-ceremony-turns-ceremo-9842e-su-turno-desde-el-principio-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[5/25] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:92:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (b) «Atras» desde Firmar y «Continuar» no devuelve a «Turno 1 de 2» (2 docs, firmas distintas)
+  3) [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e) Firmar PDF: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura 
+
+    Error: Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha)
+
+    expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Sin terminar' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha) with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Sin terminar' })
+
+
+      264 |         page.getByRole("heading", { name: "Sin terminar" }),
+      265 |         "Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha)",
+    > 266 |       ).toBeVisible();
+          |         ^
+      267 |       const row = unfinishedList(page).getByRole("listitem").filter({ hasText: tool.rowName });
+      268 |       await expect(row).toBeVisible();
+      269 |       await row.getByRole("link", { name: CONTINUE }).or(row.getByRole("button", { name: CONTINUE })).click();
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:266:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--1e2b9-»-y-«Continuar»-lo-restaura-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--1e2b9-»-y-«Continuar»-lo-restaura-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--1e2b9-»-y-«Continuar»-lo-restaura-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--1e2b9-»-y-«Continuar»-lo-restaura-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[6/25] [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e2) Firmar PDF: ningun «Continuar» de Recientes abre la herramienta vacia
+  4) [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:92:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (b) «Atras» desde Firmar y «Continuar» no devuelve a «Turno 1 de 2» (2 docs, firmas distintas) 
+
+    Error: al volver a Firmar sigue el turno de Luis
+
+    expect(locator).toHaveText(expected) failed
+
+    Locator:  getByText(/^Turno \d+ de \d+$/)
+    Expected: "Turno 2 de 2"
+    Received: "Turno 1 de 2"
+    Timeout:  5000ms
+
+    Call log:
+      - al volver a Firmar sigue el turno de Luis with timeout 5000ms
+      - waiting for getByText(/^Turno \d+ de \d+$/)
+        14 × locator resolved to <span class="text-footnote font-medium text-foreground tabular-nums">Turno 1 de 2</span>
+           - unexpected value "Turno 1 de 2"
+
+
+      101 |     await page.getByRole("button", { name: "Continuar", exact: true }).click();
+      102 |
+    > 103 |     await expect(turnCounter(page), "al volver a Firmar sigue el turno de Luis").toHaveText("Turno 2 de 2");
+          |                                                                                  ^
+      104 |     await expect(handoffHeading(page, SIGNER_2)).toBeVisible();
+      105 |     await expect(handoffHeading(page, SIGNER_1)).toHaveCount(0);
+      106 |   });
+        at <copia-aislada>/e2e/specs/sign-ceremony-turns.spec.ts:103:82
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-38462-2»-2-docs-firmas-distintas--chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/sign-ceremony-turns-ceremo-38462-2»-2-docs-firmas-distintas--chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-38462-2»-2-docs-firmas-distintas--chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/sign-ceremony-turns-ceremo-38462-2»-2-docs-firmas-distintas--chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[7/25] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:108:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (b2) «Atras» -> «Continuar» con UN documento y dos firmantes tampoco reinicia el turno (SigningCeremony)
+  5) [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e2) Firmar PDF: ningun «Continuar» de Recientes abre la herramienta vacia 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: '1. Contrato A.pdf' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('button', { name: '1. Contrato A.pdf' })
+
+
+       at ../helpers/sign-flow.ts:336
+
+      334 | export async function expectCollectedWorkRestored(page: Page, docs: readonly SyntheticDoc[]): Promise<void> {
+      335 |   for (const [index, doc] of docs.entries()) {
+    > 336 |     await expect(page.getByRole("button", { name: `${index + 1}. ${doc.name}` })).toBeVisible();
+          |                                                                                   ^
+      337 |   }
+      338 |   await page.getByRole("button", { name: "1. Firmantes" }).click();
+      339 |   await expect(page.getByLabel("Nombre del firmante 1")).toHaveValue(SIGNER_1);
+        at expectCollectedWorkRestored (<copia-aislada>/e2e/helpers/sign-flow.ts:336:83)
+        at Object.expectRestored (<copia-aislada>/e2e/specs/recent-continue.spec.ts:153:64)
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:291:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--be1f9-s-abre-la-herramienta-vacia-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--be1f9-s-abre-la-herramienta-vacia-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--be1f9-s-abre-la-herramienta-vacia-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--be1f9-s-abre-la-herramienta-vacia-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[8/25] [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e3) Firmar PDF: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo»
+  6) [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:108:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (b2) «Atras» -> «Continuar» con UN documento y dos firmantes tampoco reinicia el turno (SigningCeremony) 
+
+    Error: al volver a Firmar sigue el turno de Luis
+
+    expect(locator).toHaveText(expected) failed
+
+    Locator:  getByText(/^Turno \d+ de \d+$/)
+    Expected: "Turno 2 de 2"
+    Received: "Turno 1 de 2"
+    Timeout:  5000ms
+
+    Call log:
+      - al volver a Firmar sigue el turno de Luis with timeout 5000ms
+      - waiting for getByText(/^Turno \d+ de \d+$/)
+        14 × locator resolved to <span class="text-footnote font-medium text-foreground tabular-nums">Turno 1 de 2</span>
+           - unexpected value "Turno 1 de 2"
+
+
+      121 |     await page.getByRole("button", { name: "Continuar", exact: true }).click();
+      122 |
+    > 123 |     await expect(turnCounter(page), "al volver a Firmar sigue el turno de Luis").toHaveText("Turno 2 de 2");
+          |                                                                                  ^
+      124 |     await expect(handoffHeading(page, SIGNER_1)).toHaveCount(0);
+      125 |   });
+      126 |
+        at <copia-aislada>/e2e/specs/sign-ceremony-turns.spec.ts:123:82
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-81c38-a-el-turno-SigningCeremony--chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/sign-ceremony-turns-ceremo-81c38-a-el-turno-SigningCeremony--chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-81c38-a-el-turno-SigningCeremony--chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/sign-ceremony-turns-ceremo-81c38-a-el-turno-SigningCeremony--chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[9/25] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:127:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a3, causa T2) con firmas distintas, «Ver cómo queda» apagado dice QUE falta (no se queda mudo)
+  7) [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:127:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a3, causa T2) con firmas distintas, «Ver cómo queda» apagado dice QUE falta (no se queda mudo) 
+
+    Error: el boton apagado debe explicar que falta (hoy: ninguna frase lo dice)
+
+    expect(locator).toBeVisible() failed
+
+    Locator: getByText(/falta/i).filter({ hasText: /Bloque 2|Anexo B/ }).first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - el boton apagado debe explicar que falta (hoy: ninguna frase lo dice) with timeout 5000ms
+      - waiting for getByText(/falta/i).filter({ hasText: /Bloque 2|Anexo B/ }).first()
+
+
+      137 |     // CORRECTO: junto al boton apagado una frase nombra lo que falta («Falta: Firma · Bloque 2 ...»). HOY: ninguna.
+      138 |     const hint = page.getByText(/falta/i).filter({ hasText: /Bloque 2|Anexo B/ });
+    > 139 |     await expect(hint.first(), "el boton apagado debe explicar que falta (hoy: ninguna frase lo dice)").toBeVisible();
+          |                                                                                                         ^
+      140 |   });
+      141 | });
+      142 |
+        at <copia-aislada>/e2e/specs/sign-ceremony-turns.spec.ts:139:105
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-32132-QUE-falta-no-se-queda-mudo--chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/sign-ceremony-turns-ceremo-32132-QUE-falta-no-se-queda-mudo--chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/sign-ceremony-turns-ceremo-32132-QUE-falta-no-se-queda-mudo--chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/sign-ceremony-turns-ceremo-32132-QUE-falta-no-se-queda-mudo--chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[10/25] [chromium] › e2e/specs/sign-recovery.spec.ts:38:9 › control: recargar justo despues de la ultima firma no pierde el borrador › (d) recarga 100 ms despues de la ultima firma: el borrador esta completo y se retoma desde «Ver borradores»
+  8) [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e3) Firmar PDF: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Sin terminar' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Sin terminar' })
+
+
+      298 |       await tool.work(page);
+      299 |       await openRecent(page);
+    > 300 |       await expect(page.getByRole("heading", { name: "Sin terminar" })).toBeVisible();
+          |                                                                         ^
+      301 |       const row = unfinishedList(page).getByRole("listitem").filter({ hasText: tool.rowName });
+      302 |       await expect(row).toBeVisible();
+      303 |
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:300:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--b9533-o-y-ofrece-«Abrir-de-nuevo»-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--b9533-o-y-ofrece-«Abrir-de-nuevo»-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--b9533-o-y-ofrece-«Abrir-de-nuevo»-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--b9533-o-y-ofrece-«Abrir-de-nuevo»-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[11/25] [chromium] › e2e/specs/recent-continue.spec.ts:250:9 › Recientes -> Continuar · Editar PDF › (e0) control: el trabajo de Editar PDF SI se recupera por la via manual que existe hoy
+[12/25] [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e) Editar PDF: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura
+[13/25] [chromium] › e2e/specs/sign-recovery.spec.ts:38:9 › control: recargar justo despues de la ultima firma no pierde el borrador › (d) recarga 400 ms despues de la ultima firma: el borrador esta completo y se retoma desde «Ver borradores»
+  9) [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e) Editar PDF: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura 
+
+    Error: Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha)
+
+    expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Sin terminar' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha) with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Sin terminar' })
+
+
+      264 |         page.getByRole("heading", { name: "Sin terminar" }),
+      265 |         "Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha)",
+    > 266 |       ).toBeVisible();
+          |         ^
+      267 |       const row = unfinishedList(page).getByRole("listitem").filter({ hasText: tool.rowName });
+      268 |       await expect(row).toBeVisible();
+      269 |       await row.getByRole("link", { name: CONTINUE }).or(row.getByRole("button", { name: CONTINUE })).click();
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:266:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--ec099-»-y-«Continuar»-lo-restaura-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--ec099-»-y-«Continuar»-lo-restaura-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--ec099-»-y-«Continuar»-lo-restaura-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--ec099-»-y-«Continuar»-lo-restaura-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[14/25] [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e2) Editar PDF: ningun «Continuar» de Recientes abre la herramienta vacia
+[15/25] [chromium] › e2e/specs/sign-recovery.spec.ts:62:7 › el BACK del navegador no debe hacer desaparecer el trabajo › @f0-pendiente (c) recoger firmas, BACK del navegador, volver a /sign-pdf y subir los MISMOS PDF: ofrece «Retomar lo que tenias»
+  10) [chromium] › e2e/specs/sign-recovery.spec.ts:62:7 › el BACK del navegador no debe hacer desaparecer el trabajo › @f0-pendiente (c) recoger firmas, BACK del navegador, volver a /sign-pdf y subir los MISMOS PDF: ofrece «Retomar lo que tenias» 
+
+    Error: al subir los MISMOS PDF debe ofrecerse retomar el borrador
+
+    expect(locator).toBeVisible() failed
+
+    Locator: getByText('Retomar lo que tenías')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - al subir los MISMOS PDF debe ofrecerse retomar el borrador with timeout 10000ms
+      - waiting for getByText('Retomar lo que tenías')
+
+
+      77 |     // CORRECTO: al subir los mismos documentos se ofrece retomar lo que habia. HOY: nada lo ofrece (solo «Ver borradores»).
+      78 |     const offer = page.getByText("Retomar lo que tenías");
+    > 79 |     await expect(offer, "al subir los MISMOS PDF debe ofrecerse retomar el borrador").toBeVisible({ timeout: 10_000 });
+         |                                                                                       ^
+      80 |     await page.getByRole("button", { name: /^Retomar/ }).first().click();
+      81 |     await expectCollectedWorkRestored(page, docs);
+      82 |   });
+        at <copia-aislada>/e2e/specs/sign-recovery.spec.ts:79:87
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/sign-recovery-el-BACK-del--8a2e5-ece-«Retomar-lo-que-tenias»-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/sign-recovery-el-BACK-del--8a2e5-ece-«Retomar-lo-que-tenias»-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/sign-recovery-el-BACK-del--8a2e5-ece-«Retomar-lo-que-tenias»-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/sign-recovery-el-BACK-del--8a2e5-ece-«Retomar-lo-que-tenias»-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[16/25] [chromium] › e2e/specs/sign-recovery.spec.ts:84:7 › el BACK del navegador no debe hacer desaparecer el trabajo › @f0-pendiente (c2) al entrar en /sign-pdf con un borrador guardado se avisa «Tienes una firma sin terminar» sin buscar «Ver borradores»
+  11) [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e2) Editar PDF: ningun «Continuar» de Recientes abre la herramienta vacia 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('[data-render-state="ready"]')
+    Expected: visible
+    Timeout: 40000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 40000ms
+      - waiting for locator('[data-render-state="ready"]')
+
+
+      189 |     },
+      190 |     expectRestored: async (page) => {
+    > 191 |       await expect(page.locator('[data-render-state="ready"]')).toBeVisible({ timeout: 40_000 });
+          |                                                                 ^
+      192 |       await expect(editBlock(page, EDITED_TEXT), "la edicion hecha vuelve").toBeVisible({ timeout: 15_000 });
+      193 |       await expect(page.locator("[data-edit-notices]")).toContainText("Recuperamos tu trabajo anterior");
+      194 |     },
+        at Object.expectRestored (<copia-aislada>/e2e/specs/recent-continue.spec.ts:191:65)
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:291:20
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--6771b-s-abre-la-herramienta-vacia-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--6771b-s-abre-la-herramienta-vacia-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--6771b-s-abre-la-herramienta-vacia-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--6771b-s-abre-la-herramienta-vacia-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[17/25] [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e3) Editar PDF: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo»
+  12) [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e3) Editar PDF: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Sin terminar' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Sin terminar' })
+
+
+      298 |       await tool.work(page);
+      299 |       await openRecent(page);
+    > 300 |       await expect(page.getByRole("heading", { name: "Sin terminar" })).toBeVisible();
+          |                                                                         ^
+      301 |       const row = unfinishedList(page).getByRole("listitem").filter({ hasText: tool.rowName });
+      302 |       await expect(row).toBeVisible();
+      303 |
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:300:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--a3241-o-y-ofrece-«Abrir-de-nuevo»-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--a3241-o-y-ofrece-«Abrir-de-nuevo»-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--a3241-o-y-ofrece-«Abrir-de-nuevo»-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--a3241-o-y-ofrece-«Abrir-de-nuevo»-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[18/25] [chromium] › e2e/specs/recent-continue.spec.ts:250:9 › Recientes -> Continuar · PDF Pro › (e0) control: el trabajo de PDF Pro SI se recupera por la via manual que existe hoy
+[19/25] [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e) PDF Pro: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura
+  13) [chromium] › e2e/specs/sign-recovery.spec.ts:84:7 › el BACK del navegador no debe hacer desaparecer el trabajo › @f0-pendiente (c2) al entrar en /sign-pdf con un borrador guardado se avisa «Tienes una firma sin terminar» sin buscar «Ver borradores» 
+
+    Error: con un borrador guardado, entrar en la herramienta debe avisar de el
+
+    expect(locator).toBeVisible() failed
+
+    Locator: getByText('Tienes una firma sin terminar')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - con un borrador guardado, entrar en la herramienta debe avisar de el with timeout 10000ms
+      - waiting for getByText('Tienes una firma sin terminar')
+
+
+       96 |       page.getByText("Tienes una firma sin terminar"),
+       97 |       "con un borrador guardado, entrar en la herramienta debe avisar de el",
+    >  98 |     ).toBeVisible({ timeout: 10_000 });
+          |       ^
+       99 |     await expect(page.getByRole("button", { name: "Retomar" }).first()).toBeVisible();
+      100 |   });
+      101 |
+        at <copia-aislada>/e2e/specs/sign-recovery.spec.ts:98:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/sign-recovery-el-BACK-del--fe393-sin-buscar-«Ver-borradores»-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/sign-recovery-el-BACK-del--fe393-sin-buscar-«Ver-borradores»-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/sign-recovery-el-BACK-del--fe393-sin-buscar-«Ver-borradores»-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/sign-recovery-el-BACK-del--fe393-sin-buscar-«Ver-borradores»-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[20/25] [chromium] › e2e/specs/sign-recovery.spec.ts:105:8 › el BACK del navegador no debe hacer desaparecer el trabajo › @f0-pendiente (c3) recargar con ?s=<id> restaura la sesion entera sin pulsar nada
+[21/25] [chromium] › e2e/specs/sign-recovery.spec.ts:120:8 › el BACK del navegador no debe hacer desaparecer el trabajo › @f0-pendiente (c4) el BACK del navegador con progreso pregunta «¿Salir de la firma?» y «Seguir firmando» lo conserva todo
+  14) [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e) PDF Pro: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura 
+
+    Error: Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha)
+
+    expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Sin terminar' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha) with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Sin terminar' })
+
+
+      264 |         page.getByRole("heading", { name: "Sin terminar" }),
+      265 |         "Recientes debe listar los trabajos sin terminar (hoy solo lee el historial: nombre, herramienta y fecha)",
+    > 266 |       ).toBeVisible();
+          |         ^
+      267 |       const row = unfinishedList(page).getByRole("listitem").filter({ hasText: tool.rowName });
+      268 |       await expect(row).toBeVisible();
+      269 |       await row.getByRole("link", { name: CONTINUE }).or(row.getByRole("button", { name: CONTINUE })).click();
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:266:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--254e2-»-y-«Continuar»-lo-restaura-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--254e2-»-y-«Continuar»-lo-restaura-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--254e2-»-y-«Continuar»-lo-restaura-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--254e2-»-y-«Continuar»-lo-restaura-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[22/25] [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e2) PDF Pro: ningun «Continuar» de Recientes abre la herramienta vacia
+  15) [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e2) PDF Pro: ningun «Continuar» de Recientes abre la herramienta vacia 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: /informe\.pdf/, level: 1 })
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for getByRole('heading', { name: /informe\.pdf/, level: 1 })
+
+
+      212 |     },
+      213 |     expectRestored: async (page) => {
+    > 214 |       await expect(page.getByRole("heading", { level: 1, name: /informe\.pdf/ })).toBeVisible({ timeout: 15_000 });
+          |                                                                                   ^
+      215 |       await expect(page.getByText(PRO.suite.unsaved)).toBeVisible();
+      216 |     },
+      217 |   },
+        at Object.expectRestored (<copia-aislada>/e2e/specs/recent-continue.spec.ts:214:83)
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:291:20
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--2d98a-s-abre-la-herramienta-vacia-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--2d98a-s-abre-la-herramienta-vacia-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--2d98a-s-abre-la-herramienta-vacia-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--2d98a-s-abre-la-herramienta-vacia-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[23/25] [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e3) PDF Pro: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo»
+  16) [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e3) PDF Pro: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Sin terminar' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Sin terminar' })
+
+
+      298 |       await tool.work(page);
+      299 |       await openRecent(page);
+    > 300 |       await expect(page.getByRole("heading", { name: "Sin terminar" })).toBeVisible();
+          |                                                                         ^
+      301 |       const row = unfinishedList(page).getByRole("listitem").filter({ hasText: tool.rowName });
+      302 |       await expect(row).toBeVisible();
+      303 |
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:300:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--f7293-o-y-ofrece-«Abrir-de-nuevo»-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--f7293-o-y-ofrece-«Abrir-de-nuevo»-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--f7293-o-y-ofrece-«Abrir-de-nuevo»-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--f7293-o-y-ofrece-«Abrir-de-nuevo»-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[24/25] [chromium] › e2e/specs/recent-continue.spec.ts:321:7 › Recientes: textos honestos › @f0-pendiente (e4) una entrada del historial sin trabajo guardado dice «Abrir herramienta», no «Continuar»
+  17) [chromium] › e2e/specs/recent-continue.spec.ts:321:7 › Recientes: textos honestos › @f0-pendiente (e4) una entrada del historial sin trabajo guardado dice «Abrir herramienta», no «Continuar» 
+
+    Error: sin estado, la fila no promete continuar nada
+
+    expect(locator).toBeVisible() failed
+
+    Locator: getByRole('main').getByRole('listitem').filter({ hasText: 'viejo.pdf' }).getByRole('link', { name: 'Abrir herramienta' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - sin estado, la fila no promete continuar nada with timeout 5000ms
+      - waiting for getByRole('main').getByRole('listitem').filter({ hasText: 'viejo.pdf' }).getByRole('link', { name: 'Abrir herramienta' })
+
+
+      332 |     const row = page.getByRole("main").getByRole("listitem").filter({ hasText: "viejo.pdf" });
+      333 |     await expect(row).toBeVisible();
+    > 334 |     await expect(row.getByRole("link", { name: "Abrir herramienta" }), "sin estado, la fila no promete continuar nada").toBeVisible();
+          |                                                                                                                         ^
+      335 |     await expect(row.getByRole("link", { name: CONTINUE, exact: true })).toHaveCount(0);
+      336 |   });
+      337 |
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:334:121
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--5c28a-herramienta»-no-«Continuar»-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--5c28a-herramienta»-no-«Continuar»-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--5c28a-herramienta»-no-«Continuar»-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--5c28a-herramienta»-no-«Continuar»-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[25/25] [chromium] › e2e/specs/recent-continue.spec.ts:338:7 › Recientes: textos honestos › @f0-pendiente (e5) el subtitulo y la descripcion de /recent ya no dicen «Nunca el documento»
+  18) [chromium] › e2e/specs/recent-continue.spec.ts:338:7 › Recientes: textos honestos › @f0-pendiente (e5) el subtitulo y la descripcion de /recent ya no dicen «Nunca el documento» 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('Los trabajos sin terminar se guardan solo en este navegador, con el documento, para poder continuarlos')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByText('Los trabajos sin terminar se guardan solo en este navegador, con el documento, para poder continuarlos')
+
+
+      340 |     await expect(
+      341 |       page.getByText("Los trabajos sin terminar se guardan solo en este navegador, con el documento, para poder continuarlos"),
+    > 342 |     ).toBeVisible();
+          |       ^
+      343 |     await expect(page.getByText(/Nunca el documento/)).toHaveCount(0);
+      344 |     const description = await page.locator('meta[name="description"]').getAttribute("content");
+      345 |     expect(description ?? "", "la metadescripcion tampoco debe negar que se guarda el documento").not.toMatch(/Nunca el documento/);
+        at <copia-aislada>/e2e/specs/recent-continue.spec.ts:342:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--f9582--dicen-«Nunca-el-documento»-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .evidence/playwright/recent-continue-Recientes--f9582--dicen-«Nunca-el-documento»-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .evidence/playwright/recent-continue-Recientes--f9582--dicen-«Nunca-el-documento»-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace .evidence/playwright/recent-continue-Recientes--f9582--dicen-«Nunca-el-documento»-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  18 failed
+    [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e) Firmar PDF: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura 
+    [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e2) Firmar PDF: ningun «Continuar» de Recientes abre la herramienta vacia 
+    [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · Firmar PDF › @f0-pendiente (e3) Firmar PDF: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» 
+    [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e) Editar PDF: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura 
+    [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e2) Editar PDF: ningun «Continuar» de Recientes abre la herramienta vacia 
+    [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · Editar PDF › @f0-pendiente (e3) Editar PDF: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» 
+    [chromium] › e2e/specs/recent-continue.spec.ts:256:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e) PDF Pro: trabajar y salir; Recientes lista el trabajo en «Sin terminar» y «Continuar» lo restaura 
+    [chromium] › e2e/specs/recent-continue.spec.ts:274:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e2) PDF Pro: ningun «Continuar» de Recientes abre la herramienta vacia 
+    [chromium] › e2e/specs/recent-continue.spec.ts:295:9 › Recientes -> Continuar · PDF Pro › @f0-pendiente (e3) PDF Pro: si el borrador ya no existe, «Continuar» lo dice claro y ofrece «Abrir de nuevo» 
+    [chromium] › e2e/specs/recent-continue.spec.ts:321:7 › Recientes: textos honestos › @f0-pendiente (e4) una entrada del historial sin trabajo guardado dice «Abrir herramienta», no «Continuar» 
+    [chromium] › e2e/specs/recent-continue.spec.ts:338:7 › Recientes: textos honestos › @f0-pendiente (e5) el subtitulo y la descripcion de /recent ya no dicen «Nunca el documento» 
+    [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:52:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a) 2 docs x 2 firmantes x firmas distintas: tras el turno 1, tocar la pestana del documento 2 NO vuelve a «Turno 1 de 2» 
+    [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:72:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a2) con la revision de Ana a medias, tocar la pestana del documento 2 no le vuelve a pedir su turno desde el principio 
+    [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:92:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (b) «Atras» desde Firmar y «Continuar» no devuelve a «Turno 1 de 2» (2 docs, firmas distintas) 
+    [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:108:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (b2) «Atras» -> «Continuar» con UN documento y dos firmantes tampoco reinicia el turno (SigningCeremony) 
+    [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:127:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a3, causa T2) con firmas distintas, «Ver cómo queda» apagado dice QUE falta (no se queda mudo) 
+    [chromium] › e2e/specs/sign-recovery.spec.ts:62:7 › el BACK del navegador no debe hacer desaparecer el trabajo › @f0-pendiente (c) recoger firmas, BACK del navegador, volver a /sign-pdf y subir los MISMOS PDF: ofrece «Retomar lo que tenias» 
+    [chromium] › e2e/specs/sign-recovery.spec.ts:84:7 › el BACK del navegador no debe hacer desaparecer el trabajo › @f0-pendiente (c2) al entrar en /sign-pdf con un borrador guardado se avisa «Tienes una firma sin terminar» sin buscar «Ver borradores» 
+  2 skipped
+  5 passed (2.7m)

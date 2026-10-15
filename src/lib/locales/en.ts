@@ -451,7 +451,7 @@ export const en: Dictionary = {
     languageBody: "Change the language of the whole interface.",
     dataTitle: "Local data",
     dataBody:
-      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and signatures; the full PDF and signature captures). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password. The PDF editor also saves an automatic draft (IndexedDB) with the whole document and your edits, so you can pick it up if you close the tab; it never leaves your device either and \"Clear local data\" removes it (no draft is kept for password-protected PDFs). PDF Pro does the same with its working document (the current PDF and the list of changes, in its own database) and \"Clear local data\" removes that too.",
+      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and fields, and the full PDF; the signatures already collected only if you leave \"Save collected signatures in the draft\" on, and they are deleted after 7 days). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password. The PDF editor also saves an automatic draft (IndexedDB) with the whole document and your edits, so you can pick it up if you close the tab; it never leaves your device either and \"Clear local data\" removes it (no draft is kept for password-protected PDFs). PDF Pro does the same with its working document (the current PDF and the list of changes, in its own database) and \"Clear local data\" removes that too.",
     clearData: "Clear local data",
     cleared: "Local data cleared.",
     aboutTitle: "About the app",
@@ -494,6 +494,10 @@ export const en: Dictionary = {
       signatureVault: {
         label: "Saved signatures",
         hint: "Lets you remember your signatures and initials on this device to reuse them on other documents. It is optional: only what you tick is stored, and it never leaves the browser.",
+      },
+      signaturesInDraft: {
+        label: "Save collected signatures in the draft",
+        hint: "Also saves the strokes of the signatures and initials already collected, so they are not lost if you reload or leave. They are stored only on this device and deleted after 7 days. When off, the draft saves everything except the signatures: when you resume it they are asked for again. Drafts already saved keep their signatures until they expire or you remove them.",
       },
       multiDocument: {
         label: "Several documents at once",

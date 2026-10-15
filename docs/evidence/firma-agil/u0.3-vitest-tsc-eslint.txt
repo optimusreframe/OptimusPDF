@@ -1,0 +1,14 @@
+U0.3 · estatico y vitest (copia aislada de la rama de trabajo con U0.2, U0.5 y U0.6)
+
+npx tsc --noEmit               -> 0 errores
+npx eslint .                   -> 0 errores, 1 aviso que ya existia (src/app/inputChecks.clients.test.tsx:90, _slug sin usar)
+npx vitest run (completo)      -> Test Files 403 passed | 1 skipped (404); Tests 9764 passed | 11 skipped (9775)
+linea base antes de la unidad  -> Test Files 389 passed | 1 skipped (390); Tests 9580 passed | 11 skipped (9591)
+                                  (+14 archivos, +184 pruebas; ninguna prueba existente debilitada)
+
+Cambios en pruebas EXISTENTES (todos por comportamiento nuevo pedido en el encargo, ninguno debilita una aserción):
+- vitest.setup.dom.ts: tras cada caso se vuelve a `/` (la sesion de Firmar vive en la URL y jsdom la conserva entre casos).
+- SessionDraftAutosave.test.tsx: «al quedar UN solo documento borra el borrador»: ahora solo tras la espera del «Deshacer»
+  (+3 pruebas nuevas de esa espera y de las escrituras pendientes).
+- e2e/specs/recent-continue.spec.ts (e7, solo Firmar): `?resume=` se CONVIERTE en `?s=<idOpaco>` (punto 3 del encargo) y el
+  «Atras» pasa por la hoja «¿Salir de la firma?» antes de llegar a Recientes. Editar y PDF Pro, sin cambios.

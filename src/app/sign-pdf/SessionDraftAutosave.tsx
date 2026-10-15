@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { docIdsOf } from "@/app/sign-pdf/docSet";
+import { beginDraftWrite } from "@/app/sign-pdf/draftActivity";
+import { reportOfWrite, type DraftWriteReport } from "@/app/sign-pdf/draftWriteReport";
 import { flushOnPageHide } from "@/app/sign-pdf/flushOnPageHide";
 import {
   hasSessionProgress,
@@ -16,7 +18,9 @@ import {
   wasDraftSavedHere,
   warmDraftsConnection,
 } from "@/app/sign-pdf/signDrafts";
+import { useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
 import type { SignSession } from "@/app/sign-pdf/signSession";
+import type { SingleDraftRef } from "@/app/sign-pdf/singleDraft";
 import { isDecryptedCopy } from "@/lib/pdf/inputGuard";
 
 /**
@@ -26,6 +30,26 @@ import { isDecryptedCopy } from "@/lib/pdf/inputGuard";
  * pestana se cierra de golpe.
  */
 export const SESSION_SAVE_DEBOUNCE_MS = 350;
+
+/**
+ * Ventana de «Deshacer» al quitar un documento con trabajo hecho (Fase 0 «Firma agil», U0.3): lo que dura el aviso con el
+ * boton «Deshacer» de `SignToolClient`.
+ */
+export const DOCUMENT_UNDO_MS = 6000;
+
+/**
+ * Cuanto se espera, ademas, para borrar el borrador de la SESION cuando quitar documentos la deja en menos de dos: el
+ * borrador no se borra hasta que expira el «Deshacer» (con un margen para que el aviso se retire primero). Deshacer a
+ * tiempo devuelve los documentos y este borrado se cancela solo (el efecto se repite con la sesion de nuevo completa).
+ */
+export const SESSION_DELETE_GRACE_MS = DOCUMENT_UNDO_MS + 500;
+
+let deleteGraceMs = SESSION_DELETE_GRACE_MS;
+
+/** Solo para tests: acorta la espera del borrado diferido (`null` la devuelve a `SESSION_DELETE_GRACE_MS`). */
+export function __setSessionDeleteGraceForTests(ms: number | null): void {
+  deleteGraceMs = ms ?? SESSION_DELETE_GRACE_MS;
+}
 
 /** Bytes de cada archivo, leidos una sola vez: el autoguardado dispara muchas veces. */
 const bytesCache = new WeakMap<File, Promise<Uint8Array>>();
@@ -52,6 +76,17 @@ export type SessionDraftAutosaveProps = {
   identityRef: MutableRefObject<SessionIdentity | null>;
   /** `true` mientras la sesion pesa demasiado para guardarse como borrador. */
   onTooBig: (tooBig: boolean) => void;
+  /**
+   * Como acabo el ultimo guardado (F0-fix): `saved`, `failed` (cuota llena, almacenamiento bloqueado, base no disponible...:
+   * NO esta guardado), `tooBig` o `forked` (otra pestaña habia guardado una version mas nueva de esta sesion y la de esta
+   * se guardo aparte). Es lo que impide que la pantalla diga «guardado» cuando no lo esta.
+   */
+  onWrite?: (report: DraftWriteReport) => void;
+  /**
+   * Identidad del borrador de UN documento suelto de esta sesion de trabajo. Cuando la ronda pasa a tener varios documentos y
+   * la sesion se guarda, ese borrador suelto (el de ESTA pestaña) queda sustituido y se retira.
+   */
+  singleDraftRef?: SingleDraftRef;
 };
 
 /**
@@ -65,18 +100,37 @@ export type SessionDraftAutosaveProps = {
  *  - sin progreso no se guarda, y si ya se habia guardado esta sesion se borra
  *    (el ultimo firmante o hueco quitado se refleja);
  *  - con menos de dos documentos la sesion ya no existe: el flujo de un solo
- *    documento toma el relevo con su borrador de siempre, y el de sesion se borra.
+ *    documento toma el relevo con su borrador de siempre, y el de sesion se borra
+ *    -- pero NO de inmediato: solo tras `SESSION_DELETE_GRACE_MS`, para que el
+ *    «Deshacer» de quitar un documento (F0 · U0.3) pueda devolver la ronda entera
+ *    con todo su borrador. Si la pagina se cierra antes, el borrador se queda.
  *
- * Solo guarda en "Varios firmantes", como el flujo de un documento (el modo
- * "Solo yo" no guarda borrador).
+ *  - firmas (U0.4): con «Guardar tambien las firmas recogidas» APAGADO el borrador guarda todo menos los trazos
+ *    (`keepSignatures: false`); cambiar el interruptor repite el guardado al instante (no espera a la proxima edicion),
+ *    asi que apagarlo quita ya de IndexedDB las firmas de la sesion que esta en pantalla.
+ *
+ * Solo guarda en "Varios firmantes", como el flujo de un documento. El modo
+ * "Solo yo" NO guarda borrador, por decision (F0 · U0.3, punto 9): (1) su estado no
+ * esta en el esquema del borrador -- falta la imagen de la firma, su proporcion y la
+ * colocacion -- y guardarla significaria dejar la firma propia en IndexedDB sin que
+ * nadie lo decida, cuando el baul de firmas (`signatureVault`) existe justo para que
+ * eso sea opt-in; (2) el aviso de privacidad solo promete guardar «mientras trabajas
+ * con varios firmantes»; (3) rehacer lo de «Solo yo» (crear la firma y colocarla)
+ * cuesta segundos, no una ronda con varias personas; (4) el interruptor de «guardar
+ * tambien las firmas» es U0.4 y aun no existe. Se revisa en U0.4. Mientras tanto la
+ * guarda de salida (`useLeaveGuard`) tampoco actua en «Solo yo»: no promete lo que
+ * no hay.
  */
 export function SessionDraftAutosave({
   files,
   session,
   identityRef,
   onTooBig,
+  onWrite,
+  singleDraftRef,
 }: SessionDraftAutosaveProps) {
   const generationRef = useRef(0);
+  const keepSignatures = useSignPdfFeatureFlag("signaturesInDraft");
   const { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder, ceremony } =
     session;
 
@@ -100,7 +154,8 @@ export function SessionDraftAutosave({
     const deleteSession = (identity: SessionIdentity) =>
       Promise.resolve().then(async () => {
         if (!isCurrent()) return;
-        await deleteSessionDraft(identity.id);
+        // Una pestaña desactualizada no borra lo que otra guardo despues (F0-fix, D1).
+        await deleteSessionDraft(identity.id, { unlessNewer: true });
         if (!isCurrent()) return;
         identity.saved = false;
         onTooBig(false);
@@ -110,12 +165,16 @@ export function SessionDraftAutosave({
     // El flujo de un documento toma el relevo con su borrador de siempre.
     if (files.length < 2) {
       if (!current?.saved) return;
-      void deleteSession(current).then(() => {
-        if (!current.saved && identityRef.current === current) {
-          identityRef.current = null;
-        }
-      });
-      return;
+      // El borrador de la sesion espera a que expire el «Deshacer»; repetir el efecto (la ronda vuelve a tener
+      // documentos) o desmontar cancelan el borrado y lo dejan todo como estaba.
+      const timer = setTimeout(() => {
+        void deleteSession(current).then(() => {
+          if (!current.saved && identityRef.current === current) {
+            identityRef.current = null;
+          }
+        });
+      }, deleteGraceMs);
+      return () => clearTimeout(timer);
     }
     if (mode !== "multi") return;
     // Una copia descifrada (PDF abierto con contrasena) nunca se guarda como borrador (Wave 6 · U3).
@@ -126,10 +185,11 @@ export function SessionDraftAutosave({
       if (!current?.saved) return;
       let fired = false;
       let stopHide = () => {};
+      const endWrite = beginDraftWrite();
       const flushDelete = () => {
         fired = true;
         stopHide();
-        void deleteSession(current);
+        void deleteSession(current).finally(endWrite);
       };
       const timer = setTimeout(flushDelete, SESSION_SAVE_DEBOUNCE_MS);
       stopHide = flushOnPageHide(() => {
@@ -158,22 +218,41 @@ export function SessionDraftAutosave({
 
     let fired = false;
     let stopHide = () => {};
+    // Mientras la escritura esta agendada o en vuelo, el borrador va por detras de la pantalla (`draftActivity`).
+    const endWrite = beginDraftWrite();
     const flush = () => {
       fired = true;
       stopHide();
-      void saveSessionDraft({ ...snapshot, isCurrent }).then((result) => {
-        if (result.ok) {
-          // La sesion sustituye al borrador de un documento suelto que ESTA
-          // pestaña guardo cuando la ronda aun tenia uno solo.
-          for (const doc of snapshot.documents) {
-            const key = doc.state.sealedKey;
-            if (key && wasDraftSavedHere(key)) void deleteDraft(key);
+      void saveSessionDraft({ ...snapshot, keepSignatures, isCurrent })
+        .then((result) => {
+          if (result.ok) {
+            // Otra pestaña tenia una version mas nueva de esta sesion: la de esta se guardo APARTE y de ahora en adelante
+            // se sigue guardando sobre esa copia (y se dice, sea cual sea la generacion: el aviso no puede perderse).
+            if (result.forkedTo) {
+              identity.id = result.forkedTo;
+              onWrite?.({ kind: "forked", toId: result.forkedTo });
+            }
+            // La sesion sustituye al borrador de un documento suelto que ESTA
+            // pestaña guardo cuando la ronda aun tenia uno solo.
+            const replaced = new Set<string>();
+            const single = singleDraftRef?.current;
+            if (single && snapshot.documents.some((doc) => doc.state.sealedKey === single.fingerprint)) {
+              replaced.add(single.id);
+            }
+            // Un borrador anterior (su id ES la huella del PDF) que esta pestaña siguio guardando.
+            for (const doc of snapshot.documents) {
+              const key = doc.state.sealedKey;
+              if (key && wasDraftSavedHere(key)) replaced.add(key);
+            }
+            for (const id of replaced) void deleteDraft(id, { unlessNewer: true });
           }
-        }
-        if (!isCurrent()) return;
-        if (result.ok) onTooBig(false);
-        else if (result.reason === "tooBig") onTooBig(true);
-      });
+          if (!isCurrent()) return;
+          if (result.ok) onTooBig(false);
+          else if (result.reason === "tooBig") onTooBig(true);
+          const report = reportOfWrite(result);
+          if (report && report.kind !== "forked") onWrite?.(report);
+        })
+        .finally(endWrite);
     };
     const timer = setTimeout(flush, SESSION_SAVE_DEBOUNCE_MS);
     // Al irse de la pagina (recargar, cerrar, pestana oculta) no se espera al debounce.
@@ -196,8 +275,11 @@ export function SessionDraftAutosave({
     activeDocId,
     docOrder,
     ceremony,
+    keepSignatures,
     identityRef,
     onTooBig,
+    onWrite,
+    singleDraftRef,
   ]);
 
   return null;

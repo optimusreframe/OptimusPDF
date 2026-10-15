@@ -1,0 +1,19 @@
+U0.3 · E2E (build de produccion con CSP_SKIP_UPGRADE_INSECURE=1, puerto 3831, headless, 2 trabajadores)
+
+sign-recovery.spec.ts (5 pruebas originales (c)(c2)(c3)(c4)(d)x2 + las añadidas (c5)...(c25); sin etiqueta @f0-pendiente ni fixme):
+  chromium     28 passed
+  webkit-ipad  27 passed, 1 skipped  (la omitida es (c17): aviso REAL de beforeunload con page.close({runBeforeUnload}), solo Chromium
+               porque el WebKit de Playwright no lo completa; (c16) cubre la misma logica con eventos en ambos motores)
+  (c5) recarga con ?s= 10 de 10 veces: mismas 4 firmas, mismo id, history.length sin cambios.
+  (c8) «Atras» x3 con «Seguir firmando» (la sesion vuelve a la URL cada vez) y despues «Salir» llega a `/` con el borrador intacto.
+  (c11) ?s= manipulado: sin restaurar, sin avisar, URL limpia, sin errores de pagina; un id valido inexistente avisa.
+  (c20)/(c21) quitar un documento: aviso + «Deshacer» devuelve la ronda y el MISMO borrador; sin deshacer, a los ~6,5 s el borrador de
+  sesion se borra y el del documento restante toma el relevo.
+  (c23)/(c23b) axe (WCAG 2.x A/AA, contraste real) sobre la tarjeta, la oferta y la hoja: 0 violaciones, claro/oscuro y ES/EN.
+
+Regresion (ejecutada con la build previa al ajuste final de estilos; despues se repitieron sign-recovery en ambos motores y el subconjunto
+sign/a11y de abajo con la build final):
+  chromium     e2e/specs/sign-* recent-continue pdf-pro-modes-sign a11y-sweep focus-own-headers tool-errors -> 376 passed, 2 skipped, 0 failed (38,5 min)
+  webkit-ipad  e2e/specs/sign-* recent-continue a11y-sweep focus-own-headers                                 -> 219 passed, 3 skipped, 0 failed (38,7 min)
+               (pdf-pro-modes-sign y tool-errors no corren en webkit-ipad: estan en MOBILE_EXCLUDED de playwright.config.ts)
+  chromium, build final: a11y-sweep(sign-pdf) + sign-multi + sign-ceremony-turns + recent-continue(Firmar/Recientes) -> 51 passed

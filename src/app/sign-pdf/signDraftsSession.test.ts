@@ -768,7 +768,8 @@ describe("migracion v1 -> v2 y otra pestana", () => {
       ok: false,
       reason: "unavailable",
     });
-    await expect(saveDraft(v1Params("hash-bloq"))).resolves.toBeUndefined();
+    // F0-fix (D2): `saveDraft` ya no calla: INFORMA de que no se pudo guardar (antes devolvia `undefined`).
+    await expect(saveDraft(v1Params("hash-bloq"))).resolves.toEqual({ ok: false, reason: "unavailable" });
     await expect(listDrafts()).resolves.toEqual([]);
     await expect(listSessionDrafts()).resolves.toEqual([]);
     await expect(loadSessionDraft("s-bloq")).resolves.toBeNull();

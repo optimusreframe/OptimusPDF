@@ -4,6 +4,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -47,11 +48,27 @@ import {
 } from "@/app/sign-pdf/signVault";
 import { rememberDrafts, type VaultNotice } from "@/app/sign-pdf/vaultMessages";
 import { DraftsSheet } from "@/app/sign-pdf/DraftsSheet";
+import { LeaveSheet } from "@/app/sign-pdf/LeaveSheet";
+import { ResumeCard, UploadOfferHost } from "@/app/sign-pdf/ResumeOffer";
+import { DeliveredDraftOption } from "@/app/sign-pdf/DeliveredDraftOption";
+import { deliveredDraftOf } from "@/app/sign-pdf/deliveredDraft";
+import { ESignTeaser } from "@/app/sign-pdf/ESignTeaser";
+import { SessionWorkSync } from "@/app/sign-pdf/SessionWorkSync";
+import { DraftHealthNotice } from "@/app/sign-pdf/DraftHealthNotice";
+import { reportOfWrite, type DraftWriteReport } from "@/app/sign-pdf/draftWriteReport";
+import { currentSingleDraft, ensureSingleDraft, type SingleDraftIdentity, type SingleDraftRef } from "@/app/sign-pdf/singleDraft";
+import { hideSessionFromUrl, readSessionFromSearch } from "@/app/sign-pdf/sessionUrl";
+import { sessionHasSavedProgress, hasSavedProgress } from "@/app/sign-pdf/signWork";
+import { useLeaveGuard, type SignWork } from "@/app/sign-pdf/useLeaveGuard";
+import { useRecoverableDrafts } from "@/app/sign-pdf/useRecoverableDrafts";
+import { useSessionRestore } from "@/app/sign-pdf/useSessionRestore";
 import { useResumeFromUrl } from "@/app/sign-pdf/useResumeFromUrl";
 import { ResumeGoneNotice } from "@/components/tool/ResumeGoneNotice";
+import { hasPartialFailures } from "@/components/tool/PartialFailureReport";
 import { draftStatusLine } from "@/app/sign-pdf/draftStatus";
 import { flushOnPageHide } from "@/app/sign-pdf/flushOnPageHide";
-import { SessionDraftAutosave } from "@/app/sign-pdf/SessionDraftAutosave";
+import { DOCUMENT_UNDO_MS, SessionDraftAutosave } from "@/app/sign-pdf/SessionDraftAutosave";
+import { beginDraftWrite } from "@/app/sign-pdf/draftActivity";
 import { restoreSession, type SessionIdentity } from "@/app/sign-pdf/sessionDraft";
 import { sessionFromConfigSet } from "@/app/sign-pdf/configSession";
 import { TemplatesSheet } from "@/app/sign-pdf/TemplatesSheet";
@@ -165,9 +182,12 @@ import {
 import { migrateStep } from "@/app/sign-pdf/signSteps";
 import {
   deleteDraft,
+  draftFingerprint,
+  knownDraftRev,
   loadDraft,
   loadSessionDraft,
   saveDraft,
+  subscribeToRemoteDraftWrites,
   type DraftEntry,
   type SaveDraftParams,
 } from "@/app/sign-pdf/signDrafts";
@@ -772,6 +792,24 @@ function describeRejections(
   return messages.join(" ");
 }
 
+/** Lo que guarda el aviso «Quitaste ... Deshacer» (F0 · U0.3): la ronda ANTES de quitar, para devolverla tal cual. */
+type RemovedDocs = {
+  previous: File[];
+  session: SignSession;
+  names: string[];
+};
+
+function sameWork(a: SignWork | null, b: SignWork | null): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.progress === b.progress &&
+    a.draftId === b.draftId &&
+    a.saved === b.saved &&
+    a.unsaved === b.unsaved &&
+    a.roundOpen === b.roundOpen
+  );
+}
+
 export function SignToolClient() {
   const { language, t } = useI18n();
   const strings = SIGN_STRINGS[language];
@@ -779,6 +817,10 @@ export function SignToolClient() {
     "completionCertificate",
   );
   const signingRecordEnabled = useSignPdfFeatureFlag("signingRecordFile");
+  /** Con las firmas guardadas en el borrador, la casilla de la pantalla de resultado lo dice (F0 · U0.4). */
+  const signaturesInDraftEnabled = useSignPdfFeatureFlag("signaturesInDraft");
+  /** Lo registra la casilla «Borrar el borrador de esta firma» al aparecer: que hacer al pulsar «Descargar» (F0 · U0.4). */
+  const downloadedRef = useRef<(() => void) | null>(null);
   /**
    * Varios documentos a la vez. Apagado, la herramienta es la de siempre: un
    * solo archivo (`multiple: false`). El registro no cambia; solo la copia
@@ -873,6 +915,23 @@ export function SignToolClient() {
   /** Aviso de los borradores de sesion (tope de tamano, ajustes al retomar). */
   const [draftNotice, setDraftNotice] = useState<string | null>(null);
   const [sessionTooBig, setSessionTooBig] = useState(false);
+  /**
+   * Identidad del borrador de UN documento suelto (F0-fix, D3): un id propio por sesion de trabajo, no la huella del PDF.
+   * Vive aqui por lo mismo que `sessionIdentityRef`: sobrevive a que `ToolShell` desmonte el espacio de trabajo al procesar.
+   */
+  const singleDraftRef: SingleDraftRef = useRef<SingleDraftIdentity | null>(null);
+  /** El ultimo intento de escribir el borrador FALLO (cuota llena, almacenamiento bloqueado...): lo de pantalla no esta a salvo (F0-fix, D2). */
+  const [writeFailed, setWriteFailed] = useState(false);
+  /** Otra pestaña toco la misma sesion (F0-fix, D1): el id del borrador al que se refiere el aviso y de que tipo es. */
+  const [tabNotice, setTabNotice] = useState<{ id: string; kind: "newer" | "forked" } | null>(null);
+  const handleDraftWrite = useCallback((report: DraftWriteReport) => {
+    if (report.kind === "failed") {
+      setWriteFailed(true);
+      return;
+    }
+    setWriteFailed(false);
+    if (report.kind === "forked") setTabNotice({ id: report.toId, kind: "forked" });
+  }, []);
   const importInputRef = useRef<HTMLInputElement>(null);
   const reusableTemplatesEnabled = useSignPdfFeatureFlag("reusableTemplates");
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -942,6 +1001,31 @@ export function SignToolClient() {
     return true;
   }, []);
 
+  /** ¿Esta sesion guardada (varios documentos) es la que ya esta cargada en pantalla? */
+  const isSessionOnScreen = useCallback(
+    (id: string): boolean => bridge.read().files.length > 1 && sessionIdentityRef.current?.id === id,
+    [bridge],
+  );
+  /**
+   * ¿Este borrador de un documento es el de la sesion de trabajo que ya esta en pantalla CON su trabajo? Se reconoce por su
+   * id (cada sesion de trabajo tiene el suyo: dos clientes con el mismo PDF son dos borradores distintos, F0-fix D3).
+   * Un archivo recien subido con la misma huella pero sin trabajo NO cuenta: justo para eso se ofrece retomar.
+   */
+  const isDocumentOnScreen = useCallback(
+    (id: string): boolean => {
+      const { files, session } = bridge.read();
+      const identity = singleDraftRef.current;
+      return (
+        files.length === 1 &&
+        identity !== null &&
+        identity.id === id &&
+        identity.docId === docIdOf(files[0]) &&
+        sessionHasSavedProgress(files, session)
+      );
+    },
+    [bridge],
+  );
+
   const handleResumeDraft = useCallback(
     async (id: string) => {
       const loaded = await loadDraft(id);
@@ -954,15 +1038,22 @@ export function SignToolClient() {
       });
       if (!validateLoadedFile(file)) return;
 
+      // El mismo documento (misma huella) ya esta en pantalla: ver `handleResumeSession`.
+      if (isDocumentOnScreen(loaded.meta.id)) {
+        setDraftsOpen(false);
+        return;
+      }
+
       reserveSignerIds(loaded.meta.signers.map((signer) => signer.id));
       reserveFieldIds(loaded.meta.fields.map((field) => field.id));
       reserveTextFieldIds(loaded.meta.textFields.map((field) => field.id));
 
-      // Un documento suelto: el borrador de siempre (formato v1), sin sesion.
+      // Un documento suelto: el borrador de siempre (formato v1), sin sesion. Se sigue guardando sobre ESTE borrador (su id).
       sessionIdentityRef.current = null;
+      singleDraftRef.current = { docId: docIdOf(file), fingerprint: draftFingerprint(loaded.meta), id: loaded.meta.id };
       loadDocument(file, {
         mode: loaded.meta.mode,
-        signature: loaded.meta.id,
+        signature: draftFingerprint(loaded.meta),
         // Un borrador anterior a W2-A puede traer "fields" o "text": ambos
         // viven ahora en "document", con sus huecos y campos intactos.
         step: migrateStep(loaded.meta.step),
@@ -978,7 +1069,7 @@ export function SignToolClient() {
       setDraftNotice(null);
       setDraftsOpen(false);
     },
-    [loadDocument, validateLoadedFile],
+    [isDocumentOnScreen, loadDocument, validateLoadedFile],
   );
 
   /** Retoma un borrador de SESION: todos sus documentos, firmantes, bloques y firmas, sellados de nuevo con la huella recalculada. */
@@ -1014,6 +1105,13 @@ export function SignToolClient() {
         if (trimmed) files.length = fits;
         const keys = await Promise.all(files.map((file) => documentContentKey(file)));
 
+        // Esta MISMA sesion ya esta en pantalla (la recarga con `?s=` la restauro sola, o se pulso dos veces): el borrador
+        // puede ir unos cientos de ms por detras de lo que se ve, asi que volver a cargarlo pisaria lo ultimo hecho.
+        if (isSessionOnScreen(loaded.meta.id)) {
+          setDraftsOpen(false);
+          return;
+        }
+
         const meta = trimmed
           ? { ...loaded.meta, documents: loaded.meta.documents.slice(0, fits) }
           : loaded.meta;
@@ -1038,7 +1136,7 @@ export function SignToolClient() {
         setLoadError(toPdfError(caught).code);
       }
     },
-    [loadSession, multiDocumentEnabled, strings, validateLoadedFile],
+    [isSessionOnScreen, loadSession, multiDocumentEnabled, strings, validateLoadedFile],
   );
 
   const handleResumeEntry = useCallback(
@@ -1050,6 +1148,121 @@ export function SignToolClient() {
   );
   // `/sign-pdf?resume=<tipo>:<id>` (desde Recientes): retoma ese borrador al abrir la herramienta (U0.6).
   const resumeLink = useResumeFromUrl(handleResumeEntry);
+  // `/sign-pdf?s=<id>` (recargar con la sesion en la URL): la restaura sola (U0.3). Con `?resume=` manda este.
+  const sessionLink = useSessionRestore(handleResumeEntry);
+  const goneLink = useMemo(
+    () => ({
+      gone: resumeLink.gone || sessionLink.gone,
+      dismiss: () => {
+        resumeLink.dismiss();
+        sessionLink.dismiss();
+      },
+    }),
+    [resumeLink, sessionLink],
+  );
+
+  /* --- Retomar sin buscar y aviso al salir (Fase 0 «Firma agil», U0.3) --- */
+  /** Como esta el espacio de trabajo (lo cuenta `SessionWorkSync`); `null` sin archivos o ya en la pantalla de descarga. */
+  const [work, setWork] = useState<SignWork | null>(null);
+  const handleWork = useCallback((next: SignWork | null) => {
+    setWork((previous) => (sameWork(previous, next) ? previous : next));
+  }, []);
+  const clearWork = useCallback(() => handleWork(null), [handleWork]);
+  // Un `?s=` cuya carga fallo (borrador sin sus bytes...) no se queda en la direccion: recargar no volveria a fallar igual.
+  useEffect(() => {
+    if (loadError !== null && work === null) hideSessionFromUrl();
+  }, [loadError, work]);
+  /** Hoja «¿Salir de la firma?», `beforeunload` condicionado y entrada `?s=` del historial. */
+  const leave = useLeaveGuard(work);
+  // Otra pestaña guarda una version mas nueva de ESTA sesion (F0-fix, D1): se avisa antes de que esta pestaña llegue a pisarla.
+  const workDraftId = work?.draftId ?? null;
+  useEffect(() => {
+    if (!workDraftId) return;
+    return subscribeToRemoteDraftWrites((write) => {
+      if (write.id !== workDraftId || write.rev <= knownDraftRev(write.id)) return;
+      setTabNotice((current) => (current?.id === workDraftId && current.kind === "forked" ? current : { id: workDraftId, kind: "newer" }));
+    });
+  }, [workDraftId]);
+  /** El aviso de otra pestaña solo vale para el borrador que se esta viendo ahora. */
+  const visibleTabNotice = tabNotice !== null && tabNotice.id === workDraftId ? tabNotice.kind : null;
+  // «Sin autoguardado» solo tiene sentido donde se intenta guardar: no en «Solo yo» (no guarda, y la hoja de salida ya lo dice) ni
+  // si el motivo es que no cabe (tiene su propio aviso).
+  const draftWriteFailed = writeFailed && !sessionTooBig && work?.progress === true && work.unsaved !== "solo";
+  /** Borradores que se pueden retomar (tarjeta de entrada, oferta al subir y contador de «Ver borradores»). */
+  const recoverable = useRecoverableDrafts();
+  const draftCount = recoverable?.length ?? 0;
+  const draftCountId = useId();
+  /** Entrando con `?s=` / `?resume=` la herramienta restaura sola: la tarjeta de entrada no parpadea antes. */
+  const [urlRestoring, setUrlRestoring] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      (/[?&]resume=/.test(window.location.search) || readSessionFromSearch(window.location.search).target !== null),
+  );
+  useEffect(() => {
+    if (!urlRestoring) return;
+    const timer = window.setTimeout(() => setUrlRestoring(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [urlRestoring]);
+  /** Region viva UNICA de lo nuevo de U0.3: descartar un borrador, aparecer la oferta, deshacer al quitar un documento. */
+  const [announce, setAnnounce] = useState("");
+  useEffect(() => {
+    if (!announce) return;
+    const timer = window.setTimeout(() => setAnnounce(""), 6000);
+    return () => window.clearTimeout(timer);
+  }, [announce]);
+  const [removed, setRemoved] = useState<RemovedDocs | null>(null);
+  useEffect(() => {
+    if (!removed) return;
+    const timer = window.setTimeout(() => setRemoved(null), DOCUMENT_UNDO_MS);
+    return () => window.clearTimeout(timer);
+  }, [removed]);
+
+  /**
+   * Quitar documentos con trabajo hecho: el aviso «Quitaste ... Deshacer» dura `DOCUMENT_UNDO_MS` y el borrador de la sesion
+   * no se borra hasta que expira (`SessionDraftAutosave`). Deshacer devuelve archivos y sesion tal cual estaban. Tambien
+   * retira el espacio de trabajo cuando ya no queda ningun archivo (sin el no hay nada que proteger ni `?s=`).
+   */
+  const handleFilesChanged = useCallback(
+    (next: File[], previous: File[]) => {
+      if (next.length === 0) {
+        setWork(null);
+        hideSessionFromUrl();
+        // Sin archivos no queda sesion de trabajo: ni borrador suelto propio, ni avisos de guardado de la anterior.
+        singleDraftRef.current = null;
+        setWriteFailed(false);
+        setTabNotice(null);
+      }
+      if (next.length > previous.length) {
+        setRemoved(null);
+        return;
+      }
+      if (next.length >= previous.length) return;
+      const { session } = bridge.read();
+      if (!sessionHasSavedProgress(previous, session)) return;
+      const kept = new Set(next);
+      setRemoved({
+        previous,
+        session,
+        names: previous.filter((file) => !kept.has(file)).map((file) => file.name),
+      });
+    },
+    [bridge],
+  );
+  const undoRemoval = useCallback(() => {
+    if (!removed) return;
+    loadSession(removed.previous, removed.session);
+    setRemoved(null);
+    setAnnounce(strings.resume.removedRestored);
+  }, [loadSession, removed, strings]);
+  const liveNotice = removed
+    ? {
+        visible: true,
+        text:
+          removed.names.length === 1
+            ? strings.resume.removedOne(removed.names[0])
+            : strings.resume.removedMany(removed.names.length),
+      }
+    : { visible: false, text: announce };
 
   const handleImportConfig = useCallback(
     async (zipFile: File) => {
@@ -1381,10 +1594,29 @@ export function SignToolClient() {
 
   return (
     <Fragment>
-    <div className="mx-auto mb-4 flex w-full max-w-[1200px] flex-wrap items-center gap-2 px-4 md:px-6">
-      <Button variant="ghost" size="sm" onClick={() => setDraftsOpen(true)}>
+    <div className="mx-auto mb-4 flex w-full max-w-[1200px] flex-wrap items-center gap-2 px-4 pt-3 md:px-6">
+      <Button
+        variant="secondary"
+        size="md"
+        onClick={() => setDraftsOpen(true)}
+        aria-describedby={draftCount > 0 ? draftCountId : undefined}
+      >
         {strings.draftsButton}
+        {draftCount > 0 ? (
+          <span
+            aria-hidden="true"
+            data-drafts-count=""
+            className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-signal/15 px-1.5 text-caption font-semibold text-signal-text tabular-nums"
+          >
+            {draftCount}
+          </span>
+        ) : null}
       </Button>
+      {draftCount > 0 ? (
+        <span id={draftCountId} className="sr-only">
+          {strings.resume.draftsCount(draftCount)}
+        </span>
+      ) : null}
       <Button
         variant="ghost"
         size="sm"
@@ -1409,7 +1641,7 @@ export function SignToolClient() {
           {t.tool.errors[loadError]}
         </p>
       ) : null}
-      <ResumeGoneNotice state={resumeLink} className="basis-full" />
+      <ResumeGoneNotice state={goneLink} className="basis-full" />
       {/* Region viva siempre montada: lo que no cupo en la ronda (documentos, peso). */}
       <p
         role="status"
@@ -1428,6 +1660,14 @@ export function SignToolClient() {
           {t.common.close}
         </Button>
       ) : null}
+      {/* Estado del borrador (F0-fix): sin autoguardado y/o otra pestaña modifico esta firma. Region viva siempre montada. */}
+      <DraftHealthNotice
+        failed={draftWriteFailed}
+        tab={visibleTabNotice}
+        strings={strings.resume}
+        viewDraftsLabel={strings.draftsButton}
+        onViewDrafts={() => setDraftsOpen(true)}
+      />
       {/* Region viva siempre montada: borrador de sesion (tope de tamano, ajustes al retomar). */}
       <p
         role="status"
@@ -1440,6 +1680,26 @@ export function SignToolClient() {
       >
         {draftStatusLine(sessionTooBig, strings.draftsTooBig, draftNotice)}
       </p>
+      {/*
+        Region viva UNICA de retomar/salir (U0.3): el aviso de documento quitado es visible (con su «Deshacer» al lado) y el
+        resto (descartar, oferta, deshacer hecho), solo para lectores. El contenedor es siempre el mismo (cambian sus clases,
+        no el arbol): el parrafo vivo nunca se vuelve a crear, asi que el cambio de texto SI se anuncia.
+      */}
+      <div className={liveNotice.visible ? "flex basis-full flex-wrap items-center gap-3" : "sr-only"}>
+        <p
+          role="status"
+          aria-live="polite"
+          data-resume-live=""
+          className={liveNotice.visible ? "min-w-0 text-subheadline text-foreground" : undefined}
+        >
+          {liveNotice.text}
+        </p>
+        {removed ? (
+          <Button variant="secondary" size="md" onClick={undoRemoval} data-removed-undo="">
+            {strings.resume.removedUndo}
+          </Button>
+        ) : null}
+      </div>
     </div>
     <DraftsSheet
       open={draftsOpen}
@@ -1456,20 +1716,59 @@ export function SignToolClient() {
       runRef={runRef}
       resetRef={resetRef}
       loadRef={loadRef}
-      renderDone={({ options }) =>
-        options.mode === "multi" && options.signers.length > 0 ? (
-          <SignAgainPrompt
-            onAccept={() =>
-              resetSession({
-                mode: "multi",
-                signers: options.signers,
-                step: "signers",
-              })
-            }
+      onFilesChanged={handleFilesChanged}
+      renderIdle={() =>
+        recoverable && recoverable.length > 0 && !(urlRestoring && !goneLink.gone && !loadError) ? (
+          <ResumeCard
+            entries={recoverable}
             strings={strings}
+            onResume={handleResumeEntry}
+            onViewAll={() => setDraftsOpen(true)}
+            onDiscarded={() => setAnnounce(strings.resume.discarded)}
           />
         ) : null
       }
+      onDownloaded={() => downloadedRef.current?.()}
+      renderDownloadExtras={({ result }) => (
+        <>
+          {/* Casilla marcada por defecto: al descargar, la ronda entregada deja de ofrecerse como «sin terminar» (U0.4). */}
+          <DeliveredDraftOption
+            resolveDraft={() => {
+              const { files, session } = bridge.read();
+              return deliveredDraftOf({
+                files,
+                session,
+                sessionId: sessionIdentityRef.current?.id ?? null,
+                singleDraft: singleDraftRef.current,
+                tooBig: sessionTooBig,
+                partial: hasPartialFailures(result.report),
+              });
+            }}
+            strings={strings.draftPrivacy}
+            withSignatures={signaturesInDraftEnabled}
+            downloadedRef={downloadedRef}
+          />
+          <ESignTeaser />
+        </>
+      )}
+      renderDone={({ options }) => (
+        <>
+          {/* La ronda ya se entrego: ni guarda de salida ni `?s=` que la vuelva a abrir al recargar. */}
+          <WorkDone onDone={clearWork} />
+          {options.mode === "multi" && options.signers.length > 0 ? (
+            <SignAgainPrompt
+              onAccept={() =>
+                resetSession({
+                  mode: "multi",
+                  signers: options.signers,
+                  step: "signers",
+                })
+              }
+              strings={strings}
+            />
+          ) : null}
+        </>
+      )}
       // "Solo yo" necesita algo que aplicar: su firma colocada o algun campo
       // relleno; la ronda por turnos exige tenerlo todo firmado.
       // `options.signature` es la huella del documento sobre el que se
@@ -1510,6 +1809,18 @@ export function SignToolClient() {
             withSequence,
           }) => (
         <>
+          <UploadOfferHost
+            files={files}
+            entries={recoverable}
+            enabled={
+              !hasSavedProgress(files, hostSession, options) && hostSession.signaturePng === ""
+            }
+            strings={strings}
+            onResume={handleResumeEntry}
+            onAnnounce={setAnnounce}
+            onViewAll={() => setDraftsOpen(true)}
+          />
+
           <section>
             <SegmentedControl<SignMode>
               label={strings.modeLabel}
@@ -1525,6 +1836,7 @@ export function SignToolClient() {
                 ? strings.modeSingleHint
                 : strings.modeMultiHint}
             </p>
+            <ESignTeaser className="mt-3 sm:max-w-sm" />
           </section>
 
           {nav}
@@ -1534,6 +1846,19 @@ export function SignToolClient() {
             session={hostSession}
             identityRef={sessionIdentityRef}
             onTooBig={setSessionTooBig}
+            onWrite={handleDraftWrite}
+            singleDraftRef={singleDraftRef}
+          />
+          <SessionWorkSync
+            files={files}
+            session={hostSession}
+            options={options}
+            keys={docKeys}
+            tooBig={sessionTooBig}
+            writeFailed={writeFailed}
+            singleDraftRef={singleDraftRef}
+            identityRef={sessionIdentityRef}
+            onWork={handleWork}
           />
 
           {withSequence(options.mode === "single" ? (
@@ -1563,6 +1888,8 @@ export function SignToolClient() {
               file={file}
               options={options}
               setOptions={setOptions}
+              singleDraftRef={singleDraftRef}
+              onDraftWrite={handleDraftWrite}
               // Varios documentos: sin pregunta de prefijo (el nombre es automatico).
               onFinish={() =>
                 files.length > 1 ? runRef.current?.() : requestFinish(options.signers)
@@ -1855,6 +2182,7 @@ export function SignToolClient() {
       }}
     />
     </FileAdmissionContext.Provider>
+    <LeaveSheet state={leave} strings={strings.resume} closeLabel={t.common.close} />
     <Sheet
       open={prefixPromptOpen}
       onClose={() => setPrefixPromptOpen(false)}
@@ -1880,6 +2208,15 @@ export function SignToolClient() {
     </Sheet>
     </Fragment>
   );
+}
+
+/** Al aparecer la pantalla de descarga avisa de que ya no hay espacio de trabajo que proteger. No pinta nada. */
+function WorkDone({ onDone }: { onDone: () => void }) {
+  useEffect(() => {
+    onDone();
+    hideSessionFromUrl();
+  }, [onDone]);
+  return null;
 }
 
 type BatchStatusProps = {
@@ -1994,6 +2331,13 @@ export type MultiFlowProps = {
    * al salir (no se guardan dos borradores del mismo trabajo).
    */
   persistDraft?: boolean;
+  /**
+   * Identidad del borrador de UN documento suelto de esta sesion de trabajo (F0-fix, D3): un id propio, no la huella del PDF,
+   * para que otro cliente con el mismo PDF no pise este borrador. Sin ella (usos sueltos y pruebas) cada flujo lleva la suya.
+   */
+  singleDraftRef?: SingleDraftRef;
+  /** Como acabo el ultimo guardado del borrador (F0-fix, D1 y D2): guardado, fallo o copia aparte. */
+  onDraftWrite?: (report: DraftWriteReport) => void;
 };
 
 export function MultiFlow({
@@ -2006,6 +2350,8 @@ export function MultiFlow({
   seen,
   multi,
   persistDraft = true,
+  singleDraftRef,
+  onDraftWrite,
 }: MultiFlowProps) {
   const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
   const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
@@ -2014,6 +2360,8 @@ export function MultiFlow({
   const undoDeleteEnabled = useSignPdfFeatureFlag("undoDelete");
   const richFieldTypesEnabled = useSignPdfFeatureFlag("richFieldTypes");
   const pinchZoomEnabled = useSignPdfFeatureFlag("pinchZoom");
+  // Las firmas recogidas viajan en el borrador solo con este ajuste (U0.4): apagado, el borrador guarda todo menos los trazos.
+  const keepSignatures = useSignPdfFeatureFlag("signaturesInDraft");
   const sequence = useCanvasSequence();
 
   /**
@@ -2194,6 +2542,9 @@ export function MultiFlow({
    * mas comun (abrir el documento y no hacer nada todavia).
    */
   const hasSavedDraftRef = useRef<Set<string>>(new Set());
+  /** La identidad del borrador de este documento (id unico por sesion de trabajo, F0-fix D3); sin la del padre, una propia. */
+  const ownDraftRef = useRef<SingleDraftIdentity | null>(null);
+  const draftRef: SingleDraftRef = singleDraftRef ?? ownDraftRef;
 
   /**
    * Autoguardado del borrador con debounce: espera ~800ms de calma tras
@@ -2237,7 +2588,14 @@ export function MultiFlow({
         Object.keys(options.textValues).length > 0 ||
         hasTextEdits(options.textEdits));
 
-    const targetId = documentKey;
+    // El borrador es de ESTA sesion de trabajo (F0-fix, D3): su id se estrena la primera vez que hay algo que guardar y no es
+    // la huella del PDF, asi que otro cliente con el mismo PDF no lo pisa. Sin progreso solo cuenta si ya habia uno guardado.
+    const docId = docIdOf(file);
+    const identity = hasProgress
+      ? ensureSingleDraft(draftRef, docId, documentKey)
+      : currentSingleDraft(draftRef, docId, documentKey);
+    if (!identity) return;
+    const targetId = identity.id;
     if (!hasProgress && !hasSavedDraftRef.current.has(targetId)) return;
 
     // Marcado de inmediato (no cuando el guardado/borrado asincrono
@@ -2270,19 +2628,40 @@ export function MultiFlow({
 
     let fired = false;
     let stopHide = () => {};
+    // Mientras la escritura esta agendada o en vuelo, el borrador va por detras de la pantalla (`draftActivity`).
+    const endWrite = beginDraftWrite();
     const flush = () => {
       fired = true;
       stopHide();
       if (snapshot) {
-        void getFileBytes(targetFile).then((fileBytes) => {
-          if (autosaveGenerationRef.current !== myGeneration) return;
-          return saveDraft({ ...snapshot, fileBytes });
-        });
+        void getFileBytes(targetFile)
+          .then((fileBytes) => {
+            if (autosaveGenerationRef.current !== myGeneration) return undefined;
+            return saveDraft({ ...snapshot, fingerprint: documentKey, fileBytes, keepSignatures });
+          })
+          .then((result) => {
+            if (result?.ok && result.forkedTo) {
+              // Otra pestaña habia guardado una version mas nueva de este borrador: la de esta se guardo APARTE y de ahora en
+              // adelante se sigue sobre esa copia (y se dice, sea cual sea la generacion: el aviso no puede perderse).
+              hasSavedDraftRef.current.delete(targetId);
+              hasSavedDraftRef.current.add(result.forkedTo);
+              if (draftRef.current?.id === targetId) draftRef.current = { ...draftRef.current, id: result.forkedTo };
+              onDraftWrite?.({ kind: "forked", toId: result.forkedTo });
+              return;
+            }
+            if (autosaveGenerationRef.current !== myGeneration) return;
+            const report = reportOfWrite(result);
+            if (report) onDraftWrite?.(report);
+          })
+          .finally(endWrite);
       } else {
-        void Promise.resolve().then(() => {
-          if (autosaveGenerationRef.current !== myGeneration) return;
-          return deleteDraft(targetId);
-        });
+        void Promise.resolve()
+          .then(() => {
+            if (autosaveGenerationRef.current !== myGeneration) return;
+            // Una pestaña desactualizada no borra lo que otra guardo despues (F0-fix, D1).
+            return deleteDraft(targetId, { unlessNewer: true });
+          })
+          .finally(endWrite);
       }
     };
     const timer = setTimeout(flush, 800);
@@ -2310,6 +2689,9 @@ export function MultiFlow({
     options.captures,
     options.textFieldsDetectedFor,
     options.textEdits,
+    keepSignatures,
+    draftRef,
+    onDraftWrite,
   ]);
 
   const stepLabels: Record<MultiStep, string> = {

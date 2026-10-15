@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRight, Check, Smartphone } from "lucide-react";
+import { ArrowRight, Check, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusRegion } from "@/components/tool/liveRouting";
@@ -13,6 +13,7 @@ import {
 import { SignatureVaultSheet } from "@/app/sign-pdf/SignatureVaultSheet";
 import { VaultNoticeLine } from "@/app/sign-pdf/VaultNoticeLine";
 import { BlockScopeSheet } from "@/app/sign-pdf/BlockScopeSheet";
+import { StaleSignatureNotice } from "@/app/sign-pdf/StaleSignatureNotice";
 import { CoverageNotices } from "@/app/sign-pdf/SignerBlocks";
 import {
   CEREMONY_HEADING_CLASS,
@@ -37,6 +38,7 @@ import {
   scopeSummary,
   signerBlocks,
   signerLabel,
+  staleSigners,
   turnItemLabel,
   turnProgress,
   visibleDraft,
@@ -119,6 +121,9 @@ export function BlockCeremony({
   const docIds = docs.map((doc) => doc.id);
   const ctx: BlockContext = { signers, docs: docStates, keys };
   const queue = ceremonyQueue(ctx, docIds);
+  // Firmantes cuya firma YA hecha dejo de valer (se cambio el texto del documento, sus huecos o el archivo): vuelven a estar
+  // pendientes, se dice por que y el turno vuelve al primero de ellos (F0-fix, D7).
+  const stale = staleSigners(blocks, ctx, docIds);
   // El turno se deriva de lo que falta y, desde que alguien actua, vive en la sesion.
   const {
     position,
@@ -132,6 +137,7 @@ export function BlockCeremony({
     onChange: onCeremonyChange,
     queue,
     isDone: (signerId) => isSignerDone(blocks, signerId, ctx),
+    staleSignerId: stale[0]?.signerId ?? null,
   });
   const [composer, setComposer] = useState<{
     blockId: string;
@@ -197,6 +203,12 @@ export function BlockCeremony({
   );
   const nameOf = (signer: Signer) => signerLabel(signers, signer.id, strings);
   const currentName = current ? nameOf(current) : "";
+  const staleReasonOf = new Map(stale.map((item) => [item.signerId, item.reason]));
+  const staleNotes = stale.map((item) => ({
+    signerId: item.signerId,
+    text: strings.staleSignature(signerLabel(signers, item.signerId, strings), item.reason),
+  }));
+  const staleAnnouncement = staleNotes.map((note) => note.text).join(" ");
   // Los bloques con algo que firmar, en el orden en que se muestran.
   const currentBlocks = current
     ? signerBlocks(blocks, current.id).filter(
@@ -363,9 +375,11 @@ export function BlockCeremony({
        * Region viva UNICA de la ceremonia, siempre montada: alcance editado, bloques anadidos y lo que falta por
        * recoger. `StatusRegion` la encamina a la region unica de PDF Pro cuando la ceremonia vive dentro de el.
        */}
-      <StatusRegion as="p" text={liveMessage} className="sr-only">
-        {liveMessage}
+      <StatusRegion as="p" text={liveMessage || staleAnnouncement} className="sr-only">
+        {liveMessage || staleAnnouncement}
       </StatusRegion>
+
+      <StaleSignatureNotice items={staleNotes} />
 
       {current && stage === "handoff" ? (
         <div className="surface-card rounded-ios p-6 text-center">
@@ -416,10 +430,13 @@ export function BlockCeremony({
               label={strings.ceremonyProgressLabel(currentName)}
               doneText={strings.ceremonyItemDone}
               missingText={strings.ceremonyItemMissing}
+              staleText={strings.ceremonyItemStale}
               items={progress.map((item) => ({
                 key: `${item.blockId}-${item.type}`,
                 label: itemLabel(item),
                 done: item.done,
+                // Ya estaba hecho (hay trazo guardado) pero su sello por documento dejo de valer.
+                stale: !item.done && blocks.find((block) => block.id === item.blockId)?.[item.type] != null,
               }))}
             />
           ) : null}
@@ -543,10 +560,12 @@ export function BlockCeremony({
       <ul className="space-y-2">
         {queue.map((signer, index) => {
           const done = isSignerDone(blocks, signer.id, ctx);
+          const staleReason = done ? undefined : staleReasonOf.get(signer.id);
           return (
             <li
               key={signer.id}
-              className="rounded-ios-sm flex items-center gap-3 border border-white/10 bg-white/5 p-3"
+              data-stale-signer={staleReason ? signer.id : undefined}
+              className="rounded-ios-sm flex flex-wrap items-center gap-x-3 gap-y-1 border border-white/10 bg-white/5 p-3"
             >
               <span
                 aria-hidden="true"
@@ -563,7 +582,11 @@ export function BlockCeremony({
                   done ? "text-foreground" : "text-muted-foreground",
                 )}
               >
-                {done ? <Check aria-hidden="true" className="size-3.5" /> : null}
+                {done ? (
+                  <Check aria-hidden="true" className="size-3.5" />
+                ) : staleReason ? (
+                  <X aria-hidden="true" className="size-3.5" />
+                ) : null}
                 {done ? strings.statusSigned : strings.statusPending}
               </span>
               {!done ? (
@@ -575,6 +598,11 @@ export function BlockCeremony({
                 >
                   {strings.handoffReady}
                 </Button>
+              ) : null}
+              {staleReason ? (
+                <p data-stale-reason="" className="basis-full pl-6 text-caption text-foreground [overflow-wrap:anywhere]">
+                  {strings.statusStale} · {strings.staleReasonShort(staleReason)}
+                </p>
               ) : null}
             </li>
           );

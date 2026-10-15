@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { GuardedLink as Link } from "@/components/layout/GuardedLink";
 import { Logo } from "@/components/layout/Logo";
 import { Badge } from "@/components/ui/Badge";
 import { useT } from "@/lib/i18n";

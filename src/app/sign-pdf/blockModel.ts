@@ -3,7 +3,9 @@ import {
   captureStamp,
   isSignerComplete,
   requiredCaptureTypes,
+  staleReason,
   type CaptureMap,
+  type StaleReason,
 } from "@/app/sign-pdf/captures";
 import {
   applyCaptures,
@@ -154,6 +156,43 @@ export function pendingBlockCount(
   return signerBlocks(blocks, signerId).filter(
     (block) => !isBlockComplete(block, ctx),
   ).length;
+}
+
+/** Un firmante cuya firma YA estaba hecha y dejo de valer, y por que (F0-fix, D7). */
+export type StaleSigner = { signerId: string; reason: StaleReason };
+
+/** Con varios motivos a la vez, el que se dice: lo que la persona acaba de hacer (el texto) antes que lo demas. */
+const STALE_PRIORITY: readonly StaleReason[] = ["text", "fields", "document"];
+
+/**
+ * Firmantes de la cola cuyo trazo ya estaba hecho pero su SELLO por documento dejo de valer (se edito el texto del
+ * documento, cambiaron los huecos o el archivo) y por eso vuelven a estar pendientes: sin esto la pantalla solo los ve
+ * «sin firmar» y nadie sabe que paso. En el orden de la cola. Sin huella de algun documento (aun calculandose) no se
+ * dice nada; un firmante que nunca firmo (o ya volvio a firmar) no cuenta.
+ */
+export function staleSigners(
+  blocks: readonly SignerBlock[],
+  ctx: BlockContext,
+  docIds: readonly DocId[],
+): StaleSigner[] {
+  const result: StaleSigner[] = [];
+  for (const signer of ceremonyQueue(ctx, docIds)) {
+    if (isSignerDone(blocks, signer.id, ctx)) continue;
+    const found = new Set<StaleReason>();
+    for (const block of signerBlocks(blocks, signer.id)) {
+      if (!block.signature && !block.initials) continue;
+      for (const docId of block.appliesTo) {
+        const stored = block.stamps[docId];
+        const key = ctx.keys[docId];
+        if (!stored || !key) continue;
+        const reason = staleReason(stored, captureStamp(key, fieldsOfDoc(ctx, docId), signer.id));
+        if (reason) found.add(reason);
+      }
+    }
+    const reason = STALE_PRIORITY.find((candidate) => found.has(candidate));
+    if (reason) result.push({ signerId: signer.id, reason });
+  }
+  return result;
 }
 
 /** Firmantes de la cola que aun no han terminado todos sus bloques. */
@@ -444,7 +483,16 @@ export function resolveCeremony(
   stored: CeremonyState | null | undefined,
   queue: readonly { id: string }[],
   isDone: (signerId: string) => boolean,
+  /**
+   * Un firmante cuya firma YA hecha dejo de valer (se cambio el texto del documento, F0-fix D7): el turno vuelve a el, en el
+   * traspaso, aunque el guardado fuera de otro. Es derivado, no se guarda: en cuanto vuelve a firmar, el turno guardado manda.
+   */
+  redirectTo?: string | null,
 ): CeremonyPosition {
+  if (redirectTo && stored?.signerId !== redirectTo) {
+    const index = queue.findIndex((signer) => signer.id === redirectTo);
+    if (index !== -1) return { index, stage: "handoff" };
+  }
   if (stored && CEREMONY_STAGES.includes(stored.stage)) {
     const index = queue.findIndex((signer) => signer.id === stored.signerId);
     if (index !== -1) {

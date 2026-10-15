@@ -1,0 +1,9 @@
+
+Running 5 tests using 1 worker
+
+[1/5] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:52:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a) 2 docs x 2 firmantes x firmas distintas: tras el turno 1, tocar la pestana del documento 2 NO vuelve a «Turno 1 de 2»
+[2/5] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:72:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a2) con la revision de Ana a medias, tocar la pestana del documento 2 no le vuelve a pedir su turno desde el principio
+[3/5] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:92:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (b) «Atras» desde Firmar y «Continuar» no devuelve a «Turno 1 de 2» (2 docs, firmas distintas)
+[4/5] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:108:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (b2) «Atras» -> «Continuar» con UN documento y dos firmantes tampoco reinicia el turno (SigningCeremony)
+[5/5] [chromium] › e2e/specs/sign-ceremony-turns.spec.ts:127:7 › ceremonia de firma: el turno sobrevive a remontajes › @f0-pendiente (a3, causa T2) con firmas distintas, «Ver cómo queda» apagado dice QUE falta (no se queda mudo)
+  5 passed (20.6s)

@@ -15,6 +15,7 @@ import {
   type ClearFailure,
 } from "@/app/sign-pdf/clearLocalSignData";
 import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
+import { StripSavedSignatures } from "@/app/sign-pdf/StripSavedSignatures";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { clearAllEditDrafts } from "@/app/edit-pdf/editDrafts";
 import { clearLocalProData } from "@/app/pdf-pro/proDrafts";
@@ -98,13 +99,18 @@ export function SettingsView() {
           </p>
           <div className="mt-5 space-y-4">
             {SIGN_PDF_FEATURE_FLAGS.map((flag) => (
-              <Checkbox
-                key={flag}
-                label={t.settings.signPdfFeatures[flag].label}
-                hint={t.settings.signPdfFeatures[flag].hint}
-                checked={signPdfFlags[flag]}
-                onChange={(enabled) => setSignPdfFeatureFlag(flag, enabled)}
-              />
+              <div key={flag}>
+                <Checkbox
+                  label={t.settings.signPdfFeatures[flag].label}
+                  hint={t.settings.signPdfFeatures[flag].hint}
+                  checked={signPdfFlags[flag]}
+                  onChange={(enabled) => setSignPdfFeatureFlag(flag, enabled)}
+                />
+                {/* F0-fix2 (N2): apagar este interruptor no toca los borradores ya guardados; este boton quita sus firmas ya. */}
+                {flag === "signaturesInDraft" ? (
+                  <StripSavedSignatures strings={SIGN_STRINGS[language]} className="pt-2 pl-[34px]" />
+                ) : null}
+              </div>
             ))}
           </div>
         </GlassCard>

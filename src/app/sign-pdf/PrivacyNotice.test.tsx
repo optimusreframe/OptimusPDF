@@ -12,6 +12,7 @@ import {
 import {
   SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY,
   __resetSignPdfFeatureFlagsCacheForTests,
+  readSignaturesInDraft,
 } from "@/app/sign-pdf/signFeatureFlags";
 import { clearVault, listVault, saveVaultEntry } from "@/app/sign-pdf/signVault";
 import { vaultInput } from "@/app/sign-pdf/vaultTestUtils";
@@ -175,5 +176,69 @@ describe("PrivacyNotice — «Borrar datos»", () => {
         expect(screen.queryByText(/(Recordar en este dispositivo|Remember on this device)/)).toBeNull();
       });
     }
+  });
+});
+
+describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
+  const privacy = strings.draftPrivacy;
+
+  beforeEach(() => {
+    __resetSignPdfFeatureFlagsCacheForTests();
+  });
+
+  it("abierto por primera vez trae el interruptor «Guardar también las firmas recogidas…», ENCENDIDO por defecto", () => {
+    window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
+    render(<PrivacyNotice strings={strings} />);
+    const toggle = screen.getByRole("checkbox", { name: privacy.signaturesLabel }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(privacy.signaturesLabel).toBe("Guardar también las firmas recogidas para no perderlas");
+    expect(screen.getByText(privacy.signaturesHint)).toBeTruthy();
+    expect(privacy.signaturesHint).toContain("se borran a los 7 días");
+  });
+
+  it("con el aviso ya visto y cerrado no estorba; al abrirlo con «Cómo usamos tus datos» el interruptor esta ahi", () => {
+    render(<PrivacyNotice strings={strings} />);
+    expect(screen.queryByRole("checkbox", { name: privacy.signaturesLabel })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyNoticeToggle }));
+    expect(screen.getByRole("checkbox", { name: privacy.signaturesLabel })).toBeTruthy();
+  });
+
+  it("apagarlo lo guarda en el ajuste (el mismo que Ajustes) y el texto del aviso lo refleja; volver a encenderlo lo revierte", () => {
+    window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
+    render(<PrivacyNotice strings={strings} />);
+    expect(screen.getByText(new RegExp(privacy.noticeSignaturesOn.slice(0, 40)))).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: privacy.signaturesLabel }));
+    expect((screen.getByRole("checkbox", { name: privacy.signaturesLabel }) as HTMLInputElement).checked).toBe(false);
+    expect(readSignaturesInDraft()).toBe(false);
+    expect(JSON.parse(window.localStorage.getItem(SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY) ?? "{}").signaturesInDraft).toBe(false);
+    expect(screen.getByText(new RegExp(privacy.noticeSignaturesOff.slice(0, 40)))).toBeTruthy();
+    expect(screen.queryByText(new RegExp(privacy.noticeSignaturesOn.slice(0, 40)))).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: privacy.signaturesLabel }));
+    expect(readSignaturesInDraft()).toBe(true);
+  });
+
+  it("un ajuste ya apagado (de una visita anterior) llega apagado", () => {
+    window.localStorage.setItem(SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY, JSON.stringify({ signaturesInDraft: false }));
+    __resetSignPdfFeatureFlagsCacheForTests();
+    window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
+    render(<PrivacyNotice strings={strings} />);
+    expect((screen.getByRole("checkbox", { name: privacy.signaturesLabel }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("en ingles el interruptor y el texto salen en ingles, sin claves crudas", () => {
+    window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
+    const en = SIGN_STRINGS.en;
+    render(<PrivacyNotice strings={en} />);
+    expect(screen.getByRole("checkbox", { name: en.draftPrivacy.signaturesLabel })).toBeTruthy();
+    expect(screen.getByText(en.draftPrivacy.signaturesHint)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/draftPrivacy|signaturesLabel|noticeSignatures/);
+  });
+
+  it("la caja del interruptor mide 44 px de alto y esta dentro del aviso", () => {
+    window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
+    const { container } = render(<PrivacyNotice strings={strings} />);
+    const toggle = screen.getByRole("checkbox", { name: privacy.signaturesLabel });
+    expect(toggle.closest(".min-h-11")).toBeTruthy();
+    expect(container.querySelector(".surface-card")?.contains(toggle)).toBe(true);
   });
 });

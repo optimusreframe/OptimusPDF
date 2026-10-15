@@ -200,6 +200,22 @@ export type ToolShellProps<TOptions> = {
     options: TOptions;
   }) => ReactNode;
   /**
+   * Contenido extra DENTRO de la tarjeta de `DownloadScreen`, justo bajo «Descargar» (opciones propias de ese resultado:
+   * la casilla «Borrar el borrador de esta firma» y la opcion «E-sign» de Firmar, F0 · U0.4 y U0.7). Solo en `phase === "done"`.
+   */
+  renderDownloadExtras?: (context: {
+    result: ProcessResult;
+    options: TOptions;
+  }) => ReactNode;
+  /**
+   * Se llama justo despues de lanzar la descarga del resultado con el boton primario «Descargar» (no con la descarga
+   * secundaria). Lo usa Firmar para borrar el borrador de la ronda entregada si la persona lo dejo marcado (F0 · U0.4).
+   */
+  onDownloaded?: (context: {
+    result: ProcessResult;
+    options: TOptions;
+  }) => void;
+  /**
    * Se rellena con una version de `reset()` que acepta un patch parcial de
    * opciones en vez de volver siempre a `defaultOptions`. Lo necesita quien
    * quiere reiniciar el flujo (archivo fuera, vuelta a `"idle"`) pero
@@ -216,6 +232,17 @@ export type ToolShellProps<TOptions> = {
   loadRef?: RefObject<
     ((files: File[], patch?: Partial<TOptions>) => void) | null
   >;
+  /**
+   * Contenido extra justo encima de la zona de carga, SOLO mientras no hay ningun archivo (`phase === "idle"`). Lo usa Firmar
+   * para ofrecer retomar un trabajo sin terminar antes de que la persona suba nada (F0 · U0.3).
+   */
+  renderIdle?: () => ReactNode;
+  /**
+   * Se llama con la lista nueva y la anterior cada vez que la PERSONA cambia los archivos (subir, quitar, reordenar), antes
+   * de aplicarlo. No se llama al cargar con `loadRef`/`resetRef` ni al sustituir un archivo por su copia descifrada. Lo usa
+   * Firmar para ofrecer «Deshacer» al quitar un documento con trabajo hecho (F0 · U0.3).
+   */
+  onFilesChanged?: (next: File[], previous: File[]) => void;
 };
 
 type Phase = "idle" | "files" | "options" | "processing" | "done";
@@ -275,8 +302,12 @@ export function ToolShell<TOptions>({
   progressMessage,
   runRef,
   renderDone,
+  renderDownloadExtras,
+  onDownloaded,
   resetRef,
   loadRef,
+  renderIdle,
+  onFilesChanged,
 }: ToolShellProps<TOptions>) {
   const t = useT();
   const Icon = tool.icon;
@@ -410,6 +441,11 @@ export function ToolShell<TOptions>({
     filesRef.current = files;
   });
 
+  const onFilesChangedRef = useRef(onFilesChanged);
+  useEffect(() => {
+    onFilesChangedRef.current = onFilesChanged;
+  });
+
   // Cada archivo nuevo se comprueba una vez (vacio, no PDF, danado, cifrado).
   useEffect(() => {
     if (!guard || !policy) return;
@@ -435,6 +471,7 @@ export function ToolShell<TOptions>({
     // Al quitar el ultimo archivo la lista se desmonta: el foco va a la
     // zona de carga en vez de caer a <body>.
     if (next.length === 0 && filesRef.current.length > 0) requestFocus("dropzone");
+    onFilesChangedRef.current?.(next, filesRef.current);
     setFiles(next);
     setError(null);
     setSkipped([]);
@@ -494,6 +531,9 @@ export function ToolShell<TOptions>({
       abortRef.current = null;
       setFiles(nextFiles);
       checksRef.current.clear();
+      // Se vuelve a comprobar TODO: un archivo que ya estuvo aqui (el «Deshacer» de Firmar devuelve los mismos `File`) no
+      // puede quedar «ya comprobado» sin veredicto, o `checking` no terminaria nunca y la herramienta no se montaria.
+      startedRef.current = new WeakSet<File>();
       setChecks(new Map());
       setPasswordOpen(false);
       setOptionsState({ ...defaultOptions, ...patch });
@@ -1082,6 +1122,8 @@ export function ToolShell<TOptions>({
         ) : null}
       </div>
 
+      {phase === "idle" ? renderIdle?.() : null}
+
       {phase === "idle" ? (
         <FileDropzone
           tool={tool}
@@ -1266,13 +1308,17 @@ export function ToolShell<TOptions>({
             slug={tool.slug}
             filename={result.filename}
             size={result.blob.size}
-            onDownload={() => downloadBlob(result.blob, result.filename)}
+            onDownload={() => {
+              downloadBlob(result.blob, result.filename);
+              onDownloaded?.({ result, options });
+            }}
             onStartOver={reset}
             downloadButtonRef={downloadRef}
             report={result.report}
             summary={result.summary}
             notices={result.notices}
             secondaryDownload={secondaryDownloadAction(result.secondaryDownload)}
+            extras={renderDownloadExtras?.({ result, options })}
             continueAction={
               proResult ? (
                 <Link

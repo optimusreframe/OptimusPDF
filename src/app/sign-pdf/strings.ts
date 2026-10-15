@@ -1,4 +1,5 @@
 import type { Language } from "@/lib/i18n";
+import type { StaleReason } from "@/app/sign-pdf/captures";
 
 /** Copy propio de la herramienta de firma (ES/EN). */
 export type SignStrings = {
@@ -280,6 +281,15 @@ export type SignStrings = {
   /** Texto oculto de un trazo hecho / por hacer en la lista de progreso. */
   ceremonyItemDone: string;
   ceremonyItemMissing: string;
+  /* --- Firma que dejo de valer porque cambio el documento (F0-fix, D7) --- */
+  /** «La firma de Ana ya no es válida porque cambiaste el texto del documento: Ana debe volver a firmar.» */
+  staleSignature: (name: string, reason: StaleReason) => string;
+  /** Debajo del firmante en la lista de la ronda: «Debe volver a firmar». */
+  statusStale: string;
+  /** El motivo, corto, para esa misma linea: «cambió el texto del documento». */
+  staleReasonShort: (reason: StaleReason) => string;
+  /** Marca del trazo en la lista de progreso del turno: «ya no es válida». */
+  ceremonyItemStale: string;
   /** «Falta: Iniciales · Contrato B»: junto al boton apagado. Cada elemento ya viene nombrado. */
   ceremonyMissing: (items: readonly string[]) => string;
   ceremonyGoToMissing: string;
@@ -570,6 +580,133 @@ export type SignStrings = {
   batchReadyBody: (documents: number) => string;
   batchSummary: (documents: number, slots: number) => string;
   batchDocsCount: (documents: number) => string;
+
+  /** Retomar sin buscar y aviso al salir (F0 · U0.3): ver `ResumeStrings`. */
+  resume: ResumeStrings;
+  /** Firmas en el borrador y borrar el borrador al descargar (F0 · U0.4): ver `DraftPrivacyStrings`. */
+  draftPrivacy: DraftPrivacyStrings;
+  /** Opcion «E-sign» deshabilitada (F0 · U0.7): ver `ESignStrings`. */
+  esign: ESignStrings;
+};
+
+/**
+ * Privacidad del borrador con firmas (Fase 0 «Firma agil», U0.4): el interruptor «guardar tambien las firmas» (aviso y
+ * Ajustes comparten texto), lo que dice el aviso de privacidad segun su estado, la linea de la tarjeta de retomar y la
+ * casilla de la pantalla de resultado. Un solo bloque para que ES y EN se mantengan a la par.
+ */
+export type DraftPrivacyStrings = {
+  /** Etiqueta del interruptor del aviso de privacidad. */
+  signaturesLabel: string;
+  signaturesHint: string;
+  /** Lo que dice el aviso de privacidad con el interruptor encendido / apagado. */
+  noticeSignaturesOn: string;
+  noticeSignaturesOff: string;
+  /** Tarjeta y oferta de retomar, cuando el borrador se guardo sin las firmas. */
+  cardSignaturesAgain: string;
+  /** Casilla de la pantalla de resultado: sin / con las firmas guardadas en el borrador. */
+  deleteLabel: string;
+  deleteLabelWithSignatures: string;
+  /** Solo con firmas guardadas: lo que pasa si no se marca. */
+  deleteHintKept: string;
+  /** Region viva tras descargar: borrado hecho / no se pudo. */
+  deleteDone: string;
+  deleteFailed: string;
+  /** F0-fix (D5): el borrado se retrasa unos segundos tras pulsar «Descargar»: lo que se dice mientras tanto, con «Deshacer». */
+  deleteSoon: string;
+  deleteUndo: string;
+  /** Tras «Deshacer»: el borrador se conserva. */
+  deleteUndone: string;
+  /**
+   * F0-fix2 (N1): la casilla se DESMARCA durante la espera del borrado: se cancela y se dice que se conserva (sin / con
+   * las firmas guardadas, que caducan a los 7 dias).
+   */
+  deleteKept: string;
+  deleteKeptExpires: string;
+  /**
+   * F0-fix2 (N2): «Quitar ahora las firmas de los borradores guardados» (Ajustes y aviso de privacidad): el boton, su
+   * confirmacion y lo que se anuncia al terminar.
+   */
+  clearStrokesButton: string;
+  clearStrokesTitle: string;
+  clearStrokesBody: string;
+  clearStrokesConfirm: string;
+  clearStrokesDone: string;
+  clearStrokesNone: string;
+  clearStrokesFailed: string;
+};
+
+/** La opcion «E-sign» (firma por email), solo visual y deshabilitada (Fase 0 «Firma agil», U0.7). */
+export type ESignStrings = {
+  /** «E-sign · Pedir firma por email». */
+  label: string;
+  /** Insignia «Próximamente» / «Soon». */
+  soon: string;
+  /** Lo que anuncia el lector de pantalla junto al nombre: «Disponible próximamente». */
+  unavailable: string;
+};
+
+/**
+ * Retomar una firma sin terminar y no perder trabajo al salir (Fase 0 «Firma agil», U0.3): la tarjeta de entrada, la oferta
+ * al subir los mismos PDF, la hoja «¿Salir de la firma?», el aviso al quitar un documento y el contador de borradores.
+ * Un solo bloque para que ES y EN se mantengan a la par.
+ */
+export type ResumeStrings = {
+  /* --- Tarjeta de entrada --- */
+  cardTitle: string;
+  /** «Documento: A.pdf» / «Documentos: A.pdf, B.pdf y 2 más». */
+  cardDocuments: (names: readonly string[]) => string;
+  /** «Firmantes: Ana, Luis». */
+  cardSigners: (names: readonly string[]) => string;
+  /** «Firmas recogidas: Ana ✓, Luis pendiente». */
+  cardCollected: (items: readonly { name: string; done: boolean }[]) => string;
+  /** «Guardado hace 5 minutos». `ago` ya viene en el idioma. */
+  cardSavedAgo: (ago: string) => string;
+  /** Lo que se dice en lugar de «hace 0 minutos». */
+  justNow: string;
+  /** «Hay 2 más sin terminar.» */
+  cardMore: (count: number) => string;
+  /** Nombre por defecto de un firmante sin nombre (su posicion, desde 1). */
+  signerFallback: (position: number) => string;
+  resume: string;
+  discard: string;
+  viewAll: string;
+  discardTitle: string;
+  discardBody: (documents: number) => string;
+  discardConfirm: string;
+  discarded: string;
+  /* --- Oferta al subir los mismos PDF --- */
+  offerTitle: string;
+  offerBody: (ago: string) => string;
+  offerStartOver: string;
+  /** Lo que se anuncia (region viva) cuando aparece la oferta. */
+  offerAnnounce: string;
+  /* --- Hoja «¿Salir de la firma?» --- */
+  leaveTitle: string;
+  leaveBodySaved: string;
+  leaveBodyUnsaved: string;
+  /** F0-fix (D2): el navegador no dejo guardar el borrador (cuota llena, almacenamiento bloqueado): salir pierde el trabajo. */
+  leaveBodyFailed: string;
+  /** F0-fix (D2): «Solo yo» no guarda borrador. */
+  leaveBodySolo: string;
+  leaveStay: string;
+  leaveLeave: string;
+  /* --- Quitar documentos con trabajo hecho --- */
+  removedOne: (name: string) => string;
+  removedMany: (count: number) => string;
+  removedUndo: string;
+  removedRestored: string;
+  /* --- «Ver borradores» --- */
+  /** Descripcion accesible del contador del boton: «2 guardados». */
+  draftsCount: (count: number) => string;
+  /* --- Avisos persistentes del borrador (F0-fix: D1 y D2) --- */
+  /** Mientras el navegador no deja guardar: «Sin autoguardado...». */
+  draftFailedNotice: string;
+  /** Otra pestaña guardo una version mas nueva de esta sesion (aun no se ha pisado nada). */
+  tabNewerNotice: string;
+  /** Lo de esta pestaña se guardo APARTE porque otra habia modificado el original. */
+  tabForkedNotice: string;
+  /** Etiqueta de un borrador que es la copia aparte de una pestaña (en «Ver borradores»). */
+  copyTag: string;
 };
 
 /** «Contrato» · «Contrato y 2 más»: nombres de archivo para los avisos de limite. */
@@ -579,6 +716,102 @@ function quotedNames(names: readonly string[], and: string, more: (n: number) =>
   if (names.length === 1) return first;
   return `${first} ${and} ${more(names.length - 1)}`;
 }
+
+const resumeEs: ResumeStrings = {
+  cardTitle: "Tienes una firma sin terminar",
+  cardDocuments: (names) =>
+    names.length === 1
+      ? `Documento: ${names[0]}`
+      : `Documentos: ${names.length <= 3 ? names.join(", ") : `${names.slice(0, 2).join(", ")} y ${names.length - 2} más`}`,
+  cardSigners: (names) => `Firmantes: ${names.join(", ")}`,
+  cardCollected: (items) =>
+    `Firmas recogidas: ${items.map((item) => (item.done ? `${item.name} ✓` : `${item.name} pendiente`)).join(", ")}`,
+  cardSavedAgo: (ago) => `Guardado ${ago}`,
+  justNow: "ahora mismo",
+  cardMore: (count) => (count === 1 ? "Hay 1 más sin terminar." : `Hay ${count} más sin terminar.`),
+  signerFallback: (position) => `Firmante ${position}`,
+  resume: "Retomar",
+  discard: "Descartar",
+  viewAll: "Ver todos",
+  discardTitle: "¿Descartar esta firma sin terminar?",
+  discardBody: (documents) =>
+    documents === 1
+      ? "Se borrarán el documento, los firmantes y las firmas recogidas de este borrador. No se puede deshacer."
+      : `Se borrarán los ${documents} documentos, los firmantes y las firmas recogidas de este borrador. No se puede deshacer.`,
+  discardConfirm: "Descartar",
+  discarded: "Borrador descartado.",
+  offerTitle: "Retomar lo que tenías",
+  offerBody: (ago) =>
+    `Estos mismos documentos ya tienen un trabajo guardado en este dispositivo (${ago}). Puedes continuar donde lo dejaste o empezar de cero.`,
+  offerStartOver: "Empezar de nuevo",
+  offerAnnounce: "Hay un trabajo guardado de estos mismos documentos: puedes retomarlo.",
+  leaveTitle: "¿Salir de la firma?",
+  leaveBodySaved:
+    "Todo está guardado en este dispositivo. Cuando vuelvas a Firmar PDF podrás retomarlo donde lo dejaste.",
+  leaveBodyUnsaved:
+    "Este trabajo es demasiado grande para guardarse en este dispositivo: si sales, se perderá.",
+  leaveBodyFailed: "No se pudo guardar tu trabajo en este dispositivo: si sales se perderá.",
+  leaveBodySolo: "Este modo no guarda borrador. Si sales, se perderá lo que has hecho.",
+  leaveStay: "Seguir firmando",
+  leaveLeave: "Salir",
+  removedOne: (name) => `Quitaste «${name}» de la ronda.`,
+  removedMany: (count) => `Quitaste ${count} documentos de la ronda.`,
+  removedUndo: "Deshacer",
+  removedRestored: "Los documentos han vuelto, con todo su trabajo.",
+  draftsCount: (count) => (count === 1 ? "1 guardado" : `${count} guardados`),
+  draftFailedNotice: "Sin autoguardado: el navegador no deja guardar aquí. Descarga antes de salir.",
+  tabNewerNotice: "Otra pestaña modificó esta firma. Recarga para ver la versión más reciente; lo que cambies aquí se guardará como copia aparte.",
+  tabForkedNotice: "Otra pestaña modificó esta firma; esta copia se guardó aparte.",
+  copyTag: "Copia aparte",
+};
+
+const resumeEn: ResumeStrings = {
+  cardTitle: "You have an unfinished signing",
+  cardDocuments: (names) =>
+    names.length === 1
+      ? `Document: ${names[0]}`
+      : `Documents: ${names.length <= 3 ? names.join(", ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`}`,
+  cardSigners: (names) => `Signers: ${names.join(", ")}`,
+  cardCollected: (items) =>
+    `Signatures collected: ${items.map((item) => (item.done ? `${item.name} ✓` : `${item.name} pending`)).join(", ")}`,
+  cardSavedAgo: (ago) => `Saved ${ago}`,
+  justNow: "just now",
+  cardMore: (count) => (count === 1 ? "There is 1 more unfinished." : `There are ${count} more unfinished.`),
+  signerFallback: (position) => `Signer ${position}`,
+  resume: "Resume",
+  discard: "Discard",
+  viewAll: "View all",
+  discardTitle: "Discard this unfinished signing?",
+  discardBody: (documents) =>
+    documents === 1
+      ? "This deletes the document, the signers and the collected signatures of this draft. This cannot be undone."
+      : `This deletes the ${documents} documents, the signers and the collected signatures of this draft. This cannot be undone.`,
+  discardConfirm: "Discard",
+  discarded: "Draft discarded.",
+  offerTitle: "Pick up where you left off",
+  offerBody: (ago) =>
+    `These same documents already have work saved on this device (${ago}). You can continue where you stopped or start from scratch.`,
+  offerStartOver: "Start over",
+  offerAnnounce: "These same documents have saved work: you can resume it.",
+  leaveTitle: "Leave signing?",
+  leaveBodySaved:
+    "Everything is saved on this device. When you come back to Sign PDF you can pick it up where you left off.",
+  leaveBodyUnsaved:
+    "This work is too large to be saved on this device: if you leave, it will be lost.",
+  leaveBodyFailed: "Your work could not be saved on this device: if you leave, it will be lost.",
+  leaveBodySolo: "This mode does not save a draft. If you leave, what you have done will be lost.",
+  leaveStay: "Keep signing",
+  leaveLeave: "Leave",
+  removedOne: (name) => `You removed “${name}” from the round.`,
+  removedMany: (count) => `You removed ${count} documents from the round.`,
+  removedUndo: "Undo",
+  removedRestored: "The documents are back, with all their work.",
+  draftsCount: (count) => (count === 1 ? "1 saved" : `${count} saved`),
+  draftFailedNotice: "No autosave: the browser will not let this page save. Download before you leave.",
+  tabNewerNotice: "Another tab changed this signing. Reload to see the latest version; what you change here will be saved as a separate copy.",
+  tabForkedNotice: "Another tab changed this signing; this copy was saved separately.",
+  copyTag: "Separate copy",
+};
 
 const es: SignStrings = {
   createTitle: "Tu firma",
@@ -862,6 +1095,22 @@ const es: SignStrings = {
   ceremonyProgressLabel: (name) => `Progreso de ${name}`,
   ceremonyItemDone: "hecho",
   ceremonyItemMissing: "falta",
+  staleSignature: (name, reason) =>
+    `La firma de ${name} ya no es válida porque ${
+      reason === "text"
+        ? "cambiaste el texto del documento"
+        : reason === "fields"
+          ? "cambiaste los huecos de firma del documento"
+          : "cambió el documento"
+    }: ${name} debe volver a firmar.`,
+  statusStale: "Debe volver a firmar",
+  staleReasonShort: (reason) =>
+    reason === "text"
+      ? "cambió el texto del documento"
+      : reason === "fields"
+        ? "cambiaron los huecos de firma"
+        : "cambió el documento",
+  ceremonyItemStale: "ya no es válida",
   ceremonyMissing: (items) => `Falta: ${items.join("; ")}`,
   ceremonyGoToMissing: "Ir a lo que falta",
   ceremonyAllCaptured: "Todo listo: ya puedes ver cómo queda.",
@@ -884,7 +1133,7 @@ const es: SignStrings = {
 
   privacyNoticeToggle: "Cómo usamos tus datos",
   privacyNoticeBody:
-    "OptimusPDF no guarda datos en la nube ni en un servidor. Los datos únicamente existen y se manejan en su dispositivo y tu navegador. Si deseas eliminar completamente los datos, solo cierra la pestaña, borra los datos de navegación de tu navegador o haz clic en el botón 'Borrar datos'. Los datos que se guardan en tu navegador solo sirven para usarlos en otros documentos que abras en tu navegador, puedes borrarlos cuando lo desees. Mientras trabajas con varios firmantes, el borrador guarda la sesión completa en este dispositivo (los documentos, los firmantes y las firmas ya hechas) para que puedas retomarla, y si exportas la configuración, el archivo .zip contiene tus documentos. El borrador se guarda unas décimas de segundo después de cada cambio; si el navegador se cierra a la fuerza (o la pestaña se descarta) justo después de un cambio, lo último podría no guardarse. Todo se elimina con «Borrar datos» (o «Borrar datos locales» en Ajustes).",
+    "OptimusPDF no guarda datos en la nube ni en un servidor. Los datos únicamente existen y se manejan en su dispositivo y tu navegador. Si deseas eliminar completamente los datos, solo cierra la pestaña, borra los datos de navegación de tu navegador o haz clic en el botón 'Borrar datos'. Los datos que se guardan en tu navegador solo sirven para usarlos en otros documentos que abras en tu navegador, puedes borrarlos cuando lo desees. Mientras trabajas con varios firmantes, el borrador guarda la sesión completa en este dispositivo (los documentos, los firmantes, los campos y, mientras no lo apagues, las firmas ya hechas) para que puedas retomarla, y si exportas la configuración, el archivo .zip contiene tus documentos. El borrador se guarda unas décimas de segundo después de cada cambio; si el navegador se cierra a la fuerza (o la pestaña se descarta) justo después de un cambio, lo último podría no guardarse. Todo se elimina con «Borrar datos» (o «Borrar datos locales» en Ajustes).",
   privacyNoticeVaultNote:
     "Las firmas e iniciales solo se guardan en este dispositivo si marcas «Recordar en este dispositivo»; nunca se suben. Si exportas una firma, el archivo contiene la firma en claro a menos que le pongas contraseña.",
   privacyClearData: "Borrar datos",
@@ -1199,6 +1448,39 @@ const es: SignStrings = {
   batchSummary: (documents, slots) =>
     `${documents} documentos · ${slots} hueco${slots === 1 ? "" : "s"} de firma`,
   batchDocsCount: (documents) => `${documents} documentos`,
+  resume: resumeEs,
+  draftPrivacy: {
+    signaturesLabel: "Guardar también las firmas recogidas para no perderlas",
+    signaturesHint: "Solo en este dispositivo; se borran a los 7 días.",
+    noticeSignaturesOn:
+      "Las firmas ya recogidas se guardan también en el borrador, solo en este dispositivo, y se borran solas a los 7 días. Al descargar puedes borrar el borrador.",
+    noticeSignaturesOff:
+      "Las firmas ya recogidas no se guardan en el borrador: si lo retomas, se piden de nuevo. Los borradores ya guardados conservan sus firmas hasta que caduquen o las quites.",
+    cardSignaturesAgain: "Firmas: se volverán a pedir",
+    deleteLabel: "Borrar el borrador de esta firma",
+    deleteLabelWithSignatures: "Borrar el borrador de esta firma (incluye las firmas guardadas en él)",
+    deleteHintKept: "Si lo dejas sin marcar, se conserva con sus firmas hasta 7 días.",
+    deleteDone: "Borrador borrado de este dispositivo.",
+    deleteFailed: "No se pudo borrar el borrador. Puedes quitarlo desde «Ver borradores».",
+    deleteSoon: "El borrador se borrará en unos segundos. Si el archivo no llega, toca Deshacer.",
+    deleteUndo: "Deshacer",
+    deleteUndone: "Listo: el borrador se conserva.",
+    deleteKept: "El borrador se conserva.",
+    deleteKeptExpires: "El borrador se conserva (se borra solo a los 7 días).",
+    clearStrokesButton: "Quitar ahora las firmas de los borradores guardados",
+    clearStrokesTitle: "¿Quitar las firmas de los borradores guardados?",
+    clearStrokesBody:
+      "Los borradores guardados en este dispositivo conservarán todo (documentos, firmantes, huecos y campos) menos las firmas e iniciales: al retomarlos se pedirán de nuevo. No se puede deshacer.",
+    clearStrokesConfirm: "Quitar las firmas",
+    clearStrokesDone: "Listo: ya no queda ninguna firma en los borradores guardados.",
+    clearStrokesNone: "No hay firmas guardadas en los borradores.",
+    clearStrokesFailed: "No se pudieron quitar las firmas de los borradores. Inténtalo de nuevo.",
+  },
+  esign: {
+    label: "E-sign · Pedir firma por email",
+    soon: "Próximamente",
+    unavailable: "Disponible próximamente",
+  },
 };
 
 const en: SignStrings = {
@@ -1479,6 +1761,22 @@ const en: SignStrings = {
   ceremonyProgressLabel: (name) => `${name}'s progress`,
   ceremonyItemDone: "done",
   ceremonyItemMissing: "missing",
+  staleSignature: (name, reason) =>
+    `${name}'s signature is no longer valid because ${
+      reason === "text"
+        ? "you changed the document text"
+        : reason === "fields"
+          ? "you changed the signature spots of the document"
+          : "the document changed"
+    }: ${name} must sign again.`,
+  statusStale: "Must sign again",
+  staleReasonShort: (reason) =>
+    reason === "text"
+      ? "the document text changed"
+      : reason === "fields"
+        ? "the signature spots changed"
+        : "the document changed",
+  ceremonyItemStale: "no longer valid",
   ceremonyMissing: (items) => `Missing: ${items.join("; ")}`,
   ceremonyGoToMissing: "Go to what's missing",
   ceremonyAllCaptured: "All set: you can now see how it looks.",
@@ -1501,7 +1799,7 @@ const en: SignStrings = {
 
   privacyNoticeToggle: "How we use your data",
   privacyNoticeBody:
-    "OptimusPDF does not store data in the cloud or on a server. Data only exists and is handled on your own device and browser. If you want to fully remove it, just close the tab, clear your browser's browsing data, or click the 'Clear data' button. Whatever is stored in your browser is only used to fill in other documents you open in this browser, and you can clear it whenever you want. While you work with several signers, the draft saves the whole session on this device (the documents, the signers and the signatures already made) so you can pick it up again, and if you export the configuration, the .zip file contains your documents. The draft is saved a fraction of a second after each change; if the browser is force-closed (or the tab is discarded) right after a change, the latest edit may not be saved. Everything is removed with 'Clear data' (or 'Clear local data' in Settings).",
+    "OptimusPDF does not store data in the cloud or on a server. Data only exists and is handled on your own device and browser. If you want to fully remove it, just close the tab, clear your browser's browsing data, or click the 'Clear data' button. Whatever is stored in your browser is only used to fill in other documents you open in this browser, and you can clear it whenever you want. While you work with several signers, the draft saves the whole session on this device (the documents, the signers, the fields and, unless you turn it off, the signatures already made) so you can pick it up again, and if you export the configuration, the .zip file contains your documents. The draft is saved a fraction of a second after each change; if the browser is force-closed (or the tab is discarded) right after a change, the latest edit may not be saved. Everything is removed with 'Clear data' (or 'Clear local data' in Settings).",
   privacyNoticeVaultNote:
     "Signatures and initials are only stored on this device if you tick \"Remember on this device\"; they are never uploaded. If you export a signature, the file contains the signature in the clear unless you add a password.",
   privacyClearData: "Clear data",
@@ -1808,6 +2106,39 @@ const en: SignStrings = {
   batchSummary: (documents, slots) =>
     `${documents} documents · ${slots} signature slot${slots === 1 ? "" : "s"}`,
   batchDocsCount: (documents) => `${documents} documents`,
+  resume: resumeEn,
+  draftPrivacy: {
+    signaturesLabel: "Also save the signatures collected so they are not lost",
+    signaturesHint: "Only on this device; deleted after 7 days.",
+    noticeSignaturesOn:
+      "Signatures already collected are also saved in the draft, only on this device, and deleted on their own after 7 days. After downloading you can delete the draft.",
+    noticeSignaturesOff:
+      "Signatures already collected are not saved in the draft: if you resume it, they are asked for again. Drafts already saved keep their signatures until they expire or you remove them.",
+    cardSignaturesAgain: "Signatures: they will be asked for again",
+    deleteLabel: "Delete the draft of this signing",
+    deleteLabelWithSignatures: "Delete the draft of this signing (includes the signatures saved in it)",
+    deleteHintKept: "If you leave it unticked, it is kept with its signatures for up to 7 days.",
+    deleteDone: "Draft deleted from this device.",
+    deleteFailed: "The draft could not be deleted. You can remove it from “View drafts”.",
+    deleteSoon: "The draft will be deleted in a few seconds. If the file does not arrive, tap Undo.",
+    deleteUndo: "Undo",
+    deleteUndone: "Done: the draft is kept.",
+    deleteKept: "The draft is kept.",
+    deleteKeptExpires: "The draft is kept (it deletes itself after 7 days).",
+    clearStrokesButton: "Remove the signatures from saved drafts now",
+    clearStrokesTitle: "Remove the signatures from saved drafts?",
+    clearStrokesBody:
+      "Drafts saved on this device will keep everything (documents, signers, placeholders and fields) except the signatures and initials: when you resume them they are asked for again. This cannot be undone.",
+    clearStrokesConfirm: "Remove signatures",
+    clearStrokesDone: "Done: no signature is left in the saved drafts.",
+    clearStrokesNone: "There are no signatures saved in drafts.",
+    clearStrokesFailed: "The signatures could not be removed from the drafts. Please try again.",
+  },
+  esign: {
+    label: "E-sign · Request signature by email",
+    soon: "Soon",
+    unavailable: "Coming soon",
+  },
 };
 
 export const SIGN_STRINGS: Record<Language, SignStrings> = { es, en };

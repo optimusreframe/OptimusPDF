@@ -18,6 +18,7 @@ export type SignPdfFeatureFlag =
   | "signingRecordFile"
   | "pinchZoom"
   | "signatureVault"
+  | "signaturesInDraft"
   | "multiDocument";
 
 export const SIGN_PDF_FEATURE_FLAGS: readonly SignPdfFeatureFlag[] = [
@@ -30,6 +31,7 @@ export const SIGN_PDF_FEATURE_FLAGS: readonly SignPdfFeatureFlag[] = [
   "signingRecordFile",
   "pinchZoom",
   "signatureVault",
+  "signaturesInDraft",
   "multiDocument",
 ] as const;
 
@@ -47,6 +49,9 @@ export const DEFAULT_SIGN_PDF_FEATURE_FLAGS: SignPdfFeatureFlagState = {
   signingRecordFile: false,
   pinchZoom: true,
   signatureVault: true,
+  // Los borradores guardan tambien los trazos de las firmas recogidas (solo en este dispositivo, 7 dias: U0.4). Apagado,
+  // guardan todo menos los trazos y al retomarlos se piden de nuevo.
+  signaturesInDraft: true,
   multiDocument: true,
 };
 
@@ -177,6 +182,14 @@ export function setSignPdfFeatureFlag(
 /** Todos los interruptores, reactivo (para el panel de Ajustes). */
 export function useSignPdfFeatureFlags(): SignPdfFeatureFlagState {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
+
+/**
+ * ¿Los borradores guardan tambien los trazos de las firmas? Lectura puntual (fuera de React) para quien escribe el
+ * borrador: es lo que decide, en el momento de guardar, si los trazos entran en IndexedDB.
+ */
+export function readSignaturesInDraft(): boolean {
+  return getSnapshot().signaturesInDraft;
 }
 
 /** Un unico interruptor, reactivo (para gatear una funcion concreta). */

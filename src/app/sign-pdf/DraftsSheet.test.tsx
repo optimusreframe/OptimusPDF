@@ -235,3 +235,69 @@ describe("draftDocumentNames", () => {
     expect(byKind.session).toEqual(["x.pdf", "y.pdf"]);
   });
 });
+
+describe("DraftsSheet · distinguir borradores del mismo PDF (F0-fix, D1 y D3)", () => {
+  async function saveWithSigners(id: string, signers: string[], extra: Record<string, unknown> = {}) {
+    await saveDraft({
+      id,
+      fingerprint: "a".repeat(64),
+      fileBytes: new Uint8Array([1, 2, 3]),
+      fileName: "Plantilla.pdf",
+      manifest: {
+        mode: "multi",
+        signers: signers.map((name, index) => ({ id: `sg-${index + 1}`, name, color: "#0d4bff" })),
+        fields: [],
+        textFields: [],
+        textValues: {},
+      },
+      step: "signers",
+      captures: {},
+      textFieldsDetectedFor: null,
+      ...extra,
+    });
+  }
+
+  it("dos borradores del mismo PDF salen como dos filas, cada una con la fecha y los firmantes que la distinguen", async () => {
+    await saveWithSigners("1".repeat(64), ["Ana", "Luis"]);
+    await saveWithSigners("2".repeat(64), ["Maria", "Pedro"]);
+    renderSheet();
+    await screen.findAllByText(/Guardado el /);
+    const rows = screen.getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    const text = rows.map((row) => row.textContent ?? "").join("|");
+    expect(text).toContain("Firmantes: Ana, Luis");
+    expect(text).toContain("Firmantes: Maria, Pedro");
+    for (const row of rows) expect(within(row).getByText(/Guardado el /)).toBeTruthy();
+  });
+
+  it("un firmante sin nombre sale como «Firmante N»", async () => {
+    await saveWithSigners("3".repeat(64), ["", "Luis"]);
+    renderSheet();
+    expect(await screen.findByText("Firmantes: Firmante 1, Luis")).toBeTruthy();
+  });
+
+  it("la copia que una pestana guardo aparte lleva la etiqueta «Copia aparte»; el original, no", async () => {
+    await saveWithSigners("4".repeat(64), ["Ana"]);
+    await saveSessionDraft(session("s-copia-1", ["a.pdf", "b.pdf"]));
+    // Marca una sesion como copia a mano (lo hace `saveSessionDraft` al detectar la version nueva de otra pestana).
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("optimuspdf-sign-drafts");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("sessionMeta", "readwrite");
+      const store = tx.objectStore("sessionMeta");
+      const get = store.get("s-copia-1");
+      get.onsuccess = () => store.put({ ...get.result, copyOf: "s-original" });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    renderSheet();
+    await screen.findAllByText(/Guardado el /);
+    const tags = screen.getAllByText("Copia aparte");
+    expect(tags).toHaveLength(1);
+    expect(tags[0].closest("li")?.textContent).toContain("a.pdf, b.pdf");
+  });
+});

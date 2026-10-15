@@ -11,6 +11,16 @@ import type {
   SignMode,
 } from "@/app/sign-pdf/SignToolClient";
 import type { SignConfigManifest } from "@/app/sign-pdf/signConfig";
+import {
+  blocksHaveStrokes,
+  capturesHaveStrokes,
+  expiryFor,
+  isExpired,
+  withoutBlockStrokes,
+  withoutCaptureStrokes,
+} from "@/app/sign-pdf/draftPrivacy";
+import { newDocumentDraftId, newSessionCopyId, newTabId } from "@/app/sign-pdf/draftIds";
+import { readSignaturesInDraft } from "@/app/sign-pdf/signFeatureFlags";
 import type { DetectedField } from "@/lib/pdf/detectFields";
 import type { TextEdit } from "@/lib/pdf/editTypes";
 import type { Signer, SignatureField } from "@/lib/pdf/sign";
@@ -61,6 +71,25 @@ export type DraftMeta = {
   textFieldsDetectedFor: string | null;
   /** Texto original editado (W6-A). Ausente en borradores anteriores. Al leer, pasa por `sanitizeTextEdits`. */
   textEdits?: TextEdit[];
+  /**
+   * Cuando caduca (ISO 8601): solo un borrador CON trazos de firma lo lleva (7 dias despues de guardarse, U0.4). Ausente =
+   * no caduca. Lo purgan `listAllDrafts` y la apertura de la herramienta.
+   */
+  expiresAt?: string;
+  /** Se guardo con el ajuste «guardar las firmas» apagado Y habia trazos que dejar fuera: al retomarlo se piden de nuevo. */
+  signaturesOmitted?: true;
+  /**
+   * Huella SHA-256 (hexadecimal) del PDF. Desde F0-fix el `id` de un borrador de documento suelto es UNICO POR SESION (dos
+   * clientes con la misma plantilla no se pisan) y la huella vive aqui: es lo que usa la oferta «Retomar lo que tenias».
+   * Un borrador anterior no la lleva: entonces su `id` ES la huella (`draftFingerprint`).
+   */
+  fingerprint?: string;
+  /** Contador de version: sube en cada guardado. Ver `isStaleWrite`. Ausente = 0 (borrador anterior). */
+  rev?: number;
+  /** La pestana que hizo el ultimo guardado (`tabWriterId`). */
+  writerId?: string;
+  /** Este borrador es la copia que una pestana guardo aparte porque otra habia modificado el original: id del original. */
+  copyOf?: string;
 };
 
 /** Un documento de un borrador de sesion (los bytes viven en `draftFiles`). */
@@ -103,7 +132,22 @@ export type SessionDraftMeta = {
   /** Nombre del primer documento (resumen para listas simples). */
   fileName: string;
   documentCount: number;
+  /** Ver `DraftMeta.expiresAt`. */
+  expiresAt?: string;
+  /** Ver `DraftMeta.signaturesOmitted`. */
+  signaturesOmitted?: true;
+  /** Ver `DraftMeta.rev`. */
+  rev?: number;
+  /** Ver `DraftMeta.writerId`. */
+  writerId?: string;
+  /** Ver `DraftMeta.copyOf`. */
+  copyOf?: string;
 };
+
+/** La huella del PDF de un borrador de documento suelto: la guardada o, en un borrador anterior, su propio id. */
+export function draftFingerprint(meta: Pick<DraftMeta, "id" | "fingerprint">): string {
+  return meta.fingerprint ?? meta.id;
+}
 
 /** Lo que muestra la hoja de borradores: un documento suelto (v1) o una sesion. */
 export type DraftEntry =
@@ -150,31 +194,212 @@ export function wasDraftSavedHere(id: string): boolean {
   return savedDraftIdsHere.has(id);
 }
 
-const listeners = new Set<() => void>();
-let channel: BroadcastChannel | null = null;
+/* ------------------------------------------------------------------ *
+ * Control de concurrencia entre pestañas (F0-fix, D1)
+ * ------------------------------------------------------------------ */
 
-function getChannel(): BroadcastChannel | null {
-  if (typeof BroadcastChannel === "undefined") return null;
-  if (!channel) {
-    channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
-    channel.addEventListener("message", () => {
-      writtenFileIds.clear();
-      for (const listener of listeners) listener();
-    });
-  }
-  return channel;
+/**
+ * Dos pestañas pueden tener abierta la MISMA sesion (retomada con `?s=`, o la misma pagina duplicada). Sin version, la
+ * ultima en escribir gana y la pestaña vieja pisaba el trabajo de la nueva (una ronda de 4 firmas volvia a 2). Cada
+ * borrador lleva ahora un contador `rev` y el `writerId` de la pestaña que lo escribio; cada pestaña recuerda la `rev`
+ * que cargo o escribio por ultima vez (`knownRevs`). Al guardar, DENTRO de la misma transaccion, se compara:
+ * si lo guardado lo escribio OTRA pestaña con una `rev` mayor que la que esta conoce, NO se pisa (`isStaleWrite`) y esta
+ * pestaña guarda su copia como borrador aparte. Una sola pestaña nunca se compite a si misma (mismo `writerId`).
+ */
+type TabState = {
+  id: string;
+  knownRevs: Map<string, number>;
+  /**
+   * Lo que esta pestaña LEYO al restaurar cada borrador (`contentKeyOf`), mientras no lo haya modificado: un guardado cuyo
+   * contenido es identico a eso no escribe nada (F0-fix2, N3). Se retira en cuanto esta pestaña escribe o borra ese borrador.
+   */
+  restored: Map<string, string>;
+};
+let tab: TabState = { id: newTabId(), knownRevs: new Map(), restored: new Map() };
+
+/** El id de esta pestaña (el `writerId` de lo que escribe). */
+export function tabWriterId(): string {
+  return tab.id;
 }
 
-function announceChange(): void {
-  getChannel()?.postMessage("changed");
-  for (const listener of listeners) listener();
+/** La version del borrador que esta pestaña cargo o escribio por ultima vez (0 = no la conoce). */
+export function knownDraftRev(id: string): number {
+  return tab.knownRevs.get(id) ?? 0;
+}
+
+function noteRev(id: string, rev: number): void {
+  if (rev > knownDraftRev(id)) tab.knownRevs.set(id, rev);
+}
+
+/* ------------------------------------------------------------------ *
+ * Restaurar no es editar (F0-fix2, N3)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Abrir o restaurar un borrador en una pestaña (la misma sesion en otra pestaña, «Retomar», `?s=`) montaba el autoguardado, y
+ * el autoguardado escribia lo que acababa de leer: `rev` + 1 y `writerId` nuevo SIN que la persona cambiara nada. La pestaña
+ * que ya estaba abierta con esa sesion quedaba «desactualizada» y su siguiente cambio REAL terminaba en una «Copia aparte».
+ *
+ * Regla: lo que una pestaña acaba de leer no se reescribe. Al cargar un borrador se recuerda una huella estable de su
+ * contenido (`contentKeyOf`: JSON con las claves ordenadas, sin fechas ni version); un guardado cuyo contenido tiene esa misma
+ * huella no escribe nada (`unchanged`). La primera edicion REAL cambia la huella, escribe (con la comprobacion de version de
+ * siempre, D1) y deja de aplicarse la excepcion. Si lo que hay guardado ya cambio mientras tanto (otra pestaña), tampoco se
+ * pisa ni se le anota a esta pestaña como «visto»: su siguiente cambio real forkea, como antes.
+ */
+const VOLATILE_META_KEYS: ReadonlySet<string> = new Set(["savedAt", "expiresAt", "rev", "writerId", "copyOf"]);
+
+function stableStringify(value: unknown): string {
+  if (value === undefined) return "null";
+  if (typeof value !== "object" || value === null) return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  const body = Object.keys(value)
+    .sort()
+    .flatMap((key) => {
+      const item = (value as Record<string, unknown>)[key];
+      return item === undefined ? [] : [`${JSON.stringify(key)}:${stableStringify(item)}`];
+    });
+  return `{${body.join(",")}}`;
+}
+
+/** Huella estable del CONTENIDO de un borrador: sin fecha de guardado, caducidad, version, autor ni «copia de». */
+function contentKeyOf(meta: object): string {
+  const content: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (!VOLATILE_META_KEYS.has(key)) content[key] = value;
+  }
+  return stableStringify(content);
+}
+
+function noteRestored(id: string, meta: object): void {
+  tab.restored.set(id, contentKeyOf(meta));
+}
+
+/**
+ * ¿Lo que hay guardado es una version MAS NUEVA, escrita por OTRA pestaña, que esta no ha visto? Entonces escribir encima
+ * la pisaria. Un borrador anterior (sin `rev` ni `writerId`) nunca cuenta: se sobrescribe como siempre.
+ */
+export function isStaleWrite(
+  stored: { rev?: unknown; writerId?: unknown } | null | undefined,
+  knownRev: number,
+  writerId: string,
+): boolean {
+  if (typeof stored !== "object" || stored === null) return false;
+  if (stored.writerId === writerId) return false;
+  const rev = typeof stored.rev === "number" ? stored.rev : 0;
+  return rev > knownRev;
+}
+
+/** Solo para tests: una «pestaña» distinta (otro id y su propia memoria de versiones) dentro del mismo proceso. */
+export type DraftsTab = TabState;
+export function __createTabForTests(id: string = newTabId()): DraftsTab {
+  return { id, knownRevs: new Map(), restored: new Map() };
+}
+/** Solo para tests: hace de esta «pestaña» la actual. Devuelve la anterior. */
+export function __useTabForTests(next: DraftsTab): DraftsTab {
+  const previous = tab;
+  tab = next;
+  return previous;
+}
+
+/* ------------------------------------------------------------------ *
+ * Avisos entre pestañas
+ * ------------------------------------------------------------------ */
+
+const listeners = new Set<() => void>();
+let channel: BroadcastChannel | null = null;
+let signalsReady = false;
+/** Clave de `localStorage` por la que se avisa cuando no hay `BroadcastChannel` (Safari anterior a 15.4): evento `storage`. */
+const SIGNAL_STORAGE_KEY = "optimuspdf.sign-drafts.signal";
+
+/** Lo que otra pestaña escribio: la que guardo `id`, con que version. */
+export type RemoteDraftWrite = { id: string; rev: number; writerId: string };
+const remoteWriteListeners = new Set<(write: RemoteDraftWrite) => void>();
+
+function parseWriteSignal(raw: unknown): RemoteDraftWrite | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { type, id, rev, writerId } = raw as Record<string, unknown>;
+  if (type !== "write" || typeof id !== "string" || typeof rev !== "number" || typeof writerId !== "string") {
+    return null;
+  }
+  return { id, rev, writerId };
+}
+
+function handleSignal(raw: unknown): void {
+  writtenFileIds.clear();
+  const write = parseWriteSignal(raw);
+  if (write && write.writerId !== tab.id) {
+    for (const listener of [...remoteWriteListeners]) listener(write);
+  }
+  for (const listener of [...listeners]) listener();
+}
+
+/** Empieza a escuchar a las demas pestañas (una sola vez): `BroadcastChannel` o, sin el, el evento `storage`. */
+function ensureSignals(): void {
+  if (signalsReady) return;
+  signalsReady = true;
+  if (typeof BroadcastChannel !== "undefined") {
+    try {
+      channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+      channel.addEventListener("message", (event) => handleSignal(event.data));
+      return;
+    } catch {
+      channel = null;
+    }
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", (event) => {
+      if (event.key !== SIGNAL_STORAGE_KEY || !event.newValue) return;
+      try {
+        handleSignal((JSON.parse(event.newValue) as { m?: unknown }).m);
+      } catch {
+        // Un aviso ilegible no le importa a nadie.
+      }
+    });
+  }
+}
+
+function postSignal(message: unknown): void {
+  ensureSignals();
+  if (channel) {
+    try {
+      channel.postMessage(message);
+    } catch {
+      // Canal cerrado: nadie a quien avisar.
+    }
+    return;
+  }
+  try {
+    // El evento `storage` solo salta si el valor cambia: el azar lo garantiza.
+    window.localStorage.setItem(SIGNAL_STORAGE_KEY, JSON.stringify({ m: message, n: Math.random() }));
+  } catch {
+    // Sin `localStorage` (modo privado muy estricto): sin aviso entre pestañas, nada mas.
+  }
+}
+
+/** Avisa de que cambio algo. Con `write` dice ademas que borrador se guardo y con que version (para detectar versiones nuevas). */
+function announceChange(write?: { id: string; rev: number }): void {
+  postSignal(write ? { type: "write", id: write.id, rev: write.rev, writerId: tab.id } : "changed");
+  for (const listener of [...listeners]) listener();
 }
 
 /** Para que `DraftsSheet` sepa cuando refrescar su lista (incluida otra pestaña). */
 export function subscribeToDrafts(listener: () => void): () => void {
   listeners.add(listener);
+  ensureSignals();
   return () => {
     listeners.delete(listener);
+  };
+}
+
+/**
+ * Para saber que OTRA pestaña acaba de guardar un borrador (y con que version): quien tiene abierta esa misma sesion se
+ * entera de que hay una version mas nueva antes de pisarla. No avisa de las escrituras de esta pestaña.
+ */
+export function subscribeToRemoteDraftWrites(listener: (write: RemoteDraftWrite) => void): () => void {
+  remoteWriteListeners.add(listener);
+  ensureSignals();
+  return () => {
+    remoteWriteListeners.delete(listener);
   };
 }
 
@@ -376,6 +601,11 @@ function getKeysFromStore(
 
 export type SaveDraftParams = {
   id: string;
+  /**
+   * Huella SHA-256 del PDF. Desde F0-fix el `id` de un documento suelto es unico por sesion de trabajo y la huella viaja
+   * aparte. Ausente (llamadas anteriores, pruebas) = el `id` ES la huella, como siempre.
+   */
+  fingerprint?: string;
   fileBytes: Uint8Array;
   fileName: string;
   manifest: Omit<SignConfigManifest, "version">;
@@ -384,6 +614,21 @@ export type SaveDraftParams = {
   textFieldsDetectedFor: string | null;
   /** Texto original editado (W6-A); vacio/ausente = ninguno. */
   textEdits?: readonly TextEdit[];
+  /**
+   * ¿Se guardan tambien los trazos de las firmas recogidas? Ausente = lo que diga el ajuste «Guardar tambien las firmas»
+   * en el momento de escribir. `false` deja `captures` vacio y no pone fecha de caducidad (no hay firmas que caduquen).
+   */
+  keepSignatures?: boolean;
+};
+
+type DraftWriteInfo = {
+  /** El id bajo el que quedo guardado (el pedido, o el de la copia aparte si otra pestaña tenia una version mas nueva). */
+  id: string;
+  rev: number;
+  /** Se guardo como copia aparte: id del borrador que NO se piso. */
+  forkedFrom?: string;
+  /** No se escribio nada: el contenido es el que esta pestaña acababa de restaurar (F0-fix2, N3). */
+  unchanged?: true;
 };
 
 /**
@@ -393,50 +638,87 @@ export type SaveDraftParams = {
  * medias tras un fallo de cuota a mitad de guardar). Los bytes del PDF
  * solo se escriben la primera vez que se ve este `id`; los metadatos se
  * reescriben siempre, con la marca de tiempo puesta al vuelo.
+ *
+ * Primero lee lo que hay guardado bajo ese `id` y lo compara con lo que esta pestaña conoce (`isStaleWrite`, F0-fix D1):
+ * si otra pestaña lo modifico despues, NO lo pisa y escribe la copia (bytes incluidos) bajo un id nuevo.
  */
-function saveDraftTx(db: IDBDatabase, params: SaveDraftParams): Promise<void> {
+function saveDraftTx(db: IDBDatabase, params: SaveDraftParams): Promise<DraftWriteInfo> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction([FILES_STORE, META_STORE], "readwrite");
-    tx.oncomplete = () => resolve();
+    let info: DraftWriteInfo = { id: params.id, rev: 1 };
+    tx.oncomplete = () => resolve(info);
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
 
     const filesStore = tx.objectStore(FILES_STORE);
     const metaStore = tx.objectStore(META_STORE);
+    const fingerprint = params.fingerprint ?? params.id;
 
-    const putMeta = () => {
-      const meta: DraftMeta = {
-        id: params.id,
-        fileName: params.fileName,
-        fileSize: params.fileBytes.byteLength,
-        savedAt: new Date().toISOString(),
-        mode: params.manifest.mode,
-        signers: params.manifest.signers,
-        fields: params.manifest.fields,
-        textFields: params.manifest.textFields,
-        textValues: params.manifest.textValues,
-        step: params.step,
-        captures: params.captures,
-        textFieldsDetectedFor: params.textFieldsDetectedFor,
-        ...(params.textEdits && params.textEdits.length > 0
-          ? { textEdits: [...params.textEdits] }
-          : {}),
+    const storedRequest = metaStore.get(params.id);
+    storedRequest.onsuccess = () => {
+      const stored = storedRequest.result as DraftMeta | undefined;
+      const stale = isStaleWrite(stored, knownDraftRev(params.id), tab.id);
+      const targetId = stale ? newDocumentDraftId(fingerprint) : params.id;
+      const rev = stale ? 1 : Math.max(stored?.rev ?? 0, knownDraftRev(params.id)) + 1;
+      const copyOf = stale ? params.id : stored?.copyOf;
+      info = { id: targetId, rev, ...(stale ? { forkedFrom: params.id } : {}) };
+
+      const buildMeta = (): DraftMeta => {
+        const savedAt = new Date().toISOString();
+        const kept = params.keepSignatures ?? readSignaturesInDraft();
+        // Sin «guardar las firmas», los trazos no llegan a IndexedDB: se retiran justo antes de escribir.
+        const { captures, stripped } = kept
+          ? { captures: params.captures, stripped: false }
+          : withoutCaptureStrokes(params.captures);
+        return {
+          id: targetId,
+          fingerprint,
+          fileName: params.fileName,
+          fileSize: params.fileBytes.byteLength,
+          savedAt,
+          mode: params.manifest.mode,
+          signers: params.manifest.signers,
+          fields: params.manifest.fields,
+          textFields: params.manifest.textFields,
+          textValues: params.manifest.textValues,
+          step: params.step,
+          captures,
+          textFieldsDetectedFor: params.textFieldsDetectedFor,
+          ...(params.textEdits && params.textEdits.length > 0
+            ? { textEdits: [...params.textEdits] }
+            : {}),
+          ...(capturesHaveStrokes(captures) ? { expiresAt: expiryFor(savedAt) } : {}),
+          ...(stripped ? { signaturesOmitted: true as const } : {}),
+          rev,
+          writerId: tab.id,
+          ...(copyOf ? { copyOf } : {}),
+        };
       };
-      metaStore.put(meta);
-    };
+      const putMeta = () => {
+        metaStore.put(buildMeta());
+      };
 
-    if (writtenFileIds.has(params.id)) {
-      putMeta();
-      return;
-    }
-    const existing = filesStore.get(params.id);
-    existing.onsuccess = () => {
-      if (!existing.result) {
-        const record: FileRecord = { id: params.id, bytes: params.fileBytes };
-        filesStore.put(record);
+      // Restaurado y sin tocar (F0-fix2, N3): nada que escribir. Solo si lo guardado sigue ahi con sus bytes.
+      const baseline = stale ? undefined : tab.restored.get(params.id);
+      const unchangedCandidate = baseline !== undefined && stored !== undefined && contentKeyOf(buildMeta()) === baseline;
+
+      if (!stale && writtenFileIds.has(targetId) && !unchangedCandidate) {
+        putMeta();
+        return;
       }
-      writtenFileIds.add(params.id);
-      putMeta();
+      const existing = filesStore.get(targetId);
+      existing.onsuccess = () => {
+        if (unchangedCandidate && existing.result) {
+          info = { id: params.id, rev: stored?.rev ?? 0, unchanged: true };
+          return;
+        }
+        if (!existing.result) {
+          const record: FileRecord = { id: targetId, bytes: params.fileBytes };
+          filesStore.put(record);
+        }
+        writtenFileIds.add(targetId);
+        putMeta();
+      };
     };
   });
 }
@@ -564,19 +846,81 @@ function enforceDraftBudget(db: IDBDatabase, protectedId?: string): Promise<void
   });
 }
 
-export async function saveDraft(params: SaveDraftParams): Promise<void> {
+/** Lo que dice `saveDraft`: guardado, guardado como copia aparte (otra pestaña tenia una version mas nueva) o no se pudo. */
+export type SaveDraftResult =
+  | { ok: true; forkedTo?: string; unchanged?: true }
+  | { ok: false; reason: "unavailable" };
+
+/**
+ * Guarda (o actualiza) el borrador de UN documento. Nunca lanza (ver «REGLA DURA»), pero INFORMA: `{ ok: false }` si no se
+ * pudo guardar (cuota llena, almacenamiento bloqueado, base no disponible...) para que la interfaz no diga «guardado»
+ * cuando no lo esta; `{ ok: true, forkedTo }` si otra pestaña tenia una version mas nueva y esta se guardo aparte.
+ */
+export async function saveDraft(params: SaveDraftParams): Promise<SaveDraftResult> {
   try {
     const db = await openDb();
+    let info: DraftWriteInfo;
     try {
-      await saveDraftTx(db, params);
-      savedDraftIdsHere.add(params.id);
-      await enforceDraftBudget(db, params.id);
+      info = await saveDraftTx(db, params);
+      savedDraftIdsHere.add(info.id);
+      if (info.unchanged) return { ok: true, unchanged: true };
+      noteRev(info.id, info.rev);
+      // Esta pestaña ya modifico el borrador: lo que restauro dejo de ser la referencia.
+      tab.restored.delete(params.id);
+      tab.restored.delete(info.id);
+      try {
+        await enforceDraftBudget(db, info.id);
+      } catch {
+        // El presupuesto es limpieza: lo guardado ya esta guardado.
+      }
     } finally {
       db.close();
     }
-    announceChange();
+    announceChange({ id: info.id, rev: info.rev });
+    return info.forkedFrom ? { ok: true, forkedTo: info.id } : { ok: true };
   } catch {
     // Ver la nota de "REGLA DURA" arriba: nunca interrumpe la firma.
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
+/**
+ * Un borrador CON trazos de firma caduca a los 7 dias de guardarse (`expiresAt`, U0.4). Los guardados ANTES de que
+ * existiera esa regla no llevan fecha y, sin esto, no caducarian nunca aunque el aviso prometa «7 dias» (F0-fix, D4): la
+ * primera vez que se listan o se abren se les asigna `savedAt + 7 dias` y se guarda. Devuelve el MISMO objeto si no hay
+ * nada que asignar (sin trazos, o ya con fecha).
+ */
+export function withLegacyExpiry<T extends { savedAt: string; expiresAt?: string }>(meta: T, hasStrokes: boolean): T {
+  if (meta.expiresAt !== undefined || !hasStrokes) return meta;
+  return { ...meta, expiresAt: expiryFor(meta.savedAt) };
+}
+
+const documentHasStrokes = (meta: DraftMeta): boolean => capturesHaveStrokes(meta.captures);
+const sessionHasStrokes = (meta: SessionDraftMeta): boolean => blocksHaveStrokes(meta.blocks);
+
+/** Guarda la fecha asignada por `withLegacyExpiry` SIN tocar `rev` ni `writerId` y solo si nadie la cambio mientras tanto. Nunca lanza. */
+async function persistLegacyExpiry(
+  db: IDBDatabase,
+  storeName: string,
+  stamped: { id: string; savedAt: string; expiresAt?: string },
+): Promise<void> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+      const store = tx.objectStore(storeName);
+      const request = store.get(stamped.id);
+      request.onsuccess = () => {
+        const current = request.result as { savedAt?: string; expiresAt?: string } | undefined;
+        // Si entretanto se guardo otra version (otra fecha) o ya tiene caducidad, no se toca.
+        if (!current || current.expiresAt !== undefined || current.savedAt !== stamped.savedAt) return;
+        store.put({ ...current, expiresAt: stamped.expiresAt });
+      };
+    });
+  } catch {
+    // Se vuelve a calcular la proxima vez: nada se pierde.
   }
 }
 
@@ -586,7 +930,13 @@ export async function listDrafts(): Promise<DraftMeta[]> {
     const db = await openDb();
     try {
       const metas = await getAllFromStore<DraftMeta>(db, META_STORE);
-      return metas.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+      // Un borrador caducado no se ofrece aunque aun no se haya purgado (la purga es `purgeExpiredDrafts`); uno con firmas
+      // y sin fecha (anterior a U0.4) caduca a los 7 dias de guardarse.
+      const now = Date.now();
+      return metas
+        .map((meta) => withLegacyExpiry(meta, documentHasStrokes(meta)))
+        .filter((meta) => !isExpired(meta, now))
+        .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
     } finally {
       db.close();
     }
@@ -607,13 +957,26 @@ export async function loadDraft(id: string): Promise<LoadedDraft | null> {
   try {
     const db = await openDb();
     try {
-      const meta = await getFromStore<DraftMeta>(db, META_STORE, id);
-      if (!meta) return null;
+      const stored = await getFromStore<DraftMeta>(db, META_STORE, id);
+      if (!stored) return null;
+      const meta = withLegacyExpiry(stored, documentHasStrokes(stored));
+      // Caducado: no se retoma, y se borra (con sus bytes) en vez de dejarlo esperando a la proxima purga.
+      if (isExpired(meta, Date.now())) {
+        await deleteDraftTx(db, id);
+        writtenFileIds.delete(id);
+        forgetSavedDraft(id);
+        announceChange();
+        return null;
+      }
       const fileRecord = await getFromStore<FileRecord>(db, FILES_STORE, id);
       if (!fileRecord) {
         await deleteDraftTx(db, id);
         return null;
       }
+      if (meta !== stored) await persistLegacyExpiry(db, META_STORE, meta);
+      // Esta pestaña parte de ESTA version: lo que otra pestaña guarde despues ya no se pisara a ciegas.
+      noteRev(id, meta.rev ?? 0);
+      noteRestored(id, meta);
       return { meta, bytes: fileRecord.bytes };
     } finally {
       db.close();
@@ -623,27 +986,53 @@ export async function loadDraft(id: string): Promise<LoadedDraft | null> {
   }
 }
 
-function deleteDraftTx(db: IDBDatabase, id: string): Promise<void> {
+function forgetSavedDraft(id: string): void {
+  savedDraftIdsHere.delete(id);
+}
+
+/**
+ * Borra un borrador v1 (metadatos y bytes) en una transaccion. Con `unlessNewer`, solo si esta pestaña no esta
+ * desactualizada respecto a lo guardado (`isStaleWrite`): una pestaña vieja que decide «ya no hay nada que guardar» no
+ * puede borrar lo que otra pestaña guardo despues. Devuelve si lo borro.
+ */
+function deleteDraftTx(db: IDBDatabase, id: string, unlessNewer = false): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction([FILES_STORE, META_STORE], "readwrite");
-    tx.oncomplete = () => resolve();
+    let deleted = false;
+    tx.oncomplete = () => resolve(deleted);
     tx.onerror = () => reject(tx.error);
-    tx.objectStore(FILES_STORE).delete(id);
-    tx.objectStore(META_STORE).delete(id);
+    tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+    const remove = () => {
+      deleted = true;
+      tx.objectStore(FILES_STORE).delete(id);
+      tx.objectStore(META_STORE).delete(id);
+    };
+    if (!unlessNewer) {
+      remove();
+      return;
+    }
+    const stored = tx.objectStore(META_STORE).get(id);
+    stored.onsuccess = () => {
+      if (!isStaleWrite(stored.result, knownDraftRev(id), tab.id)) remove();
+    };
   });
 }
 
-export async function deleteDraft(id: string): Promise<void> {
+export async function deleteDraft(id: string, options: { unlessNewer?: boolean } = {}): Promise<void> {
   try {
     const db = await openDb();
+    let deleted = false;
     try {
-      await deleteDraftTx(db, id);
-      writtenFileIds.delete(id);
-      savedDraftIdsHere.delete(id);
+      deleted = await deleteDraftTx(db, id, options.unlessNewer === true);
+      if (deleted) {
+        writtenFileIds.delete(id);
+        forgetSavedDraft(id);
+        tab.restored.delete(id);
+      }
     } finally {
       db.close();
     }
-    announceChange();
+    if (deleted) announceChange();
   } catch {
     // Tolerado.
   }
@@ -675,6 +1064,8 @@ export type SaveSessionParams = {
   step: MultiStep;
   /** Turno de la ceremonia; ausente = sin turno guardado. */
   ceremony?: CeremonyState;
+  /** Ver `SaveDraftParams.keepSignatures`: `false` deja los bloques sin trazos ni sellos (y sin turno guardado). */
+  keepSignatures?: boolean;
   /**
    * Se consulta justo antes de escribir (y tras leer los bytes): `false` =
    * este guardado ya lo reemplazo otro mas nuevo (o un borrado) y no debe
@@ -683,17 +1074,33 @@ export type SaveSessionParams = {
   isCurrent?: () => boolean;
 };
 
+/**
+ * Resultado de guardar una sesion. `ok: false` con `tooBig` (no cabe) o `unavailable` (cuota llena, almacenamiento
+ * bloqueado, base no disponible... cualquier fallo de escritura): en ambos casos el trabajo NO esta guardado y la interfaz
+ * no puede decir que lo esta. `superseded` no es un fallo: lo reemplazo un guardado mas nuevo. `forkedTo` = otra pestaña
+ * habia guardado una version mas nueva de esta sesion y esta se guardo aparte bajo ese id (F0-fix, D1).
+ */
 export type SaveSessionResult =
-  | { ok: true }
+  | { ok: true; forkedTo?: string; unchanged?: true }
   | { ok: false; reason: "tooBig" | "unavailable" | "superseded" };
+
+/** Version y autor de un guardado (`buildSessionMeta`). */
+export type SessionWriteStamp = { rev: number; writerId: string; copyOf?: string };
 
 /** Los metadatos que se persisten (sin bytes ni funciones). Puro: lo reutilizan los tests. */
 export function buildSessionMeta(
   params: SaveSessionParams,
   savedAt: string = new Date().toISOString(),
+  stamp?: SessionWriteStamp,
 ): SessionDraftMeta {
   const docStates: Record<string, DocState> = {};
   for (const doc of params.documents) docStates[doc.id] = doc.state;
+  // Sin «guardar las firmas», los bloques salen sin trazos ni sellos. Y el turno que se guardo describia un avance que ya
+  // no existe en el borrador (quien ya firmo vuelve a estar pendiente): se deriva de nuevo al retomar.
+  const { blocks, stripped } =
+    params.keepSignatures === false
+      ? withoutBlockStrokes(params.blocks)
+      : { blocks: params.blocks, stripped: false };
   return {
     kind: "session",
     id: params.id,
@@ -701,7 +1108,7 @@ export function buildSessionMeta(
     mode: params.mode,
     signMode: params.signMode,
     signers: params.signers,
-    blocks: params.blocks,
+    blocks,
     documents: params.documents.map((doc) => ({
       id: doc.id,
       fileName: doc.fileName,
@@ -710,10 +1117,15 @@ export function buildSessionMeta(
     docStates,
     activeDocId: params.activeDocId,
     step: params.step,
-    ...(params.ceremony ? { ceremony: params.ceremony } : {}),
+    ...(params.ceremony && !stripped ? { ceremony: params.ceremony } : {}),
     fileSize: params.documents.reduce((sum, doc) => sum + doc.size, 0),
     fileName: params.documents[0]?.fileName ?? "",
     documentCount: params.documents.length,
+    ...(blocksHaveStrokes(blocks) ? { expiresAt: expiryFor(savedAt) } : {}),
+    ...(stripped ? { signaturesOmitted: true as const } : {}),
+    ...(stamp
+      ? { rev: stamp.rev, writerId: stamp.writerId, ...(stamp.copyOf ? { copyOf: stamp.copyOf } : {}) }
+      : {}),
   };
 }
 
@@ -725,6 +1137,12 @@ export function sessionBytes(documents: readonly { size: number }[]): number {
 type WriteOutcome = "ok" | "retry";
 
 /**
+ * Lo que una escritura de sesion va decidiendo entre intentos: si otra pestaña tenia una version mas nueva (`forkId` = el
+ * id de la copia aparte donde escribir) y con que version quedo lo guardado.
+ */
+type SessionWriteState = { forkId?: string; forkedFrom?: string; rev?: number; unchanged?: boolean };
+
+/**
  * Escribe la sesion en UNA transaccion: borra los archivos de documentos que
  * ya no estan, anade los que faltan y reescribe los metadatos. Las claves que
  * existen se leen DENTRO de esta misma transaccion de escritura (no de una
@@ -733,11 +1151,16 @@ type WriteOutcome = "ok" | "retry";
  * una sesion viva. Si un archivo que se daba por presente ha desaparecido (otra
  * pestaña lo expulso) aborta TODO y pide reintentar leyendo los bytes de nuevo:
  * nunca quedan metadatos apuntando a bytes que no existen.
+ *
+ * Tambien lee, en la misma transaccion, el borrador que hay ahora bajo este id: si otra pestaña lo guardo con una version
+ * que esta no ha visto (`isStaleWrite`), NO lo pisa: aborta sin escribir nada, deja en `state.forkId` el id de una copia
+ * aparte y pide reintentar (el reintento escribe la sesion entera, bytes incluidos, bajo ese id nuevo).
  */
 function writeSessionTx(
   db: IDBDatabase,
   params: SaveSessionParams,
   loaded: ReadonlyMap<string, Uint8Array>,
+  state: SessionWriteState,
 ): Promise<WriteOutcome> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction([FILES_STORE, SESSION_STORE], "readwrite");
@@ -753,9 +1176,33 @@ function writeSessionTx(
     const sessionStore = tx.objectStore(SESSION_STORE);
     const wanted = new Set(params.documents.map((doc) => sessionFileKey(params.id, doc.id)));
 
+    // La version guardada se pide ANTES que las claves: las peticiones de una transaccion se atienden en orden, asi que ya
+    // esta leida cuando llegan las claves. Una copia aparte (id nuevo) no tiene nada que comparar.
+    const storedRequest = state.forkId ? null : sessionStore.get(params.id);
     const current = filesStore.getAllKeys(sessionKeyRange(params.id));
     current.onsuccess = () => {
+      const storedRow: unknown = storedRequest?.result;
+      const stored = isSessionDraftMeta(storedRow) ? storedRow : undefined;
       const present = new Set(current.result as string[]);
+      // Restaurado y sin tocar (F0-fix2, N3): ni metadatos ni archivos que escribir. Solo si lo guardado sigue ahi entero.
+      const baseline = state.forkId ? undefined : tab.restored.get(params.id);
+      if (
+        baseline !== undefined &&
+        stored &&
+        present.size === wanted.size &&
+        [...wanted].every((key) => present.has(key)) &&
+        contentKeyOf(buildSessionMeta(params)) === baseline
+      ) {
+        state.unchanged = true;
+        return;
+      }
+      if (storedRequest && isStaleWrite(storedRow as { rev?: unknown; writerId?: unknown } | undefined, knownDraftRev(params.id), tab.id)) {
+        state.forkId = newSessionCopyId();
+        state.forkedFrom = params.id;
+        needRetry = true;
+        tx.abort();
+        return;
+      }
       for (const key of present) {
         if (!wanted.has(key)) filesStore.delete(key);
       }
@@ -770,7 +1217,12 @@ function writeSessionTx(
           return;
         }
       }
-      sessionStore.put(buildSessionMeta(params));
+      const rev = state.forkId ? 1 : Math.max(stored?.rev ?? 0, knownDraftRev(params.id)) + 1;
+      state.rev = rev;
+      const copyOf = state.forkId ? state.forkedFrom : stored?.copyOf;
+      sessionStore.put(
+        buildSessionMeta(params, undefined, { rev, writerId: tab.id, ...(copyOf ? { copyOf } : {}) }),
+      );
     };
   });
 }
@@ -779,14 +1231,34 @@ function writeSessionTx(
  * Guarda (o actualiza) el borrador de una sesion. Una sesion que pasa de
  * `MAX_SESSION_DRAFT_BYTES` no se guarda: devuelve `tooBig` para que la
  * interfaz avise con amabilidad (lo ya guardado de esa sesion no se toca).
- * Nunca lanza.
+ * Nunca lanza, pero SIEMPRE dice como fue: `ok: false` si no se pudo escribir por
+ * cualquier motivo (F0-fix, D2), para que la interfaz no afirme que esta guardado.
  */
 export async function saveSessionDraft(
-  params: SaveSessionParams,
+  requested: SaveSessionParams,
 ): Promise<SaveSessionResult> {
+  // El ajuste «guardar las firmas» se lee AQUI, al escribir (no al agendar): lo que diga en este instante es lo que manda.
+  const params: SaveSessionParams = {
+    ...requested,
+    keepSignatures: requested.keepSignatures ?? readSignaturesInDraft(),
+  };
   if (sessionBytes(params.documents) > MAX_SESSION_DRAFT_BYTES) {
     return { ok: false, reason: "tooBig" };
   }
+  const state: SessionWriteState = {};
+  /** Lo que se escribio de verdad: el id (el pedido o el de la copia aparte) y su version. */
+  const written = (): { id: string; rev: number } => ({ id: state.forkId ?? params.id, rev: state.rev ?? 1 });
+  const succeeded = (): SaveSessionResult => {
+    // Nada escrito (F0-fix2, N3): ni version nueva, ni aviso a otras pestañas, ni «visto» de lo que otra pestaña haya guardado.
+    if (state.unchanged) return { ok: true, unchanged: true };
+    const { id, rev } = written();
+    noteRev(id, rev);
+    // Esta pestaña ya modifico el borrador: lo que restauro dejo de ser la referencia.
+    tab.restored.delete(params.id);
+    tab.restored.delete(id);
+    announceChange({ id, rev });
+    return state.forkId ? { ok: true, forkedTo: state.forkId } : { ok: true };
+  };
 
   // CAMINO RAPIDO. Con una conexion ya abierta, la transaccion se CREA aqui, en
   // esta misma pasada sincrona, sin ninguna espera antes: es lo unico que
@@ -799,18 +1271,19 @@ export async function saveSessionDraft(
   if (warm && (!params.isCurrent || params.isCurrent())) {
     let fast: WriteOutcome | null = null;
     try {
-      fast = await writeSessionTx(warm, params, new Map());
+      fast = await writeSessionTx(warm, params, new Map(), state);
     } catch {
       dropWarm(warm);
     }
     if (fast === "ok") {
-      try {
-        await enforceDraftBudget(warm, params.id);
-      } catch {
-        // El presupuesto es limpieza: lo guardado ya esta guardado.
+      if (!state.unchanged) {
+        try {
+          await enforceDraftBudget(warm, written().id);
+        } catch {
+          // El presupuesto es limpieza: lo guardado ya esta guardado.
+        }
       }
-      announceChange();
-      return { ok: true };
+      return succeeded();
     }
   }
 
@@ -820,12 +1293,14 @@ export async function saveSessionDraft(
     try {
       let outcome: WriteOutcome = "retry";
       for (let attempt = 0; attempt < 3 && outcome === "retry"; attempt += 1) {
+        // Con una version mas nueva de otra pestaña, se escribe la COPIA (id nuevo, todos los bytes).
+        const target: SaveSessionParams = state.forkId ? { ...params, id: state.forkId } : params;
         const existing = new Set(
-          await getKeysFromStore(db, FILES_STORE, sessionKeyRange(params.id)),
+          await getKeysFromStore(db, FILES_STORE, sessionKeyRange(target.id)),
         );
         const loaded = new Map<string, Uint8Array>();
-        for (const doc of params.documents) {
-          const key = sessionFileKey(params.id, doc.id);
+        for (const doc of target.documents) {
+          const key = sessionFileKey(target.id, doc.id);
           // Primer intento: solo lo que falta. Tras un reintento, todo: no
           // se fia de nada de lo que "estaba".
           if (attempt === 0 && existing.has(key)) continue;
@@ -834,15 +1309,20 @@ export async function saveSessionDraft(
         if (params.isCurrent && !params.isCurrent()) {
           return { ok: false, reason: "superseded" };
         }
-        outcome = await writeSessionTx(db, params, loaded);
+        outcome = await writeSessionTx(db, target, loaded, state);
       }
       if (outcome !== "ok") return { ok: false, reason: "unavailable" };
-      await enforceDraftBudget(db, params.id);
+      if (!state.unchanged) {
+        try {
+          await enforceDraftBudget(db, written().id);
+        } catch {
+          // El presupuesto es limpieza: lo guardado ya esta guardado.
+        }
+      }
     } finally {
       if (!adopted) db.close();
     }
-    announceChange();
-    return { ok: true };
+    return succeeded();
   } catch {
     // Ver la nota de "REGLA DURA" arriba: nunca interrumpe la firma.
     return { ok: false, reason: "unavailable" };
@@ -899,8 +1379,11 @@ export async function listSessionDrafts(): Promise<SessionDraftMeta[]> {
     const db = await openDb();
     try {
       const metas = await getAllFromStore<unknown>(db, SESSION_STORE);
+      const now = Date.now();
       return metas
         .filter(isSessionDraftMeta)
+        .map((meta) => withLegacyExpiry(meta, sessionHasStrokes(meta)))
+        .filter((meta) => !isExpired(meta, now))
         .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
     } finally {
       db.close();
@@ -910,8 +1393,13 @@ export async function listSessionDrafts(): Promise<SessionDraftMeta[]> {
   }
 }
 
-/** Sesiones y borradores v1 juntos, del mas reciente al mas antiguo. */
+/**
+ * Sesiones y borradores v1 juntos, del mas reciente al mas antiguo. Antes de listar purga los caducados (borradores con
+ * firmas guardadas de hace mas de 7 dias, U0.4): quien lista (la tarjeta de entrada, «Ver borradores», Recientes, `?s=`)
+ * nunca ve ni ofrece uno que ya no deberia existir.
+ */
 export async function listAllDrafts(): Promise<DraftEntry[]> {
+  await purgeExpiredDrafts();
   const [documents, sessions] = await Promise.all([
     listDrafts(),
     listSessionDrafts(),
@@ -929,14 +1417,27 @@ export type LoadedSessionDraft = {
   files: { id: string; fileName: string; bytes: Uint8Array }[];
 };
 
-function deleteSessionTx(db: IDBDatabase, id: string): Promise<void> {
+/** Borra una sesion (metadatos y todos sus archivos). Con `unlessNewer`, solo si esta pestaña no esta desactualizada (ver `deleteDraftTx`). */
+function deleteSessionTx(db: IDBDatabase, id: string, unlessNewer = false): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction([FILES_STORE, SESSION_STORE], "readwrite");
-    tx.oncomplete = () => resolve();
+    let deleted = false;
+    tx.oncomplete = () => resolve(deleted);
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
-    tx.objectStore(FILES_STORE).delete(sessionKeyRange(id));
-    tx.objectStore(SESSION_STORE).delete(id);
+    const remove = () => {
+      deleted = true;
+      tx.objectStore(FILES_STORE).delete(sessionKeyRange(id));
+      tx.objectStore(SESSION_STORE).delete(id);
+    };
+    if (!unlessNewer) {
+      remove();
+      return;
+    }
+    const stored = tx.objectStore(SESSION_STORE).get(id);
+    stored.onsuccess = () => {
+      if (!isStaleWrite(stored.result, knownDraftRev(id), tab.id)) remove();
+    };
   });
 }
 
@@ -952,8 +1453,16 @@ export async function loadSessionDraft(
   try {
     const db = await openDb();
     try {
-      const meta = await getFromStore<unknown>(db, SESSION_STORE, id);
-      if (!isSessionDraftMeta(meta)) return null;
+      const row = await getFromStore<unknown>(db, SESSION_STORE, id);
+      if (!isSessionDraftMeta(row)) return null;
+      // Una sesion con firmas y sin fecha (anterior a U0.4) caduca a los 7 dias de guardarse (F0-fix, D4).
+      const meta = withLegacyExpiry(row, sessionHasStrokes(row));
+      // Caducada: no se retoma, y se borra entera (archivos incluidos).
+      if (isExpired(meta, Date.now())) {
+        await deleteSessionTx(db, id);
+        announceChange();
+        return null;
+      }
       const files: LoadedSessionDraft["files"] = [];
       for (const doc of meta.documents) {
         const record = await getFromStore<FileRecord>(
@@ -967,6 +1476,10 @@ export async function loadSessionDraft(
         }
         files.push({ id: doc.id, fileName: doc.fileName, bytes: record.bytes });
       }
+      if (meta !== row) await persistLegacyExpiry(db, SESSION_STORE, meta);
+      // Esta pestaña parte de ESTA version: lo que otra pestaña guarde despues ya no se pisara a ciegas.
+      noteRev(id, meta.rev ?? 0);
+      noteRestored(id, meta);
       return { meta, files };
     } finally {
       db.close();
@@ -976,17 +1489,164 @@ export async function loadSessionDraft(
   }
 }
 
-export async function deleteSessionDraft(id: string): Promise<void> {
+export async function deleteSessionDraft(id: string, options: { unlessNewer?: boolean } = {}): Promise<void> {
   try {
     const db = await openDb();
+    let deleted = false;
     try {
-      await deleteSessionTx(db, id);
+      deleted = await deleteSessionTx(db, id, options.unlessNewer === true);
+      if (deleted) tab.restored.delete(id);
     } finally {
       db.close();
     }
-    announceChange();
+    if (deleted) announceChange();
   } catch {
     // Tolerado.
+  }
+}
+
+/**
+ * Borra los borradores caducados (con firmas guardadas de hace mas de 7 dias) con todos sus bytes, en UNA transaccion, y
+ * avisa a los demas suscriptores si quito alguno. Devuelve cuantos borro. Nunca lanza (sin IndexedDB, 0). Los borradores
+ * SIN firmas no se tocan (no caducan). Un borrador CON firmas guardado antes de que existiera la caducidad (sin `expiresAt`)
+ * recibe aqui su fecha, `savedAt` + 7 dias, y se guarda: el aviso «se borran a los 7 dias» tiene que ser cierto tambien
+ * para ellos (F0-fix, D4).
+ */
+export async function purgeExpiredDrafts(now: number = Date.now()): Promise<number> {
+  try {
+    const db = await openDb();
+    try {
+      const removed = await new Promise<number>((resolve, reject) => {
+        const tx = db.transaction([FILES_STORE, META_STORE, SESSION_STORE], "readwrite");
+        let count = 0;
+        tx.oncomplete = () => resolve(count);
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+        const filesStore = tx.objectStore(FILES_STORE);
+        const metaStore = tx.objectStore(META_STORE);
+        const sessionStore = tx.objectStore(SESSION_STORE);
+        const metasRequest = metaStore.getAll();
+        const sessionsRequest = sessionStore.getAll();
+        let pending = 2;
+        const onRead = () => {
+          pending -= 1;
+          if (pending > 0) return;
+          for (const stored of metasRequest.result as DraftMeta[]) {
+            // Un borrador con firmas y sin fecha de caducidad (anterior a U0.4) la recibe aqui: `savedAt` + 7 dias (F0-fix, D4).
+            // Si ya paso, caduca de inmediato; si no, se guarda la fecha (sin tocar `rev` ni `writerId`).
+            const meta = withLegacyExpiry(stored, documentHasStrokes(stored));
+            if (isExpired(meta, now)) {
+              metaStore.delete(meta.id);
+              filesStore.delete(meta.id);
+              writtenFileIds.delete(meta.id);
+              forgetSavedDraft(meta.id);
+              count += 1;
+            } else if (meta !== stored) {
+              metaStore.put(meta);
+            }
+          }
+          for (const row of sessionsRequest.result as unknown[]) {
+            if (!isSessionDraftMeta(row)) continue;
+            const meta = withLegacyExpiry(row, sessionHasStrokes(row));
+            if (isExpired(meta, now)) {
+              sessionStore.delete(meta.id);
+              filesStore.delete(sessionKeyRange(meta.id));
+              count += 1;
+            } else if (meta !== row) {
+              sessionStore.put(meta);
+            }
+          }
+        };
+        metasRequest.onsuccess = onRead;
+        sessionsRequest.onsuccess = onRead;
+      });
+      if (removed > 0) announceChange();
+      return removed;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return 0;
+  }
+}
+
+/** Lo que dice `stripSignaturesFromDrafts`: cuantos borradores de sesion y de documento suelto llevaban firmas y ya no, o que no se pudo. */
+export type StripSignaturesResult =
+  | { ok: true; sessions: number; documents: number }
+  | { ok: false; reason: "unavailable" };
+
+/**
+ * «Quitar ahora las firmas de los borradores guardados» (F0-fix2, N2). Apagar «Guardar tambien las firmas recogidas» solo
+ * afecta a lo que se guarda DESDE ENTONCES: los borradores ya guardados conservan sus trazos hasta que caducan (7 dias). Esto
+ * los quita ya, de TODOS los borradores (sesiones y documentos sueltos), en UNA transaccion: reescribe cada uno
+ * conservando todo menos los trazos (`withoutBlockStrokes` / `withoutCaptureStrokes`), sin caducidad, marcado como
+ * `signaturesOmitted` (al retomarlo se piden las firmas de nuevo) y, en las sesiones, sin el turno guardado (describia un
+ * avance que ya no existe, igual que al guardar con el interruptor apagado). Los PDF no se tocan.
+ *
+ * Respeta la version: NO sube `rev`, no cambia `writerId` ni `savedAt` (como la fecha de `withLegacyExpiry`): no es un guardado
+ * de esta pestaña, y asi ninguna otra queda «desactualizada» ni acaba guardando una «Copia aparte» solo porque se limpiaron
+ * firmas. Lee y escribe cada fila DENTRO de la misma transaccion, asi que un guardado concurrente de otra pestaña no se pierde.
+ * Los borradores sin firmas no se reescriben. Nunca lanza: si no se pudo, `{ ok: false }`.
+ */
+export async function stripSignaturesFromDrafts(): Promise<StripSignaturesResult> {
+  try {
+    const db = await openDb();
+    try {
+      const counts = await new Promise<{ sessions: number; documents: number }>((resolve, reject) => {
+        const tx = db.transaction([META_STORE, SESSION_STORE], "readwrite");
+        const counted = { sessions: 0, documents: 0 };
+        tx.oncomplete = () => resolve(counted);
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+        const metaStore = tx.objectStore(META_STORE);
+        const sessionStore = tx.objectStore(SESSION_STORE);
+        const metasRequest = metaStore.getAll();
+        const sessionsRequest = sessionStore.getAll();
+        let pending = 2;
+        const onRead = () => {
+          pending -= 1;
+          if (pending > 0) return;
+          for (const stored of metasRequest.result as DraftMeta[]) {
+            const { captures, stripped } = withoutCaptureStrokes(stored.captures ?? {});
+            if (!stripped) continue;
+            const { expiresAt: _expires, ...rest } = stored;
+            void _expires;
+            metaStore.put({ ...rest, captures, signaturesOmitted: true as const });
+            counted.documents += 1;
+          }
+          for (const row of sessionsRequest.result as unknown[]) {
+            if (!isSessionDraftMeta(row) || !blocksHaveStrokes(row.blocks)) continue;
+            const { expiresAt: _expires, ceremony: _ceremony, ...rest } = row;
+            void [_expires, _ceremony];
+            sessionStore.put({ ...rest, blocks: withoutBlockStrokes(row.blocks).blocks, signaturesOmitted: true as const });
+            counted.sessions += 1;
+          }
+        };
+        metasRequest.onsuccess = onRead;
+        sessionsRequest.onsuccess = onRead;
+      });
+      if (counts.sessions + counts.documents > 0) announceChange();
+      return { ok: true, ...counts };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
+/** ¿Sigue habiendo un borrador con este id (de un documento suelto o de una sesion)? Sin IndexedDB, `false`. */
+export async function draftExists(kind: "document" | "session", id: string): Promise<boolean> {
+  try {
+    const db = await openDb();
+    try {
+      const row = await getFromStore<unknown>(db, kind === "session" ? SESSION_STORE : META_STORE, id);
+      return row !== undefined;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
   }
 }
 
@@ -1027,6 +1687,7 @@ export async function clearAllDrafts(): Promise<ClearDraftsResult> {
       });
       writtenFileIds.clear();
       savedDraftIdsHere.clear();
+      tab.restored.clear();
     } finally {
       db.close();
     }

@@ -26,7 +26,7 @@ import {
   type Signer,
 } from "@/lib/pdf/sign";
 import { detectFields, type DetectedField } from "@/lib/pdf/detectFields";
-import { clearAllDrafts, listDrafts } from "@/app/sign-pdf/signDrafts";
+import { clearAllDrafts, draftFingerprint, listDrafts } from "@/app/sign-pdf/signDrafts";
 import { exportSignConfig } from "@/app/sign-pdf/signConfig";
 import {
   __resetValueHistoryCacheForTests,
@@ -682,12 +682,12 @@ describe("SignToolClient — borradores locales y configuracion (WS8/WS9)", () =
       await waitFor(
         async () => {
           const drafts = await listDrafts();
-          expect(drafts.some((draft) => draft.id === id)).toBe(true);
+          expect(drafts.some((draft) => draftFingerprint(draft) === id)).toBe(true);
         },
         { interval: 100 },
       );
 
-      const saved = (await listDrafts()).find((draft) => draft.id === id);
+      const saved = (await listDrafts()).find((draft) => draftFingerprint(draft) === id);
       expect(saved?.signers).toHaveLength(1);
       expect(saved?.step).toBe("signers");
 
@@ -696,6 +696,9 @@ describe("SignToolClient — borradores locales y configuracion (WS8/WS9)", () =
       // de modulo, asi que esto no los reinicia, pero el estado de React
       // si arranca de cero).
       unmount();
+      // Una pestana NUEVA no hereda la direccion de la anterior: sin esto el `?s=` de la sesion guardada (F0 · U0.3) hace
+      // que la herramienta se restaure sola mientras la prueba abre «Ver borradores», y la hoja se cierra bajo sus pies.
+      window.history.replaceState(null, "", window.location.pathname);
 
       const { container: freshContainer } = render(
         <LanguageProvider>
@@ -821,7 +824,7 @@ describe("SignToolClient — borrador durante la ventana de 'Deshacer' (limitaci
       const signerName = strings.defaultSignerName(1);
       await waitFor(async () => {
         const drafts = await listDrafts();
-        const saved = drafts.find((draft) => draft.id === id);
+        const saved = drafts.find((draft) => draftFingerprint(draft) === id);
         expect(saved?.signers).toHaveLength(1);
       });
 
@@ -843,12 +846,12 @@ describe("SignToolClient — borrador durante la ventana de 'Deshacer' (limitaci
 
       await waitFor(async () => {
         const drafts = await listDrafts();
-        expect(drafts.some((draft) => draft.id === id)).toBe(false);
+        expect(drafts.some((draft) => draftFingerprint(draft) === id)).toBe(false);
       });
       // Limpio: nada a medias tampoco en la lista completa (ni un
       // borrador huerfano con huecos o capturas sueltas de otro id).
       const remaining = await listDrafts();
-      expect(remaining.every((draft) => draft.id !== id)).toBe(true);
+      expect(remaining.every((draft) => draftFingerprint(draft) !== id)).toBe(true);
 
       // Reabrir (nueva pestaña / reload real): no hay nada que reanudar,
       // y desde luego no el firmante borrado ni ningun rastro de
@@ -1827,7 +1830,7 @@ describe("SignToolClient — migracion de pasos a 'document' (W2-A)", () => {
 
       await waitFor(
         async () => {
-          const saved = (await listDrafts()).find((draft) => draft.id === id);
+          const saved = (await listDrafts()).find((draft) => draftFingerprint(draft) === id);
           expect(saved?.step).toBe("document");
         },
         { interval: 100 },

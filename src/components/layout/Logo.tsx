@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { GuardedLink as Link } from "@/components/layout/GuardedLink";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 

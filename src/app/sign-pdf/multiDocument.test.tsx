@@ -10,7 +10,7 @@ import { documentContentKey } from "@/app/sign-pdf/documentKey";
 import { captureStamp } from "@/app/sign-pdf/captures";
 import { DEFAULT_SESSION, type SignSession } from "@/app/sign-pdf/signSession";
 import { EMPTY_DOC_STATE, docIdOf, ensureBlocks } from "@/app/sign-pdf/docSet";
-import { clearAllDrafts, listDrafts } from "@/app/sign-pdf/signDrafts";
+import { clearAllDrafts, draftFingerprint, listDrafts } from "@/app/sign-pdf/signDrafts";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 import { es } from "@/lib/locales/es";
@@ -487,10 +487,10 @@ describe("carreras a4 y a5 — el estado cuelga del DocId, no de la huella", () 
 
     // El borrador (autoguardado) es de B, con SU huella; nada bajo la de A.
     await waitFor(async () => {
-      const ids = (await listDrafts()).map((draft) => draft.id);
+      const ids = (await listDrafts()).map((draft) => draftFingerprint(draft));
       expect(ids).toContain(keyB);
     });
-    const ids = (await listDrafts()).map((draft) => draft.id);
+    const ids = (await listDrafts()).map((draft) => draftFingerprint(draft));
     expect(ids).not.toContain(held.key);
     expect(screen.getByLabelText(strings.signerNameLabel(1))).toBeTruthy();
   });
