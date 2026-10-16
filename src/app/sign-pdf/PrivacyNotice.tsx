@@ -79,8 +79,10 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          // Zona de toque de 44 px de alto bajo puntero grueso, sin cambiar el aspecto de escritorio.
-          className="relative flex items-center gap-1.5 text-footnote font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal pointer-coarse:min-h-11 pointer-coarse:-my-[13px] pointer-coarse:px-2 pointer-coarse:-mx-2"
+          // Zona de toque de 44 px de alto bajo puntero grueso, sin cambiar el aspecto de escritorio. Con raton, 24 px
+          // reales de alto (WCAG 2.5.8): la linea de texto sola mide ~19,5 px y, segun la tipografia del sistema (p. ej.
+          // DejaVu en Linux), axe ya no la salva por espaciado con el boton vecino.
+          className="relative flex min-h-6 items-center gap-1.5 text-footnote font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal pointer-coarse:min-h-11 pointer-coarse:-my-[13px] pointer-coarse:px-2 pointer-coarse:-mx-2"
         >
           <Info aria-hidden="true" className="size-3.5" />
           {strings.privacyNoticeToggle}

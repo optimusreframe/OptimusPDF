@@ -53,8 +53,8 @@ export async function chooseForEditor(page: Page, file: { name: string; buffer: 
 export async function openEditorWithFile(page: Page, file: { name: string; buffer: Buffer }): Promise<void> {
   await page.goto("/sign-pdf");
   await chooseForEditor(page, file);
-  await expect(page.getByRole("heading", { name: "Configurar plantilla" })).toBeVisible();
-  await expect(sheet(page)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Configurar plantilla" })).toBeVisible({ timeout: 30_000 });
+  await expect(sheet(page)).toBeVisible({ timeout: 30_000 });
 }
 
 /** Posiciones (fraccion de pagina) de la linea de iniciales y de las rayas de firma del contrato sintetico. */

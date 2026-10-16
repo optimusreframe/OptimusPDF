@@ -52,7 +52,9 @@ export async function uploadDocs(page: Page, docs: readonly SyntheticDoc[]): Pro
   await fileInput(page).setInputFiles([...docs]);
   if (docs.length > 1) {
     for (const [index, doc] of docs.entries()) {
-      await expect(page.getByRole("button", { name: `${index + 1}. ${doc.name}` })).toBeVisible();
+      // Holgura de CI: el shell comprueba los archivos antes de pintar la herramienta (`checking`), y con la CPU apretada
+      // (2 vCPU, dos trabajadores y el servidor) eso pasa de los 5 s por defecto sin que haya nada roto.
+      await expect(page.getByRole("button", { name: `${index + 1}. ${doc.name}` })).toBeVisible({ timeout: 30_000 });
     }
   }
 }

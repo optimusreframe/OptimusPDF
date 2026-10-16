@@ -154,6 +154,10 @@ async function everywhere(page: Page, label: string, scope: string, skipCanvas =
   const run = async (language: Language, width: number) => {
     await page.setViewportSize({ width, height: width < 600 ? 812 : 900 });
     await settle(page);
+    // Arriba del todo: la pantalla en prueba es la pagina, no la posicion de scroll en la que dejo el ultimo clic. Con la
+    // cabecera fija (56 px), un control que quedaba justo debajo de ella contaba como «parcialmente tapado» segun lo
+    // que midiera el texto (en Linux/DejaVu, si; en macOS, no).
+    await page.evaluate(() => window.scrollTo(0, 0));
     const here = `${label} · ${language} · ${width}px`;
     const violations = await runAxe(page, scope);
     expect(violations, `${here}\n${describeViolations(violations)}`).toEqual([]);
@@ -179,8 +183,8 @@ async function editorCell(browser: Browser, theme: Theme): Promise<void> {
     await page.goto("/sign-pdf");
     await chooseForEditor(page, { name: "Mold Test Agreement.pdf", buffer: contract });
     const editor = page.locator("[data-template-editor]");
-    await expect(page.getByRole("heading", { name: "Configurar plantilla" })).toBeVisible();
-    await expect(sheet(page)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Configurar plantilla" })).toBeVisible({ timeout: 30_000 });
+    await expect(sheet(page)).toBeVisible({ timeout: 30_000 });
 
     // Campos colocados a mano: iniciales repetidas en todas las paginas y el bloque de firmas.
     await pickTool(page, "Iniciales");

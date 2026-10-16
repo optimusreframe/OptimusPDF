@@ -67,7 +67,11 @@ async function newWideContext(browser: Browser, cell: Cell): Promise<BrowserCont
 }
 
 /** La fuente forzada ES mas ancha que Arial (si no, la prueba no probaria nada en esta maquina). */
-async function expectWideFontActive(page: Page): Promise<void> {
+async function expectWideFontActive(page: Page, language: Language): Promise<void> {
+  // `<html lang>` sale de la build como «es» y pasa al idioma guardado cuando React hidrata (useSyncExternalStore). Con la CPU
+  // apretada (runner de CI) eso tarda mas que el primer vistazo: sin esperar, `fitsEverywhere` tomaba «es» por el idioma de
+  // origen de una celda EN y la prueba buscaba «Several signers» en una pantalla en espanol.
+  await expect(page.locator("html")).toHaveAttribute("lang", language);
   const ratio = await page.evaluate(() => {
     const context = document.createElement("canvas").getContext("2d")!;
     const probe = "Sí, firmar otro con los mismos firmantes";
@@ -191,7 +195,7 @@ for (const cell of CELLS) {
       // Los textos de este recorrido son los de la interfaz en espanol: se vuelve a ES si la celda es EN (cada pantalla se mide en los dos idiomas).
       const original = await makeContract({ label: "Mold Test Agreement", pages: 6, signers: 2 });
       await page.goto("/sign-pdf");
-      await expectWideFontActive(page);
+      await expectWideFontActive(page, cell.language);
       if (cell.language === "en") await switchLanguage(page, "es");
       const unknown = await makeContract({ label: "Zulu Unknown Agreement", pages: 5, signers: 2, extras: true });
 

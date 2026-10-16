@@ -550,7 +550,9 @@ export function TemplateEditor({ file, language, strings, initial, initialVarian
             <label className="flex min-h-11 items-center gap-3 text-footnote text-foreground">
               <input
                 type="checkbox"
-                className="size-5"
+                // 24 px reales (WCAG 2.5.8): con 20 px axe solo lo daba por bueno si los vecinos quedaban lejos, y eso
+                // dependia de la tipografia del sistema (en Linux/DejaVu el texto se parte distinto). La fila ya mide 44 px.
+                className="size-6 shrink-0"
                 checked={selectedText.rule === "today"}
                 onChange={(event) => commit(patchTextField(content, variantKey, selectedText.id ?? "", { rule: event.target.checked ? "today" : null }))}
               />
