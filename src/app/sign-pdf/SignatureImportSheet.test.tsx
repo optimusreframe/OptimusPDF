@@ -327,6 +327,24 @@ describe("paso 2: ajustes y vista previa en vivo", () => {
     const crop = vi.mocked(extractInkAsync).mock.calls.at(-1)![1]!.crop as { x: number; y: number; width: number; height: number };
     expect(crop.x + crop.width).toBeLessThanOrEqual(120);
     expect(crop.y + crop.height).toBeLessThanOrEqual(50);
+    // el teclado anuncia el recorte resultante tras CADA flecha, en una region viva unica (no una segunda role=status)
+    const announce = document.querySelector("[data-crop-announce]") as HTMLElement;
+    expect(announce.getAttribute("aria-live")).toBe("polite");
+    expect(announce.getAttribute("role")).toBeNull();
+    const [, , , se] = handles;
+    const read = () => /^Recorte: desde (\d+) % por la izquierda y (\d+) % por arriba, (\d+) % de ancho y (\d+) % de alto\.$/.exec(announce.textContent ?? "");
+    const first = read();
+    expect(first).not.toBeNull();
+    const widthBefore = Number(first![3]);
+    fireEvent.keyDown(se, { key: "ArrowLeft" });
+    await waitFor(() => expect(Number(read()?.[3])).toBeLessThan(widthBefore));
+    const widthAfter = Number(read()![3]);
+    fireEvent.keyDown(se, { key: "ArrowLeft" });
+    await waitFor(() => expect(Number(read()?.[3])).toBeLessThan(widthAfter));
+    // una tecla que no es flecha no anuncia nada nuevo
+    const text = announce.textContent;
+    fireEvent.keyDown(se, { key: "a" });
+    expect(announce.textContent).toBe(text);
     // volver al recorte automatico
     fireEvent.click(screen.getByRole("button", { name: copy.cropReset }));
     await waitFor(() => expect(vi.mocked(extractInkAsync).mock.calls.at(-1)![1]!.crop).toBe("auto"));

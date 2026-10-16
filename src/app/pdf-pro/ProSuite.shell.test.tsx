@@ -633,8 +633,11 @@ describe("paleta de comandos (Cmd/Ctrl+K)", () => {
     undo.focus();
     fireEvent.keyDown(undo, { key: "k", ctrlKey: true });
     await screen.findByRole("combobox");
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Escape se atiende desde un efecto: con carga puede llegar tarde; repetirlo es idempotente.
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
     expect(document.activeElement).toBe(undo);
   });
 

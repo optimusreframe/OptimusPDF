@@ -9,18 +9,24 @@ import { applyBackupImport, buildSignaturesExport } from "@/app/sign-pdf/backupF
 import {
   MAX_VAULT_ENTRIES,
   clearVault,
+  commitVaultImport,
   listVault,
+  readPngSize,
   saveVaultEntry,
+  updateVaultEntry,
   type VaultEntry,
 } from "@/app/sign-pdf/signVault";
 import { exportVaultEntry } from "@/app/sign-pdf/signVaultFile";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { downloadBlob } from "@/lib/pdf/core";
-import { readPackage } from "@/lib/backup/package";
+import JSZip from "jszip";
+import { buildPackage, readPackage } from "@/lib/backup/package";
+import { signaturesModuleFromEntries } from "@/lib/backup/modules/signatures";
+import { makeRealPng, pngPixelBomb, pngWithChunk, pngWithCorruptIdat } from "@/lib/backup/__fixtures__/pngFactory";
 import { sha256Hex } from "@/lib/crypto/sha256";
 import { hostileCorpus } from "@/lib/backup/__fixtures__/hostileCorpus";
-import { asFile, editManifest, vaultInput } from "@/lib/backup/__fixtures__/testKit";
+import { asFile, editManifest, rewriteZip, vaultEntry, vaultInput } from "@/lib/backup/__fixtures__/testKit";
 
 vi.mock("@/lib/pdf/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pdf/core")>();
@@ -532,5 +538,179 @@ describe("accesibilidad de las hojas de respaldo", () => {
     expect(await screen.findByRole("button", { name: en.pickZip })).toBeTruthy();
     fireEvent.change(zipInput(), { target: { files: [new File(["no zip"], "x.zip")] } });
     await waitFor(() => expect(restoreStatus()).toBe(en.readErrors.badFile));
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * U4.4-fix: D2 / D3 / D4 / D5 / T3 en pantalla
+ * ------------------------------------------------------------------ */
+
+async function packageOfEntries(entries: VaultEntry[]): Promise<File> {
+  return asFile(await buildPackage({ modules: [signaturesModuleFromEntries(entries)] }));
+}
+async function putEntries(...entries: VaultEntry[]) {
+  const result = await commitVaultImport({ puts: entries, deleteIds: [] });
+  if (!result.ok) throw new Error(`put: ${result.reason}`);
+}
+const radios = (name: string) =>
+  within(screen.getByRole("radiogroup", { name: copy.decisionGroup(name) })).getAllByRole("radio");
+
+describe("D2 — firmante renombrado: «Mismos dibujos, datos distintos»", () => {
+  async function renamedScenario() {
+    const file = await packageOfEntries([vaultEntry("vault-a", "Ana Pérez", { sig: 1, ini: 2 })]);
+    await putEntries({ ...vaultEntry("vault-a", "Anita Pérez", { sig: 1, ini: 2 }), role: "Directora" });
+    return file;
+  }
+
+  it("etiqueta, nota correcta (qué cambia), «Conservar la que ya tienes» marcada por defecto y botón sin nada que importar", async () => {
+    const file = await renamedScenario();
+    renderRestore();
+    await pickZip(file);
+    await screen.findByText(copy.statusSameDrawings);
+    expect(screen.queryByText(copy.statusDifferent)).toBeNull();
+    expect(screen.getByText(copy.sameDrawingsHint("Anita Pérez", ["name"]))).toBeTruthy();
+    // la nota falsa de antes («con otra imagen») ya no sale
+    expect(screen.queryByText(copy.differentHint("Anita Pérez"))).toBeNull();
+    const options = radios("Ana Pérez");
+    expect(options.map((radio) => radio.textContent)).toEqual([copy.decisionReplace, copy.decisionKeepExisting]);
+    expect(options[1].getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("button", { name: copy.importNothing }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("«Reemplazar» actualiza el nombre, avisa de lo que se conserva y NO pierde el cargo", async () => {
+    const file = await renamedScenario();
+    renderRestore();
+    await pickZip(file);
+    await screen.findByText(copy.statusSameDrawings);
+    fireEvent.click(radios("Ana Pérez")[0]);
+    expect(screen.getByText(copy.replaceKeeps)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: copy.importConfirm(1) }));
+    await screen.findByText(copy.result(1, 0, 1), { selector: "p.text-foreground" });
+    const [entry] = await vault();
+    expect(entry).toMatchObject({ id: "vault-a", signerName: "Ana Pérez", role: "Directora" });
+  });
+
+  it("dejarla como esta no cambia nada", async () => {
+    const file = await renamedScenario();
+    const before = await fingerprint(await vault());
+    renderRestore();
+    await pickZip(file);
+    await screen.findByText(copy.statusSameDrawings);
+    expect(await fingerprint(await vault())).toEqual(before);
+    expect((await vault())[0]).toMatchObject({ signerName: "Anita Pérez", role: "Directora" });
+  });
+});
+
+describe("D3 — un id que coincide con el de OTRA persona", () => {
+  it("no ofrece «Reemplazar»; ofrece «Conservar ambos» (marcada) y «Omitir», con la nota de que es otra persona; conservar ambos no toca a Luis", async () => {
+    const file = await packageOfEntries([vaultEntry("vault-l", "Ana", { sig: 1, ini: 2 })]);
+    await putEntries(vaultEntry("vault-l", "Luis", { sig: 5, ini: null }));
+    renderRestore();
+    await pickZip(file);
+    await screen.findByText(copy.statusDifferent);
+    expect(screen.getByText(copy.otherPersonHint("Luis"))).toBeTruthy();
+    const options = radios("Ana");
+    expect(options.map((radio) => radio.textContent)).toEqual([copy.decisionKeepBoth, copy.decisionOmit]);
+    expect(screen.queryByRole("radio", { name: copy.decisionReplace })).toBeNull();
+    expect(options[0].getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: copy.importConfirm(1) }));
+    await screen.findByText(copy.result(1, 0, 0), { selector: "p.text-foreground" });
+    const list = await vault();
+    expect(list.map((e) => e.signerName).sort()).toEqual(["Ana", "Luis"]);
+    expect(list.find((e) => e.signerName === "Luis")?.id).toBe("vault-l");
+  });
+});
+
+describe("D4 — «Esta firma cambió mientras decidías»", () => {
+  it("otra pestaña cambia el cargo tras la vista previa: no se escribe nada, se avisa y la vista previa se rehace con el baul de ahora", async () => {
+    const file = await packageOfEntries([vaultEntry("vault-a", "Ana Pérez", { sig: 1, ini: 2 })]);
+    await putEntries(vaultEntry("vault-a", "Ana Pérez", { sig: 1, ini: null }));
+    renderRestore();
+    await pickZip(file);
+    await screen.findByText(copy.statusDifferent);
+    expect(radios("Ana Pérez")[0].getAttribute("aria-checked")).toBe("true"); // sugerido: reemplazar
+    await updateVaultEntry("vault-a", { role: "Gerente" }); // «otra pestaña»
+    const afterOtherTab = await fingerprint(await vault());
+    fireEvent.click(screen.getByRole("button", { name: copy.importConfirm(1) }));
+    await waitFor(() => expect(restoreStatus()).toBe(copy.applyFailed.changed));
+    expect(copy.applyFailed.changed).toMatch(/cambió mientras decidías/);
+    expect(await fingerprint(await vault())).toEqual(afterOtherTab);
+    expect((await vault())[0].role).toBe("Gerente");
+    // sigue en la vista previa, ya con el estado actual, y se puede decidir de nuevo
+    const retry = await screen.findByRole("button", { name: copy.importConfirm(1) });
+    fireEvent.click(retry);
+    await screen.findByText(copy.result(1, 0, 1), { selector: "p.text-foreground" });
+    expect((await vault())[0]).toMatchObject({ role: "Gerente" });
+    expect((await vault())[0].initials).not.toBeNull();
+  });
+});
+
+describe("D5 — imágenes que no se pueden decodificar", () => {
+  const forged: [string, () => Uint8Array][] = [
+    ["IDAT corrupto", () => pngWithCorruptIdat(makeRealPng({ seed: 1 }))],
+    ["APNG", () => pngWithChunk(makeRealPng({ seed: 1 }), "acTL", new Uint8Array(8))],
+    ["tEXt de 100 KB", () => pngWithChunk(makeRealPng({ seed: 1 }), "tEXt", new Uint8Array(100_000).fill(65))],
+    ["4096x4096", () => pngPixelBomb()],
+  ];
+  for (const [label, forge] of forged) {
+    it(`${label}: «${"imagen no válida"}», no se puede importar y la otra firma sí`, async () => {
+      const png = forge();
+      const size = readPngSize(png)!;
+      const bad = { ...vaultEntry("vault-bad", "Mala", { sig: 1, ini: null }), signature: { png, ratio: size.height / size.width, width: size.width, height: size.height } };
+      const file = await packageOfEntries([bad, vaultEntry("vault-ok", "Buena", { sig: 3, ini: null })]);
+      renderRestore();
+      await pickZip(file);
+      await screen.findByText(copy.statusInvalid);
+      expect(screen.getByText(copy.invalidReasons.invalidImage)).toBeTruthy();
+      expect(copy.invalidReasons.invalidImage).toMatch(/Imagen no válida/);
+      fireEvent.click(screen.getByRole("button", { name: copy.importConfirm(1) }));
+      await screen.findByText(copy.result(1, 1, 0), { selector: "p.text-foreground" });
+      expect((await vault()).map((e) => e.signerName)).toEqual(["Buena"]);
+    });
+  }
+});
+
+describe("T3 — el traspaso al importador de UNA firma solo ocurre con `invalidManifest`", () => {
+  it("un zip cuyo manifiesto no es de paquete (`{}`) SI se entrega al importador antiguo y se cierra la hoja", async () => {
+    const zip = new JSZip();
+    zip.file("manifest.json", "{}");
+    zip.file("firma.png", new Uint8Array([1, 2, 3]));
+    const onLegacyFile = vi.fn();
+    const { onClose } = renderRestore({ onLegacyFile });
+    await pickZip(asFile(await zip.generateAsync({ type: "blob" }), "Firma-ana.zip"));
+    await waitFor(() => expect(onLegacyFile).toHaveBeenCalledTimes(1));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("cualquier otro fallo (zip roto, ruta peligrosa, JSON roto, formato mas nuevo, sin firmas, clave mala...) NO se entrega: se explica en la hoja", async () => {
+    await seed(vaultInput("Ana Pérez"));
+    const good = await buildSignaturesExport();
+    if (!good.ok) throw new Error("export");
+    const jsonBroken = await rewriteZip(good.blob, (zip) => void zip.file("manifest.json", "{ esto no es json"));
+    const newerFormat = await editManifest(good.blob, (m) => void (m.formatVersion = 99));
+    const noModule = await editManifest(good.blob, (m) => void (m.modules = {}));
+    const noManifest = await rewriteZip(good.blob, (zip) => void zip.remove("manifest.json"));
+    const cases: [string, File][] = [
+      ["texto que no es un zip", asFile(new Blob(["hola, esto no es un zip, pero es largo largo largo"]), "x.zip")],
+      ["JSON del manifiesto roto", asFile(jsonBroken)],
+      ["formato mas nuevo", asFile(newerFormat)],
+      ["sin modulo de firmas", asFile(noModule)],
+      ["sin manifiesto", asFile(noManifest)],
+      ...hostileCorpus().map((hostile): [string, File] => [hostile.name, asFile(new Blob([hostile.bytes as unknown as BlobPart]), "h.zip")]),
+    ];
+    for (const [label, file] of cases) {
+      const onLegacyFile = vi.fn();
+      const onClose = vi.fn();
+      const view = render(
+        <LanguageProvider>
+          <SignatureRestoreSheet open onClose={onClose} strings={strings} onLegacyFile={onLegacyFile} />
+        </LanguageProvider>,
+      );
+      await pickZip(file);
+      await waitFor(() => expect(restoreStatus()).not.toBe(""), { timeout: 4000 });
+      expect([label, onLegacyFile.mock.calls.length, onClose.mock.calls.length]).toEqual([label, 0, 0]);
+      expect(screen.getByRole("button", { name: copy.pickZip })).toBeTruthy(); // sigue en «elegir archivo»
+      view.unmount();
+    }
   });
 });

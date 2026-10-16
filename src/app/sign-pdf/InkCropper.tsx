@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { InkImage } from "@/lib/image/inkCore";
 import { cn } from "@/lib/cn";
 import { paintImage } from "@/app/sign-pdf/inkImportEngine";
@@ -35,6 +35,16 @@ type Drag =
   | { kind: "corner"; corner: CropCorner; pointerId: number }
   | { kind: "move"; pointerId: number; lastX: number; lastY: number };
 
+/** Fracciones de la imagen -> porcentajes enteros para decirlos en voz alta. */
+export function cropPercent(crop: CropFraction): { left: number; top: number; width: number; height: number } {
+  return {
+    left: Math.round(crop.x * 100),
+    top: Math.round(crop.y * 100),
+    width: Math.round(crop.width * 100),
+    height: Math.round(crop.height * 100),
+  };
+}
+
 export type InkCropperProps = {
   image: InkImage;
   crop: CropFraction;
@@ -47,6 +57,8 @@ export function InkCropper({ image, crop, onChange, strings }: InkCropperProps) 
   const frameRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
   const cropRef = useRef(crop);
+  /** Lo que se anuncia tras CADA flecha del teclado (el arrastre con puntero no necesita anunciarse). */
+  const [announcement, setAnnouncement] = useState("");
   useEffect(() => {
     cropRef.current = crop;
   });
@@ -115,7 +127,9 @@ export function InkCropper({ image, crop, onChange, strings }: InkCropperProps) 
     else if (event.key === "ArrowDown") dy = step;
     else return;
     event.preventDefault();
-    onChange(nudgeCorner(cropRef.current, corner, dx, dy));
+    const next = nudgeCorner(cropRef.current, corner, dx, dy);
+    onChange(next);
+    setAnnouncement(strings.cropValue(cropPercent(next)));
   };
 
   const style = {
@@ -174,6 +188,10 @@ export function InkCropper({ image, crop, onChange, strings }: InkCropperProps) 
           ))}
         </div>
       </div>
+      {/* Una sola region viva: dice el recorte resultante tras cada flecha (las asas son botones, no tienen valor propio). */}
+      <span aria-live="polite" aria-atomic="true" data-crop-announce className="sr-only">
+        {announcement}
+      </span>
     </div>
   );
 }

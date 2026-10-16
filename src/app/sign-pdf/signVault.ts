@@ -776,11 +776,28 @@ export type CommitVaultImportInput = {
   puts: VaultEntry[];
   /** Entradas existentes que se sustituyen (se borran en la MISMA transaccion). */
   deleteIds: string[];
+  /**
+   * Como estaban, al hacer la vista previa, las entradas que se van a sustituir. Dentro de la MISMA transaccion se
+   * compara cada una con la que hay AHORA (nombre, cargo e imagenes; `lastUsedAt` no cuenta): si otra pestaña la
+   * cambio (o la borro) mientras el usuario decidia, no se escribe NADA y el resultado es `changed`.
+   */
+  expectUnchanged?: VaultEntry[];
 };
 
 export type CommitVaultImportResult =
   | { ok: true; written: number; skipped: number; deleted: number }
-  | { ok: false; reason: "limit" | "tooLarge" | "invalid" | "unavailable" };
+  | { ok: false; reason: "limit" | "tooLarge" | "invalid" | "unavailable" | "changed" };
+
+/** Mismo contenido que importa al usuario: firmante, cargo e imagenes (no las fechas de uso). */
+function sameStoredContent(a: VaultEntry, b: VaultEntry): boolean {
+  return (
+    a.signerName === b.signerName &&
+    a.signerKey === b.signerKey &&
+    (a.role ?? "") === (b.role ?? "") &&
+    sameImage(a.signature, b.signature) &&
+    sameImage(a.initials, b.initials)
+  );
+}
 
 /**
  * Escribe de golpe las entradas de una importacion de respaldo: TODO O NADA.
@@ -798,10 +815,13 @@ export async function commitVaultImport(
   try {
     const puts = input?.puts;
     const deleteIds = input?.deleteIds ?? [];
+    const expectUnchanged = input?.expectUnchanged ?? [];
     if (
       !Array.isArray(puts) ||
       !Array.isArray(deleteIds) ||
-      deleteIds.some((id) => typeof id !== "string")
+      deleteIds.some((id) => typeof id !== "string") ||
+      !Array.isArray(expectUnchanged) ||
+      !expectUnchanged.every((entry) => isStoredEntry(entry))
     ) {
       return { ok: false, reason: "invalid" };
     }
@@ -840,6 +860,14 @@ export async function commitVaultImport(
           const store = tx.objectStore(STORE);
           readAll(store, (all) => {
             try {
+              // Carrera entre pestañas: lo que se iba a sustituir ya no es lo que vio la vista previa.
+              for (const expected of expectUnchanged) {
+                const current = all.find((entry) => entry.id === expected.id);
+                if (!current || !sameStoredContent(current, expected)) {
+                  outcome = { ok: false, reason: "changed" };
+                  return;
+                }
+              }
               const doomed = new Set(deleteIds);
               const pool = all.filter((entry) => !doomed.has(entry.id));
               const toWrite: VaultEntry[] = [];

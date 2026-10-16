@@ -284,6 +284,59 @@ describe("integridad y aislamiento de archivos sueltos", () => {
     expect(({} as Record<string, unknown>).schemaVersion).toBeUndefined();
   });
 
+  it("D1: un modulo con nombre de propiedad de Object.prototype (`constructor`, `toString`, `hasOwnProperty`, `valueOf`...) es un modulo DESCONOCIDO con aviso: readPackage no lanza otra cosa que PackageError", async () => {
+    const a = json({ a: 1 });
+    const names = ["constructor", "toString", "hasOwnProperty", "valueOf", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString"];
+    for (const name of names) {
+      // las carpetas del zip son siempre en minusculas (`FILE_PATH`)
+      const folder = name.toLowerCase();
+      const bytes = await forgedPackage(
+        [
+          { name: "templates/a.json", data: a },
+          { name: `${folder}/x.json`, data: a },
+          // un archivo de la raiz del zip con ese nombre tampoco puede confundirse con una propiedad heredada
+          { name, data: a },
+        ],
+        { modules: { demo: { schemaVersion: 1 }, [name]: { schemaVersion: 1 } } },
+        [
+          { path: "templates/a.json", data: a },
+          { path: `${folder}/x.json`, data: a },
+        ],
+      );
+      for (const registry of [REGISTRY, DEFAULT_MODULE_REGISTRY]) {
+        const outcome = await readPackage(blobOf(bytes), undefined, { registry }).then(
+          (read) => ({ read }),
+          (error: unknown) => ({ error }),
+        );
+        expect([name, "error" in outcome ? String(outcome.error) : "sin error"]).toEqual([name, "sin error"]);
+        const { read } = outcome as { read: Awaited<ReturnType<typeof readPackage>> };
+        expect(read.modules.map((m) => m.name)).toEqual(registry === REGISTRY ? ["demo"] : []);
+        expect(read.warnings).toEqual(
+          expect.arrayContaining([
+            { code: "unknownModule", module: name },
+            { code: "ignoredFile", path: `${folder}/x.json` },
+            { code: "unlistedFile", path: name },
+          ]),
+        );
+      }
+    }
+    // `__proto__` como CLAVE PROPIA del JSON (JSON.parse la crea como propiedad normal)
+    const proto = await forgedPackage([{ name: "templates/a.json", data: a }], {
+      modules: Object.defineProperty({ demo: { schemaVersion: 1 } }, "__proto__", { value: { schemaVersion: 1 }, enumerable: true }),
+    }, [{ path: "templates/a.json", data: a }]);
+    const read = await readPackage(blobOf(proto), undefined, { registry: REGISTRY });
+    expect(read.modules.map((m) => m.name)).toEqual(["demo"]);
+    expect(read.warnings).toContainEqual({ code: "unknownModule", module: "__proto__" });
+    // buildPackage tampoco confunde un nombre heredado con un modulo registrado
+    for (const name of ["constructor", "toString", "hasOwnProperty"]) {
+      expect(
+        await rejectionCode(() =>
+          buildPackage({ registry: REGISTRY, modules: [{ name, schemaVersion: 1, files: [] }] }),
+        ),
+      ).toBe("invalidModule");
+    }
+  });
+
   it("un modulo de esquema mayor: `newerVersion` con mensaje y SIN leer sus archivos; el resto del paquete se importa", async () => {
     const blob = await editManifest(await demoPackage(), (m) => {
       m.modules.demo.schemaVersion = 3;

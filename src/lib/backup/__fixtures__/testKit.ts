@@ -20,12 +20,22 @@ export function vaultInput(
     signerName: name,
     ...(role ? { role } : {}),
     sourceDocument: "contrato-secreto.pdf",
+    // PNG REALES salvo que la prueba pida un tamaño exacto (`*Bytes`): asi lo que se exporta pasa tambien la guarda
+    // estricta de la importacion (`readSignaturesBackup`).
     signature:
-      sig === null ? null : makeImage({ seed: sig, totalBytes: opts.sigBytes }),
+      sig === null
+        ? null
+        : makeImage({ seed: sig, totalBytes: opts.sigBytes, real: opts.sigBytes === undefined }),
     initials:
       ini === null
         ? null
-        : makeImage({ width: 20, height: 20, seed: ini, totalBytes: opts.iniBytes }),
+        : makeImage({
+            width: 20,
+            height: 20,
+            seed: ini,
+            totalBytes: opts.iniBytes,
+            real: opts.iniBytes === undefined,
+          }),
   };
 }
 

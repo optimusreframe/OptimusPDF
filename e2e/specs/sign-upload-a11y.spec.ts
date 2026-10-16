@@ -1,9 +1,9 @@
 import { expect, test, type BrowserContext, type Browser, type Locator, type Page } from "@playwright/test";
-import path from "node:path";
 import { SIGN_STRINGS } from "../../src/app/sign-pdf/strings";
 import { jpgSignature } from "../helpers/ink-images";
 import { PRIVACY_SEEN_KEY } from "../helpers/sign-vault-flow";
 import { makeSyntheticPdf } from "../helpers/sign-flow";
+import { FORGERIES, entry, forgedEntry, packageBuffer, threeSignatures } from "../helpers/backup-packages";
 
 /**
  * Accesibilidad de las hojas nuevas de «Firmas guardadas» (F6 · U6.2 y U4.4-UI): axe-core sobre CADA estado de la hoja
@@ -18,7 +18,8 @@ import { makeSyntheticPdf } from "../helpers/sign-flow";
  */
 
 const AXE_PATH = require.resolve("axe-core/axe.min.js");
-const GOLDEN = path.resolve(__dirname, "../../src/lib/backup/__fixtures__/packages/signatures-v1.optimuspdf.zip");
+/** El equivalente REAL del dorado v1 (el dorado lleva imagenes sinteticas que la importacion ya no acepta, D5). */
+const GOLDEN_NAME = "signatures-real.optimuspdf.zip";
 
 const AXE_RULES = [
   "color-contrast",
@@ -177,7 +178,7 @@ test.describe("axe-core en las hojas de subir y respaldar firmas: 0 violaciones"
         const restore = page.getByRole("dialog", { name: backup.importTitle });
         await expectClean(page, restore, "importar: elegir archivo");
         if (touch) await expectTouchTargets(restore, "importar: elegir archivo");
-        await restore.locator("[data-backup-file-input]").setInputFiles(GOLDEN);
+        await restore.locator("[data-backup-file-input]").setInputFiles({ name: GOLDEN_NAME, mimeType: "application/zip", buffer: await threeSignatures() });
         await expect(restore.getByText(backup.statusNew).first()).toBeVisible({ timeout: 30_000 });
         await expectClean(page, restore, "importar: vista previa «Nuevo»");
         if (touch) await expectTouchTargets(restore, "importar: vista previa «Nuevo»");
@@ -193,7 +194,7 @@ test.describe("axe-core en las hojas de subir y respaldar firmas: 0 violaciones"
 
         // --- Importar otra vez: «Ya lo tienes (idéntico)» ---
         await vault.getByRole("button", { name: backup.importButton, exact: true }).click();
-        await restore.locator("[data-backup-file-input]").setInputFiles(GOLDEN);
+        await restore.locator("[data-backup-file-input]").setInputFiles({ name: GOLDEN_NAME, mimeType: "application/zip", buffer: await threeSignatures() });
         await expect(restore.getByText(backup.statusIdentical).first()).toBeVisible({ timeout: 30_000 });
         await expectClean(page, restore, "importar: vista previa «Ya lo tienes (idéntico)»");
         await page.keyboard.press("Escape");
@@ -236,6 +237,70 @@ test.describe("axe-core en las hojas de subir y respaldar firmas: 0 violaciones"
         await expect(upload.getByText(ink.nameNeeded)).toBeVisible();
         await expectClean(page, upload, "subir: resumen con el error del nombre");
         if (touch) await expectTouchTargets(upload, "subir: resumen");
+      } finally {
+        await context.close();
+      }
+    });
+  }
+});
+
+test.describe("axe-core en la vista previa de importar: estados nuevos (U4.4-fix · D2, D3, D5)", () => {
+  const NEW_CELLS: Cell[] = [
+    { theme: "light", language: "es", width: 1280 },
+    { theme: "dark", language: "en", width: 375 },
+  ];
+  for (const cell of NEW_CELLS) {
+    test(`${cell.theme} · ${cell.language} · ${cell.width}px`, async ({ browser }) => {
+      test.setTimeout(Number(process.env.A11Y_TIMEOUT ?? 240_000));
+      const strings = SIGN_STRINGS[cell.language];
+      const backup = strings.vaultBackup;
+      const touch = cell.width < 600;
+      const context = await newContext(browser, cell);
+      const page = await context.newPage();
+      try {
+        await page.goto("/sign-pdf");
+        await page.locator('input[type="file"][accept*="pdf"]').first().setInputFiles({
+          name: "contrato.pdf",
+          mimeType: "application/pdf",
+          buffer: await makeSyntheticPdf("C", 1),
+        });
+        await page.locator('img[alt]:not([alt=""])').first().waitFor({ state: "visible", timeout: 30_000 });
+        await page.getByRole("button", { name: strings.vaultButton }).first().click();
+        const vault = page.getByRole("dialog", { name: strings.vaultTitle });
+        await expect(vault).toBeVisible();
+        const restore = page.getByRole("dialog", { name: backup.importTitle });
+
+        // 1) baul de partida: Ana (con cargo) y Luis, importados desde un paquete real
+        const seed = await packageBuffer([
+          entry("vault-a", "Ana Pérez", { sig: 1, ini: 2, role: "Directora" }),
+          entry("vault-l", "Luis", { sig: 5 }),
+        ]);
+        await vault.getByRole("button", { name: backup.importButton, exact: true }).click();
+        await restore.locator("[data-backup-file-input]").setInputFiles({ name: "base.optimuspdf.zip", mimeType: "application/zip", buffer: seed });
+        await restore.getByRole("button", { name: backup.importConfirm(2) }).click();
+        await expect(restore.getByRole("button", { name: backup.doneClose })).toBeVisible({ timeout: 30_000 });
+        await restore.getByRole("button", { name: backup.doneClose }).click();
+        await expect(restore).toBeHidden();
+
+        // 2) el paquete con los tres casos: renombrada (mismos dibujos), otra persona con el mismo id, imagen forjada
+        const second = await packageBuffer([
+          entry("vault-a", "Ana María Pérez", { sig: 1, ini: 2 }),
+          entry("vault-l", "Carla", { sig: 20 }),
+          forgedEntry("vault-bad", "Mala", FORGERIES[0][1]),
+        ]);
+        await vault.getByRole("button", { name: backup.importButton, exact: true }).click();
+        await restore.locator("[data-backup-file-input]").setInputFiles({ name: "segundo.optimuspdf.zip", mimeType: "application/zip", buffer: second });
+        await expect(restore.getByText(backup.statusSameDrawings)).toBeVisible({ timeout: 30_000 });
+        await expect(restore.getByText(backup.otherPersonHint("Luis"))).toBeVisible();
+        await expect(restore.getByText(backup.invalidReasons.invalidImage)).toBeVisible();
+        await expect(restore.getByRole("radio", { name: backup.decisionReplace })).toHaveCount(1); // solo la renombrada
+        await expectClean(page, restore, "importar: mismos dibujos + otra persona + imagen no valida");
+        if (touch) await expectTouchTargets(restore, "importar: tres estados nuevos");
+        await restore.getByRole("radio", { name: backup.decisionReplace }).click();
+        await expect(restore.getByText(backup.replaceKeeps)).toBeVisible();
+        await expectClean(page, restore, "importar: reemplazar con aviso de lo que se conserva");
+        await page.keyboard.press("Escape");
+        await expect(restore).toBeHidden();
       } finally {
         await context.close();
       }

@@ -5,7 +5,9 @@ import {
   MAX_VAULT_ENTRIES,
   clearVault,
   listVault,
+  readPngSize,
   saveVaultEntry,
+  updateVaultEntry,
   type VaultEntry,
 } from "@/app/sign-pdf/signVault";
 import {
@@ -23,10 +25,21 @@ import {
 } from "@/app/sign-pdf/backupFlow";
 import { buildPackage, readPackage, type PackageErrorCode } from "@/lib/backup/package";
 import { PACKAGE_ERROR_MESSAGES } from "@/lib/backup/types";
-import { defaultSignatureDecisions, exportSignatures, planSignaturesImport } from "@/lib/backup/modules/signatures";
+import {
+  defaultSignatureDecisions,
+  exportSignatures,
+  planSignaturesImport,
+  signaturesModuleFromEntries,
+} from "@/lib/backup/modules/signatures";
 import { sha256Hex } from "@/lib/crypto/sha256";
 import { hostileCorpus } from "@/lib/backup/__fixtures__/hostileCorpus";
-import { asFile, editManifest, timed, vaultInput } from "@/lib/backup/__fixtures__/testKit";
+import { asFile, editManifest, timed, vaultEntry, vaultInput } from "@/lib/backup/__fixtures__/testKit";
+import {
+  makeRealPng,
+  pngPixelBomb,
+  pngWithChunk,
+  pngWithCorruptIdat,
+} from "@/lib/backup/__fixtures__/pngFactory";
 
 /** «Exportar todas / Importar firmas»: la logica sin interfaz, sobre IndexedDB falso. */
 
@@ -358,5 +371,71 @@ describe("exportSignatures y buildPackage siguen siendo los de la libreria", () 
     const blob = await buildPackage({ modules: [await exportSignatures()] });
     const plan = await planSignaturesImport(await readPackage(blob), []);
     expect(plan.counts.new).toBe(1);
+  });
+});
+
+describe("D5 — la importacion decodifica de verdad cada PNG (readSignaturesBackup)", () => {
+  const enc = (text: string, length: number) => new Uint8Array(length).fill(text.charCodeAt(0));
+
+  async function packageWith(png: Uint8Array): Promise<File> {
+    const size = readPngSize(png)!; // el IHDR manda: dimensiones y ratio salen de el
+    const bad = {
+      ...vaultEntry("vault-bad", "Mala", { sig: 1, ini: null }),
+      signature: { png, ratio: size.height / size.width, width: size.width, height: size.height },
+    };
+    const entries = [bad, vaultEntry("vault-ok", "Buena", { sig: 3, ini: null })];
+    return asFile(await buildPackage({ modules: [signaturesModuleFromEntries(entries)] }));
+  }
+
+  const forged: [string, () => Uint8Array][] = [
+    ["IDAT corrupto (CRC del chunk recalculado)", () => pngWithCorruptIdat(makeRealPng({ seed: 1 }))],
+    ["APNG: acTL", () => pngWithChunk(makeRealPng({ seed: 1 }), "acTL", new Uint8Array(8))],
+    ["tEXt de 100 KB", () => pngWithChunk(makeRealPng({ seed: 1 }), "tEXt", enc("A", 100_000))],
+    ["4096x4096 que descomprime a 64 MB", () => pngPixelBomb()],
+    ["bytes basura entre IHDR e IEND (lo que los validadores del baul dejaban pasar)", () => new Uint8Array([...makeRealPng({ seed: 1 }).subarray(0, 33), ...new Uint8Array(30).fill(7), ...makeRealPng({ seed: 1 }).subarray(-12)])],
+  ];
+
+  for (const [label, forge] of forged) {
+    it(`${label}: tarjeta «invalidImage», nunca se escribe, y la buena sigue importable`, async () => {
+      const read = await readSignaturesBackup(await packageWith(forge()));
+      expect(read.ok).toBe(true);
+      if (!read.ok) return;
+      expect(read.plan.items.map((i) => [i.id, i.status, i.reason])).toEqual([
+        ["vault-bad", "invalid", "invalidImage"],
+        ["vault-ok", "new", undefined],
+      ]);
+      expect(defaultSignatureDecisions(read.plan)).toEqual({ "vault-bad": "omit", "vault-ok": "import" });
+      expect(await applyBackupImport(read.plan, { "vault-bad": "import", "vault-ok": "import" })).toMatchObject({ ok: true, summary: { imported: 1 } });
+      expect((await vault()).map((e) => e.signerName)).toEqual(["Buena"]);
+    });
+  }
+
+  it("el mismo PNG REAL sin forjar entra (contraste de la prueba)", async () => {
+    const read = await readSignaturesBackup(await packageWith(makeRealPng({ seed: 1 })));
+    expect(read.ok && read.plan.items.map((i) => i.status)).toEqual(["new", "new"]);
+  });
+
+  it("la SUBIDA local no cambia: planSignaturesImport sin validador sigue aceptando lo que aceptaba (solo el camino de importacion se endurece)", async () => {
+    const blob = await packageWith(pngWithCorruptIdat(makeRealPng({ seed: 1 })));
+    const plan = await planSignaturesImport(await readPackage(blob), []);
+    expect(plan.items.map((i) => i.status)).toEqual(["new", "new"]);
+  });
+});
+
+describe("D4 — «cambio mientras decidias» llega hasta applyBackupImport", () => {
+  it("applyBackupImport devuelve reason `changed` si otra pestaña toco la entrada que se iba a reemplazar", async () => {
+    await seed(vaultInput("Ana Pérez", { sig: 1, ini: null }));
+    const out = await buildSignaturesExport();
+    if (!out.ok) throw new Error("export");
+    await clearVault();
+    await seed(vaultInput("Ana Pérez", { sig: 9, ini: 8 }));
+    const read = await readSignaturesBackup(asFile(out.blob));
+    if (!read.ok) throw new Error("read");
+    const item = read.plan.items[0];
+    expect(item).toMatchObject({ status: "different", difference: "images", canReplace: true });
+    await updateVaultEntry(item.conflictWith!.id, { role: "Otra pestaña" });
+    const before = await fingerprint(await vault());
+    expect(await applyBackupImport(read.plan, { [item.id]: "replace" })).toMatchObject({ ok: false, reason: "changed" });
+    expect(await fingerprint(await vault())).toEqual(before);
   });
 });

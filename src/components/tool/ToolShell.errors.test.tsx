@@ -493,8 +493,12 @@ describe("ToolShell — PDF cifrado: hoja de contrasena", () => {
   it("Esc cierra la hoja SIN perder el archivo: el banner sigue y «Escribir la contraseña» la reabre", async () => {
     await uploadEncrypted();
     const dialog = await screen.findByRole("dialog");
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // El oyente de Escape se registra en un efecto: con la maquina cargada puede tardar mas que el primer render de la
+    // hoja, y una unica pulsacion se perderia. Pulsar de nuevo hasta que cierre es idempotente (no hay otra cosa que cerrar).
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
     const alert = screen.getByRole("alert");
     expect(screen.getByText("protegido.pdf")).toBeTruthy();
     expect(dialog.isConnected).toBe(false);

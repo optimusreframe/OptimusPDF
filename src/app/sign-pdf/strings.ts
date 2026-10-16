@@ -683,6 +683,8 @@ export type InkImportStrings = {
   cropHelp: string;
   cropAreaLabel: string;
   cropHandle: (corner: "nw" | "ne" | "sw" | "se") => string;
+  /** Se anuncia tras cada flecha del teclado en una asa del recorte (porcentajes de la imagen). */
+  cropValue: (crop: { left: number; top: number; width: number; height: number }) => string;
   cropDone: string;
   cleanLabel: string;
   cleanAuto: string;
@@ -796,6 +798,8 @@ export type VaultBackupStrings = {
   statusNew: string;
   statusIdentical: string;
   statusDifferent: string;
+  /** Mismos dibujos, solo cambian datos del firmante (nombre/cargo). */
+  statusSameDrawings: string;
   statusInvalid: string;
   invalidReasons: {
     integrity: string;
@@ -806,7 +810,15 @@ export type VaultBackupStrings = {
   };
   contents: (hasSignature: boolean, hasInitials: boolean) => string;
   differentHint: (name: string) => string;
+  /** `differs`: lo que cambiaria al reemplazar (nombre y/o cargo). */
+  sameDrawingsHint: (existingName: string, differs: ("name" | "role")[]) => string;
+  /** Mismo identificador interno que una entrada de OTRA persona: no se puede reemplazar. */
+  otherPersonHint: (existingName: string) => string;
   replaceLoses: string;
+  /** Con «reemplazar» en «mismos dibujos»: lo que se conserva. */
+  replaceKeeps: string;
+  /** La opcion «Omitir» cuando es «mismos dibujos» (lo que ya tienes se queda tal cual). */
+  decisionKeepExisting: string;
   decisionGroup: (name: string) => string;
   decisionImport: string;
   decisionReplace: string;
@@ -822,6 +834,8 @@ export type VaultBackupStrings = {
     limit: string;
     unavailable: string;
     invalid: string;
+    /** Otra pestaña cambio la firma que se iba a reemplazar. */
+    changed: string;
   };
 };
 
@@ -1692,6 +1706,8 @@ const es: SignStrings = {
     cropHelp:
       "Arrastra las esquinas para encuadrar solo la firma. Con el teclado, usa las flechas (con Mayús, saltos más grandes).",
     cropAreaLabel: "Zona de recorte sobre la imagen original",
+    cropValue: (crop) =>
+      `Recorte: desde ${crop.left} % por la izquierda y ${crop.top} % por arriba, ${crop.width} % de ancho y ${crop.height} % de alto.`,
     cropHandle: (corner) =>
       ({
         nw: "Esquina superior izquierda del recorte",
@@ -1831,18 +1847,27 @@ const es: SignStrings = {
     statusNew: "Nuevo",
     statusIdentical: "Ya lo tienes (idéntico)",
     statusDifferent: "Distinto",
+    statusSameDrawings: "Mismos dibujos, datos distintos",
     statusInvalid: "No se puede importar",
     invalidReasons: {
       integrity: "El archivo no coincide con su huella: está dañado.",
       tooLarge: "La imagen es demasiado grande.",
-      invalidImage: "La imagen no es válida.",
+      invalidImage: "Imagen no válida: está dañada o no es un PNG normal.",
       invalidEntry: "Los datos de esta firma no son válidos.",
       duplicateId: "Está repetida en el archivo.",
     },
     contents: (hasSignature, hasInitials) =>
       hasSignature && hasInitials ? "Firma e iniciales" : hasSignature ? "Solo firma" : hasInitials ? "Solo iniciales" : "Sin imágenes",
     differentHint: (name) => `Ya tienes una firma de ${name} con otra imagen.`,
+    sameDrawingsHint: (name, differs) =>
+      `Ya tienes estos mismos dibujos guardados como «${name}». Lo que cambia: ${
+        differs.includes("role") ? "el nombre y el cargo" : "el nombre"
+      }.`,
+    otherPersonHint: (name) =>
+      `Ya hay otra firma guardada con el mismo identificador interno, la de «${name}». No se puede reemplazar; puedes conservar ambas u omitir esta.`,
     replaceLoses: "Si reemplazas, se pierde alguna imagen que tienes ahora (la del archivo no la trae).",
+    replaceKeeps: "Se actualizan los datos del archivo. No se pierde ninguna imagen ni el cargo que ya tienes si el archivo no lo trae.",
+    decisionKeepExisting: "Conservar la que ya tienes",
     decisionGroup: (name) => `Qué hacer con la firma de ${name}`,
     decisionImport: "Importar",
     decisionReplace: "Reemplazar",
@@ -1860,6 +1885,7 @@ const es: SignStrings = {
       limit: "No cabe todo en Firmas guardadas. No se ha importado nada.",
       unavailable: "Este navegador no permite guardar firmas ahora mismo. No se ha importado nada.",
       invalid: "Alguna firma del archivo no es válida. No se ha importado nada.",
+      changed: "Esta firma cambió mientras decidías; revisa de nuevo. No se ha importado nada.",
     },
   },
 };
@@ -2541,6 +2567,8 @@ const en: SignStrings = {
     cropHelp:
       "Drag the corners to frame just the signature. With the keyboard, use the arrow keys (hold Shift for bigger steps).",
     cropAreaLabel: "Crop area over the original image",
+    cropValue: (crop) =>
+      `Crop: ${crop.left}% from the left and ${crop.top}% from the top, ${crop.width}% wide and ${crop.height}% tall.`,
     cropHandle: (corner) =>
       ({
         nw: "Top-left corner of the crop",
@@ -2680,18 +2708,27 @@ const en: SignStrings = {
     statusNew: "New",
     statusIdentical: "You already have it (identical)",
     statusDifferent: "Different",
+    statusSameDrawings: "Same drawings, different details",
     statusInvalid: "Cannot be imported",
     invalidReasons: {
       integrity: "The file does not match its fingerprint: it is damaged.",
       tooLarge: "The image is too large.",
-      invalidImage: "The image is not valid.",
+      invalidImage: "Invalid image: it is damaged or not a regular PNG.",
       invalidEntry: "The data of this signature is not valid.",
       duplicateId: "It is repeated in the file.",
     },
     contents: (hasSignature, hasInitials) =>
       hasSignature && hasInitials ? "Signature and initials" : hasSignature ? "Signature only" : hasInitials ? "Initials only" : "No images",
     differentHint: (name) => `You already have a signature for ${name} with a different image.`,
+    sameDrawingsHint: (name, differs) =>
+      `You already have these same drawings saved as “${name}”. What differs: ${
+        differs.includes("role") ? "the name and the role" : "the name"
+      }.`,
+    otherPersonHint: (name) =>
+      `Another saved signature, the one for “${name}”, already uses the same internal identifier. It cannot be replaced; you can keep both or skip this one.`,
     replaceLoses: "If you replace it, an image you have now is lost (the one in the file does not include it).",
+    replaceKeeps: "The details from the file are updated. No image is lost, and neither is the role you have now if the file does not include one.",
+    decisionKeepExisting: "Keep the one you have",
     decisionGroup: (name) => `What to do with the signature of ${name}`,
     decisionImport: "Import",
     decisionReplace: "Replace",
@@ -2709,6 +2746,7 @@ const en: SignStrings = {
       limit: "Not everything fits in Saved signatures. Nothing was imported.",
       unavailable: "This browser does not allow saving signatures right now. Nothing was imported.",
       invalid: "Some signature in the file is not valid. Nothing was imported.",
+      changed: "This signature changed while you were deciding; review it again. Nothing was imported.",
     },
   },
 };

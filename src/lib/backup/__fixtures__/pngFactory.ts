@@ -1,3 +1,4 @@
+import { deflateSync } from "node:zlib";
 import { crc32 } from "@/app/sign-pdf/signVault";
 
 /**
@@ -36,6 +37,96 @@ export function makePng(
   return out;
 }
 
+function chunk(type: string, data: Uint8Array): Uint8Array {
+  const out = new Uint8Array(12 + data.length);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, data.length);
+  for (let i = 0; i < 4; i += 1) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+/**
+ * PNG REAL (RGBA 8 bit, zlib de verdad, CRC de cada chunk): lo que pasa la guarda estricta de la importacion
+ * (`pngImportGuard`, D5) y se decodifica en cualquier motor. Determinista y distinto para cada `seed`.
+ */
+export function makeRealPng(opts: { width?: number; height?: number; seed?: number } = {}): Uint8Array {
+  const { width = 40, height = 20, seed = 0 } = opts;
+  const stride = 1 + width * 4;
+  const raw = new Uint8Array(stride * height);
+  for (let i = 0; i < raw.length; i += 1) raw[i] = i % stride === 0 ? 0 : (seed * 31 + i * 7 + 1) & 0xff;
+  const head = new Uint8Array(13);
+  const view = new DataView(head.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  head.set([8, 6, 0, 0, 0], 8);
+  const parts = [
+    new Uint8Array(PNG_HEAD),
+    chunk("IHDR", head),
+    chunk("IDAT", new Uint8Array(deflateSync(raw))),
+    chunk("IEND", new Uint8Array(0)),
+  ];
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+/** Inserta un chunk (con su CRC correcto) justo despues del IHDR de un PNG real. */
+export function pngWithChunk(png: Uint8Array, type: string, data: Uint8Array): Uint8Array {
+  const at = PNG_HEAD.length + 25; // firma + IHDR completo
+  const extra = chunk(type, data);
+  const out = new Uint8Array(png.length + extra.length);
+  out.set(png.subarray(0, at), 0);
+  out.set(extra, at);
+  out.set(png.subarray(at), at + extra.length);
+  return out;
+}
+
+/** Estropea los datos del IDAT y RECALCULA el CRC del chunk: la estructura sigue bien, lo que no se descomprime. */
+export function pngWithCorruptIdat(png: Uint8Array): Uint8Array {
+  const out = new Uint8Array(png);
+  const view = new DataView(out.buffer);
+  let pos = PNG_HEAD.length;
+  while (pos + 12 <= out.length) {
+    const length = view.getUint32(pos);
+    const type = String.fromCharCode(out[pos + 4], out[pos + 5], out[pos + 6], out[pos + 7]);
+    if (type === "IDAT") {
+      for (let i = pos + 8 + 4; i < pos + 8 + length - 8; i += 3) out[i] ^= 0xa5;
+      view.setUint32(pos + 8 + length, crc32(out.subarray(pos + 4, pos + 8 + length)));
+      return out;
+    }
+    pos += 12 + length;
+  }
+  throw new Error("sin IDAT");
+}
+
+/** PNG con IHDR de 4096x4096 (64 MB descomprimido) y un IDAT diminuto: la bomba de pixeles. */
+export function pngPixelBomb(): Uint8Array {
+  const head = new Uint8Array(13);
+  const view = new DataView(head.buffer);
+  view.setUint32(0, 4096);
+  view.setUint32(4, 4096);
+  head.set([8, 6, 0, 0, 0], 8);
+  const parts = [
+    new Uint8Array(PNG_HEAD),
+    chunk("IHDR", head),
+    chunk("IDAT", new Uint8Array(deflateSync(new Uint8Array(1)))),
+    chunk("IEND", new Uint8Array(0)),
+  ];
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
 export type TestImage = {
   png: Uint8Array;
   ratio: number;
@@ -44,8 +135,8 @@ export type TestImage = {
 };
 
 export function makeImage(
-  opts: { width?: number; height?: number; seed?: number; totalBytes?: number } = {},
+  opts: { width?: number; height?: number; seed?: number; totalBytes?: number; real?: boolean } = {},
 ): TestImage {
   const { width = 40, height = 20 } = opts;
-  return { png: makePng(opts), ratio: height / width, width, height };
+  return { png: opts.real ? makeRealPng(opts) : makePng(opts), ratio: height / width, width, height };
 }

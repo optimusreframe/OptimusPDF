@@ -6,6 +6,15 @@ describe("decisionOptions", () => {
     expect(decisionOptions("new")).toEqual(["import", "omit"]);
     expect(decisionOptions("different")).toEqual(["replace", "keepBoth", "omit"]);
   });
+  it("distinto de OTRA persona: sin «Reemplazar» (borraria su firma); mismos dibujos con otros datos: sin «Conservar ambos»", () => {
+    expect(decisionOptions("different", { canReplace: false })).toEqual(["keepBoth", "omit"]);
+    expect(decisionOptions("different", { canReplace: false, difference: "data" })).toEqual(["keepBoth", "omit"]);
+    expect(decisionOptions("different", { canReplace: true, difference: "data" })).toEqual(["replace", "omit"]);
+    expect(decisionOptions("different", { canReplace: true, difference: "images" })).toEqual(["replace", "keepBoth", "omit"]);
+    expect(decisionOptions("different", {})).toEqual(["replace", "keepBoth", "omit"]);
+    // lo nuevo nunca depende de esas banderas
+    expect(decisionOptions("new", { canReplace: false })).toEqual(["import", "omit"]);
+  });
   it("idéntico e invalido no ofrecen nada (se omiten)", () => {
     expect(decisionOptions("identical")).toEqual([]);
     expect(decisionOptions("invalid")).toEqual([]);
@@ -18,6 +27,7 @@ describe("describeApplyFailure / exportErrorKey", () => {
     expect(describeApplyFailure("unavailable")).toBe("unavailable");
     expect(describeApplyFailure("invalid")).toBe("invalid");
     expect(describeApplyFailure("blocked")).toBe("invalid");
+    expect(describeApplyFailure("changed")).toBe("changed");
   });
   it("cada fallo al exportar tiene su mensaje", () => {
     expect(exportErrorKey("empty")).toBe("exportEmpty");

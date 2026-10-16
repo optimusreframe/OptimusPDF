@@ -22,7 +22,7 @@ const CROSS = (process.env.PW_BROWSERS ?? "")
   .filter(Boolean);
 const wantsCross = (name: "webkit" | "webkit-mobile" | "webkit-ipad" | "firefox") => CROSS.includes("all") || CROSS.includes(name);
 const CROSS_SPECS =
-  /(pdf-pro-(foundation|viewer|viewer-damaged|pages|tools|export|export-persistent|modes-edit|modes-sign|create|journeys|unload|history-memory|memory|shared-content-edit)|pages-migration|pages-warnings|merge-pdf|split-pdf|organize-pdf|remove-extract-pages|edit-existing-text|edit-pdf-flow|edit-quality|edit-palette-reach|sign-quality|sign-multi|signature-font|sign-edit-summary|sign-upload-backup|sign-upload-a11y|exif-orientation|compress[\w-]*|protect-unlock|ocr-pdf|convert-out|image-conversion|a11y-sweep|tool-errors|focus-own-headers)\.spec\.ts$/;
+  /(pdf-pro-(foundation|viewer|viewer-damaged|pages|tools|export|export-persistent|modes-edit|modes-sign|create|journeys|unload|history-memory|memory|shared-content-edit)|pages-migration|pages-warnings|merge-pdf|split-pdf|organize-pdf|remove-extract-pages|edit-existing-text|edit-pdf-flow|edit-quality|edit-palette-reach|sign-quality|sign-multi|signature-font|sign-edit-summary|sign-upload-backup|sign-backup-merge|sign-upload-a11y|exif-orientation|compress[\w-]*|protect-unlock|ocr-pdf|convert-out|image-conversion|a11y-sweep|tool-errors|focus-own-headers)\.spec\.ts$/;
 /** scan-to-pdf depende de `--use-fake-device-for-media-stream` (solo Chromium). */
 const crossMatch = process.env.PW_CROSS_FULL ? /(?<!scan-to-pdf)\.spec\.ts$/ : CROSS_SPECS;
 /**

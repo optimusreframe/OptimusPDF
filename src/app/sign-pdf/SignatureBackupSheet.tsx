@@ -444,7 +444,18 @@ function RestoreBody({
     const outcome = await applyBackupImport(plan, decisions);
     if (!aliveRef.current) return;
     if (!outcome.ok) {
-      setError(copy.applyFailed[describeApplyFailure(outcome.reason)]);
+      const failure = describeApplyFailure(outcome.reason);
+      if (failure === "changed" && file) {
+        // Otra pestaña cambio lo que se iba a reemplazar: nada se escribio; se vuelve a leer el archivo contra el baul
+        // de AHORA y se muestra la vista previa nueva (con las decisiones sugeridas) junto al aviso.
+        const fresh = await readSignaturesBackup(file, password === "" ? undefined : password);
+        if (!aliveRef.current) return;
+        if (fresh.ok) {
+          setPlan(fresh.plan);
+          setDecisions(defaultSignatureDecisions(fresh.plan));
+        }
+      }
+      setError(copy.applyFailed[failure]);
       setPhase("preview");
       return;
     }
@@ -614,20 +625,23 @@ function ItemCard({
   disabled: boolean;
   onDecision: (decision: SignatureDecision) => void;
 }) {
+  const sameDrawings = item.status === "different" && item.difference === "data";
   const statusLabel =
     item.status === "new"
       ? copy.statusNew
       : item.status === "identical"
         ? copy.statusIdentical
         : item.status === "different"
-          ? copy.statusDifferent
+          ? sameDrawings
+            ? copy.statusSameDrawings
+            : copy.statusDifferent
           : copy.statusInvalid;
-  const options = decisionOptions(item.status);
+  const options = decisionOptions(item.status, item);
   const labels: Record<SignatureDecision, string> = {
     import: copy.decisionImport,
     replace: copy.decisionReplace,
     keepBoth: copy.decisionKeepBoth,
-    omit: copy.decisionOmit,
+    omit: sameDrawings ? copy.decisionKeepExisting : copy.decisionOmit,
   };
   return (
     <div className="surface-card rounded-ios-sm space-y-2 p-3" data-backup-item={item.id} data-status={item.status}>
@@ -654,7 +668,13 @@ function ItemCard({
         <p className="text-footnote text-destructive-text">{copy.invalidReasons[item.reason]}</p>
       ) : null}
       {item.status === "different" && item.conflictWith ? (
-        <p className="text-footnote text-muted-foreground">{copy.differentHint(item.conflictWith.signerName)}</p>
+        <p className="text-footnote text-muted-foreground" data-backup-hint>
+          {item.canReplace === false
+            ? copy.otherPersonHint(item.conflictWith.signerName)
+            : sameDrawings
+              ? copy.sameDrawingsHint(item.conflictWith.signerName, item.differs ?? ["name"])
+              : copy.differentHint(item.conflictWith.signerName)}
+        </p>
       ) : null}
       {options.length > 0 ? (
         <div role="radiogroup" aria-label={copy.decisionGroup(item.signerName)} className="flex flex-wrap gap-1.5">
@@ -682,7 +702,9 @@ function ItemCard({
           })}
         </div>
       ) : null}
-      {item.status === "different" && decision === "replace" && item.supersedes === false ? (
+      {item.status === "different" && decision === "replace" && sameDrawings ? (
+        <p className="text-footnote text-muted-foreground">{copy.replaceKeeps}</p>
+      ) : item.status === "different" && decision === "replace" && item.supersedes === false ? (
         <p className="text-footnote text-muted-foreground">{copy.replaceLoses}</p>
       ) : null}
     </div>

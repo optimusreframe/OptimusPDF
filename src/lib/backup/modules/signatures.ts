@@ -159,7 +159,11 @@ export type SignatureInvalidReason =
 export type SignatureDecision = "import" | "replace" | "keepBoth" | "omit";
 
 export type SignatureImportItem = {
-  /** Id dentro del paquete (o `invalid-N` si ni siquiera tenia uno valido). */
+  /**
+   * Id dentro del paquete. Un elemento sin id valido recibe `#invalid-N` y un id repetido `<id>#N`: el `#` no puede
+   * aparecer en un id real (`ID_PATTERN`), asi que ningun id sintetico choca con otro (ni con uno de verdad) y la
+   * interfaz puede usarlo como clave.
+   */
   id: string;
   status: SignatureItemStatus;
   reason?: SignatureInvalidReason;
@@ -173,8 +177,23 @@ export type SignatureImportItem = {
   hasInitials: boolean;
   /** Suma de bytes de sus PNG. */
   bytes: number;
-  /** `different`: la entrada del baul a la que «Reemplazar» sustituiria. */
-  conflictWith?: { id: string; signerName: string; bytes: number };
+  /**
+   * `different`: la entrada del baul con la que choca (a la que «Reemplazar» sustituiria). `snapshot` es la entrada TAL
+   * COMO ESTABA en la vista previa: al reemplazar se comprueba, dentro de la transaccion, que sigue igual.
+   */
+  conflictWith?: { id: string; signerName: string; role?: string; bytes: number; snapshot: VaultEntry };
+  /**
+   * `different`: en que se distingue. `images` = otras imagenes; `data` = LOS MISMOS dibujos y solo cambian datos del
+   * firmante (nombre/cargo), p. ej. un firmante renombrado en este baul despues de exportar.
+   */
+  difference?: "images" | "data";
+  /** `difference === "data"`: que datos cambiarian. */
+  differs?: ("name" | "role")[];
+  /**
+   * `different`: `false` si la entrada del baul es de OTRA persona (mismo id interno, otro firmante, otras imagenes):
+   * «Reemplazar» no se ofrece (borraria la firma de alguien distinto); solo conservar ambos u omitir.
+   */
+  canReplace?: boolean;
   /** `different`: el elemento trae todo lo que tiene la entrada del baul (reemplazar no pierde imagenes). */
   supersedes?: boolean;
   /** Lo que se escribiria (solo si `status !== "invalid"`). */
@@ -309,9 +328,20 @@ function emptyPlan(
  * hash), «Distinto» (hay algo del mismo firmante / id con otras imagenes) o
  * `invalid` (aislado, con su motivo).
  */
+export type PlanOptions = {
+  /**
+   * Comprobacion EXTRA de cada PNG (tras los validadores del baul): `false` = imagen no valida. Es la puerta del
+   * endurecimiento de la importacion (`validatePngForImport`: decodifica de verdad, rechaza APNG, texto enorme y bombas
+   * de pixeles). La interfaz (`backupFlow.readSignaturesBackup`) siempre la pasa; sin ella solo valen los validadores
+   * del baul (los paquetes «dorados» y las pruebas con PNG sinteticos).
+   */
+  validateImage?: (png: Uint8Array) => Promise<boolean>;
+};
+
 export async function planSignaturesImport(
   read: PackageReadResult,
   currentVault: readonly VaultEntry[],
+  options: PlanOptions = {},
 ): Promise<ImportPlan> {
   const vault = currentVault.filter((entry) => isStoredEntry(entry));
   const data = read.modules.find((m) => m.name === SIGNATURES_MODULE);
@@ -342,7 +372,7 @@ export async function planSignaturesImport(
   const seenIds = new Set<string>();
 
   for (const [position, raw] of (rawIndex as unknown[]).entries()) {
-    const placeholderId = `invalid-${position + 1}`;
+    const placeholderId = `#invalid-${position + 1}`;
     if (!isRecord(raw)) {
       plan.items.push({ ...blankItem(placeholderId, ""), reason: "invalidEntry" });
       continue;
@@ -413,6 +443,10 @@ export async function planSignaturesImport(
         failure = parsed.reason;
         break;
       }
+      if (options.validateImage && !(await options.validateImage(file.bytes))) {
+        failure = "invalidImage";
+        break;
+      }
       images[kind] = parsed.image;
       hashes[kind] = file.sha256;
     }
@@ -455,23 +489,44 @@ export async function planSignaturesImport(
     if (identical) {
       item.status = "identical";
     } else {
+      // El destino de «Reemplazar»: la entrada con el MISMO id solo si es la misma persona o el mismo dibujo con otro
+      // nombre (firmante renombrado). Un id que coincide con el de OTRA persona y otras imagenes es solo una
+      // coincidencia del identificador interno: esa entrada no se ofrece para sustituir.
       const sameId = vault.find((existing) => existing.id === id);
+      const sameIdHashes = sameId ? (vaultHashes.get(sameId.id) as ImageHashes) : null;
+      const renamed =
+        sameId !== undefined &&
+        sameId.signerKey !== entry.signerKey &&
+        sameIdHashes !== null &&
+        hashCovers(sameIdHashes, hashes);
+      const sameIdIsTarget = sameId !== undefined && (sameId.signerKey === entry.signerKey || renamed);
       const target =
-        sameId ??
+        (sameIdIsTarget ? sameId : undefined) ??
         sameSigner.find((existing) =>
           sharesHash(vaultHashes.get(existing.id) as ImageHashes, hashes),
         ) ??
         sameSigner
           .slice()
-          .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))[0];
+          .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))[0] ??
+        sameId;
       if (target) {
+        const sameDrawings = renamed && target === sameId;
         item.status = "different";
         item.conflictWith = {
           id: target.id,
           signerName: target.signerName,
+          ...(target.role ? { role: target.role } : {}),
           bytes: entryBytes(target),
+          snapshot: target,
         };
-        item.supersedes = hashCovers(hashes, vaultHashes.get(target.id) as ImageHashes);
+        item.canReplace = target.signerKey === entry.signerKey || sameDrawings;
+        item.difference = sameDrawings ? "data" : "images";
+        if (sameDrawings) {
+          item.differs = ["name", ...(role && role !== target.role ? (["role"] as const) : [])];
+          item.supersedes = true;
+        } else {
+          item.supersedes = hashCovers(hashes, vaultHashes.get(target.id) as ImageHashes);
+        }
       }
     }
     plan.items.push(item);
@@ -485,13 +540,23 @@ export async function planSignaturesImport(
  * Decision sugerida (la UI puede mostrarla preseleccionada): lo nuevo se
  * importa; lo distinto se REEMPLAZA solo si el elemento trae todo lo que ya
  * hay (no se pierde ninguna imagen) y si no se CONSERVAN AMBOS; lo idéntico
- * y lo invalido se omiten.
+ * y lo invalido se omiten. NUNCA se pierde un dato por defecto: si solo
+ * cambian datos del firmante con los mismos dibujos («Mismos dibujos, datos
+ * distintos») se conserva la que ya hay, y una entrada de OTRA persona jamas
+ * se sustituye.
  */
 export function defaultSignatureDecisions(plan: ImportPlan): Record<string, SignatureDecision> {
   const out: Record<string, SignatureDecision> = {};
   for (const item of plan.items) {
     if (item.status === "new") out[item.id] = "import";
-    else if (item.status === "different") out[item.id] = item.supersedes ? "replace" : "keepBoth";
+    else if (item.status === "different") {
+      out[item.id] =
+        item.difference === "data"
+          ? "omit"
+          : item.canReplace !== false && item.supersedes
+            ? "replace"
+            : "keepBoth";
+    }
     else out[item.id] = "omit";
   }
   return out;
@@ -519,7 +584,12 @@ function approvedItems(
       out.push({ item, decision });
     } else if (item.status === "different" && decision === "keepBoth") {
       out.push({ item, decision });
-    } else if (item.status === "different" && decision === "replace" && item.conflictWith) {
+    } else if (
+      item.status === "different" &&
+      decision === "replace" &&
+      item.conflictWith &&
+      item.canReplace !== false
+    ) {
       // Un destino solo se sustituye una vez (el segundo se queda sin aprobar).
       if (claimedTargets.has(item.conflictWith.id)) continue;
       claimedTargets.add(item.conflictWith.id);
@@ -576,7 +646,7 @@ export type ApplySignaturesResult =
   | { ok: true; written: number; replaced: number; skipped: number }
   | {
       ok: false;
-      reason: "limit" | "unavailable" | "invalid" | "blocked";
+      reason: "limit" | "unavailable" | "invalid" | "blocked" | "changed";
       /** `limit`: cuantos de los aprobados caben. */
       fits?: number;
       wanted?: number;
@@ -595,6 +665,30 @@ function revalidate(entry: VaultEntry): boolean {
     }
   }
   return true;
+}
+
+function withRole(entry: VaultEntry, role: string | undefined): VaultEntry {
+  const { role: _previous, ...rest } = entry;
+  void _previous;
+  return role ? { ...rest, role } : rest;
+}
+
+/**
+ * Lo que se escribe al REEMPLAZAR. Nunca se pierde un dato que el paquete no trae: sin cargo en el paquete se conserva
+ * el de la entrada que se sustituye. Con «mismos dibujos, datos distintos» se actualizan solo nombre (y cargo si el
+ * paquete lo trae) y la entrada conserva sus imagenes, sus fechas y su origen.
+ */
+function replacementFor(item: SignatureImportItem): VaultEntry {
+  const entry = item.entry as VaultEntry;
+  const target = (item.conflictWith as NonNullable<SignatureImportItem["conflictWith"]>).snapshot;
+  const role = entry.role ?? target.role;
+  if (item.difference === "data") {
+    return withRole(
+      { ...target, signerName: entry.signerName, signerKey: entry.signerKey },
+      role,
+    );
+  }
+  return withRole(entry, role);
 }
 
 /**
@@ -620,16 +714,22 @@ export async function applySignaturesImport(
   if (!check.ok) {
     return { ok: false, reason: "limit", fits: check.fits, wanted: check.wanted };
   }
+  const replacing = approved.filter(
+    (a): a is Approved & { item: SignatureImportItem & { conflictWith: NonNullable<SignatureImportItem["conflictWith"]> } } =>
+      a.decision === "replace" && a.item.conflictWith !== undefined,
+  );
   const result = await commitVaultImport({
-    puts: approved.map(({ item }) => item.entry as VaultEntry),
-    deleteIds: approved.flatMap(({ item, decision }) =>
-      decision === "replace" && item.conflictWith ? [item.conflictWith.id] : [],
+    puts: approved.map(({ item, decision }) =>
+      decision === "replace" ? replacementFor(item) : (item.entry as VaultEntry),
     ),
+    deleteIds: replacing.map(({ item }) => item.conflictWith.id),
+    expectUnchanged: replacing.map(({ item }) => item.conflictWith.snapshot),
   });
   if (!result.ok) {
     if (result.reason === "limit") {
       return { ok: false, reason: "limit", fits: 0, wanted: check.wanted };
     }
+    if (result.reason === "changed") return { ok: false, reason: "changed" };
     return {
       ok: false,
       reason: result.reason === "unavailable" ? "unavailable" : "invalid",

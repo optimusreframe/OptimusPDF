@@ -21,6 +21,7 @@ import {
   type PackageMetaValue,
   type PackageModuleData,
   type PackageModuleInput,
+  type PackageModuleSpec,
   type PackageReadResult,
   type PackageWarning,
 } from "@/lib/backup/types";
@@ -65,6 +66,20 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const MAX_META_KEYS = 8;
 const MAX_META_STRING = 100;
 const MAX_SCHEMA_VERSION = 1_000_000;
+
+/**
+ * Spec de un modulo SOLO si el registro lo tiene como propiedad PROPIA. Un nombre
+ * que viene del archivo (`constructor`, `toString`, `hasOwnProperty`...) cumple
+ * `MODULE_NAME` y, con `registry[name]`, devolveria algo heredado de
+ * `Object.prototype` (una funcion sin `folders`) y haria saltar un `TypeError`.
+ */
+function specOf(registry: ModuleRegistry, name: string): PackageModuleSpec | undefined {
+  return Object.prototype.hasOwnProperty.call(registry, name) ? registry[name] : undefined;
+}
+
+function hasOwn(target: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(target, key);
+}
 
 function isBytes(value: unknown): value is Uint8Array {
   return Object.prototype.toString.call(value) === "[object Uint8Array]";
@@ -113,7 +128,7 @@ function validateModuleInput(
   if (!isRecord(input) || typeof input.name !== "string" || !MODULE_NAME.test(input.name)) {
     throw new PackageError("invalidModule");
   }
-  const spec = registry[input.name];
+  const spec = specOf(registry, input.name);
   if (
     !spec ||
     !Number.isInteger(input.schemaVersion) ||
@@ -302,7 +317,7 @@ async function openZip(bytes: Uint8Array): Promise<OpenedZip> {
     }
   }
   for (const name of byName.keys()) {
-    if (!(name in zip.files)) throw new PackageError("badZip");
+    if (!hasOwn(zip.files, name)) throw new PackageError("badZip");
   }
   return { zip, entries, byName };
 }
@@ -333,7 +348,7 @@ async function readCapped(
   budget: InflateBudget,
 ): Promise<Capped> {
   if (entry.uncompressedSize > cap) return { ok: false, status: "tooLarge" };
-  const object = zip.files[entry.name];
+  const object = hasOwn(zip.files, entry.name) ? zip.files[entry.name] : undefined;
   const internalStream = (object as unknown as { internalStream?: (t: string) => StreamLike })
     ?.internalStream;
   if (!object || typeof internalStream !== "function") {
@@ -451,12 +466,12 @@ function parseManifest(raw: unknown): ParsedManifest {
   }
 
   if (!isRecord(raw.modules)) throw new PackageError("invalidManifest");
-  const moduleKeys = Object.keys(raw.modules);
-  if (moduleKeys.length > PACKAGE_LIMITS.maxModules) throw new PackageError("invalidManifest");
+  // `Object.entries` (no `raw.modules[clave]`): las claves vienen del archivo.
+  const moduleEntries = Object.entries(raw.modules);
+  if (moduleEntries.length > PACKAGE_LIMITS.maxModules) throw new PackageError("invalidManifest");
   const modules = new Map<string, ManifestModule>();
   const skippedModules: string[] = [];
-  for (const key of moduleKeys) {
-    const value = raw.modules[key];
+  for (const [key, value] of moduleEntries) {
     if (!MODULE_NAME.test(key)) {
       skippedModules.push(key.slice(0, 40));
       continue;
@@ -607,7 +622,7 @@ export async function readPackage(
   const folderOwner = new Map<string, string>();
   const moduleData = new Map<string, PackageModuleData>();
   for (const [name, declared] of manifest.modules) {
-    const spec = registry[name];
+    const spec = specOf(registry, name);
     if (!spec) {
       warnings.push({ code: "unknownModule", module: name });
       continue;
@@ -636,7 +651,7 @@ export async function readPackage(
     }
     // Modulo mas nuevo: no se lee nada de el (ni se infla).
     if (data.status === "newerVersion") continue;
-    const spec = registry[owner];
+    const spec = specOf(registry, owner) as PackageModuleSpec;
     const entry = opened.byName.get(item.path);
     const record = (status: PackageFileStatus, fileBytes: Uint8Array | null) => {
       const read: PackageFileRead = {

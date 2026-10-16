@@ -1,5 +1,6 @@
 import { listVault } from "@/app/sign-pdf/signVault";
 import { passwordBoxAvailable } from "@/lib/crypto/passwordBox";
+import { validatePngForImport } from "@/lib/image/pngImportGuard";
 import {
   PackageError,
   buildPackage,
@@ -240,7 +241,10 @@ export async function readSignaturesBackup(
   try {
     const read = await readPackage(file, password === "" ? undefined : password);
     const vault = await listVault();
-    const plan = await planSignaturesImport(read, vault.entries);
+    // Cada PNG, ademas de los validadores del baul, se decodifica de verdad (APNG, IDAT corrupto, texto enorme, bombas).
+    const plan = await planSignaturesImport(read, vault.entries, {
+      validateImage: async (png) => (await validatePngForImport(png)).ok,
+    });
     if (plan.state === "newerVersion") return { ok: false, reason: "newer" };
     if (plan.state === "damaged") return { ok: false, reason: "damaged" };
     if (plan.state === "absent") return { ok: false, reason: "noSignatures" };
@@ -261,7 +265,7 @@ export type ImportSummary = {
 
 export type ApplyBackupResult =
   | { ok: true; summary: ImportSummary }
-  | { ok: false; reason: "limit" | "unavailable" | "invalid" | "blocked"; fits?: number; wanted?: number };
+  | { ok: false; reason: "limit" | "unavailable" | "invalid" | "blocked" | "changed"; fits?: number; wanted?: number };
 
 /** Aplica lo aprobado (atomico: todo o nada) y resume «N importadas, M omitidas». */
 export async function applyBackupImport(
