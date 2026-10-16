@@ -359,7 +359,9 @@ describe("paso 3: guardar en «Firmas guardadas»", () => {
     if (kind === "initials") fireEvent.click(screen.getByRole("radio", { name: copy.kindInitials }));
     await previewReady();
     fireEvent.click(acceptButton());
-    await screen.findByRole("heading", { name: copy.summaryTitle });
+    const heading = await screen.findByRole("heading", { name: copy.summaryTitle });
+    // El foco pasa al titulo en un efecto posterior: esperarlo evita que robe el foco a un campo recien enfocado.
+    await waitFor(() => expect(document.activeElement).toBe(heading));
   }
 
   it("firma subida -> el nombre es obligatorio; con nombre queda guardada con origin «uploaded», sin documento de origen y con el PNG limpio", async () => {
