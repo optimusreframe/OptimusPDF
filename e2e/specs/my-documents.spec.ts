@@ -188,13 +188,13 @@ test.describe("Mis documentos · flujo", () => {
 
       // «Firmar»: deja el traspaso y navega.
       await card(page, CONTRACTS[0].name).getByRole("button", { name: /^Firmar/ }).click();
-      await expect(page).toHaveURL(/\/sign-pdf$/);
+      await expect(page).toHaveURL(/\/sign-pdf(\?.*)?$/);
       expect(await handoffs(page)).toMatchObject([{ documentIds: [ids[0]], mode: "sign" }]);
 
       // «Configurar plantilla» del tercero.
       await openDocuments(page);
       await card(page, CONTRACTS[2].name).getByRole("button", { name: /^Configurar plantilla/ }).click();
-      await expect(page).toHaveURL(/\/sign-pdf$/);
+      await expect(page).toHaveURL(/\/sign-pdf(\?.*)?$/);
       expect(await handoffs(page)).toMatchObject([{ documentIds: [ids[2]], mode: "configure" }]);
 
       // «Firmar seleccionados» con los 3 (orden de la lista: más reciente primero).
@@ -202,7 +202,7 @@ test.describe("Mis documentos · flujo", () => {
       for (const contract of CONTRACTS) await card(page, contract.name).getByRole("checkbox").check();
       await expect(page.locator("[data-documents-selection]")).toContainText("3 seleccionados");
       await page.getByRole("button", { name: "Firmar seleccionados (3)" }).click();
-      await expect(page).toHaveURL(/\/sign-pdf$/);
+      await expect(page).toHaveURL(/\/sign-pdf(\?.*)?$/);
       const [handoff] = await handoffs(page);
       expect(handoff.mode).toBe("sign");
       expect([...handoff.documentIds].sort()).toEqual([...ids].sort());
@@ -290,7 +290,7 @@ test.describe("Mis documentos · flujo", () => {
       });
       expect(order).toBe(true);
       await section.getByRole("button", { name: new RegExp(`^Firmar ${CONTRACTS[2].name}$`) }).click();
-      await expect(page).toHaveURL(/\/sign-pdf$/);
+      await expect(page).toHaveURL(/\/sign-pdf(\?.*)?$/);
       expect(await handoffs(page)).toMatchObject([{ documentIds: [ids[2]], mode: "sign" }]);
       await page.goto("/");
       await page.locator("[data-home-documents]").getByRole("link", { name: "Ver todos" }).click();
@@ -365,7 +365,7 @@ test.describe("Recientes unificado", () => {
       await expect(rows.filter({ hasText: "unido.pdf" }).getByRole("button", { name: "Abrir de nuevo" })).toHaveCount(0);
       await expect(rows.filter({ hasText: "unido.pdf" }).getByRole("link", { name: "Abrir herramienta" })).toBeVisible();
       await reopen.click();
-      await expect(page).toHaveURL(/\/sign-pdf$/);
+      await expect(page).toHaveURL(/\/sign-pdf(\?.*)?$/);
       expect(await handoffs(page)).toMatchObject([{ documentIds: [ids[0]], mode: "sign" }]);
 
       // «Borrar» por fila.
