@@ -33,7 +33,8 @@ export function RecentView() {
   const [confirmAll, setConfirmAll] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
-  const refocusHistory = useRef(false);
+  /** Cuantas filas tenia el historial al borrar una: el foco se devuelve cuando el historial ya tiene menos (y no antes). */
+  const refocusHistory = useRef<number | null>(null);
 
   // El historial espera a haber leido los borradores: antes no se sabe cuales de sus entradas ya salen en «Sin terminar»
   // (apareceria y desapareceria una fila) ni si hay algo que contar (no se anuncia «Aun no has procesado nada» a destiempo).
@@ -46,14 +47,17 @@ export function RecentView() {
   const showEmpty = unfinished.loaded && history.length === 0 && unfinished.items.length === 0;
 
   useEffect(() => {
-    if (!refocusHistory.current) return;
-    refocusHistory.current = false;
+    const before = refocusHistory.current;
+    // La fila se quita al llegar el aviso del almacen, que puede tardar mas que otros repintados (p. ej. la biblioteca al
+    // cargar): enfocar antes dejaria el foco en una fila que acaba de desaparecer.
+    if (before === null || historyRows.length >= before) return;
+    refocusHistory.current = null;
     const target = historyRef.current?.querySelector<HTMLElement>("a, button") ?? headingRef.current;
     target?.focus({ preventScroll: true });
   }, [historyRows]);
 
   async function clearEverything() {
-    refocusHistory.current = false;
+    refocusHistory.current = null;
     await Promise.all(unfinished.items.map((item) => discardItem(item)));
     clearRecentEntries();
     await unfinished.refresh();
@@ -111,7 +115,7 @@ export function RecentView() {
           rows={historyRows}
           documents={library.documents}
           onRemoved={() => {
-            refocusHistory.current = true;
+            refocusHistory.current = historyRows.length;
             setAnnouncement(t.recent.removed);
           }}
         >

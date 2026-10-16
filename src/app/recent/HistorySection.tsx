@@ -104,8 +104,9 @@ export function HistorySection({
                     type="button"
                     aria-label={t.recent.removeRow.replace("{name}", row.fileName)}
                     onClick={() => {
-                      if (row.entryId) removeRecentEntry(row.entryId);
+                      // Primero se pide devolver el foco: al quitar la fila el historial se repinta y el efecto ya debe saberlo.
                       onRemoved();
+                      if (row.entryId) removeRecentEntry(row.entryId);
                     }}
                     className={`${HIT_44} flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-destructive-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal`}
                   >
