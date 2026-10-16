@@ -3,11 +3,10 @@
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
 import { FileText, Trash2 } from "lucide-react";
-import { deleteEditDraft } from "@/app/edit-pdf/editDrafts";
-import { deleteProDraft } from "@/app/pdf-pro/proDrafts";
 import { useDraftThumbnails } from "@/app/pdf-pro/session/useDraftThumbnails";
-import type { UnfinishedItem } from "@/app/recent/unfinishedWork";
-import { deleteDraft, deleteSessionDraft } from "@/app/sign-pdf/signDrafts";
+import { discardItem } from "@/app/recent/discardDraft";
+import type { RecentRow } from "@/app/recent/recentIndex";
+import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { HIT_44 } from "@/components/ui/touchTarget";
@@ -17,36 +16,19 @@ import { formatDateTime } from "@/lib/formatDate";
 /** Miniaturas: solo de las primeras (leer cada borrador entero para dibujar un icono no compensa en una lista larga). */
 const THUMBNAIL_LIMIT = 4;
 
-/** Borra el borrador real de la herramienta (bytes y metadatos). Ninguna de estas funciones lanza. */
-async function discardItem(item: UnfinishedItem): Promise<void> {
-  switch (item.target.kind) {
-    case "session":
-      await deleteSessionDraft(item.target.id);
-      return;
-    case "sign":
-      await deleteDraft(item.target.id);
-      return;
-    case "edit":
-      await deleteEditDraft(item.target.id);
-      return;
-    case "pro":
-      await deleteProDraft(item.target.id);
-      return;
-  }
-}
-
 /**
  * «Sin terminar»: los trabajos a medias que las herramientas guardaron como borrador en este navegador. Cada fila trae
  * «Continuar» (la herramienta restaura el trabajo desde `?resume=`) y «Descartar» (con confirmacion: borra el borrador).
  * Tras descartar, el foco pasa al primer control de la lista o, si ya no queda ninguna fila, a `fallbackFocus`.
  */
 export function UnfinishedSection({
-  items,
+  rows,
   refresh,
   onDiscarded,
   fallbackFocus,
 }: {
-  items: readonly UnfinishedItem[];
+  /** Filas de borradores del indice unificado (`buildRecentRows`), ya ordenadas por fecha. */
+  rows: readonly RecentRow[];
   refresh: () => Promise<void>;
   onDiscarded: () => void;
   fallbackFocus: RefObject<HTMLElement | null>;
@@ -56,6 +38,8 @@ export function UnfinishedSection({
   const listRef = useRef<HTMLUListElement>(null);
   const refocusRef = useRef(false);
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
+  const items = useMemo(() => rows.flatMap((row) => (row.draft ? [row.draft] : [])), [rows]);
+  const hrefs = useMemo(() => new Map(rows.map((row) => [row.draft?.key, row.continueHref])), [rows]);
   const proDrafts = useMemo(
     () => items.flatMap((item) => (item.pro ? [item.pro] : [])).slice(0, THUMBNAIL_LIMIT),
     [items],
@@ -116,20 +100,27 @@ export function UnfinishedSection({
                   </span>
                 )}
                 <div id={infoId} className="min-w-0 flex-1 basis-48">
-                  <p className="truncate text-subheadline font-semibold text-foreground" title={item.fileName}>
-                    {item.fileName}
+                  <p className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-subheadline font-semibold text-foreground" title={item.fileName}>
+                      {item.fileName}
+                    </span>
+                    <Badge variant="signal" className="shrink-0" data-recent-status="unfinished">
+                      {t.recent.statusUnfinished}
+                    </Badge>
                   </p>
                   <p className="text-caption text-muted-foreground">{meta}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <Link
-                    href={item.href}
-                    prefetch={false}
-                    aria-describedby={infoId}
-                    className={buttonClasses("secondary", "md")}
-                  >
-                    {t.common.continueLabel}
-                  </Link>
+                  {hrefs.get(item.key) ? (
+                    <Link
+                      href={hrefs.get(item.key)!}
+                      prefetch={false}
+                      aria-describedby={infoId}
+                      className={buttonClasses("secondary", "md")}
+                    >
+                      {t.common.continueLabel}
+                    </Link>
+                  ) : null}
                   <button
                     type="button"
                     aria-label={t.recent.discard.replace("{name}", item.fileName)}

@@ -22,6 +22,8 @@ import {
   MAX_DOCUMENT_BYTES,
   MAX_TOTAL_BYTES,
 } from "@/app/sign-pdf/signLimits";
+import { blockGroups } from "@/app/sign-pdf/assignment";
+import { DEFAULT_COPIES, isValidCopies, normalizeCopies } from "@/lib/pdf/signCopies";
 
 /**
  * Configuracion de firma exportable/importable: la disposicion de
@@ -43,6 +45,13 @@ const MANIFEST_FILENAME = "manifest.json";
 const CONFIG_VERSION = 1;
 /** Version de la configuracion con VARIOS documentos (`documents[]`). */
 export const CONFIG_VERSION_MULTI = 2;
+/**
+ * Version 3 (Firma agil, U1.1): la v2 mas las COPIAS de cada documento (`documents[].copies`, siempre presente) y el
+ * grupo de cada bloque (`blocks[].group`, y `groupName` si tiene nombre propio). Se ESCRIBE solo cuando hay algo que la
+ * v1/v2 no sabe decir (alguna copia o algun nombre de grupo); si no, se escribe el formato de siempre, que cualquier
+ * version anterior de la herramienta sigue abriendo. Se LEE siempre, igual que la v1 y la v2.
+ */
+export const CONFIG_VERSION_GROUPS = 3;
 
 /** Nombre del PDF dentro del zip: fijo, no depende del nombre real del archivo. */
 const PDF_ENTRY_NAME = "documento.pdf";
@@ -289,6 +298,10 @@ export type SignConfigBlock = {
   /** Ids de documento del propio manifiesto (`documents[].id`). */
   appliesTo: string[];
   auto: boolean;
+  /** v3: letra del grupo de firma del firmante («A», «B»...), la que da `blockGroups`. Informativa: se vuelve a derivar. */
+  group?: string;
+  /** v3: nombre visible del grupo si el usuario le puso uno propio. */
+  groupName?: string;
 };
 
 export type SignConfigDocument = {
@@ -301,6 +314,8 @@ export type SignConfigDocument = {
   fields: SignatureField[];
   textFields: DetectedField[];
   textValues: Record<string, string>;
+  /** v3: copias que se entregan (1..5). Ausente en la v2 (= 1). */
+  copies?: number;
 };
 
 export type SignConfigManifestV2 = {
@@ -312,6 +327,11 @@ export type SignConfigManifestV2 = {
   documents: SignConfigDocument[];
 };
 
+/** v3: igual que la v2, con `copies` en cada documento y `group` en los bloques. */
+export type SignConfigManifestV3 = Omit<SignConfigManifestV2, "version"> & {
+  version: 3;
+};
+
 /** Entrada del zip del documento `index` (0-based): `documentos/01.pdf`. */
 export function configDocumentEntry(index: number): string {
   return `documentos/${String(index + 1).padStart(2, "0")}.pdf`;
@@ -319,26 +339,46 @@ export function configDocumentEntry(index: number): string {
 
 const MANIFEST_TEXT_LIMIT = 8 * 1024 * 1024;
 const DOCUMENT_NAME_MAX = 255;
+/** Nombre visible de un grupo: corto, como el de un firmante. */
+const GROUP_NAME_MAX = 60;
+/** Letra del grupo: `A`..`Z`, y `AA`... si alguna vez hiciera falta. */
+const GROUP_ID_PATTERN = /^[A-Z]{1,3}$/;
 
-function isValidConfigBlock(value: unknown): value is SignConfigBlock {
+function isValidConfigBlock(value: unknown, withGroups = false): value is SignConfigBlock {
   if (typeof value !== "object" || value === null) return false;
   const block = value as Record<string, unknown>;
+  if (
+    !(
+      typeof block.id === "string" &&
+      typeof block.signerId === "string" &&
+      typeof block.auto === "boolean" &&
+      Array.isArray(block.appliesTo) &&
+      block.appliesTo.length > 0 &&
+      block.appliesTo.every((id) => typeof id === "string")
+    )
+  ) {
+    return false;
+  }
+  // Los campos de grupo solo se leen en la v3; en la v2 no existen y, como siempre, lo desconocido se ignora.
+  if (!withGroups) return true;
+  if (block.group !== undefined && !(typeof block.group === "string" && GROUP_ID_PATTERN.test(block.group))) {
+    return false;
+  }
   return (
-    typeof block.id === "string" &&
-    typeof block.signerId === "string" &&
-    typeof block.auto === "boolean" &&
-    Array.isArray(block.appliesTo) &&
-    block.appliesTo.length > 0 &&
-    block.appliesTo.every((id) => typeof id === "string")
+    block.groupName === undefined ||
+    (typeof block.groupName === "string" && block.groupName.length <= GROUP_NAME_MAX)
   );
 }
 
 function isValidConfigDocument(
   value: unknown,
   index: number,
+  withCopies = false,
 ): value is SignConfigDocument {
   if (typeof value !== "object" || value === null) return false;
   const doc = value as Record<string, unknown>;
+  // `copies` es obligatoria en la v3 (es lo que distingue una v3 de una v2 con la version cambiada); en la v2 no existe.
+  if (withCopies && !isValidCopies(doc.copies)) return false;
   return (
     typeof doc.id === "string" &&
     doc.entry === configDocumentEntry(index) &&
@@ -363,9 +403,24 @@ function isValidConfigDocument(
 export function isSignConfigManifestV2(
   value: unknown,
 ): value is SignConfigManifestV2 {
+  return isMultiManifest(value, CONFIG_VERSION_MULTI, false);
+}
+
+/**
+ * Type guard de la configuracion v3: lo mismo que la v2 y ademas `copies` valida (1..5) en TODOS los documentos y, si un
+ * bloque trae `group`, una letra de grupo (`groupName`: texto corto). Una v2 con la version cambiada a 3 NO pasa (le falta
+ * `copies`): una version que esta herramienta no entiende se rechaza, no se lee a medias.
+ */
+export function isSignConfigManifestV3(
+  value: unknown,
+): value is SignConfigManifestV3 {
+  return isMultiManifest(value, CONFIG_VERSION_GROUPS, true);
+}
+
+function isMultiManifest(value: unknown, version: number, v3: boolean): boolean {
   if (typeof value !== "object" || value === null) return false;
   const manifest = value as Record<string, unknown>;
-  if (manifest.version !== CONFIG_VERSION_MULTI) return false;
+  if (manifest.version !== version) return false;
   if (manifest.mode !== "single" && manifest.mode !== "multi") return false;
   if (manifest.signMode !== "same" && manifest.signMode !== "independent") {
     return false;
@@ -377,14 +432,17 @@ export function isSignConfigManifestV2(
     !Array.isArray(manifest.documents) ||
     manifest.documents.length === 0 ||
     manifest.documents.length > MAX_DOCUMENTS ||
-    !manifest.documents.every((doc, index) => isValidConfigDocument(doc, index))
+    !manifest.documents.every((doc, index) => isValidConfigDocument(doc, index, v3))
   ) {
     return false;
   }
   const documents = manifest.documents as SignConfigDocument[];
   const docIds = new Set(documents.map((doc) => doc.id));
   if (docIds.size !== documents.length) return false;
-  if (!Array.isArray(manifest.blocks) || !manifest.blocks.every(isValidConfigBlock)) {
+  if (
+    !Array.isArray(manifest.blocks) ||
+    !manifest.blocks.every((block) => isValidConfigBlock(block, v3))
+  ) {
     return false;
   }
   const signerIds = new Set((manifest.signers as Signer[]).map((signer) => signer.id));
@@ -402,6 +460,8 @@ export type ExportConfigDocument = {
   fields: SignatureField[];
   textFields: DetectedField[];
   textValues: Record<string, string>;
+  /** Copias que se entregan (1..5); ausente = 1. Con alguna mayor que 1 se escribe la v3. */
+  copies?: number;
 };
 
 export type ExportConfigSetManifest = {
@@ -410,6 +470,11 @@ export type ExportConfigSetManifest = {
   signers: Signer[];
   /** Los bloques de la sesion: se exportan SIN trazos ni sellos. */
   blocks: readonly SignerBlock[];
+  /**
+   * Nombre propio de un grupo de firma, por id de BLOQUE vivo. Con alguno se escribe la v3 (la v2 no tiene donde
+   * guardarlo). Los vacios o con solo espacios se descartan y los largos se recortan.
+   */
+  groupNames?: Readonly<Record<string, string>>;
 };
 
 /**
@@ -418,6 +483,11 @@ export type ExportConfigSetManifest = {
  * documento bajo `documentos/NN.pdf` + `manifest.json`, con el alcance de los
  * bloques pero nunca los trazos (la configuracion describe la disposicion, no
  * las firmas). El zip contiene los documentos: quien lo reciba los tiene.
+ *
+ * Firma agil (U1.1): si algun documento tiene mas de una copia o algun grupo tiene
+ * nombre propio (`groupNames`), escribe la v3 (con UN documento tambien: la v1 no
+ * guarda copias). La v3 anade `copies` a cada documento y `group` a cada bloque. Sin
+ * nada de eso se sigue escribiendo la v1/v2, que versiones anteriores abren.
  */
 export async function exportSignConfigSet(
   documents: readonly ExportConfigDocument[],
@@ -425,7 +495,11 @@ export async function exportSignConfigSet(
 ): Promise<Blob> {
   try {
     if (documents.length === 0) throw new PdfError("empty");
-    if (documents.length === 1) {
+    const groupNames = cleanGroupNames(manifest.groupNames);
+    const needsV3 =
+      documents.some((doc) => normalizeCopies(doc.copies) > DEFAULT_COPIES) ||
+      Object.keys(groupNames).length > 0;
+    if (documents.length === 1 && !needsV3) {
       const only = documents[0];
       return await exportSignConfig(only.file, {
         mode: manifest.mode,
@@ -452,8 +526,16 @@ export async function exportSignConfigSet(
         { createFolders: false },
       );
     }
-    const body: SignConfigManifestV2 = {
-      version: CONFIG_VERSION_MULTI,
+    // La letra de cada grupo se deriva de los bloques VIVOS y de la cola (como la ve la tabla de asignacion).
+    const groups = needsV3
+      ? blockGroups(
+          manifest.blocks,
+          documents.map((doc) => doc.id),
+          manifest.signers,
+        )
+      : {};
+    const body: SignConfigManifestV2 | SignConfigManifestV3 = {
+      version: needsV3 ? CONFIG_VERSION_GROUPS : CONFIG_VERSION_MULTI,
       mode: manifest.mode,
       signMode: manifest.signMode,
       signers: manifest.signers,
@@ -462,9 +544,17 @@ export async function exportSignConfigSet(
           const mapped = manifestIds.get(id);
           return mapped ? [mapped] : [];
         });
-        return appliesTo.length === 0
-          ? []
-          : [{ id: block.id, signerId: block.signerId, appliesTo, auto: block.auto }];
+        if (appliesTo.length === 0) return [];
+        const base: SignConfigBlock = {
+          id: block.id,
+          signerId: block.signerId,
+          appliesTo,
+          auto: block.auto,
+        };
+        if (!needsV3) return [base];
+        const group = groups[block.id];
+        const groupName = groupNames[block.id];
+        return [{ ...base, ...(group ? { group } : {}), ...(groupName ? { groupName } : {}) }];
       }),
       documents: documents.map((doc, index) => ({
         id: `doc-${index + 1}`,
@@ -473,13 +563,26 @@ export async function exportSignConfigSet(
         fields: doc.fields,
         textFields: doc.textFields,
         textValues: doc.textValues,
+        ...(needsV3 ? { copies: normalizeCopies(doc.copies) } : {}),
       })),
-    };
+    } as SignConfigManifestV2 | SignConfigManifestV3;
     zip.file(MANIFEST_FILENAME, JSON.stringify(body));
     return await zip.generateAsync({ type: "blob" });
   } catch (error) {
     throw toPdfError(error);
   }
+}
+
+/** Nombres de grupo listos para escribir: sin vacios, sin espacios de mas y no mas largos que `GROUP_NAME_MAX`. */
+function cleanGroupNames(
+  names: Readonly<Record<string, string>> | undefined,
+): Record<string, string> {
+  const clean: Record<string, string> = {};
+  for (const [blockId, raw] of Object.entries(names ?? {})) {
+    const name = typeof raw === "string" ? raw.trim().slice(0, GROUP_NAME_MAX).trim() : "";
+    if (name !== "") clean[blockId] = name;
+  }
+  return clean;
 }
 
 /** Nombre de archivo sugerido para la configuracion de varios documentos. */
@@ -494,11 +597,13 @@ export type ImportedConfigDocument = {
   fields: SignatureField[];
   textFields: DetectedField[];
   textValues: Record<string, string>;
+  /** Solo si vale mas de 1 (v3). Ausente = 1, igual que `DocState.copies`: la v1/v2 se importan EXACTAMENTE como antes. */
+  copies?: number;
 };
 
-/** El resultado de importar, con la misma forma venga de v1 o de v2. */
+/** El resultado de importar, con la misma forma venga de v1, v2 o v3. */
 export type ImportedSignConfigSet = {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   mode: SignMode;
   signMode: BlockSignMode;
   signers: Signer[];
@@ -669,12 +774,14 @@ export async function importSignConfigSet(
         ],
       };
     }
-    if (!isSignConfigManifestV2(parsed)) throw new PdfError("invalidConfig");
+    const isV3 = isSignConfigManifestV3(parsed);
+    if (!isV3 && !isSignConfigManifestV2(parsed)) throw new PdfError("invalidConfig");
+    const multi = parsed as SignConfigManifestV2 | SignConfigManifestV3;
 
     // Solo las entradas que el manifiesto declara (+ el manifiesto, + la carpeta).
     const declared = new Set<string>([
       MANIFEST_FILENAME,
-      ...parsed.documents.map((doc) => doc.entry),
+      ...multi.documents.map((doc) => doc.entry),
     ]);
     const files = entries.filter((entry) => !entry.dir);
     if (files.length !== declared.size) throw new PdfError("invalidConfig");
@@ -687,7 +794,7 @@ export async function importSignConfigSet(
 
     const budget = { remaining: MAX_TOTAL_BYTES };
     const documents: ImportedConfigDocument[] = [];
-    for (const [index, doc] of parsed.documents.entries()) {
+    for (const [index, doc] of multi.documents.entries()) {
       const entry = zip.file(doc.entry);
       if (!entry) throw new PdfError("invalidConfig");
       const bytes = await readPdfBytes(entry, MAX_DOCUMENT_BYTES, budget);
@@ -699,14 +806,17 @@ export async function importSignConfigSet(
         fields: doc.fields,
         textFields: doc.textFields,
         textValues: doc.textValues,
+        ...(isV3 && normalizeCopies(doc.copies) > DEFAULT_COPIES
+          ? { copies: normalizeCopies(doc.copies) }
+          : {}),
       });
     }
     return {
-      version: 2,
-      mode: parsed.mode,
-      signMode: parsed.signMode,
-      signers: parsed.signers,
-      blocks: parsed.blocks,
+      version: isV3 ? CONFIG_VERSION_GROUPS : CONFIG_VERSION_MULTI,
+      mode: multi.mode,
+      signMode: multi.signMode,
+      signers: multi.signers,
+      blocks: multi.blocks,
       documents,
     };
   } catch (error) {

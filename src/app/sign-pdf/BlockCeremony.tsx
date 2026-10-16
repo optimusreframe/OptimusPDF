@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRight, Check, Smartphone, X } from "lucide-react";
+import { useId, useState } from "react";
+import { ArrowRight, Check, ChevronDown, ChevronUp, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusRegion } from "@/components/tool/liveRouting";
@@ -14,7 +14,12 @@ import { SignatureVaultSheet } from "@/app/sign-pdf/SignatureVaultSheet";
 import { VaultNoticeLine } from "@/app/sign-pdf/VaultNoticeLine";
 import { BlockScopeSheet } from "@/app/sign-pdf/BlockScopeSheet";
 import { StaleSignatureNotice } from "@/app/sign-pdf/StaleSignatureNotice";
-import { CoverageNotices } from "@/app/sign-pdf/SignerBlocks";
+import { ReviewBeforeDownload, type ReviewIssueView } from "@/app/sign-pdf/ReviewBeforeDownload";
+import { blockGroups } from "@/app/sign-pdf/assignment";
+import { fixTargetOf, issueText, type FixTarget } from "@/app/sign-pdf/assignmentIssues";
+import { validateAssignment, type Issue } from "@/app/sign-pdf/assignmentValidation";
+import { orderedQueue, moveTurn } from "@/app/sign-pdf/turnOrder";
+import { copiesMap, groupDocsText, totalFiles } from "@/app/sign-pdf/assignmentUi";
 import {
   CEREMONY_HEADING_CLASS,
   CaptureRow,
@@ -22,24 +27,25 @@ import {
   TurnProgressList,
 } from "@/app/sign-pdf/SigningCeremony";
 import {
-  addBlock,
   applySavedToBlocks,
+  blockNumber,
   blockRequiredTypes,
   blockSlotDocs,
   captureForBlock,
+  captureTypeLabel,
+  ceremonyAt,
   ceremonyQueue,
   changeBlockScope,
   clearBlock,
   fieldsOfDoc,
+  firstPendingTurn,
   isBlockComplete,
   isSignerDone,
   pendingBlockSigners,
   rememberSource,
-  scopeSummary,
   signerBlocks,
   signerLabel,
   staleSigners,
-  turnItemLabel,
   turnProgress,
   visibleDraft,
   type BlockContext,
@@ -47,7 +53,6 @@ import {
   type DocRef,
 } from "@/app/sign-pdf/blockModel";
 import {
-  coverageIssues,
   type DocId,
   type DocState,
   type SignerBlock,
@@ -65,6 +70,13 @@ import { useCeremonyTurn } from "@/app/sign-pdf/useCeremonyTurn";
 import type { SignatureFieldType, Signer } from "@/lib/pdf/sign";
 
 type Stage = CeremonyState["stage"];
+
+/** Flecha de orden de turno: 44 px de caja con cualquier puntero (los turnos se cambian con el dedo). */
+const TURN_ARROW =
+  "inline-flex size-11 shrink-0 items-center justify-center rounded-ios-sm border border-white/14 text-foreground material-thin " +
+  "transition-[scale,background-color] duration-[var(--duration-fast)] ease-[var(--ease-spring)] active:scale-[0.97] " +
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:pointer-events-none disabled:opacity-50 " +
+  "forced-colors:border-[ButtonText] forced-colors:disabled:border-[GrayText]";
 
 export type BlockCeremonyProps = {
   signers: Signer[];
@@ -90,6 +102,16 @@ export type BlockCeremonyProps = {
    */
   ceremony?: CeremonyState | null;
   onCeremonyChange?: (next: CeremonyState | null) => void;
+  /** Archivos de la cola (para las miniaturas de «Revisar antes de descargar»); sin ellos solo hay contadores. */
+  files?: readonly File[];
+  /** Orden de los turnos guardado en la sesion (ids de firmante); ausente = el de la lista de firmantes. */
+  turnOrder?: readonly string[] | null;
+  /** Escribe el orden nuevo (la sesion lo guarda). Sin esto los turnos no se pueden reordenar. */
+  onTurnOrderChange?: (order: string[]) => void;
+  /** «Ir a corregirlo» de lo que no se arregla en esta pantalla: la tabla de firmantes o un campo de texto. */
+  onFix?: (target: Exclude<FixTarget, { step: "turn" }>) => void;
+  /** Tocar una miniatura de la revision lleva a esa pagina de ese documento. */
+  onGoToPage?: (docId: DocId, pageIndex: number) => void;
 };
 
 /**
@@ -117,10 +139,15 @@ export function BlockCeremony({
   busy = false,
   ceremony,
   onCeremonyChange,
+  files,
+  turnOrder,
+  onTurnOrderChange,
+  onFix,
+  onGoToPage,
 }: BlockCeremonyProps) {
   const docIds = docs.map((doc) => doc.id);
   const ctx: BlockContext = { signers, docs: docStates, keys };
-  const queue = ceremonyQueue(ctx, docIds);
+  const queue = orderedQueue(ceremonyQueue(ctx, docIds), turnOrder);
   // Firmantes cuya firma YA hecha dejo de valer (se cambio el texto del documento, sus huecos o el archivo): vuelven a estar
   // pendientes, se dice por que y el turno vuelve al primero de ellos (F0-fix, D7).
   const stale = staleSigners(blocks, ctx, docIds);
@@ -162,19 +189,8 @@ export function BlockCeremony({
   const [liveMessage, setLiveMessage] = useState("");
   const composeIdBase = useId();
   const vaultEnabled = useSignPdfFeatureFlag("signatureVault");
-  /**
-   * «Anadir bloque para X» se desmonta al resolverse el aviso de cobertura:
-   * el foco va al balance de la ronda (siempre presente), que ya dice si
-   * queda algo por firmar.
-   */
+  /** Balance de la ronda (siempre presente): recibe el foco cuando ya no hay turno. */
   const balanceId = useId();
-  const focusBalanceRef = useRef(false);
-  const [addedBlocks, setAddedBlocks] = useState(0);
-  useEffect(() => {
-    if (!focusBalanceRef.current) return;
-    focusBalanceRef.current = false;
-    document.getElementById(balanceId)?.focus({ preventScroll: true });
-  }, [addedBlocks, balanceId]);
 
   const current = queue[position] ?? null;
   const headingRef = useCeremonyFocus(stage, position);
@@ -193,15 +209,13 @@ export function BlockCeremony({
   }
 
   const pending = pendingBlockSigners(blocks, ctx, docIds);
-  const issues = coverageIssues(
-    signers,
-    docIds,
-    Object.fromEntries(
-      docIds.map((id) => [id, { fields: fieldsOfDoc(ctx, id) }]),
-    ),
-    blocks,
-  );
+  // Letra de cada grupo («Firma A», «Firma B»): son los bloques de siempre con nombre visible.
+  const letters = blockGroups(blocks, docIds, signers);
+  const groupTitle = (block: SignerBlock): string =>
+    letters[block.id] ? strings.assignment.group(letters[block.id]) : strings.blockName(blockNumber(blocks, block.id));
   const nameOf = (signer: Signer) => signerLabel(signers, signer.id, strings);
+  const fileCount = totalFiles(copiesMap(docStates, docIds), docIds);
+
   const currentName = current ? nameOf(current) : "";
   const staleReasonOf = new Map(stale.map((item) => [item.signerId, item.reason]));
   const staleNotes = stale.map((item) => ({
@@ -209,6 +223,36 @@ export function BlockCeremony({
     text: strings.staleSignature(signerLabel(signers, item.signerId, strings), item.reason),
   }));
   const staleAnnouncement = staleNotes.map((note) => note.text).join(" ");
+
+  /* --- Problemas de la asignacion («Revisar antes de descargar») --- */
+  const roundIssues: Issue[] = [
+    ...validateAssignment({ mode: "multi", signers, docs: docStates, docOrder: docIds, blocks }).filter((found) => {
+      // Los trazos que faltan los cuenta la propia ceremonia (`pending`, con sus sellos vigentes); «firma sin hueco» no
+      // avisa en el grupo automatico («una firma para todos»), donde es lo esperado.
+      if (found.kind === "groupWithoutStroke") return false;
+      if (found.kind === "signerWithoutSlot") {
+        return blocks.find((block) => block.id === found.blockId)?.auto !== true;
+      }
+      return true;
+    }),
+  ];
+  const fixFor = (issue: Issue): (() => void) | undefined => {
+    const target = fixTargetOf(issue);
+    if (target.step === "turn") {
+      const index = queue.findIndex((signer) => signer.id === target.signerId);
+      return index === -1 ? undefined : () => goToTurn(index, "capture");
+    }
+    return onFix ? () => onFix(target) : undefined;
+  };
+  const issueViews: ReviewIssueView[] = roundIssues.map((found, index) => ({
+    key: `${found.kind}|${found.signerId ?? ""}|${found.docId ?? ""}|${found.blockId ?? ""}|${index}`,
+    severity: found.severity,
+    text: issueText(found, { signers, docs, blocks }, strings),
+    onFix: fixFor(found),
+  }));
+  const hasBlockingIssue = issueViews.some((found) => found.severity === "blocking");
+  const reviewVisible = queue.length > 0 && pending.length === 0;
+  const finishReasonId = `${composeIdBase}-finish-reason`;
   // Los bloques con algo que firmar, en el orden en que se muestran.
   const currentBlocks = current
     ? signerBlocks(blocks, current.id).filter(
@@ -218,8 +262,13 @@ export function BlockCeremony({
   const ready = currentBlocks.every((block) => isBlockComplete(block, ctx));
   const progress = current ? turnProgress(blocks, current.id, ctx) : [];
   const missing = progress.filter((item) => !item.done);
-  const itemLabel = (item: (typeof progress)[number]) =>
-    turnItemLabel(item, blocks, docs, strings, currentBlocks.length > 1);
+  /** «Firma A» / «Iniciales B»; con un solo grupo, «Firma» / «Iniciales». */
+  const itemTextIn = (item: (typeof progress)[number], nextBlocks: readonly SignerBlock[]) => {
+    const label = captureTypeLabel(item.type, strings);
+    const letter = currentBlocks.length > 1 ? blockGroups(nextBlocks, docIds, signers)[item.blockId] : undefined;
+    return letter ? `${label} ${letter}` : label;
+  };
+  const itemLabel = (item: (typeof progress)[number]) => itemTextIn(item, blocks);
   const composeIdOf = (item: (typeof progress)[number]) =>
     `${composeIdBase}-${item.blockId}-${item.type}`;
   const missingHintId = `${composeIdBase}-missing`;
@@ -239,11 +288,7 @@ export function BlockCeremony({
     setLiveMessage(
       left.length === 0
         ? strings.ceremonyAllCaptured
-        : strings.ceremonyMissing(
-            left.map((item) =>
-              turnItemLabel(item, nextBlocks, docs, strings, currentBlocks.length > 1),
-            ),
-          ),
+        : strings.ceremonyMissing(left.map((item) => itemTextIn(item, nextBlocks))),
     );
   };
   const scopeBlock = blocks.find((block) => block.id === scopeBlockId) ?? null;
@@ -254,8 +299,7 @@ export function BlockCeremony({
     ? (blocks.find((block) => block.id === vaultFor.blockId) ?? null)
     : null;
 
-  const blockTitle = (block: SignerBlock): string =>
-    strings.blockName(signerBlocks(blocks, block.signerId).findIndex((b) => b.id === block.id) + 1);
+  const blockTitle = groupTitle;
 
   const showVaultNotice = (signerId: string, atStage: Stage, notice: VaultNotice) =>
     setVaultNoticeState({ notice, signerId, stage: atStage });
@@ -310,30 +354,40 @@ export function BlockCeremony({
     const edit = changeBlockScope(blocks, blockId, scope, docs, strings);
     if (edit.blocks === blocks) return;
     onBlocksChange(edit.blocks);
-    setLiveMessage(edit.message);
-  };
-
-  const addBlockFor = (signerId: string, docId: DocId) => {
-    const added = addBlock(blocks, signerId, docIds, docId);
-    if (added.addedBlockId === null) return;
-    onBlocksChange(added.blocks);
-    focusBalanceRef.current = true;
-    setAddedBlocks((count) => count + 1);
+    const edited = edit.blocks.find((candidate) => candidate.id === blockId);
+    // Con grupos se dice «Firma A — para: ...», no «Bloque 1: aplica a ...».
+    const letter = blockGroups(edit.blocks, docIds, signers)[blockId];
     setLiveMessage(
-      strings.blockAdded(
-        signerLabel(signers, signerId, strings),
-        signerBlocks(added.blocks, signerId).findIndex(
-          (block) => block.id === added.addedBlockId,
-        ) + 1,
-      ),
+      edited && letter
+        ? strings.assignment.groupFor(strings.assignment.group(letter), groupDocsText(edited, docs))
+        : edit.message,
     );
   };
 
-  /** Resumen «Aplica a: …» de un bloque y el boton para cambiarlo. */
+  /** Sube o baja el turno de un firmante; el turno de ahora sigue al primero pendiente del orden nuevo. */
+  const moveSigner = (signerId: string, delta: -1 | 1) => {
+    const next = moveTurn(
+      queue.map((signer) => signer.id),
+      signerId,
+      delta,
+    );
+    if (!next || !onTurnOrderChange) return;
+    onTurnOrderChange(next);
+    const nextQueue = orderedQueue(queue, next);
+    if (stage === "handoff") {
+      onCeremonyChange?.(
+        ceremonyAt(nextQueue, firstPendingTurn(nextQueue, (id) => isSignerDone(blocks, id, ctx)), "handoff"),
+      );
+    }
+    const moved = signers.find((signer) => signer.id === signerId);
+    if (moved) setLiveMessage(strings.assignment.orderMoved(nameOf(moved), next.indexOf(signerId) + 1, next.length));
+  };
+
+  /** «Firma A — para: Contrato, Anexo» y el boton para cambiar los documentos del grupo. */
   const scopeLine = (block: SignerBlock) => (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-      <p className="min-w-0 flex-1 text-footnote text-muted-foreground [overflow-wrap:anywhere]">
-        {strings.blockAppliesTo(scopeSummary(block, docs, strings))}
+      <p className="min-w-0 flex-1 text-footnote font-semibold text-foreground [overflow-wrap:anywhere]">
+        {strings.assignment.groupFor(blockTitle(block), groupDocsText(block, docs))}
       </p>
       <Button
         variant="ghost"
@@ -448,11 +502,6 @@ export function BlockCeremony({
                 aria-label={blockTitle(block)}
                 className="rounded-ios space-y-3 border border-white/10 p-3"
               >
-                {showHeadings ? (
-                  <p className="text-footnote font-semibold text-foreground">
-                    {blockTitle(block)}
-                  </p>
-                ) : null}
                 {scopeLine(block)}
                 <ul className="space-y-3">
                   {blockRequiredTypes(block, ctx).map((type) => (
@@ -525,13 +574,8 @@ export function BlockCeremony({
           <div className="mt-4 space-y-3">
             {currentBlocks.map((block) => (
               <div key={block.id} className="space-y-2">
-                {showHeadings ? (
-                  <p className="text-footnote font-semibold text-foreground">
-                    {blockTitle(block)}
-                  </p>
-                ) : null}
-                <p className="text-footnote text-muted-foreground [overflow-wrap:anywhere]">
-                  {strings.blockAppliesTo(scopeSummary(block, docs, strings))}
+                <p className="text-footnote font-semibold text-foreground [overflow-wrap:anywhere]">
+                  {strings.assignment.groupFor(blockTitle(block), groupDocsText(block, docs))}
                 </p>
                 <div className="flex flex-wrap gap-3">
                   {blockRequiredTypes(block, ctx).map((type) => {
@@ -556,7 +600,13 @@ export function BlockCeremony({
         </div>
       ) : null}
 
-      {/* Estado de la ronda */}
+      {/* Estado de la ronda y orden de los turnos */}
+      {queue.length > 1 && onTurnOrderChange ? (
+        <div>
+          <h4 className="ui-label text-muted-foreground">{strings.assignment.orderTitle}</h4>
+          <p className="mt-1 text-footnote leading-relaxed text-muted-foreground">{strings.assignment.orderHint}</p>
+        </div>
+      ) : null}
       <ul className="space-y-2">
         {queue.map((signer, index) => {
           const done = isSignerDone(blocks, signer.id, ctx);
@@ -574,8 +624,35 @@ export function BlockCeremony({
                 style={{ backgroundColor: signer.color }}
               />
               <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                {queue.length > 1 && onTurnOrderChange ? (
+                  <span className="mr-1.5 tabular-nums text-muted-foreground" aria-hidden="true">
+                    {index + 1}.
+                  </span>
+                ) : null}
                 {nameOf(signer)}
               </span>
+              {queue.length > 1 && onTurnOrderChange ? (
+                <span className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className={TURN_ARROW}
+                    aria-label={strings.assignment.orderMoveUp(nameOf(signer))}
+                    disabled={index === 0}
+                    onClick={() => moveSigner(signer.id, -1)}
+                  >
+                    <ChevronUp aria-hidden="true" className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    className={TURN_ARROW}
+                    aria-label={strings.assignment.orderMoveDown(nameOf(signer))}
+                    disabled={index === queue.length - 1}
+                    onClick={() => moveSigner(signer.id, 1)}
+                  >
+                    <ChevronDown aria-hidden="true" className="size-4" />
+                  </button>
+                </span>
+              ) : null}
               <span
                 className={cn(
                   "flex items-center gap-1 text-caption font-semibold",
@@ -609,14 +686,6 @@ export function BlockCeremony({
         })}
       </ul>
 
-      <CoverageNotices
-        issues={issues}
-        signers={signers}
-        docs={docs}
-        onAddBlock={addBlockFor}
-        strings={strings}
-      />
-
       <div className="surface-card rounded-ios p-5">
         <h4
           // Sin turno a la vista (todos pasaron), el foco va al balance de la ronda.
@@ -641,11 +710,31 @@ export function BlockCeremony({
             ))}
           </ul>
         ) : null}
+        <ReviewBeforeDownload
+          mode={reviewVisible ? "full" : "issues"}
+          className="mt-4"
+          strings={strings}
+          signers={signers}
+          docs={docs}
+          docStates={docStates}
+          blocks={blocks}
+          ctx={ctx}
+          files={files}
+          issues={issueViews}
+          fileCount={fileCount}
+          onGoToPage={onGoToPage}
+        />
+        {hasBlockingIssue ? (
+          <p id={finishReasonId} className="mt-3 text-footnote text-destructive-text">
+            {strings.review.disabledBecause}
+          </p>
+        ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             size="lg"
             wrap
-            disabled={blocked || pending.length > 0 || queue.length === 0 || busy}
+            disabled={blocked || pending.length > 0 || queue.length === 0 || busy || hasBlockingIssue}
+            aria-describedby={hasBlockingIssue ? finishReasonId : undefined}
             onClick={onFinish}
           >
             {strings.applyAndDownload}
@@ -680,6 +769,7 @@ export function BlockCeremony({
         strings={strings}
         closeLabel={strings.confirmClose}
         onApply={editScope}
+        titleOf={groupTitle}
       />
 
       {current && composer && composerBlock ? (

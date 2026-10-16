@@ -127,6 +127,8 @@ export function SignerManager({
           return (
             <li
               key={signer.id}
+              // La lista es un `radiogroup`: sus `li` no son elementos de lista para un lector de pantalla (axe «listitem»).
+              role="none"
               className={cn(
                 "surface-card rounded-ios p-3 transition-colors",
                 // Con bloques la tarjeta se apila: fila del firmante + sus bloques.

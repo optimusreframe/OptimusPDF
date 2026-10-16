@@ -1,0 +1,66 @@
+{
+  "kind": "session",
+  "id": "s-golden-1",
+  "savedAt": "2026-10-01T12:00:00.000Z",
+  "mode": "multi",
+  "signMode": "same",
+  "signers": [
+    {
+      "id": "sg-1",
+      "name": "Ana",
+      "color": "#0d4bff"
+    }
+  ],
+  "documents": [
+    {
+      "id": "doc-8",
+      "fileName": "Viejo.pdf",
+      "fileSize": 24
+    }
+  ],
+  "docStates": {
+    "doc-8": {
+      "fields": [
+        {
+          "id": "f-a0",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {},
+      "textFieldsDetectedFor": null,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "pageIndex": 0,
+      "fieldPageIndex": 0,
+      "sealedKey": "k-viejo"
+    }
+  },
+  "activeDocId": "doc-8",
+  "step": "signers",
+  "fileSize": 24,
+  "fileName": "Viejo.pdf",
+  "documentCount": 1,
+  "captures": {
+    "sg-1": {
+      "signature": {
+        "dataUrl": "data:image/png;base64,AAAA",
+        "ratio": 0.3
+      },
+      "initials": null,
+      "stamp": "k-viejo~f-a0|0|signature|0.1|0.7|0.3|0.08"
+    }
+  }
+}

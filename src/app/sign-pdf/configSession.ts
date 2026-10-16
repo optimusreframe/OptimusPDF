@@ -10,6 +10,7 @@ import {
 } from "@/app/sign-pdf/docSet";
 import type { ImportedSignConfigSet } from "@/app/sign-pdf/signConfig";
 import type { SignSession } from "@/app/sign-pdf/signSession";
+import { DEFAULT_COPIES, normalizeCopies } from "@/lib/pdf/signCopies";
 
 /**
  * Una configuracion importada (v1: un documento; v2: varios) convertida en el
@@ -18,6 +19,7 @@ import type { SignSession } from "@/app/sign-pdf/signSession";
  *  - Cada documento queda sellado y con sus campos de texto "resueltos" para su
  *    huella (`keys[i]`), como al importar un solo documento: el efecto de
  *    deteccion no pisa lo importado.
+ *  - La v3 trae ademas las copias de cada documento (`DocState.copies`).
  *  - Los bloques de la v2 llegan SIN trazos (una configuracion nunca lleva
  *    firmas): se les acuñan ids nuevos y se ajustan a firmantes y documentos.
  *    Con la v1 (sin bloques) los crea la propia sesion.
@@ -43,6 +45,8 @@ export function sessionFromConfigSet(
       textValues: doc.textValues,
       textFieldsDetectedFor: key,
       sealedKey: key ?? "",
+      // v3: las copias de cada documento (la v1/v2 no las traen = 1: la forma de siempre).
+      ...(normalizeCopies(doc.copies) > DEFAULT_COPIES ? { copies: normalizeCopies(doc.copies) } : {}),
     };
   });
 

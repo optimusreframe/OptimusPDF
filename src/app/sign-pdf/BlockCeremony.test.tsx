@@ -149,6 +149,7 @@ type HarnessProps = {
   blockerMessages?: string[];
   onFinish?: () => void;
   onBlocks?: (blocks: SignerBlock[]) => void;
+  onFix?: (target: { step: "signers"; docId?: string; signerId?: string } | { step: "document"; docId: string }) => void;
 };
 
 function Harness({
@@ -162,6 +163,7 @@ function Harness({
   blockerMessages = [],
   onFinish = () => {},
   onBlocks,
+  onFix,
 }: HarnessProps) {
   const [blocks, setBlocks] = useState(initial);
   const [turn, setTurn] = useState<CeremonyState | null>(initialCeremony ?? null);
@@ -181,6 +183,7 @@ function Harness({
         blockerMessages={blockerMessages}
         blocked={blocked}
         onFinish={onFinish}
+        onFix={onFix}
         strings={strings}
       />
     </LanguageProvider>
@@ -256,23 +259,23 @@ describe("BlockCeremony — arranque y turnos", () => {
     expect(screen.getByRole("button", { name: strings.captureInitials })).toBeTruthy();
   });
 
-  it("con un solo bloque no hay encabezado «Bloque 1» pero si el resumen «Aplica a: Todos (3)»", () => {
+  it("con un solo grupo se llama «Firma A» y dice para que documentos es: «Firma A — para: …»", () => {
     render(<Harness />);
     toCapture();
     expect(screen.queryByText("Bloque 1")).toBeNull();
-    expect(screen.getByText(strings.blockAppliesTo("Todos (3)"))).toBeTruthy();
+    expect(screen.getByText(strings.assignment.groupFor("Firma A", "Contrato A, Anexo, Acta"))).toBeTruthy();
   });
 
-  it("con varios bloques cada uno lleva su encabezado y su resumen de alcance", () => {
+  it("con varios grupos cada uno lleva su encabezado «Firma A — para: …»", () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
-    const first = screen.getByRole("listitem", { name: "Bloque 1" });
-    const second = screen.getByRole("listitem", { name: "Bloque 2" });
-    expect(within(first).getByText(strings.blockAppliesTo("Contrato A, Anexo"))).toBeTruthy();
-    expect(within(second).getByText(strings.blockAppliesTo("Acta"))).toBeTruthy();
+    const first = screen.getByRole("listitem", { name: "Firma A" });
+    const second = screen.getByRole("listitem", { name: "Firma B" });
+    expect(within(first).getByText(strings.assignment.groupFor("Firma A", "Contrato A, Anexo"))).toBeTruthy();
+    expect(within(second).getByText(strings.assignment.groupFor("Firma B", "Acta"))).toBeTruthy();
     // El bloque 2 solo exige firma (Ana no tiene iniciales en Acta).
     expect(within(second).queryByRole("button", { name: /Crear iniciales/ })).toBeNull();
-    expect(within(first).getByRole("button", { name: `${strings.captureInitials} · Bloque 1` })).toBeTruthy();
+    expect(within(first).getByRole("button", { name: `${strings.captureInitials} · Firma A` })).toBeTruthy();
   });
 
   it("«Continuar» solo se habilita con TODOS los bloques del firmante completos", () => {
@@ -395,7 +398,7 @@ describe("BlockCeremony — firmas guardadas del baul", () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
     fireEvent.click(
-      screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Bloque 1` }),
+      screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Firma A` }),
     );
     expect(await screen.findByRole("checkbox", { name: strings.vaultApplyAll })).toBeTruthy();
   });
@@ -406,7 +409,7 @@ describe("BlockCeremony — firmas guardadas del baul", () => {
     render(<Harness blocks={SPLIT_BLOCKS} onBlocks={(next) => (last = next)} />);
     toCapture();
     fireEvent.click(
-      screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Bloque 1` }),
+      screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Firma A` }),
     );
     fireEvent.click(await screen.findByRole("button", { name: strings.vaultUseFor("Ana Pérez") }));
     expect(last.find((item) => item.id === "bk-1")!.signature).not.toBeNull();
@@ -419,7 +422,7 @@ describe("BlockCeremony — firmas guardadas del baul", () => {
     render(<Harness blocks={SPLIT_BLOCKS} onBlocks={(next) => (last = next)} />);
     toCapture();
     fireEvent.click(
-      screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Bloque 1` }),
+      screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Firma A` }),
     );
     fireEvent.click(await screen.findByRole("checkbox", { name: strings.vaultApplyAll }));
     fireEvent.click(await screen.findByRole("button", { name: strings.vaultUseFor("Ana Pérez") }));
@@ -440,7 +443,7 @@ describe("BlockCeremony — firmas guardadas del baul", () => {
     render(<Harness blocks={own} onBlocks={(next) => (last = next)} />);
     toCapture();
     fireEvent.click(
-      screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Bloque 1` }),
+      screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Firma A` }),
     );
     fireEvent.click(await screen.findByRole("checkbox", { name: strings.vaultApplyAll }));
     fireEvent.click(await screen.findByRole("button", { name: strings.vaultUseFor("Ana Pérez") }));
@@ -453,7 +456,7 @@ describe("BlockCeremony — firmas guardadas del baul", () => {
     toCapture();
     const open = () =>
       fireEvent.click(
-        screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Bloque 1` }),
+        screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Firma A` }),
       );
     open();
     const first = (await screen.findByRole("checkbox", { name: strings.vaultApplyAll })) as HTMLInputElement;
@@ -539,7 +542,7 @@ describe("BlockCeremony — firma nueva con el compositor y «Recordar»", () =>
   it("«Recordar» en un bloque de UN documento guarda el nombre de ese documento", async () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
-    fireEvent.click(screen.getByRole("button", { name: `${strings.captureSignature} · Bloque 2` }));
+    fireEvent.click(screen.getByRole("button", { name: `${strings.captureSignature} · Firma B` }));
     await typeSignature();
     fireEvent.click(screen.getByRole("checkbox", { name: strings.vaultRemember }));
     fireEvent.click(screen.getByRole("button", { name: strings.save }));
@@ -560,7 +563,7 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
   it("«Cambiar» abre la hoja de alcance del bloque con sus documentos marcados", () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
-    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 1", "Ana Pérez") }));
+    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Firma A", "Ana Pérez") }));
     const dialog = screen.getByRole("dialog");
     expect((within(dialog).getByRole("checkbox", { name: "Contrato A" }) as HTMLInputElement).checked).toBe(true);
     expect((within(dialog).getByRole("checkbox", { name: "Anexo" }) as HTMLInputElement).checked).toBe(true);
@@ -571,16 +574,16 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
   it("marcar un documento de otro bloque avisa, antes de aplicar, de que saldra de ese bloque", () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
-    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 1", "Ana Pérez") }));
+    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Firma A", "Ana Pérez") }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Acta" }));
-    expect(screen.getByText(strings.scopeMovePreview("Acta", 2))).toBeTruthy();
+    expect(screen.getByText(strings.scopeMovePreview("Acta", "Firma B"))).toBeTruthy();
   });
 
   it("aplicar mueve el documento, deja un solo bloque con el invariante y lo anuncia", async () => {
     let last: SignerBlock[] = SPLIT_BLOCKS;
     render(<Harness blocks={SPLIT_BLOCKS} onBlocks={(next) => (last = next)} />);
     toCapture();
-    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 1", "Ana Pérez") }));
+    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Firma A", "Ana Pérez") }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Acta" }));
     fireEvent.click(screen.getByRole("button", { name: strings.scopeApply }));
     const ana = last.filter((item) => item.signerId === ANA.id);
@@ -588,14 +591,14 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
     expect(ana[0].appliesTo).toEqual([A, B, C]);
     expect(ana[0].auto).toBe(false);
     await waitFor(() =>
-      expect(screen.getByText(new RegExp(strings.blockScopeMoved("Acta", 2, 1)))).toBeTruthy(),
+      expect(screen.getByText(strings.assignment.groupFor("Firma A", "Contrato A, Anexo, Acta"), { selector: "[role='status']" })).toBeTruthy(),
     );
   });
 
   it("no deja aplicar un alcance vacio y lo dice", () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
-    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 2", "Ana Pérez") }));
+    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Firma B", "Ana Pérez") }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Acta" }));
     expect(screen.getByText(strings.scopeEmpty)).toBeTruthy();
     expect((screen.getByRole("button", { name: strings.scopeApply }) as HTMLButtonElement).disabled).toBe(true);
@@ -604,7 +607,7 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
   it("«Todos los documentos» marca y desmarca todas las casillas", () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
-    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 1", "Ana Pérez") }));
+    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Firma A", "Ana Pérez") }));
     fireEvent.click(screen.getByRole("checkbox", { name: strings.scopeAllLabel }));
     for (const name of ["Contrato A", "Anexo", "Acta"]) {
       expect((screen.getByRole("checkbox", { name }) as HTMLInputElement).checked).toBe(true);
@@ -620,34 +623,32 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
     render(<Harness ceremony={ANA_TURN} blocks={done} />);
     toCapture();
     expect((screen.getByRole("button", { name: strings.captureContinue }) as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 1", "Ana Pérez") }));
+    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Firma A", "Ana Pérez") }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Acta" }));
     fireEvent.click(screen.getByRole("button", { name: strings.scopeApply }));
     // bk-3 se queda sin documentos y desaparece; bk-1 ya no tiene sello para «Acta».
     expect((screen.getByRole("button", { name: strings.captureContinue }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("cobertura: «Falta el bloque de Ana para Acta» con su boton para anadirlo", () => {
+  it("cobertura: «Ana tiene un hueco en Acta pero no esta asignada» con «Ir a corregirlo» hacia la tabla", () => {
     const holed = [block("bk-1", ANA.id, [A, B], { auto: true }), block("bk-2", LUIS.id, [A, B], { auto: true })];
-    let last: SignerBlock[] = holed;
-    render(<Harness blocks={holed} onBlocks={(next) => (last = next)} />);
-    expect(screen.getByText(strings.coverageMissing("Ana Pérez", "Acta"))).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: strings.coverageAddBlock("Acta") }));
-    const ana = last.filter((item) => item.signerId === ANA.id);
-    expect(ana).toHaveLength(2);
-    expect(ana.find((item) => item.appliesTo.includes(C))!.appliesTo).toEqual([C]);
-    expect(screen.queryByText(strings.coverageMissing("Ana Pérez", "Acta"))).toBeNull();
-  });
-
-  it("tras «Añadir bloque para X» el foco va al balance de la ronda, no a <body>", () => {
-    const holed = [block("bk-1", ANA.id, [A, B], { auto: true }), block("bk-2", LUIS.id, [A, B], { auto: true })];
-    render(<Harness blocks={holed} />);
-    const add = screen.getByRole("button", { name: strings.coverageAddBlock("Acta") });
-    add.focus();
-    fireEvent.click(add);
-    expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement?.tagName).toBe("H4");
-    expect(document.activeElement?.getAttribute("tabindex")).toBe("-1");
+    const onFix = vi.fn();
+    render(<Harness blocks={holed} onFix={onFix} />);
+    const message = strings.assignment.issue.slotWithoutSigner({
+      signer: "Ana Pérez",
+      doc: "Acta",
+      group: "",
+      count: 0,
+      max: 0,
+      strokes: [],
+    });
+    expect(screen.getByText(message)).toBeTruthy();
+    // Con un hueco sin firmante la entrega queda bloqueada y se dice por que.
+    expect(finish().disabled).toBe(true);
+    expect(screen.getByText(strings.review.disabledBecause)).toBeTruthy();
+    const row = screen.getByText(message).closest("li") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: strings.assignment.fixIt }));
+    expect(onFix).toHaveBeenCalledWith({ step: "signers", docId: C, signerId: ANA.id });
   });
 
   it("la region viva de anuncios esta siempre montada", () => {
@@ -716,10 +717,10 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
     ];
     render(<Harness blocks={independent} />);
     toCapture();
-    expect(screen.getAllByRole("listitem", { name: /^Bloque \d$/ })).toHaveLength(3);
-    expect(screen.getByText(strings.blockAppliesTo("Contrato A"))).toBeTruthy();
-    expect(screen.getByText(strings.blockAppliesTo("Anexo"))).toBeTruthy();
-    expect(screen.getByText(strings.blockAppliesTo("Acta"))).toBeTruthy();
+    expect(screen.getAllByRole("listitem", { name: /^Firma [A-C]$/ })).toHaveLength(3);
+    expect(screen.getByText(strings.assignment.groupFor("Firma A", "Contrato A"))).toBeTruthy();
+    expect(screen.getByText(strings.assignment.groupFor("Firma B", "Anexo"))).toBeTruthy();
+    expect(screen.getByText(strings.assignment.groupFor("Firma C", "Acta"))).toBeTruthy();
   });
 
   it("los botones de cada bloque tienen nombres distintos (accesibles) y 44 px con puntero grueso", () => {
@@ -734,7 +735,7 @@ describe("BlockCeremony — alcance, cobertura y entrega", () => {
         name && name !== strings.handoffReady && names.indexOf(name) !== index,
     );
     expect(duplicates).toEqual([]);
-    const change = screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 1", "Ana Pérez") });
+    const change = screen.getByRole("button", { name: strings.blockChangeScopeFor("Firma A", "Ana Pérez") });
     expect(change.className).toContain("pointer-coarse:h-11");
   });
 });
@@ -760,7 +761,7 @@ describe("BlockCeremony — textos en ingles", () => {
     );
     expect(screen.getByRole("heading", { name: en.handoffTitle("Ana Pérez") })).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: en.handoffReady })[0]);
-    expect(screen.getByText(en.blockAppliesTo("All (3)"))).toBeTruthy();
+    expect(screen.getByText(en.assignment.groupFor("Signature A", "Contrato A, Anexo, Acta"))).toBeTruthy();
   });
 });
 
@@ -975,15 +976,11 @@ describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
   const continueButton = () =>
     screen.getByRole("button", { name: strings.captureContinue }) as HTMLButtonElement;
 
-  it("con varios bloques nombra cada trazo pendiente con su documento y enlaza el boton con la frase", () => {
+  it("con varios grupos nombra cada trazo pendiente con su letra (Firma A, Iniciales A…) y enlaza el boton con la frase", () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
     const hint = screen.getByText(
-      missingText([
-        "Firma · Contrato A, Anexo",
-        "Iniciales · Contrato A, Anexo",
-        "Firma · Acta",
-      ]),
+      missingText(["Firma A", "Iniciales A", "Firma B"]),
     );
     expect(continueButton().disabled).toBe(true);
     expect(continueButton().getAttribute("aria-describedby")).toBe(hint.id);
@@ -993,7 +990,7 @@ describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
   it("al firmar un bloque la frase se acorta y al completar todo desaparece y se habilita", () => {
     const one = render(<Harness blocks={signed(SPLIT_BLOCKS, ["bk-1"])} ceremony={ANA_TURN} />);
     toCapture();
-    expect(screen.getByText(missingText(["Firma · Acta"]))).toBeTruthy();
+    expect(screen.getByText(missingText(["Firma B"]))).toBeTruthy();
     expect(continueButton().disabled).toBe(true);
     one.unmount();
 
@@ -1021,7 +1018,7 @@ describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
       const go = screen.getByRole("button", { name: strings.ceremonyGoToMissing });
       go.focus();
       fireEvent.click(go);
-      const target = screen.getByRole("button", { name: `${strings.captureSignature} · Bloque 2` });
+      const target = screen.getByRole("button", { name: `${strings.captureSignature} · Firma B` });
       expect(document.activeElement).toBe(target);
       expect(scrollSpy).toHaveBeenCalledTimes(1);
       expect(scrollSpy.mock.instances[0]).toBe(target);
@@ -1039,7 +1036,7 @@ describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
       toCapture();
       fireEvent.click(screen.getByRole("button", { name: strings.ceremonyGoToMissing }));
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: `${strings.captureSignature} · Bloque 1` }),
+        screen.getByRole("button", { name: `${strings.captureSignature} · Firma A` }),
       );
     } finally {
       Element.prototype.scrollIntoView = original;
@@ -1059,9 +1056,9 @@ describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
     const list = screen.getByRole("list", { name: strings.ceremonyProgressLabel("Ana Pérez") });
     const items = within(list).getAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
-      `Firma · Contrato A, Anexo${strings.ceremonyItemDone}`,
-      `Iniciales · Contrato A, Anexo${strings.ceremonyItemDone}`,
-      `Firma · Acta${strings.ceremonyItemMissing}`,
+      `Firma A${strings.ceremonyItemDone}`,
+      `Iniciales A${strings.ceremonyItemDone}`,
+      `Firma B${strings.ceremonyItemMissing}`,
     ]);
     // ✓ (check) en lo hecho y ○ (circle) en lo que falta.
     expect(items[0].querySelector("svg.lucide-check")).not.toBeNull();
@@ -1079,12 +1076,12 @@ describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
   it("anuncia lo que falta tras guardar un trazo, en UNA sola region viva (no se anade otra)", async () => {
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
-    const announced = missingText(["Firma · Contrato A, Anexo", "Iniciales · Contrato A, Anexo"]);
+    const announced = missingText(["Firma A", "Iniciales A"]);
     const carrying = () => screen.getAllByRole("status").filter((node) => node.textContent === announced);
     const regionsBefore = screen.getAllByRole("status").length;
     expect(carrying()).toHaveLength(0);
 
-    fireEvent.click(screen.getByRole("button", { name: `${strings.captureSignature} · Bloque 2` }));
+    fireEvent.click(screen.getByRole("button", { name: `${strings.captureSignature} · Firma B` }));
     fireEvent.click(await screen.findByRole("tab", { name: strings.modeType }));
     fireEvent.change(screen.getByLabelText(strings.typeLabel), { target: { value: "Ana" } });
     fireEvent.click(screen.getByRole("button", { name: strings.save }));
@@ -1098,11 +1095,11 @@ describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
     await seed("Ana Pérez");
     render(<Harness blocks={SPLIT_BLOCKS} />);
     toCapture();
-    fireEvent.click(screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Bloque 1` }));
+    fireEvent.click(screen.getByRole("button", { name: `${strings.vaultUseSavedFor(strings.fieldSignature)} · Firma A` }));
     fireEvent.click(await screen.findByRole("button", { name: strings.vaultUseFor("Ana Pérez") }));
     await waitFor(() =>
       expect(
-        screen.getAllByRole("status").some((node) => node.textContent === missingText(["Firma · Acta"])),
+        screen.getAllByRole("status").some((node) => node.textContent === missingText(["Firma B"])),
       ).toBe(true),
     );
   });
@@ -1126,8 +1123,187 @@ describe("BlockCeremony — «Ver cómo queda» apagado dice QUE falta", () => {
       </LanguageProvider>,
     );
     fireEvent.click(screen.getAllByRole("button", { name: en.handoffReady })[0]);
-    expect(screen.getByText(en.ceremonyMissing(["Signature · Contrato A, Anexo", "Initials · Contrato A, Anexo", "Signature · Acta"]))).toBeTruthy();
+    expect(screen.getByText(en.ceremonyMissing(["Signature A", "Initials A", "Signature B"]))).toBeTruthy();
     expect(screen.getByRole("button", { name: en.ceremonyGoToMissing })).toBeTruthy();
     expect(screen.getByRole("list", { name: en.ceremonyProgressLabel("Ana Pérez") })).toBeTruthy();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Orden de los turnos y «Revisar antes de descargar» (Fase 1 · U1.3)
+ * ------------------------------------------------------------------ */
+
+function OrderHost({
+  initialBlocks = SAME_BLOCKS,
+  initialOrder = null,
+  initialCeremony = null,
+  onOrder,
+  onFix,
+  onGoToPage,
+  blocked = false,
+}: {
+  initialBlocks?: SignerBlock[];
+  initialOrder?: string[] | null;
+  initialCeremony?: CeremonyState | null;
+  onOrder?: (order: string[]) => void;
+  onFix?: HarnessProps["onFix"];
+  onGoToPage?: (docId: string, pageIndex: number) => void;
+  blocked?: boolean;
+}) {
+  const [blocks, setBlocks] = useState(initialBlocks);
+  const [order, setOrder] = useState<string[] | null>(initialOrder);
+  const [ceremony, setCeremony] = useState<CeremonyState | null>(initialCeremony);
+  return (
+    <LanguageProvider>
+      <pre data-testid="order">{JSON.stringify(order)}</pre>
+      <pre data-testid="turn">{ceremony ? `${ceremony.signerId}:${ceremony.stage}` : "none"}</pre>
+      <BlockCeremony
+        signers={[ANA, LUIS]}
+        docs={DOCS}
+        docStates={DOC_STATES}
+        keys={KEYS}
+        blocks={blocks}
+        onBlocksChange={setBlocks}
+        blockerMessages={[]}
+        blocked={blocked}
+        onFinish={() => {}}
+        strings={strings}
+        ceremony={ceremony}
+        onCeremonyChange={setCeremony}
+        turnOrder={order}
+        onTurnOrderChange={(next) => {
+          setOrder(next);
+          onOrder?.(next);
+        }}
+        onFix={onFix}
+        onGoToPage={onGoToPage}
+      />
+    </LanguageProvider>
+  );
+}
+
+describe("BlockCeremony — orden de los turnos (↑ ↓)", () => {
+  const moveDown = (name: string) => screen.getByRole("button", { name: strings.assignment.orderMoveDown(name) }) as HTMLButtonElement;
+  const moveUp = (name: string) => screen.getByRole("button", { name: strings.assignment.orderMoveUp(name) }) as HTMLButtonElement;
+
+  it("sin `onTurnOrderChange` no hay botones de orden (la ceremonia suelta no cambia)", () => {
+    render(<Harness />);
+    expect(screen.queryByRole("button", { name: strings.assignment.orderMoveDown("Ana Pérez") })).toBeNull();
+  });
+
+  it("cada firmante tiene ↑ y ↓ de 44 px; el primero no sube y el ultimo no baja", () => {
+    render(<OrderHost />);
+    expect(moveUp("Ana Pérez").disabled).toBe(true);
+    expect(moveDown("Ana Pérez").disabled).toBe(false);
+    expect(moveDown("Luis").disabled).toBe(true);
+    expect(moveUp("Luis").disabled).toBe(false);
+    expect(moveDown("Ana Pérez").className).toContain("size-11");
+    expect(screen.getByRole("heading", { name: strings.assignment.orderTitle })).toBeTruthy();
+  });
+
+  it("bajar a Ana pasa el primer turno a Luis, lo guarda en la sesion y lo anuncia", () => {
+    const writes: string[][] = [];
+    render(<OrderHost onOrder={(order) => writes.push(order)} />);
+    expect(heading(strings.handoffTitle("Ana Pérez"))).toBeTruthy();
+    fireEvent.click(moveDown("Ana Pérez"));
+    expect(writes).toEqual([["sg-2", "sg-1"]]);
+    expect(screen.getByTestId("order").textContent).toBe('["sg-2","sg-1"]');
+    expect(heading(strings.handoffTitle("Luis"))).toBeTruthy();
+    expect(screen.getByText(strings.turnOf(1, 2))).toBeTruthy();
+    // El turno guardado sigue al primero pendiente del orden nuevo.
+    expect(screen.getByTestId("turn").textContent).toBe("sg-2:handoff");
+    expect(screen.getAllByRole("status").some((node) => node.textContent === strings.assignment.orderMoved("Ana Pérez", 2, 2))).toBe(true);
+    // Ahora Luis no baja... y Ana (2ª) puede subir.
+    expect(moveDown("Ana Pérez").disabled).toBe(true);
+    fireEvent.click(moveUp("Ana Pérez"));
+    expect(screen.getByTestId("order").textContent).toBe('["sg-1","sg-2"]');
+    expect(heading(strings.handoffTitle("Ana Pérez"))).toBeTruthy();
+  });
+
+  it("un orden guardado en la sesion manda al montar (Luis primero)", () => {
+    render(<OrderHost initialOrder={["sg-2", "sg-1"]} />);
+    expect(heading(strings.handoffTitle("Luis"))).toBeTruthy();
+    const names = screen.getAllByRole("listitem").filter((li) => li.getAttribute("data-stale-signer") !== null || li.textContent?.includes(strings.statusPending));
+    expect(names[0].textContent).toContain("Luis");
+  });
+
+  it("cambiar el orden con la captura a medias no mueve el turno de ahora", () => {
+    render(<OrderHost initialCeremony={ANA_TURN} />);
+    toCapture();
+    expect(heading(strings.captureTitle("Ana Pérez"))).toBeTruthy();
+    fireEvent.click(moveDown("Ana Pérez"));
+    expect(heading(strings.captureTitle("Ana Pérez"))).toBeTruthy();
+    expect(screen.getByTestId("turn").textContent).toBe("sg-1:capture");
+    expect(screen.getByText(strings.turnOf(2, 2))).toBeTruthy();
+  });
+});
+
+describe("BlockCeremony — «Revisar antes de descargar»", () => {
+  const allSigned = () => signed(SAME_BLOCKS, ["bk-1", "bk-2"]);
+
+  it("con todos firmados se ve la revision con las paginas con marcas de cada documento y los contadores", () => {
+    render(<OrderHost initialBlocks={allSigned()} />);
+    expect(screen.getByRole("heading", { name: strings.review.title })).toBeTruthy();
+    const contrato = screen.getByRole("heading", { name: /^Contrato A/ }).closest("li") as HTMLElement;
+    expect(within(contrato).getByText(strings.review.counterSignatures(2, 2))).toBeTruthy();
+    expect(within(contrato).getByText(strings.review.counterInitials(1, 1))).toBeTruthy();
+    expect(finish().disabled).toBe(false);
+    expect(screen.getByText(`${strings.review.readyTitle}. ${strings.review.readyBody(3)}`)).toBeTruthy();
+  });
+
+  it("mientras haya firmas por recoger NO se ensena la pantalla completa (ni se abren los documentos)", () => {
+    render(<OrderHost />);
+    expect(screen.queryByRole("heading", { name: strings.review.title })).toBeNull();
+  });
+
+  it("un hueco sin firmante bloquea «Firmar y descargar» con el motivo y «Ir a corregirlo» lleva a la tabla", () => {
+    const holed = signed(
+      [block("bk-1", ANA.id, [A, B], { auto: false }), block("bk-2", LUIS.id, [A, B], { auto: true })],
+      ["bk-1", "bk-2"],
+    );
+    const onFix = vi.fn();
+    render(<OrderHost initialBlocks={holed} onFix={onFix} />);
+    expect(finish().disabled).toBe(true);
+    expect(finish().getAttribute("aria-describedby")).toBeTruthy();
+    expect(document.getElementById(finish().getAttribute("aria-describedby")!)?.textContent).toBe(strings.review.disabledBecause);
+    const blockingTitle = screen.getByText(strings.review.blockedTitle);
+    const fix = within(blockingTitle.closest("div") as HTMLElement).getAllByRole("button", { name: strings.assignment.fixIt })[0];
+    fireEvent.click(fix);
+    expect(onFix).toHaveBeenCalledWith({ step: "signers", docId: C, signerId: ANA.id });
+  });
+
+  it("al corregirlo (Ana pasa a firmar Acta) el boton se habilita", () => {
+    const fixed = allSigned();
+    render(<OrderHost initialBlocks={fixed} />);
+    expect(finish().disabled).toBe(false);
+    expect(finish().getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("las miniaturas llaman a `onGoToPage` con documento y pagina", () => {
+    const onGoToPage = vi.fn();
+    render(<OrderHost initialBlocks={allSigned()} onGoToPage={onGoToPage} />);
+    const contrato = screen.getByRole("heading", { name: /^Contrato A/ }).closest("li") as HTMLElement;
+    fireEvent.click(within(contrato).getAllByRole("button")[0]);
+    expect(onGoToPage).toHaveBeenCalledWith(A, 0);
+  });
+
+  it("firma sin hueco en un grupo EXPLICITO avisa (no bloquea); en el grupo automatico («una firma para todos») no avisa", () => {
+    // Luis firma Acta con su grupo, pero no tiene hueco alli.
+    const explicit = signed(
+      [block("bk-1", ANA.id, [A, B, C], { auto: true }), block("bk-2", LUIS.id, [A, B, C], { auto: false })],
+      ["bk-1", "bk-2"],
+    );
+    const { unmount } = render(<OrderHost initialBlocks={explicit} />);
+    const warnings = document.querySelectorAll('[data-issue-severity="warning"]');
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(finish().disabled).toBe(false);
+    unmount();
+    // «Una firma para todos»: el grupo automatico de Luis cubre Acta, donde no tiene hueco, y es lo esperado.
+    const everywhere = signed(
+      [block("bk-1", ANA.id, [A, B, C], { auto: true }), block("bk-2", LUIS.id, [A, B, C], { auto: true })],
+      ["bk-1", "bk-2"],
+    );
+    render(<OrderHost initialBlocks={everywhere} />);
+    expect(document.querySelectorAll('[data-issue-severity="warning"]').length).toBe(0);
   });
 });

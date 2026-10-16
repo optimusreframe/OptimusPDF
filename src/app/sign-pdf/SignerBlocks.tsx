@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { StatusRegion } from "@/components/tool/liveRouting";
 import { Button } from "@/components/ui/Button";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { cn } from "@/lib/cn";
 import { BlockScopeSheet } from "@/app/sign-pdf/BlockScopeSheet";
 import {
@@ -14,56 +13,19 @@ import {
   signerLabel,
   type DocRef,
 } from "@/app/sign-pdf/blockModel";
-import type { CoverageIssue, DocId, SignMode, SignerBlock } from "@/app/sign-pdf/docSet";
+import type { CoverageIssue, DocId, SignerBlock } from "@/app/sign-pdf/docSet";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 import type { Signer } from "@/lib/pdf/sign";
 
 /*
- * Piezas de la interfaz de bloques de la Wave 4 (U3): el control global
- * «mismas firmas / firmas distintas», la lista de bloques de un firmante
- * (se pinta DENTRO de su tarjeta en `SignerManager`) y los avisos de
- * cobertura. Solo aparecen con mas de un documento.
+ * Piezas de la interfaz de bloques de la Wave 4 (U3): la lista de bloques de un firmante
+ * (se pinta DENTRO de su tarjeta en `SignerManager`) y los avisos de cobertura. Desde la Fase 1 de «Firma agil» la
+ * herramienta edita las asignaciones con la tabla `AssignmentMatrix` y el control «mismas / distintas» se retiro; estas
+ * piezas quedan para quien monte `SignerManager` con `blocks` y `CoverageNotices` (no se montan en la pantalla de Firmantes).
  */
 
 /** Objetivo de toque de 44 px con puntero grueso (el `sm` mide 36 px). */
 const COARSE_TALL = "pointer-coarse:h-11 pointer-coarse:before:hidden";
-
-/* ------------------------------------------------------------------ *
- * Control global
- * ------------------------------------------------------------------ */
-
-export type SignModeControlProps = {
-  /** Para llevar el foco al segmento activo (p. ej. tras «Deshacer»). */
-  containerRef?: Ref<HTMLElement>;
-  value: SignMode;
-  onChange: (mode: SignMode) => void;
-  strings: SignStrings;
-};
-
-/** «Mismas firmas» / «Firmas distintas por documento», con su explicacion debajo. */
-export function SignModeControl({
-  containerRef,
-  value,
-  onChange,
-  strings,
-}: SignModeControlProps) {
-  return (
-    <section ref={containerRef} className="space-y-2">
-      <SegmentedControl<SignMode>
-        label={strings.signModeLabel}
-        value={value}
-        onChange={onChange}
-        options={[
-          { value: "same", label: strings.signModeSame },
-          { value: "independent", label: strings.signModeIndependent },
-        ]}
-      />
-      <p className="text-footnote leading-relaxed text-muted-foreground">
-        {value === "same" ? strings.signModeSameHint : strings.signModeIndependentHint}
-      </p>
-    </section>
-  );
-}
 
 /* ------------------------------------------------------------------ *
  * Bloques de un firmante

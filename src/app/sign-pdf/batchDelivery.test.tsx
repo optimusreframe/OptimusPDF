@@ -570,3 +570,51 @@ describe("signDocumentsBatch — «Incluir registro .json aparte» activado", ()
     expect(names).not.toContain("registro-firmas.json");
   });
 });
+
+describe("signDocumentsBatch — copias (Fase 1 · U1.3): el resultado dice cuantos archivos hay", () => {
+  const withCopies = (copies: Record<string, number>): SignSession => {
+    const base = mixedSession();
+    return {
+      ...base,
+      docs: Object.fromEntries(
+        Object.entries(base.docs).map(([id, state]) => [id, copies[id] ? { ...state, copies: copies[id] } : state]),
+      ),
+    };
+  };
+
+  it("2 copias de cada uno: 4 archivos en el ZIP y el resumen «4 archivos: 2 documentos con 2 copias cada uno»", async () => {
+    const result = await run([FILE_A, FILE_B], withCopies({ [A]: 2, [B]: 2 }));
+    expect(result.summary).toBe(strings.assignment.filesDelivered(4, 2, 2));
+    expect(result.summary).toBe("4 archivos: 2 documentos con 2 copias cada uno.");
+    const names = Object.keys((await unzip(result.blob)).files).sort();
+    expect(names).toEqual([
+      "Ana Pérez - Anexo-firmado (copia 2).pdf",
+      "Ana Pérez - Anexo-firmado.pdf",
+      "Ana Pérez y Luis - Contrato A-firmado (copia 2).pdf",
+      "Ana Pérez y Luis - Contrato A-firmado.pdf",
+    ]);
+    // Se firma UNA vez por documento (las copias son el mismo PDF).
+    expect(signSpy.calls).toHaveLength(2);
+  });
+
+  it("copias distintas por documento: el resumen cuenta los archivos sin inventar un «cada uno»", async () => {
+    const result = await run([FILE_A, FILE_B], withCopies({ [A]: 3 }));
+    expect(result.summary).toBe(strings.assignment.filesDelivered(4, 2, null));
+    expect(result.summary).toContain("4 archivos en el ZIP");
+  });
+
+  it("sin copias no cambia nada: ni resumen nuevo ni nombres distintos (la pantalla es la de siempre)", async () => {
+    const result = await run([FILE_A, FILE_B], mixedSession());
+    expect(result.summary).toBeUndefined();
+    expect(Object.keys((await unzip(result.blob)).files)).toHaveLength(2);
+  });
+
+  it("en ingles el resumen y el sufijo salen en ingles", async () => {
+    const english = SIGN_STRINGS.en;
+    const result = await run([FILE_A, FILE_B], withCopies({ [A]: 2, [B]: 2 }), {
+      context: { language: "en", strings: english, certificateEnabled: true },
+    });
+    expect(result.summary).toBe("4 files: 2 documents with 2 copies each.");
+    expect(Object.keys((await unzip(result.blob)).files).some((name) => name.includes("(copy 2)"))).toBe(true);
+  });
+});

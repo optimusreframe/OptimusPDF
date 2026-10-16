@@ -18,6 +18,12 @@ export const MAX_SIGNERS = 2;
 /** Documentos a la vez en una misma ronda. */
 export const MAX_DOCUMENTS = 10;
 
+/**
+ * Copias por documento (1..5) y archivos que entrega una ronda contando las copias (50 = 10 documentos x 5 copias).
+ * Viven en `signCopies.ts` (sin dependencias, lo usa tambien el motor del ZIP) y se reexportan aqui con el resto de topes.
+ */
+export { MAX_COPIES, MAX_OUTPUT_FILES } from "@/lib/pdf/signCopies";
+
 /** Tope por documento (el mismo de `FileDropzone`: `MAX_SAFE_FILE_SIZE`). */
 export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
 

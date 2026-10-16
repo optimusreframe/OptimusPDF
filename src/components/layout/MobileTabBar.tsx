@@ -3,7 +3,7 @@
 import { GuardedLink as Link } from "@/components/layout/GuardedLink";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { Clock, House, Settings, type LucideIcon } from "lucide-react";
+import { Clock, FolderOpen, House, Settings, type LucideIcon } from "lucide-react";
 import { useScrollEdge } from "@/components/layout/useScrollEdge";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -12,11 +12,12 @@ import { springs } from "@/lib/motion";
 type Tab = {
   href: string;
   icon: LucideIcon;
-  labelKey: "home" | "recent" | "settings";
+  labelKey: "home" | "documents" | "recent" | "settings";
 };
 
 const TABS: Tab[] = [
   { href: "/", icon: House, labelKey: "home" },
+  { href: "/documents", icon: FolderOpen, labelKey: "documents" },
   { href: "/recent", icon: Clock, labelKey: "recent" },
   { href: "/settings", icon: Settings, labelKey: "settings" },
 ];

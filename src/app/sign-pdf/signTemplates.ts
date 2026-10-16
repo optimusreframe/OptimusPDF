@@ -470,6 +470,17 @@ export function instantiateTemplateForAll(
   return { signers, perDoc, dropped };
 }
 
+/**
+ * Relee `localStorage` y avisa a la interfaz. Para cuando OTRO modulo escribio la clave directamente en esta misma
+ * pestaña (p. ej. `markMigrated` de `src/lib/docLibrary/templateLegacy.ts`, que borra las plantillas ya migradas a la
+ * biblioteca): el evento `storage` solo llega a las OTRAS pestañas.
+ */
+export function refreshSignTemplates(): void {
+  if (typeof window === "undefined") return;
+  cache = null;
+  emit();
+}
+
 /** Solo para tests: fuerza a releer `localStorage` en el siguiente acceso. */
 export function __resetSignTemplatesCacheForTests(): void {
   cache = null;

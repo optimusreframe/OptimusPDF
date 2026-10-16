@@ -1,0 +1,190 @@
+{
+  "version": 2,
+  "mode": "multi",
+  "signMode": "independent",
+  "signers": [
+    {
+      "id": "sg-1",
+      "name": "Ana",
+      "color": "#0d4bff"
+    },
+    {
+      "id": "sg-2",
+      "name": "Luis",
+      "color": "#0f9d68"
+    }
+  ],
+  "blocks": [
+    {
+      "id": "bk-1",
+      "signerId": "sg-1",
+      "appliesTo": [
+        "doc-1",
+        "doc-2"
+      ],
+      "auto": false
+    },
+    {
+      "id": "bk-2",
+      "signerId": "sg-1",
+      "appliesTo": [
+        "doc-3",
+        "doc-4"
+      ],
+      "auto": false
+    },
+    {
+      "id": "bk-3",
+      "signerId": "sg-2",
+      "appliesTo": [
+        "doc-1",
+        "doc-2",
+        "doc-3",
+        "doc-4"
+      ],
+      "auto": true
+    }
+  ],
+  "documents": [
+    {
+      "id": "doc-1",
+      "file": {
+        "name": "Contrato.pdf",
+        "text": "%PDF-1.4\n% cfg2-0\n%%EOF\n"
+      },
+      "fields": [
+        {
+          "id": "g0-a",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        },
+        {
+          "id": "g0-l",
+          "signerId": "sg-2",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {}
+    },
+    {
+      "id": "doc-2",
+      "file": {
+        "name": "Anexo.pdf",
+        "text": "%PDF-1.4\n% cfg2-1\n%%EOF\n"
+      },
+      "fields": [
+        {
+          "id": "g1-a",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        },
+        {
+          "id": "g1-l",
+          "signerId": "sg-2",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {}
+    },
+    {
+      "id": "doc-3",
+      "file": {
+        "name": "Carta.pdf",
+        "text": "%PDF-1.4\n% cfg2-2\n%%EOF\n"
+      },
+      "fields": [
+        {
+          "id": "g2-a",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        },
+        {
+          "id": "g2-l",
+          "signerId": "sg-2",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {}
+    },
+    {
+      "id": "doc-4",
+      "file": {
+        "name": "Autorizacion.pdf",
+        "text": "%PDF-1.4\n% cfg2-3\n%%EOF\n"
+      },
+      "fields": [
+        {
+          "id": "g3-a",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        },
+        {
+          "id": "g3-l",
+          "signerId": "sg-2",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {}
+    }
+  ]
+}

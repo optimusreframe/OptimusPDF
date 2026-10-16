@@ -16,7 +16,7 @@ import { __resetValueHistoryCacheForTests } from "@/lib/valueHistory";
 
 /*
  * `SignToolClient` completo con VARIOS documentos: panel de opciones (que
- * falta para descargar), control mismas/distintas, bloques y el boton de
+ * falta para descargar), tabla «¿Quién firma qué?» y el boton de
  * procesar. La colocacion sobre el lienzo la cubren los tests de
  * `DocumentCanvas`/`DocumentSequence`; aqui no se necesita.
  */
@@ -103,7 +103,7 @@ async function toMulti() {
   fireEvent.click(await screen.findByRole("tab", { name: strings.modeMulti }));
 }
 
-describe("SignToolClient con varios documentos — panel de opciones y control de modo", () => {
+describe("SignToolClient con varios documentos — panel de opciones y tabla de asignacion", () => {
   it("«Solo yo» con 2 documentos: el panel cuenta los documentos, dice que falta la firma y procesar sigue desactivado", async () => {
     const { container } = renderTool();
     await load(container, pdf("a.pdf"), pdf("b.pdf"));
@@ -130,43 +130,49 @@ describe("SignToolClient con varios documentos — panel de opciones y control d
     expect(statuses.some((node) => within(node).queryByText(strings.deliveryBlockedTitle))).toBe(true);
   });
 
-  it("el control «mismas / distintas» aparece con dos documentos y desaparece al quedar uno", async () => {
+  it("la tabla «¿Quién firma qué?» aparece con dos documentos (con firmantes), no queda el control antiguo y desaparece al quedar uno", async () => {
     const { container } = renderTool();
     await load(container, pdf("a.pdf"), pdf("b.pdf"));
     await toMulti();
-    expect(screen.getByRole("tab", { name: strings.signModeSame })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
+    expect(await screen.findByRole("grid", { name: strings.assignment.tableLabel })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: strings.signModeSame })).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: es.tool.remove })[1]);
     await waitFor(() => expect(docNav()).toBeNull());
-    expect(screen.queryByRole("tab", { name: strings.signModeSame })).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
     expect(screen.queryByText(/Aplica a:/)).toBeNull();
   });
 
-  it("anadir un firmante crea su bloque automatico que cubre los dos documentos", async () => {
+  it("anadir un firmante lo pone en «Firma A» en los dos documentos (su grupo automatico cubre toda la ronda)", async () => {
     const { container } = renderTool();
     await load(container, pdf("a.pdf"), pdf("b.pdf"));
     await toMulti();
     fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
-    await waitFor(() => expect(screen.getByText(strings.blockAppliesTo("Todos (2)"))).toBeTruthy());
-    expect(screen.getByText("Bloque 1")).toBeTruthy();
+    const grid = await screen.findByRole("grid", { name: strings.assignment.tableLabel });
+    await waitFor(() => expect(grid.querySelectorAll('[data-cell][data-group="A"]')).toHaveLength(2));
+    expect(screen.getByText(strings.assignment.summaryFiles(2))).toBeTruthy();
   });
 
-  it("un documento nuevo entra solo en el alcance automatico; en «distintas» crea el bloque del documento", async () => {
+  it("un documento nuevo entra solo en la «Firma A» automatica; con «Una firma por documento» cada uno tiene la suya", async () => {
     const { container } = renderTool();
     await load(container, pdf("a.pdf"), pdf("b.pdf"));
     await toMulti();
     fireEvent.click(screen.getByRole("button", { name: strings.addSigner }));
-    await screen.findByText(strings.blockAppliesTo("Todos (2)"));
+    const grid = await screen.findByRole("grid", { name: strings.assignment.tableLabel });
+    await waitFor(() => expect(grid.querySelectorAll('[data-cell][data-group="A"]')).toHaveLength(2));
     fireEvent.change(pdfInput(container), { target: { files: [pdf("c.pdf")] } });
-    await waitFor(() => expect(screen.getByText(strings.blockAppliesTo("Todos (3)"))).toBeTruthy());
-    fireEvent.click(screen.getByRole("tab", { name: strings.signModeIndependent }));
-    await waitFor(() => expect(screen.getAllByText(/^Bloque \d$/)).toHaveLength(3));
+    await waitFor(() => expect(screen.getByRole("grid").querySelectorAll('[data-cell][data-group="A"]')).toHaveLength(3));
+    fireEvent.click(screen.getByRole("button", { name: strings.assignment.shortcutPerDoc }));
+    await waitFor(() =>
+      expect([...screen.getByRole("grid").querySelectorAll("[data-cell]")].map((cell) => cell.getAttribute("data-group"))).toEqual(["A", "B", "C"]),
+    );
   });
 
-  it("con el flag `multiDocument` apagado la herramienta admite un solo archivo y no hay control", async () => {
+  it("con el flag `multiDocument` apagado la herramienta admite un solo archivo y no hay tabla", async () => {
     setSignPdfFeatureFlag("multiDocument", false);
     const { container } = renderTool();
     expect(pdfInput(container).multiple).toBe(false);
-    expect(screen.queryByRole("tab", { name: strings.signModeSame })).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
   });
 
   it("(control) con UN documento en «Varios firmantes» no hay bloques ni panel de lote", async () => {

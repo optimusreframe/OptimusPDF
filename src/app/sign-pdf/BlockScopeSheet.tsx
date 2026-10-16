@@ -25,6 +25,8 @@ export type BlockScopeSheetProps = {
   closeLabel: string;
   /** Fija el alcance (la hoja se cierra despues). */
   onApply: (blockId: string, docIds: DocId[]) => void;
+  /** Como se llama un bloque en pantalla («Firma A» en la ceremonia por grupos); sin esto, «Bloque N». */
+  titleOf?: (block: SignerBlock) => string;
 };
 
 /**
@@ -44,6 +46,7 @@ export function BlockScopeSheet({
   strings,
   closeLabel,
   onApply,
+  titleOf,
 }: BlockScopeSheetProps) {
   return (
     <Sheet
@@ -52,7 +55,7 @@ export function BlockScopeSheet({
       title={
         block
           ? strings.scopeSheetTitle(
-              strings.blockName(blockNumber(blocks, block.id)),
+              titleOf ? titleOf(block) : strings.blockName(blockNumber(blocks, block.id)),
               signerName,
             )
           : undefined
@@ -67,6 +70,7 @@ export function BlockScopeSheet({
           blocks={blocks}
           docs={docs}
           strings={strings}
+          titleOf={titleOf}
           onCancel={onClose}
           onApply={(docIds) => {
             onApply(block.id, docIds);
@@ -83,11 +87,12 @@ type ScopeFormProps = {
   blocks: readonly SignerBlock[];
   docs: readonly DocRef[];
   strings: SignStrings;
+  titleOf?: (block: SignerBlock) => string;
   onCancel: () => void;
   onApply: (docIds: DocId[]) => void;
 };
 
-function ScopeForm({ block, blocks, docs, strings, onCancel, onApply }: ScopeFormProps) {
+function ScopeForm({ block, blocks, docs, strings, titleOf, onCancel, onApply }: ScopeFormProps) {
   const [selected, setSelected] = useState<ReadonlySet<DocId>>(
     () => new Set(block.appliesTo),
   );
@@ -114,7 +119,7 @@ function ScopeForm({ block, blocks, docs, strings, onCancel, onApply }: ScopeFor
     );
     if (owner) {
       previews.push(
-        strings.scopeMovePreview(docLabel(doc.name), blockNumber(blocks, owner.id)),
+        strings.scopeMovePreview(docLabel(doc.name), titleOf ? titleOf(owner) : blockNumber(blocks, owner.id)),
       );
     }
   }

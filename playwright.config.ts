@@ -22,7 +22,7 @@ const CROSS = (process.env.PW_BROWSERS ?? "")
   .filter(Boolean);
 const wantsCross = (name: "webkit" | "webkit-mobile" | "webkit-ipad" | "firefox") => CROSS.includes("all") || CROSS.includes(name);
 const CROSS_SPECS =
-  /(pdf-pro-(foundation|viewer|viewer-damaged|pages|tools|export|export-persistent|modes-edit|modes-sign|create|journeys|unload|history-memory|memory|shared-content-edit)|pages-migration|pages-warnings|merge-pdf|split-pdf|organize-pdf|remove-extract-pages|edit-existing-text|edit-pdf-flow|edit-quality|edit-palette-reach|sign-quality|sign-multi|signature-font|sign-edit-summary|sign-upload-backup|sign-backup-merge|sign-upload-a11y|exif-orientation|compress[\w-]*|protect-unlock|ocr-pdf|convert-out|image-conversion|a11y-sweep|tool-errors|focus-own-headers)\.spec\.ts$/;
+  /(pdf-pro-(foundation|viewer|viewer-damaged|pages|tools|export|export-persistent|modes-edit|modes-sign|create|journeys|unload|history-memory|memory|shared-content-edit)|pages-migration|pages-warnings|merge-pdf|split-pdf|organize-pdf|remove-extract-pages|edit-existing-text|edit-pdf-flow|edit-quality|edit-palette-reach|sign-quality|sign-multi|signature-font|sign-edit-summary|sign-upload-backup|sign-backup-merge|sign-upload-a11y|doc-fingerprint|my-documents|exif-orientation|compress[\w-]*|protect-unlock|ocr-pdf|convert-out|image-conversion|a11y-sweep|tool-errors|focus-own-headers)\.spec\.ts$/;
 /** scan-to-pdf depende de `--use-fake-device-for-media-stream` (solo Chromium). */
 const crossMatch = process.env.PW_CROSS_FULL ? /(?<!scan-to-pdf)\.spec\.ts$/ : CROSS_SPECS;
 /**
@@ -34,10 +34,12 @@ const MOBILE_EXCLUDED = /(compress[\w-]*|edit-pdf-flow|pdf-pro-viewer|pdf-pro-pa
 
 /**
  * Specs de la Fase 0 «Firma agil» (`docs/PLAN-FIRMA-AGIL.md` §3, U0.1): reproducen la perdida de trabajo al firmar
- * (turno que se reinicia, BACK del navegador, Recientes -> Continuar). Solo `webkit-ipad` los suma a `CROSS_SPECS`;
+ * (turno que se reinicia, BACK del navegador, Recientes -> Continuar); y de la Fase 1 (`sign-assignment`: tabla «¿Quien firma
+ * que?», copias, orden de turnos y revision antes de descargar) y de la Fase 2 (`sign-templates*`: plantillas de documento,
+ * aplicacion automatica y automapeo). Solo `webkit-ipad` los suma a `CROSS_SPECS`;
  * los demas proyectos cruzados no cambian. En Chromium corren porque `chromium` no filtra por archivo.
  */
-const F0_SPECS = /(sign-ceremony-turns|sign-recovery|sign-record|sign-privacy|recent-continue|sign-draft-safety|sign-stale-signature)\.spec\.ts$/;
+const F0_SPECS = /(sign-ceremony-turns|sign-recovery|sign-record|sign-privacy|recent-continue|sign-draft-safety|sign-stale-signature|sign-assignment|sign-templates|sign-templates-a11y|sign-templates-no-loss|sign-templates-stale|sign-templates-no-loss-a11y|sign-templates-variants)\.spec\.ts$/;
 /**
  * Las pruebas que hoy DEBEN fallar (defectos aun sin corregir) llevan `@f0-pendiente` en el titulo y se EXCLUYEN de
  * cualquier ejecucion por defecto (local y CI) para no dejar la suite en rojo. `PW_F0=1` las incluye:

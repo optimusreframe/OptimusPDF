@@ -62,6 +62,11 @@ export type SignSession = {
    * del primer firmante pendiente (`resolveCeremony`).
    */
   ceremony?: CeremonyState | null;
+  /**
+   * Orden de los turnos de la ceremonia por bloques (ids de firmante), cuando la persona lo cambio. Ausente/`null` = el de
+   * la lista de firmantes. Vive aqui (y se guarda en el borrador) para sobrevivir a remontajes y recargas.
+   */
+  turnOrder?: string[] | null;
 
   /* --- Por documento --- */
   /** Estado de cada documento, indexado por `DocId`. Sin entrada = documento en blanco. */
@@ -102,6 +107,7 @@ const FRESH_ROUND: Partial<SignSession> = {
   editingTextFieldId: null,
   // Los firmantes sobreviven a una ronda nueva, pero el turno no: empieza por el primero.
   ceremony: null,
+  turnOrder: null,
 };
 
 function sameList<T>(a: readonly T[], b: readonly T[]): boolean {
@@ -149,6 +155,7 @@ export function viewOf(
     textFieldsDetectedFor: doc.textFieldsDetectedFor,
     textEdits: doc.textEdits,
     ceremony: session.ceremony,
+    turnOrder: session.turnOrder,
   };
 }
 
@@ -163,6 +170,7 @@ const GLOBAL_KEYS = [
   "selectedTextFieldId",
   "editingTextFieldId",
   "ceremony",
+  "turnOrder",
 ] as const satisfies readonly (keyof SignToolOptions & keyof SignSession)[];
 
 /**

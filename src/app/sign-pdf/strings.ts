@@ -1,5 +1,6 @@
 import type { Language } from "@/lib/i18n";
 import type { StaleReason } from "@/app/sign-pdf/captures";
+import { templateEn, templateEs, type TemplateStrings } from "@/app/sign-pdf/templateStrings";
 
 /** Copy propio de la herramienta de firma (ES/EN). */
 export type SignStrings = {
@@ -560,7 +561,8 @@ export type SignStrings = {
   scopeDocsLabel: string;
   scopeAllLabel: string;
   scopeEmpty: string;
-  scopeMovePreview: (doc: string, fromBlock: number) => string;
+  /** `from`: el numero del bloque o, desde la ceremonia por grupos, su nombre («Firma B»). */
+  scopeMovePreview: (doc: string, from: number | string) => string;
   scopeApply: string;
   /** Cobertura: un firmante con huecos en un documento sin bloque que lo cubra. */
   coverageMissing: (signer: string, doc: string) => string;
@@ -591,6 +593,12 @@ export type SignStrings = {
   inkImport: InkImportStrings;
   /** Exportar todas las firmas / importar firmas (U4.4-UI): ver `VaultBackupStrings`. */
   vaultBackup: VaultBackupStrings;
+  /** «¿Quién firma qué?», copias y orden de turnos (F1 · U1.2/U1.3): ver `AssignmentStrings`. */
+  assignment: AssignmentStrings;
+  /** «Revisar antes de descargar» (F1 · U1.3): ver `ReviewStrings`. */
+  review: ReviewStrings;
+  /** Plantillas de documento: modo «Configurar plantilla» y aplicacion automatica (Fase 2 · U2.3/U2.4). */
+  template: TemplateStrings;
 };
 
 /**
@@ -913,6 +921,138 @@ export type ResumeStrings = {
   copyTag: string;
 };
 
+/**
+ * «¿Quién firma qué?», copias, orden de los turnos y «Revisar antes de descargar» (Firma ágil · Fase 1 · U1.2 y U1.3).
+ * Las claves de los problemas llevan el nombre de `assignment.issue.<kind>` de `assignmentValidation.ts`. Un solo bloque
+ * para que ES y EN se mantengan a la par.
+ */
+export type IssueTextParams = {
+  /** Nombres ya resueltos (firmante, documento, «Firma A»). */
+  signer: string;
+  doc: string;
+  group: string;
+  count: number;
+  max: number;
+  /** Trazos que faltan: «la firma», «las iniciales» o las dos. */
+  strokes: readonly ("signature" | "initials")[];
+};
+
+export type AssignmentStrings = {
+  /* --- Tabla --- */
+  title: string;
+  hint: string;
+  tableLabel: string;
+  docColumn: string;
+  copiesColumn: string;
+  /** «Firma A» / «Signature A». */
+  group: (letter: string) => string;
+  noSign: string;
+  /** Etiqueta accesible de una celda: quién, dónde, qué firma. */
+  cellLabel: (signer: string, doc: string, group: string | null) => string;
+  cellHint: string;
+  /* --- Atajos --- */
+  shortcutsLabel: string;
+  shortcutAll: string;
+  shortcutPerDoc: string;
+  shortcutGroups: string;
+  shortcutGroupsHint: string;
+  /* --- Copias --- */
+  copiesFor: (doc: string) => string;
+  copiesLess: (doc: string) => string;
+  copiesMore: (doc: string) => string;
+  copiesValue: (doc: string, copies: number) => string;
+  allCopiesLabel: string;
+  allCopiesLess: string;
+  allCopiesMore: string;
+  copiesAtMax: (max: number) => string;
+  filesAtMax: (max: number) => string;
+  /* --- Cambios --- */
+  undo: string;
+  undone: string;
+  lastSignerCell: (signer: string) => string;
+  cellChanged: (signer: string, doc: string, group: string | null) => string;
+  shortcutApplied: (shortcut: string) => string;
+  copiesChanged: (doc: string, copies: number) => string;
+  allCopiesChanged: (copies: number) => string;
+  /* --- Confirmación de trazos afectados --- */
+  confirmTitle: string;
+  confirmIntro: string;
+  /** «Esto borrará la firma B de Ana en 2 documentos». */
+  lostLine: (group: string, signer: string, docs: number, strokes: readonly ("signature" | "initials")[]) => string;
+  /** El trazo sigue pero cubre documentos que su dueño no vio. */
+  reconfirmLine: (group: string, signer: string, added: number) => string;
+  confirmContinue: string;
+  confirmCancel: string;
+  cancelled: string;
+  /* --- Resumen --- */
+  summaryTitle: string;
+  /** «Ana firma 4 documentos con 2 firmas: A (Contrato, Anexo) y B (Carta, Autorización).» */
+  summarySigner: (
+    name: string,
+    documents: number,
+    groups: readonly { letter: string; docs: readonly string[] }[],
+  ) => string;
+  summaryFiles: (files: number) => string;
+  summaryNobody: (docs: readonly string[]) => string;
+  summaryNoSigners: string;
+  /* --- Problemas (de `validateAssignment`) --- */
+  issueTitleBlocking: string;
+  issueTitleWarning: string;
+  fixIt: string;
+  issue: Record<
+    | "slotWithoutSigner"
+    | "signerWithoutSlot"
+    | "signerWithoutDocuments"
+    | "documentWithoutSigner"
+    | "requiredFieldEmpty"
+    | "groupWithoutStroke"
+    | "overlappingGroups"
+    | "tooManyFiles",
+    (p: IssueTextParams) => string
+  >;
+  /* --- Ceremonia --- */
+  /** «Firma A — para: Contrato, Anexo». */
+  groupFor: (group: string, docs: string) => string;
+  /** «Firma A» en el hueco de las iniciales, etc. */
+  turnAgenda: (signer: string) => string;
+  /* --- Orden de los turnos --- */
+  orderTitle: string;
+  orderHint: string;
+  orderMoveUp: (signer: string) => string;
+  orderMoveDown: (signer: string) => string;
+  orderMoved: (signer: string, position: number, total: number) => string;
+  orderLocked: string;
+  /* --- Resultado --- */
+  filesDelivered: (files: number, documents: number, copiesOfEach: number | null) => string;
+};
+
+export type ReviewStrings = {
+  title: string;
+  intro: string;
+  /** «Contrato · 2 páginas con firma». */
+  docHeading: (doc: string, marked: number, total: number) => string;
+  counterInitials: (done: number, expected: number) => string;
+  counterSignatures: (done: number, total: number) => string;
+  counterText: (done: number, total: number) => string;
+  /** Miniatura: página y qué lleva. */
+  thumbLabel: (doc: string, page: number, kinds: readonly string[]) => string;
+  thumbGo: (doc: string, page: number) => string;
+  kindSignature: string;
+  kindInitials: string;
+  kindText: string;
+  pageNumber: (page: number) => string;
+  loadingThumb: string;
+  noMarks: string;
+  blockedTitle: string;
+  warningsTitle: string;
+  readyTitle: string;
+  readyBody: (files: number) => string;
+  disabledBecause: string;
+  /** Faltan iniciales en páginas del cuerpo. */
+  initialsMissing: (doc: string, signer: string, pages: readonly number[]) => string;
+  statusTitle: string;
+};
+
 /** «Contrato» · «Contrato y 2 más»: nombres de archivo para los avisos de limite. */
 function quotedNames(names: readonly string[], and: string, more: (n: number) => string): string {
   if (names.length === 0) return "";
@@ -1015,6 +1155,237 @@ const resumeEn: ResumeStrings = {
   tabNewerNotice: "Another tab changed this signing. Reload to see the latest version; what you change here will be saved as a separate copy.",
   tabForkedNotice: "Another tab changed this signing; this copy was saved separately.",
   copyTag: "Separate copy",
+};
+
+const strokesEs = (strokes: readonly ("signature" | "initials")[]): string =>
+  strokes.length === 2 ? "la firma y las iniciales" : strokes[0] === "initials" ? "las iniciales" : "la firma";
+const strokesEn = (strokes: readonly ("signature" | "initials")[]): string =>
+  strokes.length === 2 ? "the signature and the initials" : strokes[0] === "initials" ? "the initials" : "the signature";
+const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+const plEs = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const andEs = (items: readonly string[]) =>
+  items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}`;
+const andEn = (items: readonly string[]) =>
+  items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+
+const assignmentEs: AssignmentStrings = {
+  title: "¿Quién firma qué?",
+  hint: "Toca una celda para elegir qué firma lleva cada documento. Las celdas con la misma letra comparten la misma firma.",
+  tableLabel: "Quién firma cada documento y cuántas copias se entregan",
+  docColumn: "Documento",
+  copiesColumn: "Copias",
+  group: (letter) => `Firma ${letter}`,
+  noSign: "No firma",
+  cellLabel: (signer, doc, group) => `${signer} en ${doc}: ${group ?? "no firma"}`,
+  cellHint: "Toca para cambiar. Flechas para moverte entre celdas.",
+  shortcutsLabel: "Atajos",
+  shortcutAll: "Una firma para todos",
+  shortcutPerDoc: "Una firma por documento",
+  shortcutGroups: "Por grupos",
+  shortcutGroupsHint: "Por grupos: la primera mitad de los documentos comparte la firma A y el resto la B.",
+  copiesFor: (doc) => `Copias de ${doc}`,
+  copiesLess: (doc) => `Una copia menos de ${doc}`,
+  copiesMore: (doc) => `Una copia más de ${doc}`,
+  copiesValue: (doc, copies) => `${doc}: ${copies} ${copies === 1 ? "copia" : "copias"}`,
+  allCopiesLabel: "Copias de todos",
+  allCopiesLess: "Una copia menos en todos los documentos",
+  allCopiesMore: "Una copia más en todos los documentos",
+  copiesAtMax: (max) => `Máximo ${max} copias por documento.`,
+  filesAtMax: (max) => `Máximo ${max} archivos por descarga: no caben más copias.`,
+  undo: "Deshacer cambio",
+  undone: "Cambio deshecho.",
+  lastSignerCell: (signer) => `${signer} tiene que firmar al menos un documento. Si no firma ninguno, quítalo de la lista.`,
+  cellChanged: (signer, doc, group) => `${signer} en ${doc}: ${group ?? "no firma"}.`,
+  shortcutApplied: (shortcut) => `${shortcut}: aplicado.`,
+  copiesChanged: (doc, copies) => `${doc}: ${copies} ${copies === 1 ? "copia" : "copias"}.`,
+  allCopiesChanged: (copies) => `Todos los documentos: ${copies} ${copies === 1 ? "copia" : "copias"}.`,
+  confirmTitle: "¿Cambiar la asignación?",
+  confirmIntro: "Este cambio afecta a firmas que ya se recogieron:",
+  lostLine: (group, signer, docs, strokes) =>
+    `Esto borrará ${strokes.length === 1 && strokes[0] === "initials" ? "las iniciales de " : ""}la ${lowerFirst(group)} de ${signer} en ${plEs(docs, "documento", "documentos")}.`,
+  reconfirmLine: (group, signer, added) =>
+    `${signer} tendrá que volver a confirmar la ${lowerFirst(group)}: ahora cubre ${plEs(added, "documento más", "documentos más")} que no vio.`,
+  confirmContinue: "Continuar",
+  confirmCancel: "Cancelar",
+  cancelled: "Cambio cancelado.",
+  summaryTitle: "Resumen",
+  summarySigner: (name, documents, groups) => {
+    const docsText = plEs(documents, "documento", "documentos");
+    if (groups.length === 1) return `${name} firma ${docsText} con 1 firma.`;
+    return `${name} firma ${docsText} con ${groups.length} firmas: ${andEs(
+      groups.map((group) => `${group.letter} (${group.docs.join(", ")})`),
+    )}.`;
+  },
+  summaryFiles: (files) => (files === 1 ? "Se descargará 1 archivo." : `Se descargarán ${files} archivos.`),
+  summaryNobody: (docs) => `Nadie firma: ${andEs(docs)}.`,
+  summaryNoSigners: "Añade al menos un firmante para asignar las firmas.",
+  issueTitleBlocking: "Hay que corregir esto antes de descargar",
+  issueTitleWarning: "Conviene revisar",
+  fixIt: "Ir a corregirlo",
+  issue: {
+    slotWithoutSigner: ({ signer, doc }) =>
+      `${signer} tiene un hueco de firma en ${doc}, pero no está asignado a ese documento.`,
+    signerWithoutSlot: ({ signer, doc, group }) =>
+      `${signer} firma ${doc} con la ${lowerFirst(group)}, pero ese documento no tiene hueco para esa persona.`,
+    signerWithoutDocuments: ({ signer }) => `${signer} no firma ningún documento.`,
+    documentWithoutSigner: ({ doc }) => `Nadie firma ${doc}.`,
+    requiredFieldEmpty: ({ doc, count }) =>
+      `${doc} tiene ${plEs(count, "campo de texto sin rellenar", "campos de texto sin rellenar")}.`,
+    groupWithoutStroke: ({ signer, group, strokes }) =>
+      `A ${signer} le falta ${strokesEs(strokes)} de la ${lowerFirst(group)}.`,
+    overlappingGroups: ({ signer, doc }) =>
+      `${signer} tiene dos firmas distintas asignadas a ${doc}; solo se usará la primera.`,
+    tooManyFiles: ({ count, max }) =>
+      `Son ${count} archivos y el máximo es ${max}. Reduce las copias o quita documentos.`,
+  },
+  groupFor: (group, docs) => `${group} — para: ${docs}`,
+  turnAgenda: (signer) => `Lo que firma ${signer}`,
+  orderTitle: "Orden de los turnos",
+  orderHint: "Quién recibe el dispositivo primero. Cambia el orden con las flechas.",
+  orderMoveUp: (signer) => `Subir a ${signer}`,
+  orderMoveDown: (signer) => `Bajar a ${signer}`,
+  orderMoved: (signer, position, total) => `${signer} pasa al turno ${position} de ${total}.`,
+  orderLocked: "El orden ya no se puede cambiar: alguien ha empezado a firmar.",
+  filesDelivered: (files, documents, copiesOfEach) =>
+    copiesOfEach !== null && copiesOfEach > 1
+      ? `${files} archivos: ${plEs(documents, "documento", "documentos")} con ${copiesOfEach} copias cada uno.`
+      : `${files} archivos en el ZIP (${plEs(documents, "documento", "documentos")} y sus copias).`,
+};
+
+const reviewEs: ReviewStrings = {
+  title: "Revisar antes de descargar",
+  intro: "Mira cada página que lleva firma, iniciales o texto. Toca una miniatura para ir a esa página.",
+  docHeading: (doc, marked, total) =>
+    `${doc} · ${plEs(marked, "página con marcas", "páginas con marcas")} de ${total}`,
+  counterInitials: (done, expected) => `Iniciales: ${done} de ${expected}`,
+  counterSignatures: (done, total) => `Firmas: ${done} de ${total}`,
+  counterText: (done, total) => `Texto: ${done} de ${total}`,
+  thumbLabel: (doc, page, kinds) => `${doc}, página ${page}: ${kinds.join(", ")}`,
+  thumbGo: (doc, page) => `Ir a la página ${page} de ${doc}`,
+  kindSignature: "firma",
+  kindInitials: "iniciales",
+  kindText: "texto",
+  pageNumber: (page) => `Página ${page}`,
+  loadingThumb: "Cargando miniatura",
+  noMarks: "Este documento no lleva firmas, iniciales ni texto.",
+  blockedTitle: "No se puede descargar todavía",
+  warningsTitle: "Avisos (puedes continuar)",
+  readyTitle: "Todo listo para descargar",
+  readyBody: (files) => (files === 1 ? "Se descargará 1 archivo." : `Se descargarán ${files} archivos.`),
+  disabledBecause: "Corrige primero lo marcado arriba.",
+  initialsMissing: (doc, signer, pages) =>
+    `${doc}: a ${signer} le faltan las iniciales en ${pages.length === 1 ? "la página" : "las páginas"} ${andEs(pages.map(String))}.`,
+  statusTitle: "Estado de la revisión",
+};
+
+const assignmentEn: AssignmentStrings = {
+  title: "Who signs what?",
+  hint: "Tap a cell to choose which signature goes on each document. Cells with the same letter share the same signature.",
+  tableLabel: "Who signs each document and how many copies are delivered",
+  docColumn: "Document",
+  copiesColumn: "Copies",
+  group: (letter) => `Signature ${letter}`,
+  noSign: "Does not sign",
+  cellLabel: (signer, doc, group) => `${signer} on ${doc}: ${group ?? "does not sign"}`,
+  cellHint: "Tap to change. Arrow keys move between cells.",
+  shortcutsLabel: "Shortcuts",
+  shortcutAll: "One signature for all",
+  shortcutPerDoc: "One signature per document",
+  shortcutGroups: "By groups",
+  shortcutGroupsHint: "By groups: the first half of the documents share signature A and the rest share B.",
+  copiesFor: (doc) => `Copies of ${doc}`,
+  copiesLess: (doc) => `One copy fewer of ${doc}`,
+  copiesMore: (doc) => `One copy more of ${doc}`,
+  copiesValue: (doc, copies) => `${doc}: ${copies} ${copies === 1 ? "copy" : "copies"}`,
+  allCopiesLabel: "Copies of all",
+  allCopiesLess: "One copy fewer of every document",
+  allCopiesMore: "One copy more of every document",
+  copiesAtMax: (max) => `At most ${max} copies per document.`,
+  filesAtMax: (max) => `At most ${max} files per download: no room for more copies.`,
+  undo: "Undo change",
+  undone: "Change undone.",
+  lastSignerCell: (signer) => `${signer} has to sign at least one document. If they sign none, remove them from the list.`,
+  cellChanged: (signer, doc, group) => `${signer} on ${doc}: ${group ?? "does not sign"}.`,
+  shortcutApplied: (shortcut) => `${shortcut}: applied.`,
+  copiesChanged: (doc, copies) => `${doc}: ${copies} ${copies === 1 ? "copy" : "copies"}.`,
+  allCopiesChanged: (copies) => `All documents: ${copies} ${copies === 1 ? "copy" : "copies"}.`,
+  confirmTitle: "Change the assignment?",
+  confirmIntro: "This change affects signatures that were already collected:",
+  lostLine: (group, signer, docs, strokes) =>
+    `This will delete ${strokes.length === 1 && strokes[0] === "initials" ? "the initials of " : ""}${lowerFirst(group)} of ${signer} on ${docs} ${docs === 1 ? "document" : "documents"}.`,
+  reconfirmLine: (group, signer, added) =>
+    `${signer} will have to confirm ${lowerFirst(group)} again: it now covers ${added} more ${added === 1 ? "document" : "documents"} they did not see.`,
+  confirmContinue: "Continue",
+  confirmCancel: "Cancel",
+  cancelled: "Change cancelled.",
+  summaryTitle: "Summary",
+  summarySigner: (name, documents, groups) => {
+    const docsText = `${documents} ${documents === 1 ? "document" : "documents"}`;
+    if (groups.length === 1) return `${name} signs ${docsText} with 1 signature.`;
+    return `${name} signs ${docsText} with ${groups.length} signatures: ${andEn(
+      groups.map((group) => `${group.letter} (${group.docs.join(", ")})`),
+    )}.`;
+  },
+  summaryFiles: (files) => (files === 1 ? "1 file will be downloaded." : `${files} files will be downloaded.`),
+  summaryNobody: (docs) => `Nobody signs: ${andEn(docs)}.`,
+  summaryNoSigners: "Add at least one signer to assign signatures.",
+  issueTitleBlocking: "Fix this before downloading",
+  issueTitleWarning: "Worth checking",
+  fixIt: "Go fix it",
+  issue: {
+    slotWithoutSigner: ({ signer, doc }) =>
+      `${signer} has a signature field on ${doc}, but is not assigned to that document.`,
+    signerWithoutSlot: ({ signer, doc, group }) =>
+      `${signer} signs ${doc} with ${lowerFirst(group)}, but that document has no field for them.`,
+    signerWithoutDocuments: ({ signer }) => `${signer} does not sign any document.`,
+    documentWithoutSigner: ({ doc }) => `Nobody signs ${doc}.`,
+    requiredFieldEmpty: ({ doc, count }) =>
+      `${doc} has ${count} empty text ${count === 1 ? "field" : "fields"}.`,
+    groupWithoutStroke: ({ signer, group, strokes }) =>
+      `${signer} is missing ${strokesEn(strokes)} of ${lowerFirst(group)}.`,
+    overlappingGroups: ({ signer, doc }) =>
+      `${signer} has two different signatures assigned to ${doc}; only the first one will be used.`,
+    tooManyFiles: ({ count, max }) =>
+      `That is ${count} files and the maximum is ${max}. Reduce the copies or remove documents.`,
+  },
+  groupFor: (group, docs) => `${group} — for: ${docs}`,
+  turnAgenda: (signer) => `What ${signer} signs`,
+  orderTitle: "Turn order",
+  orderHint: "Who gets the device first. Change the order with the arrows.",
+  orderMoveUp: (signer) => `Move ${signer} up`,
+  orderMoveDown: (signer) => `Move ${signer} down`,
+  orderMoved: (signer, position, total) => `${signer} moves to turn ${position} of ${total}.`,
+  orderLocked: "The order can no longer be changed: someone has started signing.",
+  filesDelivered: (files, documents, copiesOfEach) =>
+    copiesOfEach !== null && copiesOfEach > 1
+      ? `${files} files: ${documents} ${documents === 1 ? "document" : "documents"} with ${copiesOfEach} copies each.`
+      : `${files} files in the ZIP (${documents} ${documents === 1 ? "document" : "documents"} and their copies).`,
+};
+
+const reviewEn: ReviewStrings = {
+  title: "Review before downloading",
+  intro: "Check every page that carries a signature, initials or text. Tap a thumbnail to go to that page.",
+  docHeading: (doc, marked, total) =>
+    `${doc} · ${marked} marked ${marked === 1 ? "page" : "pages"} of ${total}`,
+  counterInitials: (done, expected) => `Initials: ${done} of ${expected}`,
+  counterSignatures: (done, total) => `Signatures: ${done} of ${total}`,
+  counterText: (done, total) => `Text: ${done} of ${total}`,
+  thumbLabel: (doc, page, kinds) => `${doc}, page ${page}: ${kinds.join(", ")}`,
+  thumbGo: (doc, page) => `Go to page ${page} of ${doc}`,
+  kindSignature: "signature",
+  kindInitials: "initials",
+  kindText: "text",
+  pageNumber: (page) => `Page ${page}`,
+  loadingThumb: "Loading thumbnail",
+  noMarks: "This document carries no signatures, initials or text.",
+  blockedTitle: "It cannot be downloaded yet",
+  warningsTitle: "Warnings (you can continue)",
+  readyTitle: "Everything is ready to download",
+  readyBody: (files) => `${files === 1 ? "1 file" : `${files} files`} will be downloaded.`,
+  disabledBecause: "Fix what is marked above first.",
+  initialsMissing: (doc, signer, pages) =>
+    `${doc}: ${signer} is missing initials on ${pages.length === 1 ? "page" : "pages"} ${andEn(pages.map(String))}.`,
+  statusTitle: "Review status",
 };
 
 const es: SignStrings = {
@@ -1602,8 +1973,7 @@ const es: SignStrings = {
     `${names.join(", ")}${more > 0 ? ` +${more}` : ""}`,
   blockAppliesTo: (summary) => `Aplica a: ${summary}`,
   blockChangeScope: "Cambiar",
-  blockChangeScopeFor: (block, signer) =>
-    `Cambiar los documentos del ${block.toLowerCase()} de ${signer}`,
+  blockChangeScopeFor: (block, signer) => `Cambiar los documentos de «${block}» de ${signer}`,
   blockAdd: "Añadir bloque",
   blockAddFor: (signer) => `Añadir bloque a ${signer}`,
   blockAddFull: "Cada documento ya tiene su propio bloque.",
@@ -1619,12 +1989,12 @@ const es: SignStrings = {
   blockScopeUpdated: (block, summary) => `${block}: aplica a ${summary}.`,
   scopeSheetTitle: (block, signer) => `${block} de ${signer}`,
   scopeSheetIntro:
-    "Elige a qué documentos aplica este bloque. Un documento solo puede estar en un bloque de cada firmante: si lo marcas aquí, sale del otro.",
-  scopeDocsLabel: "Documentos del bloque",
+    "Elige a qué documentos aplica esta firma. Un documento solo puede llevar una firma de cada persona: si lo marcas aquí, sale de la otra.",
+  scopeDocsLabel: "Documentos de esta firma",
   scopeAllLabel: "Todos los documentos",
   scopeEmpty: "Marca al menos un documento.",
-  scopeMovePreview: (doc, fromBlock) =>
-    `${doc} saldrá del bloque ${fromBlock}.`,
+  scopeMovePreview: (doc, from) =>
+    typeof from === "number" ? `${doc} saldrá del bloque ${from}.` : `${doc} saldrá de «${from}».`,
   scopeApply: "Aplicar",
   coverageMissing: (signer, doc) => `Falta el bloque de ${signer} para ${doc}.`,
   coverageAddBlock: (doc) => `Añadir bloque para ${doc}`,
@@ -1783,6 +2153,9 @@ const es: SignStrings = {
       generic: "No se pudo procesar la imagen. Inténtalo con otra.",
     },
   },
+  assignment: assignmentEs,
+  review: reviewEs,
+  template: templateEs,
   vaultBackup: {
     sectionHint: "Respaldo: guarda todas tus firmas en un archivo para llevarlas a otro dispositivo o recuperarlas si pierdes datos.",
     exportButton: "Exportar todas mis firmas",
@@ -2465,8 +2838,7 @@ const en: SignStrings = {
     `${names.join(", ")}${more > 0 ? ` +${more}` : ""}`,
   blockAppliesTo: (summary) => `Applies to: ${summary}`,
   blockChangeScope: "Change",
-  blockChangeScopeFor: (block, signer) =>
-    `Change the documents of ${signer}'s ${block.toLowerCase()}`,
+  blockChangeScopeFor: (block, signer) => `Change the documents of “${block}” for ${signer}`,
   blockAdd: "Add block",
   blockAddFor: (signer) => `Add a block for ${signer}`,
   blockAddFull: "Every document already has its own block.",
@@ -2479,14 +2851,14 @@ const en: SignStrings = {
   blockScopeMoved: (doc, from, to) =>
     `${doc} moves from block ${from} to block ${to}.`,
   blockScopeUpdated: (block, summary) => `${block}: applies to ${summary}.`,
-  scopeSheetTitle: (block, signer) => `${signer}'s ${block.toLowerCase()}`,
+  scopeSheetTitle: (block, signer) => `${block} · ${signer}`,
   scopeSheetIntro:
-    "Choose which documents this block applies to. A document can only be in one block per signer: if you tick it here, it leaves the other one.",
-  scopeDocsLabel: "Documents in this block",
+    "Choose which documents this signature applies to. A document can only carry one signature per person: if you tick it here, it leaves the other one.",
+  scopeDocsLabel: "Documents of this signature",
   scopeAllLabel: "All documents",
   scopeEmpty: "Tick at least one document.",
-  scopeMovePreview: (doc, fromBlock) =>
-    `${doc} will leave block ${fromBlock}.`,
+  scopeMovePreview: (doc, from) =>
+    typeof from === "number" ? `${doc} will leave block ${from}.` : `${doc} will leave “${from}”.`,
   scopeApply: "Apply",
   coverageMissing: (signer, doc) => `${signer}'s block for ${doc} is missing.`,
   coverageAddBlock: (doc) => `Add a block for ${doc}`,
@@ -2644,6 +3016,9 @@ const en: SignStrings = {
       generic: "The image could not be processed. Try another one.",
     },
   },
+  assignment: assignmentEn,
+  review: reviewEn,
+  template: templateEn,
   vaultBackup: {
     sectionHint: "Backup: save all your signatures in one file to move them to another device or recover them if you lose data.",
     exportButton: "Export all my signatures",

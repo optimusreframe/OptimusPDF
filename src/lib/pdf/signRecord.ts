@@ -43,6 +43,12 @@ export type SigningRecordEntry = {
   signers: string[];
   /** Paginas del PDF entregado; `null` si no se pudieron contar. */
   pages: number | null;
+  /**
+   * Solo en una COPIA (`Contrato-firmado (copia 2).pdf`): el nombre del archivo del que es copia. Es el mismo PDF (mismo
+   * hash): cada archivo del ZIP tiene su fila para que el registro cuente exactamente lo que se entrego. Ausente en
+   * el original y en los registros anteriores.
+   */
+  copyOf?: string;
 };
 
 export type SigningRecord = {

@@ -3,6 +3,7 @@ import type { CaptureMap, SignerCapture } from "@/app/sign-pdf/captures";
 import type { DetectedField } from "@/lib/pdf/detectFields";
 import type { TextEdit } from "@/lib/pdf/editTypes";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
+import { DEFAULT_COPIES, normalizeCopies } from "@/lib/pdf/signCopies";
 import type { NormalizedRect } from "@/lib/pdf/watermark";
 
 /*
@@ -50,6 +51,12 @@ export type DocState = {
    * entran en la huella de las capturas (`stampKeyOf` en `textEdits.ts`).
    */
   textEdits?: TextEdit[];
+  /**
+   * Copias que se entregan de este documento (1..`MAX_COPIES`; Firma agil, U1.1): el mismo PDF firmado, escrito N veces
+   * con nombres distintos. Ausente = 1 (borradores y configuraciones anteriores no la traen): se escribe SOLO cuando
+   * vale mas de 1 (`setDocCopies`), asi un documento sin copias tiene la misma forma de siempre. Se lee con `copiesOf`.
+   */
+  copies?: number;
 };
 
 export const EMPTY_DOC_STATE: DocState = {
@@ -130,6 +137,32 @@ export function docStateOf(
   docId: DocId,
 ): DocState {
   return docs[docId] ?? EMPTY_DOC_STATE;
+}
+
+/** Copias del documento ya normalizadas (1..`MAX_COPIES`; ausente o raro = 1). */
+export function copiesOf(state: Pick<DocState, "copies"> | undefined): number {
+  return normalizeCopies(state?.copies);
+}
+
+/**
+ * Fija las copias de UN documento y devuelve la tabla nueva (la MISMA si no cambia nada). El valor se lleva a
+ * 1..`MAX_COPIES`; 1 se guarda como «sin dato» (se quita la propiedad) para que el estado siga siendo identico al de
+ * antes de existir las copias. Un documento sin estado se crea en blanco.
+ */
+export function setDocCopies(
+  docs: Readonly<Record<DocId, DocState>>,
+  docId: DocId,
+  copies: number,
+): Record<DocId, DocState> {
+  const value = normalizeCopies(copies);
+  const current = docStateOf(docs, docId);
+  if (copiesOf(current) === value && (docId in docs || value === DEFAULT_COPIES)) {
+    return docs as Record<DocId, DocState>;
+  }
+  const { copies: previous, ...rest } = current;
+  void previous;
+  const next: DocState = value > DEFAULT_COPIES ? { ...rest, copies: value } : rest;
+  return { ...docs, [docId]: next };
 }
 
 /** Los huecos del documento cuyo firmante sigue en la lista (los de un firmante quitado quedan ocultos, no perdidos: ver `Deshacer`). */

@@ -64,6 +64,13 @@ export type SheetProps = {
    * ademas, queda seleccionado su contenido).
    */
   initialFocus?: string;
+  /**
+   * Mientras la hoja esta abierta, el resto de la pagina (los demas hijos de `<body>`, incluidas otras hojas) queda
+   * `inert`: sin foco, sin clics y fuera del arbol de accesibilidad. `aria-modal` por si solo no lo garantiza en todos los
+   * lectores de pantalla. Se restaura al cerrar ANTES de devolver el foco a quien abrio la hoja. Opt-in: no cambia las
+   * demas hojas de la aplicacion.
+   */
+  inertBackground?: boolean;
 };
 
 /**
@@ -96,6 +103,37 @@ function topOpenSheet(): SheetEntry | undefined {
     if (!sheetStack[index].closing) return sheetStack[index];
   }
   return undefined;
+}
+
+/*
+ * Fondo `inert` (opt-in, `inertBackground`). Con hojas apiladas varias hojas marcan el mismo elemento: se cuenta cuantas
+ * lo piden y solo se quita `inert` cuando la ultima lo suelta; y lo que ya era `inert` antes (la pagina, por otro motivo)
+ * nunca se destapa.
+ */
+const inertHolds = new Map<Element, { count: number; wasInert: boolean }>();
+
+function makeBackgroundInert(except: Element): () => void {
+  const held: Element[] = [];
+  for (const element of Array.from(document.body.children)) {
+    if (element === except || element.tagName === "SCRIPT" || element.tagName === "STYLE") continue;
+    const hold = inertHolds.get(element);
+    if (hold) hold.count += 1;
+    else {
+      inertHolds.set(element, { count: 1, wasInert: element.hasAttribute("inert") });
+      element.setAttribute("inert", "");
+    }
+    held.push(element);
+  }
+  return () => {
+    for (const element of held) {
+      const hold = inertHolds.get(element);
+      if (!hold) continue;
+      hold.count -= 1;
+      if (hold.count > 0) continue;
+      inertHolds.delete(element);
+      if (!hold.wasInert) element.removeAttribute("inert");
+    }
+  };
 }
 
 /* El scroll del fondo se bloquea una sola vez para toda la pila. */
@@ -160,6 +198,7 @@ function SheetPanel({
   mobileFullscreen = false,
   restoreFocusOnClose,
   initialFocus,
+  inertBackground = false,
 }: Omit<SheetProps, "open">) {
   const [isPresent, safeToRemove] = usePresence();
   const reduced = useReducedMotionPref();
@@ -169,6 +208,7 @@ function SheetPanel({
   /* Bottom sheet (movil, no fullscreen): el material se prolonga bajo el borde. */
   const extended = isMobile && !fullscreen;
 
+  const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -406,6 +446,13 @@ function SheetPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fondo inerte (opt-in). Va DESPUES del efecto que guarda y mueve el foco (si no, al marcar el fondo el foco pasaria por
+  // <body> y se guardaria eso) y su limpieza corre antes de la que devuelve el foco, que solo puede enfocar lo que ya no es inerte.
+  useEffect(() => {
+    if (!inertBackground || !isPresent || !rootRef.current) return;
+    return makeBackgroundInert(rootRef.current);
+  }, [inertBackground, isPresent]);
+
   const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Tab" || !panelRef.current) return;
     const focusable = Array.from(
@@ -599,6 +646,7 @@ function SheetPanel({
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "fixed inset-0 z-50 flex justify-center",
         fullscreen ? "items-stretch" : "items-end md:items-center",

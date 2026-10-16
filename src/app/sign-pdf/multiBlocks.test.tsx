@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { useCallback, useLayoutEffect, useState } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MultiFlow } from "@/app/sign-pdf/SignToolClient";
 import { captureForBlock } from "@/app/sign-pdf/blockModel";
 import { documentContentKey } from "@/app/sign-pdf/documentKey";
@@ -30,8 +30,7 @@ import type { SignatureField, Signer } from "@/lib/pdf/sign";
 import type { SignatureDraft } from "@/app/sign-pdf/SignatureComposer";
 
 /*
- * `MultiFlow` con VARIOS documentos (prop `multi`): control mismas/distintas,
- * bloques por firmante, cobertura, «Deshacer» y paso de firma por bloques. El
+ * `MultiFlow` con VARIOS documentos (prop `multi`): tabla «¿Quién firma qué?», copias, cobertura, «Deshacer» y paso de firma por bloques. El
  * anfitrion real (`DocumentSessionHost`) se sustituye por un arnes con el
  * mismo puente de sesion (`useSessionBridge`) y la misma vista derivada.
  */
@@ -214,30 +213,39 @@ async function settled() {
   await waitFor(() => expect(screen.queryByText(strings.checkingDocument)).toBeNull());
 }
 
-const modeTab = (label: string) => screen.getByRole("tab", { name: label });
 const announcement = () =>
   screen
     .getAllByRole("status")
     .map((node) => node.textContent ?? "")
     .join(" | ");
 
-describe("MultiFlow con varios documentos — control «mismas / distintas»", () => {
-  it("se ve con mas de un documento, sobre el paso Firmantes, con «Mismas firmas» elegido", async () => {
+const asg = strings.assignment;
+/** Celda (Ana/Luis, documento) por su nombre accesible: «Ana en Anexo: Firma A». */
+const cellOf = (signer: string, doc: string, group: string | null) =>
+  screen.getByRole("button", { name: asg.cellLabel(signer, doc, group) }) as HTMLButtonElement;
+const tableShortcut = (label: string) => fireEvent.click(screen.getByRole("button", { name: label }));
+
+describe("MultiFlow con varios documentos — tabla «¿Quién firma qué?» (sustituye a «Mismas / Distintas»)", () => {
+  it("se ve con mas de un documento, sobre el paso Firmantes, con «Firma A» en todas las celdas y sin el control antiguo", async () => {
     render(<Arnes initial={baseSession()} />);
     await settled();
-    expect(modeTab(strings.signModeSame).getAttribute("aria-selected")).toBe("true");
-    expect(modeTab(strings.signModeIndependent).getAttribute("aria-selected")).toBe("false");
-    expect(screen.getByText(strings.signModeSameHint)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: asg.title })).toBeTruthy();
+    expect(screen.getByRole("grid", { name: asg.tableLabel })).toBeTruthy();
+    for (const signer of ["Ana", "Luis"]) {
+      for (const doc of ["Contrato A", "Anexo", "Acta"]) expect(cellOf(signer, doc, "Firma A")).toBeTruthy();
+    }
+    expect(screen.queryByRole("tab", { name: strings.signModeSame })).toBeNull();
+    expect(screen.queryByRole("tab", { name: strings.signModeIndependent })).toBeNull();
   });
 
-  it("con UN documento no hay control, ni bloques: la interfaz de siempre", async () => {
+  it("con UN documento no hay tabla, ni bloques: la interfaz de siempre", async () => {
     render(
       <LanguageProvider>
         <MultiFlowOne />
       </LanguageProvider>,
     );
     await settled();
-    expect(screen.queryByRole("tab", { name: strings.signModeSame })).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
     expect(screen.queryByText(/Aplica a:/)).toBeNull();
     expect(screen.queryByRole("button", { name: strings.blockAdd })).toBeNull();
   });
@@ -245,40 +253,34 @@ describe("MultiFlow con varios documentos — control «mismas / distintas»", (
   it("no aparece en los otros pasos", async () => {
     render(<Arnes initial={baseSession({ step: "document" })} />);
     await settled();
-    expect(screen.queryByRole("tab", { name: strings.signModeSame })).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
   });
 
-  it("pasar a «distintas» crea un bloque por (firmante, documento) y lo anuncia", async () => {
+  it("«Una firma por documento» crea un bloque por (firmante, documento), deriva el modo y lo anuncia", async () => {
     let last = baseSession();
     render(<Arnes initial={baseSession()} onSession={(s) => (last = s)} />);
     await settled();
-    fireEvent.click(modeTab(strings.signModeIndependent));
+    tableShortcut(asg.shortcutPerDoc);
     await waitFor(() => expect(last.signMode).toBe("independent"));
-    expect(last.blocks.filter((item) => item.signerId === ANA.id).map((item) => item.appliesTo)).toEqual([
-      [A],
-      [B],
-      [C],
-    ]);
+    expect(last.blocks.filter((item) => item.signerId === ANA.id).map((item) => item.appliesTo)).toEqual([[A], [B], [C]]);
     expect(last.blocks.filter((item) => item.signerId === LUIS.id)).toHaveLength(3);
-    expect(announcement()).toContain(strings.signModeChangedIndependent);
-    expect(screen.getByText(strings.signModeIndependentHint)).toBeTruthy();
-    // Cada tarjeta de firmante pinta ahora sus 3 bloques.
-    const ana = screen.getByRole("group", { name: strings.signerBlocksLabel("Ana") });
-    expect(within(ana).getAllByText(/^Bloque \d$/)).toHaveLength(3);
+    expect(announcement()).toContain(asg.shortcutApplied(asg.shortcutPerDoc));
+    expect(cellOf("Ana", "Acta", "Firma C")).toBeTruthy();
   });
 
-  it("volver a «mismas» sin trazos distintos fusiona sin ofrecer deshacer", async () => {
-    let last = baseSession();
-    render(<Arnes initial={baseSession()} onSession={(s) => (last = s)} />);
+  it("«Una firma para todos» sin trazos distintos fusiona sin pedir confirmacion", async () => {
+    let last = baseSession({ signMode: "independent", blocks: [
+      block("bk-1", ANA.id, [A]), block("bk-3", ANA.id, [B]), block("bk-4", ANA.id, [C]),
+      block("bk-2", LUIS.id, [A, B, C], { auto: true }),
+    ] });
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
     await settled();
-    fireEvent.click(modeTab(strings.signModeIndependent));
-    await waitFor(() => expect(last.signMode).toBe("independent"));
-    fireEvent.click(modeTab(strings.signModeSame));
+    tableShortcut(asg.shortcutAll);
     await waitFor(() => expect(last.signMode).toBe("same"));
     expect(last.blocks.filter((item) => item.signerId === ANA.id)).toHaveLength(1);
     expect(last.blocks.find((item) => item.signerId === ANA.id)!.appliesTo).toEqual([A, B, C]);
-    expect(screen.queryByRole("button", { name: strings.undoSignMode })).toBeNull();
-    expect(announcement()).toContain(strings.signModeChangedSame);
+    expect(last.blocks.find((item) => item.signerId === ANA.id)!.auto).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   const differing = (): SignerBlock[] => [
@@ -288,84 +290,199 @@ describe("MultiFlow con varios documentos — control «mismas / distintas»", (
     block("bk-2", LUIS.id, [A, B, C], { auto: true }),
   ];
 
-  it("de «distintas» a «mismas» con trazos DISTINTOS avisa de lo descartado y ofrece «Deshacer»", async () => {
-    let last = baseSession();
-    render(
-      <Arnes
-        initial={baseSession({ signMode: "independent", blocks: differing() })}
-        onSession={(s) => (last = s)}
-      />,
-    );
+  it("con trazos ya recogidos que se perderian pide confirmacion con la frase «Esto borrará la firma B de Ana…»", async () => {
+    let last = baseSession({ signMode: "independent", blocks: differing() });
+    const before = last.blocks;
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
     await settled();
-    fireEvent.click(modeTab(strings.signModeSame));
+    tableShortcut(asg.shortcutAll);
+    const dialog = await screen.findByRole("dialog", { name: asg.confirmTitle });
+    expect(within(dialog).getByText(asg.lostLine("Firma B", "Ana", 1, ["signature"]))).toBeTruthy();
+    // Mientras se decide, nada cambia.
+    expect(last.blocks).toBe(before);
+    fireEvent.click(within(dialog).getByRole("button", { name: asg.confirmCancel }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(last.blocks).toBe(before);
+    expect(announcement()).toContain(asg.cancelled);
+  });
+
+  it("«Continuar» aplica el cambio y «Deshacer cambio» devuelve los bloques tal como estaban (con sus trazos)", async () => {
+    let last = baseSession({ signMode: "independent", blocks: differing() });
+    const before = last.blocks;
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    tableShortcut(asg.shortcutAll);
+    const dialog = await screen.findByRole("dialog", { name: asg.confirmTitle });
+    fireEvent.click(within(dialog).getByRole("button", { name: asg.confirmContinue }));
     await waitFor(() => expect(last.signMode).toBe("same"));
-    expect(screen.getByText(strings.signModeMergedNotice(1))).toBeTruthy();
     expect(last.blocks.filter((item) => item.signerId === ANA.id)).toHaveLength(1);
     expect(last.blocks.find((item) => item.signerId === ANA.id)!.signature).toEqual(SIG);
+    fireEvent.click(screen.getByRole("button", { name: asg.undo }));
+    await waitFor(() => expect(last.signMode).toBe("independent"));
+    expect(last.blocks).toBe(before);
+    expect(announcement()).toContain(asg.undone);
+    expect(screen.queryByRole("button", { name: asg.undo })).toBeNull();
   });
 
-  it("«Deshacer» devuelve el modo y los bloques tal como estaban (con sus trazos distintos)", async () => {
+  it("tocar una celda parte el grupo: «Ana en Acta» pasa de A a B (un bloque nuevo, sin firma) y se anuncia", async () => {
     let last = baseSession();
-    const before = differing();
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    fireEvent.click(cellOf("Ana", "Acta", "Firma A"));
+    await waitFor(() => expect(last.blocks.filter((item) => item.signerId === ANA.id)).toHaveLength(2));
+    const ana = last.blocks.filter((item) => item.signerId === ANA.id);
+    expect(ana[0].appliesTo).toEqual([A, B]);
+    expect(ana[1].appliesTo).toEqual([C]);
+    expect(ana[1].signature).toBeNull();
+    expect(ana[0].auto).toBe(false);
+    expect(announcement()).toContain(asg.cellChanged("Ana", "Acta", "Firma B"));
+    expect(cellOf("Ana", "Acta", "Firma B")).toBeTruthy();
+    // Luis no cambia.
+    expect(cellOf("Luis", "Acta", "Firma A")).toBeTruthy();
+  });
+
+  it("tocar otra vez da «no firma» y otra mas vuelve a la firma A; la ultima celda de un firmante no se puede quitar", async () => {
+    let last = baseSession();
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    fireEvent.click(cellOf("Ana", "Acta", "Firma A"));
+    fireEvent.click(await screen.findByRole("button", { name: asg.cellLabel("Ana", "Acta", "Firma B") }));
+    await screen.findByRole("button", { name: asg.cellLabel("Ana", "Acta", null) });
+    expect(last.blocks.filter((item) => item.signerId === ANA.id).map((item) => item.appliesTo)).toEqual([[A, B]]);
+    fireEvent.click(cellOf("Ana", "Acta", null));
+    await screen.findByRole("button", { name: asg.cellLabel("Ana", "Acta", "Firma A") });
+    expect(last.blocks.find((item) => item.signerId === ANA.id)!.appliesTo).toEqual([A, B, C]);
+
+    // Ana con una sola celda con firma: tocarla no la quita.
+    const only = baseSession({
+      blocks: [block("bk-1", ANA.id, [A]), block("bk-2", LUIS.id, [A, B, C], { auto: true })],
+    });
+    cleanup();
+    render(<Arnes initial={only} onSession={(s) => (last = s)} />);
+    await settled();
+    fireEvent.click(cellOf("Ana", "Contrato A", "Firma A"));
+    expect(announcement()).toContain(asg.lastSignerCell("Ana"));
+    expect(last.blocks.find((item) => item.signerId === ANA.id)!.appliesTo).toEqual([A]);
+  });
+
+  it("teclado: las flechas mueven el foco entre celdas, un solo punto de tabulacion y Enter alterna", async () => {
+    let last = baseSession();
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    const grid = screen.getByRole("grid", { name: asg.tableLabel });
+    const cells = within(grid).getAllByRole("button").filter((node) => node.hasAttribute("data-cell"));
+    expect(cells.filter((node) => node.getAttribute("tabindex") === "0")).toHaveLength(1);
+    const first = cellOf("Ana", "Contrato A", "Firma A");
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(cellOf("Luis", "Contrato A", "Firma A"));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(cellOf("Luis", "Anexo", "Firma A"));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Home" });
+    expect(document.activeElement).toBe(cellOf("Ana", "Anexo", "Firma A"));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "ArrowUp" });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(cellOf("Ana", "Contrato A", "Firma A"));
+    // El foco rodante: solo la celda enfocada es tabulable.
+    expect(within(grid).getAllByRole("button").filter((node) => node.getAttribute("tabindex") === "0")).toHaveLength(1);
+    // Intro/Espacio los da el boton nativo: pulsa y cambia (la tabla es canonica: el grupo que se separa pasa a ser el «B»
+    // si no abre la columna, y aqui la celda tocada es la primera, asi que las otras dos pasan a «B»).
+    fireEvent.click(document.activeElement as HTMLElement);
+    await screen.findByRole("button", { name: asg.cellLabel("Ana", "Anexo", "Firma B") });
+    expect(cellOf("Ana", "Contrato A", "Firma A")).toBeTruthy();
+  });
+
+  it("las celdas miden 44 px y la tabla se convierte en tarjetas en pantalla estrecha (filas con clases `flex-col`/`sm:grid`)", async () => {
+    render(<Arnes initial={baseSession()} />);
+    await settled();
+    const cell = cellOf("Ana", "Anexo", "Firma A");
+    expect(cell.className).toContain("size-11");
+    const row = cell.closest('[role="row"]') as HTMLElement;
+    expect(row.className).toContain("flex-col");
+    expect(row.className).toContain("sm:grid");
+  });
+
+  it("copias: «+» sube las de UN documento (se guardan en su estado) y el resumen cuenta los archivos", async () => {
+    let last = baseSession();
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    expect(screen.getByText(asg.summaryFiles(3))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: asg.copiesMore("Anexo") }));
+    await waitFor(() => expect(last.docs[B].copies).toBe(2));
+    expect(last.docs[A].copies).toBeUndefined();
+    expect(screen.getByText(asg.summaryFiles(4))).toBeTruthy();
+    expect(announcement()).toContain(asg.copiesChanged("Anexo", 2));
+    fireEvent.click(screen.getByRole("button", { name: asg.copiesLess("Anexo") }));
+    await waitFor(() => expect(last.docs[B].copies).toBeUndefined());
+  });
+
+  it("«Copias de todos» pone las mismas copias en todos los documentos (3 documentos x 2 = 6 archivos)", async () => {
+    let last = baseSession();
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    fireEvent.click(screen.getByRole("button", { name: asg.allCopiesMore }));
+    await waitFor(() => expect([A, B, C].map((id) => last.docs[id].copies)).toEqual([2, 2, 2]));
+    expect(screen.getByText(asg.summaryFiles(6))).toBeTruthy();
+    expect(announcement()).toContain(asg.allCopiesChanged(2));
+  });
+
+  it("el tope de copias por documento (5) y de archivos (50) se dice y no se supera", async () => {
+    let last = baseSession({
+      docs: {
+        ...baseSession().docs,
+        [A]: { ...docWith([slot("a1", ANA.id), slot("a2", LUIS.id)], A), copies: 5 },
+      },
+    });
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    fireEvent.click(screen.getByRole("button", { name: asg.copiesMore("Contrato A") }));
+    expect(announcement()).toContain(asg.copiesAtMax(5));
+    expect(last.docs[A].copies).toBe(5);
+  });
+
+  it("el contador de huecos de cada firmante suma todos los documentos", async () => {
+    render(<Arnes initial={baseSession()} />);
+    await settled();
+    // Ana: a1 + b1 = 2 huecos; Luis: a2 = 1.
+    expect(screen.getByText(strings.signerFieldCount(2))).toBeTruthy();
+    expect(screen.getByText(strings.signerFieldCount(1))).toBeTruthy();
+  });
+
+  it("el resumen cuenta quien firma cuantos documentos y con cuantas firmas", async () => {
+    let last = baseSession({
+      signMode: "same",
+      blocks: [
+        block("bk-1", ANA.id, [A, B]),
+        block("bk-3", ANA.id, [C]),
+        block("bk-2", LUIS.id, [A], { auto: false }),
+      ],
+    });
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    expect(screen.getByText(asg.summarySigner("Ana", 3, [
+      { letter: "A", docs: ["Contrato A", "Anexo"] },
+      { letter: "B", docs: ["Acta"] },
+    ]))).toBeTruthy();
+    expect(screen.getByText(asg.summarySigner("Luis", 1, [{ letter: "A", docs: ["Contrato A"] }]))).toBeTruthy();
+    expect(screen.getByText(asg.summaryFiles(3))).toBeTruthy();
+  });
+
+  it("un borrador antiguo en modo «distintas» se restaura con su tabla equivalente (A, B, C por documento)", async () => {
     render(
       <Arnes
-        initial={baseSession({ signMode: "independent", blocks: before })}
-        onSession={(s) => (last = s)}
+        initial={baseSession({
+          signMode: "independent",
+          blocks: [
+            block("bk-1", ANA.id, [A]), block("bk-3", ANA.id, [B]), block("bk-4", ANA.id, [C]),
+            block("bk-2", LUIS.id, [A]), block("bk-5", LUIS.id, [B]), block("bk-6", LUIS.id, [C]),
+          ],
+        })}
       />,
     );
     await settled();
-    fireEvent.click(modeTab(strings.signModeSame));
-    fireEvent.click(await screen.findByRole("button", { name: strings.undoSignMode }));
-    await waitFor(() => expect(last.signMode).toBe("independent"));
-    expect(last.blocks).toBe(before);
-    expect(announcement()).toContain(strings.signModeRestored);
-    expect(screen.queryByRole("button", { name: strings.undoSignMode })).toBeNull();
-  });
-
-  it("tras «Deshacer» el foco vuelve al segmento del modo recuperado, no a <body>", async () => {
-    render(
-      <Arnes initial={baseSession({ signMode: "independent", blocks: differing() })} />,
-    );
-    await settled();
-    fireEvent.click(modeTab(strings.signModeSame));
-    const undo = await screen.findByRole("button", { name: strings.undoSignMode });
-    undo.focus();
-    fireEvent.click(undo);
-    await waitFor(() =>
-      expect(modeTab(strings.signModeIndependent).getAttribute("aria-selected")).toBe("true"),
-    );
-    expect(document.activeElement).toBe(modeTab(strings.signModeIndependent));
-  });
-
-  it("el «Deshacer» dura 6 s y despues desaparece", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    render(
-      <Arnes initial={baseSession({ signMode: "independent", blocks: differing() })} />,
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(50);
-    });
-    fireEvent.click(modeTab(strings.signModeSame));
-    expect(screen.getByRole("button", { name: strings.undoSignMode })).toBeTruthy();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5900);
-    });
-    expect(screen.getByRole("button", { name: strings.undoSignMode })).toBeTruthy();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    expect(screen.queryByRole("button", { name: strings.undoSignMode })).toBeNull();
-  });
-
-  it("si despues de fusionar se edita el alcance de un bloque, «Deshacer» ya no se ofrece (pisaria ese trabajo)", async () => {
-    render(
-      <Arnes initial={baseSession({ signMode: "independent", blocks: differing() })} />,
-    );
-    await settled();
-    fireEvent.click(modeTab(strings.signModeSame));
-    await screen.findByRole("button", { name: strings.undoSignMode });
-    fireEvent.click(screen.getByRole("button", { name: strings.blockAddFor("Ana") }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: strings.undoSignMode })).toBeNull());
+    expect(cellOf("Ana", "Contrato A", "Firma A")).toBeTruthy();
+    expect(cellOf("Ana", "Anexo", "Firma B")).toBeTruthy();
+    expect(cellOf("Luis", "Acta", "Firma C")).toBeTruthy();
   });
 });
 
@@ -396,128 +513,7 @@ function MultiFlowOne() {
   );
 }
 
-describe("MultiFlow con varios documentos — bloques de cada firmante", () => {
-  it("cada firmante muestra «Bloque 1 · Aplica a: Todos (3)»", async () => {
-    render(<Arnes initial={baseSession()} />);
-    await settled();
-    for (const name of ["Ana", "Luis"]) {
-      const group = screen.getByRole("group", { name: strings.signerBlocksLabel(name) });
-      expect(within(group).getByText("Bloque 1")).toBeTruthy();
-      expect(within(group).getByText(strings.blockAppliesTo("Todos (3)"))).toBeTruthy();
-    }
-  });
-
-  it("el contador de huecos de cada firmante suma todos los documentos", async () => {
-    render(<Arnes initial={baseSession()} />);
-    await settled();
-    // Ana: a1 + b1 = 2 huecos; Luis: a2 = 1.
-    expect(screen.getByText(strings.signerFieldCount(2))).toBeTruthy();
-    expect(screen.getByText(strings.signerFieldCount(1))).toBeTruthy();
-  });
-
-  it("«Cambiar» abre la hoja de alcance, aplica y anuncia el nuevo alcance", async () => {
-    let last = baseSession();
-    render(<Arnes initial={baseSession()} onSession={(s) => (last = s)} />);
-    await settled();
-    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 1", "Ana") }));
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Acta" }));
-    fireEvent.click(screen.getByRole("button", { name: strings.scopeApply }));
-    await waitFor(() => expect(last.blocks.find((item) => item.id === "bk-1")!.appliesTo).toEqual([A, B]));
-    expect(last.blocks.find((item) => item.id === "bk-1")!.auto).toBe(false);
-    expect(announcement()).toContain(strings.blockScopeUpdated("Bloque 1", "Contrato A, Anexo"));
-    // El documento que se quedo sin bloque de Ana es una cobertura a resolver solo si ella tiene huecos alli (no: Acta no tiene).
-    expect(screen.queryByText(strings.coverageMissing("Ana", "Acta"))).toBeNull();
-  });
-
-  it("un documento marcado en otro bloque del mismo firmante cambia de bloque y se anuncia", async () => {
-    let last = baseSession({
-      signMode: "independent",
-      blocks: [
-        block("bk-1", ANA.id, [A, B]),
-        block("bk-3", ANA.id, [C]),
-        block("bk-2", LUIS.id, [A, B, C], { auto: true }),
-      ],
-    });
-    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
-    await settled();
-    fireEvent.click(screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 2", "Ana") }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Anexo" }));
-    expect(screen.getByText(strings.scopeMovePreview("Anexo", 1))).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: strings.scopeApply }));
-    await waitFor(() =>
-      expect(last.blocks.find((item) => item.id === "bk-3")!.appliesTo).toEqual([B, C]),
-    );
-    expect(last.blocks.find((item) => item.id === "bk-1")!.appliesTo).toEqual([A]);
-    expect(announcement()).toContain(strings.blockScopeMoved("Anexo", 1, 2));
-  });
-
-  it("«Añadir bloque» parte el bloque ancho, anuncia el bloque nuevo y lleva el foco a su «Cambiar»", async () => {
-    let last = baseSession();
-    render(<Arnes initial={baseSession()} onSession={(s) => (last = s)} />);
-    await settled();
-    const add = screen.getAllByRole("button", { name: strings.blockAddFor("Ana") })[0];
-    add.focus();
-    fireEvent.click(add);
-    await waitFor(() => expect(last.blocks.filter((item) => item.signerId === ANA.id)).toHaveLength(2));
-    const ana = last.blocks.filter((item) => item.signerId === ANA.id);
-    expect(ana[0].appliesTo).toEqual([A, B]);
-    expect(ana[1].appliesTo).toEqual([C]);
-    expect(announcement()).toContain(strings.blockAdded("Ana", 2));
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: strings.blockChangeScopeFor("Bloque 2", "Ana") }),
-      ),
-    );
-  });
-
-  it("con cada documento en su propio bloque, «Añadir bloque» queda desactivado y lo explica", async () => {
-    render(
-      <Arnes
-        initial={baseSession({
-          signMode: "independent",
-          blocks: [
-            block("bk-1", ANA.id, [A]),
-            block("bk-3", ANA.id, [B]),
-            block("bk-4", ANA.id, [C]),
-            block("bk-2", LUIS.id, [A, B, C], { auto: true }),
-          ],
-        })}
-      />,
-    );
-    await settled();
-    const anaGroup = screen.getByRole("group", { name: strings.signerBlocksLabel("Ana") });
-    expect(
-      (within(anaGroup).getByRole("button", { name: strings.blockAddFor("Ana") }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(within(anaGroup).getByText(strings.blockAddFull)).toBeTruthy();
-  });
-
-  it("«Quitar bloque» solo existe cuando hay mas de uno; pasa sus documentos al anterior, lo anuncia y devuelve el foco", async () => {
-    let last = baseSession({
-      blocks: [
-        block("bk-1", ANA.id, [A, B]),
-        block("bk-3", ANA.id, [C]),
-        block("bk-2", LUIS.id, [A, B, C], { auto: true }),
-      ],
-    });
-    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
-    await settled();
-    expect(screen.queryByRole("button", { name: strings.blockRemoveFor("Bloque 1", "Luis") })).toBeNull();
-    const remove = screen.getByRole("button", { name: strings.blockRemoveFor("Bloque 2", "Ana") });
-    remove.focus();
-    fireEvent.click(remove);
-    await waitFor(() => expect(last.blocks.filter((item) => item.signerId === ANA.id)).toHaveLength(1));
-    expect(last.blocks.find((item) => item.signerId === ANA.id)!.appliesTo).toEqual([A, B, C]);
-    expect(announcement()).toContain(strings.blockRemoved(1));
-    await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: strings.blockAddFor("Ana") })),
-    );
-    expect(document.activeElement).not.toBe(document.body);
-  });
-});
-
-describe("MultiFlow con varios documentos — cobertura", () => {
+describe("MultiFlow con varios documentos — huecos sin firmante (cobertura) en la tabla", () => {
   const holed = () =>
     baseSession({
       blocks: [
@@ -525,63 +521,38 @@ describe("MultiFlow con varios documentos — cobertura", () => {
         block("bk-2", LUIS.id, [A, B, C], { auto: true }),
       ],
     });
+  const slotMessage = (signer: string, doc: string) =>
+    asg.issue.slotWithoutSigner({ signer, doc, group: "", count: 0, max: 0, strokes: [] });
 
-  it("un firmante con huecos en un documento sin bloque: mensaje bloqueante y boton para anadirlo", async () => {
-    let last = holed();
-    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
-    await settled();
-    expect(screen.getByText(strings.coverageMissing("Ana", "Anexo"))).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: strings.coverageAddBlock("Anexo") }));
-    await waitFor(() =>
-      expect(screen.queryByText(strings.coverageMissing("Ana", "Anexo"))).toBeNull(),
-    );
-    expect(last.blocks.filter((item) => item.signerId === ANA.id).map((item) => item.appliesTo)).toEqual([
-      [A],
-      [B],
-    ]);
-  });
-
-  it("con cobertura pendiente «Añadir bloque» sigue disponible y NO dice que cada documento ya tiene el suyo", async () => {
-    let last = holed();
-    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
-    await settled();
-    const group = screen.getByRole("group", { name: strings.signerBlocksLabel("Ana") });
-    const add = within(group).getByRole("button", { name: strings.blockAddFor("Ana") }) as HTMLButtonElement;
-    expect(add.disabled).toBe(false);
-    expect(within(group).queryByText(strings.blockAddFull)).toBeNull();
-    fireEvent.click(add);
-    await waitFor(() =>
-      expect(last.blocks.filter((item) => item.signerId === ANA.id).map((item) => item.appliesTo)).toEqual([
-        [A],
-        [B],
-      ]),
-    );
-  });
-
-  it("tras «Añadir bloque para X» el foco va al «Cambiar» del bloque nuevo, no a <body>", async () => {
+  it("un firmante con huecos en un documento sin grupo: mensaje bloqueante y «Ir a corregirlo» lleva el foco a su celda", async () => {
     render(<Arnes initial={holed()} />);
     await settled();
-    const button = screen.getByRole("button", { name: strings.coverageAddBlock("Anexo") });
-    button.focus();
-    fireEvent.click(button);
-    const change = await screen.findByRole("button", {
-      name: strings.blockChangeScopeFor("Bloque 2", "Ana"),
-    });
-    await waitFor(() => expect(document.activeElement).toBe(change));
-    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByText(slotMessage("Ana", "Anexo"))).toBeTruthy();
+    const row = screen.getByText(slotMessage("Ana", "Anexo")).closest("li") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: asg.fixIt }));
+    expect(document.activeElement).toBe(cellOf("Ana", "Anexo", null));
+  });
+
+  it("tocar esa celda lo resuelve: el aviso desaparece y Ana firma Anexo con un grupo", async () => {
+    let last = holed();
+    render(<Arnes initial={last} onSession={(s) => (last = s)} />);
+    await settled();
+    fireEvent.click(cellOf("Ana", "Anexo", null));
+    await waitFor(() => expect(screen.queryByText(slotMessage("Ana", "Anexo"))).toBeNull());
+    expect(last.blocks.filter((item) => item.signerId === ANA.id).map((item) => item.appliesTo)).toEqual([[A, B]]);
   });
 
   it("sin huecos en ese documento no hay aviso (Luis no firma Acta)", async () => {
     render(<Arnes initial={holed()} />);
     await settled();
-    expect(screen.queryByText(strings.coverageMissing("Luis", "Acta"))).toBeNull();
-    expect(screen.queryByText(strings.coverageMissing("Ana", "Acta"))).toBeNull();
+    expect(screen.queryByText(slotMessage("Luis", "Acta"))).toBeNull();
+    expect(screen.queryByText(slotMessage("Ana", "Acta"))).toBeNull();
   });
 
   it("la region de avisos esta siempre montada", async () => {
     render(<Arnes initial={baseSession()} />);
     await settled();
-    expect(screen.getAllByRole("status").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByRole("status").length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -622,7 +593,7 @@ describe("MultiFlow con varios documentos — paso Firmar por bloques", () => {
     expect(screen.getByRole("heading", { name: strings.handoffTitle("Ana") })).toBeTruthy();
     // Resumen del alcance en el traspaso -> captura.
     fireEvent.click(screen.getAllByRole("button", { name: strings.handoffReady })[0]);
-    expect(screen.getByText(strings.blockAppliesTo("Todos (3)"))).toBeTruthy();
+    expect(screen.getByText(asg.groupFor("Firma A", "Contrato A, Anexo, Acta"))).toBeTruthy();
   });
 
   it("firmar todo habilita «Aplicar y descargar» y lo ejecuta", async () => {
@@ -726,7 +697,7 @@ function ArnesWithKeys({
 }
 
 describe("MultiFlow con varios documentos — textos en ingles", () => {
-  it("el control y los bloques salen en ingles", async () => {
+  it("la tabla, los atajos y el resumen salen en ingles", async () => {
     const en = SIGN_STRINGS.en;
     function English() {
       const bridge = useSessionBridge();
@@ -754,9 +725,10 @@ describe("MultiFlow con varios documentos — textos en ingles", () => {
         <English />
       </LanguageProvider>,
     );
-    await waitFor(() => expect(screen.getByRole("tab", { name: en.signModeSame })).toBeTruthy());
-    expect(screen.getByRole("tab", { name: en.signModeIndependent })).toBeTruthy();
-    expect(screen.getAllByText(en.blockAppliesTo("All (3)")).length).toBe(2);
+    await waitFor(() => expect(screen.getByRole("heading", { name: en.assignment.title })).toBeTruthy());
+    expect(screen.getByRole("button", { name: en.assignment.shortcutAll })).toBeTruthy();
+    expect(screen.getByRole("button", { name: en.assignment.cellLabel("Ana", "Contrato A", "Signature A") })).toBeTruthy();
+    expect(screen.getByText(en.assignment.summaryFiles(3))).toBeTruthy();
   });
 });
 

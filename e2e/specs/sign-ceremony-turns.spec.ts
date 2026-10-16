@@ -69,7 +69,7 @@ test.describe("ceremonia de firma: el turno sobrevive a remontajes", () => {
   }) => {
     await independentSetup(page);
 
-    // Turno 1: Ana firma sus DOS bloques (Bloque 1 = Contrato A, Bloque 2 = Anexo B) y pasa el dispositivo.
+    // Turno 1: Ana firma sus DOS bloques (Firma A = Contrato A, Firma B = Anexo B) y pasa el dispositivo.
     await signWholeTurn(page, 2, 10, false);
     await expect(turnCounter(page), "tras el turno de Ana le toca a Luis").toHaveText("Turno 2 de 2");
     await expect(handoffHeading(page, SIGNER_2)).toBeVisible();
@@ -145,13 +145,13 @@ test.describe("ceremonia de firma: el turno sobrevive a remontajes", () => {
   }) => {
     await independentSetup(page);
 
-    // Ana firma solo el Bloque 1; el Bloque 2 (Anexo B) sigue pendiente, bajo el pliegue en un iPad.
+    // Ana firma solo la Firma A; la Firma B (Anexo B) sigue pendiente, bajo el pliegue en un iPad.
     await startTurn(page);
     await createBlockSignature(page, 1, 2, 50);
     await expect(page.getByRole("button", { name: "Ver cómo queda" })).toBeDisabled();
 
-    // CORRECTO: junto al boton apagado una frase nombra lo que falta («Falta: Firma · Bloque 2 ...»). HOY: ninguna.
-    const hint = page.getByText(/falta/i).filter({ hasText: /Bloque 2|Anexo B/ });
+    // CORRECTO: junto al boton apagado una frase nombra lo que falta («Falta: Firma B»). HOY: ninguna.
+    const hint = page.getByText(/falta/i).filter({ hasText: /Firma B|Anexo B/ });
     await expect(hint.first(), "el boton apagado debe explicar que falta (hoy: ninguna frase lo dice)").toBeVisible();
   });
 
@@ -170,21 +170,21 @@ test.describe("ceremonia de firma: el turno sobrevive a remontajes", () => {
     expect(hintId, "el boton apagado apunta a la frase que explica por que").toBeTruthy();
     const hint = page.locator(`[id="${hintId}"]`);
     await expect(hint).toBeVisible();
-    await expect(hint).toHaveText("Falta: Firma · Anexo B");
+    await expect(hint).toHaveText("Falta: Firma B");
 
-    // Progreso por bloque: Firma · Contrato A hecho, Firma · Anexo B pendiente.
+    // Progreso por grupo: Firma A hecho, Firma B pendiente.
     const progress = page.getByRole("list", { name: "Progreso de Ana" }).getByRole("listitem");
     await expect(progress).toHaveCount(2);
-    await expect(progress.nth(0)).toHaveText(/^Firma · Contrato A\s*hecho$/);
-    await expect(progress.nth(1)).toHaveText(/^Firma · Anexo B\s*falta$/);
+    await expect(progress.nth(0)).toHaveText(/^Firma A\s*hecho$/);
+    await expect(progress.nth(1)).toHaveText(/^Firma B\s*falta$/);
 
-    // «Ir a lo que falta»: objetivo tactil >= 44 px y lleva el foco al «Crear mi firma · Bloque 2».
+    // «Ir a lo que falta»: objetivo tactil >= 44 px y lleva el foco al «Crear mi firma · Firma B».
     const goToMissing = page.getByRole("button", { name: "Ir a lo que falta" });
     await expect(goToMissing).toBeVisible();
     const box = await goToMissing.boundingBox();
     expect(box?.height ?? 0, "objetivo tactil de al menos 44 px").toBeGreaterThanOrEqual(44);
     await goToMissing.click();
-    const target = page.getByRole("button", { name: "Crear mi firma · Bloque 2", exact: true });
+    const target = page.getByRole("button", { name: "Crear mi firma · Firma B", exact: true });
     await expect(target).toBeFocused();
     await expect(target).toBeInViewport();
 

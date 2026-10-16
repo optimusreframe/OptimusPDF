@@ -1,43 +1,65 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Clock, FileText } from "lucide-react";
+import { Clock, ShieldCheck } from "lucide-react";
+import { useDocumentLibrary } from "@/app/documents/useDocumentLibrary";
+import { discardItem } from "@/app/recent/discardDraft";
+import { HistorySection } from "@/app/recent/HistorySection";
+import { buildRecentRows, finishedRows, unfinishedRows } from "@/app/recent/recentIndex";
 import { UnfinishedSection } from "@/app/recent/UnfinishedSection";
-import { hiddenByUnfinished } from "@/app/recent/unfinishedWork";
 import { useUnfinishedWork } from "@/app/recent/useUnfinishedWork";
+import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClasses } from "@/components/ui/Button";
+import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { useRecentEntries } from "@/hooks/useRecentEntries";
-import { formatDateTime } from "@/lib/formatDate";
-import { useI18n, localeTag } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { clearRecentEntries } from "@/lib/recent";
-import { TOOL_SLUGS, toolHref, type ToolSlug } from "@/lib/tools-registry";
-
-function isKnownSlug(slug: string): slug is ToolSlug {
-  return (TOOL_SLUGS as readonly string[]).includes(slug);
-}
 
 /**
- * Recientes (U0.6): arriba «Sin terminar» (los borradores reales de Firmar, Editar PDF y PDF Pro, con «Continuar» que
- * RESTAURA el trabajo y «Descartar»); debajo «Historial» (nombre, herramienta y fecha). Una entrada del historial no
- * tiene nada que restaurar: ofrece «Abrir herramienta», nunca «Continuar».
+ * Recientes unificado (U0.6 + U2.6). Un solo indice derivado (`buildRecentRows`, sin almacen propio) junta los borradores
+ * reales de Firmar, Editar PDF y PDF Pro con las entradas del historial que no apuntan a un borrador vivo, por fecha.
+ * Se pinta en dos grupos: «Sin terminar» (con «Continuar», que RESTAURA el trabajo, y «Descartar») y «Historial»
+ * (terminados: «Abrir herramienta», o «Abrir de nuevo» con la copia de Mis documentos si la huella coincide).
+ * «Continuar» solo existe con un puntero `resume` verificable (`resumeLinks.ts`). Aviso fijo: solo en este navegador.
  */
 export function RecentView() {
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const history = useRecentEntries();
   const unfinished = useUnfinishedWork();
+  const library = useDocumentLibrary();
   const [announcement, setAnnouncement] = useState("");
+  const [confirmAll, setConfirmAll] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const refocusHistory = useRef(false);
 
-  const locale = localeTag(language);
   // El historial espera a haber leido los borradores: antes no se sabe cuales de sus entradas ya salen en «Sin terminar»
   // (apareceria y desapareceria una fila) ni si hay algo que contar (no se anuncia «Aun no has procesado nada» a destiempo).
-  const visibleHistory = useMemo(
-    () => (unfinished.loaded ? hiddenByUnfinished(history, unfinished.items) : []),
-    [history, unfinished.items, unfinished.loaded],
+  const rows = useMemo(
+    () => (unfinished.loaded ? buildRecentRows({ unfinished: unfinished.items, history, library: library.documents }) : []),
+    [history, unfinished.items, unfinished.loaded, library.documents],
   );
+  const draftRows = useMemo(() => unfinishedRows(rows), [rows]);
+  const historyRows = useMemo(() => finishedRows(rows), [rows]);
   const showEmpty = unfinished.loaded && history.length === 0 && unfinished.items.length === 0;
+
+  useEffect(() => {
+    if (!refocusHistory.current) return;
+    refocusHistory.current = false;
+    const target = historyRef.current?.querySelector<HTMLElement>("a, button") ?? headingRef.current;
+    target?.focus({ preventScroll: true });
+  }, [historyRows]);
+
+  async function clearEverything() {
+    refocusHistory.current = false;
+    await Promise.all(unfinished.items.map((item) => discardItem(item)));
+    clearRecentEntries();
+    await unfinished.refresh();
+    setAnnouncement(t.recent.clearAllDone);
+    headingRef.current?.focus({ preventScroll: true });
+  }
 
   return (
     <div className="mx-auto max-w-[800px] px-4 pt-10 pb-16 md:px-6 md:pt-16">
@@ -48,15 +70,22 @@ export function RecentView() {
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           {t.recent.subtitle}
         </p>
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-footnote text-muted-foreground" data-recent-local="">
+          <Badge variant="neutral">
+            <ShieldCheck aria-hidden="true" className="size-3 shrink-0" />
+            {t.recent.localOnly}
+          </Badge>
+          <span className="min-w-0">{t.recent.localOnlyHint}</span>
+        </p>
       </header>
 
-      {/* Region viva siempre montada: anuncia «Trabajo descartado». */}
+      {/* Region viva siempre montada: anuncia «Trabajo descartado», «Entrada borrada» y «Recientes borrado». */}
       <p role="status" aria-live="polite" className="sr-only">
         {announcement}
       </p>
 
       <UnfinishedSection
-        items={unfinished.items}
+        rows={draftRows}
         refresh={unfinished.refresh}
         onDiscarded={() => setAnnouncement(t.recent.discarded)}
         fallbackFocus={headingRef}
@@ -77,49 +106,15 @@ export function RecentView() {
         </GlassCard>
       ) : null}
 
-      {visibleHistory.length > 0 ? (
-        <section aria-labelledby="recent-history-title" data-recent-history="">
-          <h2 id="recent-history-title" className="text-title-3 text-foreground">
-            {t.recent.historyTitle}
-          </h2>
-          <p className="mt-1 mb-3 text-subheadline text-muted-foreground">{t.recent.historyHint}</p>
-          <ul className="space-y-2">
-            {visibleHistory.map((entry) => {
-              const known = isKnownSlug(entry.slug);
-              const name = known
-                ? t.tools[entry.slug].name
-                : entry.slug;
-              return (
-                <li key={entry.id}>
-                  <div className="surface-card flex flex-wrap items-center gap-3 rounded-ios p-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-ios-sm bg-white/6">
-                      <FileText
-                        aria-hidden="true"
-                        className="size-4 text-signal-text"
-                      />
-                    </span>
-                    <div className="min-w-0 flex-1 basis-48">
-                      <p className="truncate text-sm font-medium text-foreground" title={entry.fileName}>
-                        {entry.fileName}
-                      </p>
-                      <p className="text-caption text-muted-foreground">
-                        {[name, formatDateTime(entry.date, locale)].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
-                    {known ? (
-                      <Link
-                        href={toolHref(entry.slug)}
-                        className={buttonClasses("ghost", "md")}
-                      >
-                        {t.recent.openTool}
-                      </Link>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-
+      <div ref={historyRef}>
+        <HistorySection
+          rows={historyRows}
+          documents={library.documents}
+          onRemoved={() => {
+            refocusHistory.current = true;
+            setAnnouncement(t.recent.removed);
+          }}
+        >
           <Button
             variant="destructive"
             size="md"
@@ -128,8 +123,29 @@ export function RecentView() {
           >
             {t.recent.clear}
           </Button>
-        </section>
+        </HistorySection>
+      </div>
+
+      {rows.length > 0 ? (
+        <div className="mt-6 border-t border-hairline pt-6" data-recent-clear-all="">
+          <Button variant="destructive" size="md" onClick={() => setConfirmAll(true)}>
+            {t.recent.clearAll}
+          </Button>
+        </div>
       ) : null}
+
+      <ConfirmSheet
+        open={confirmAll}
+        onClose={() => setConfirmAll(false)}
+        onConfirm={() => void clearEverything()}
+        // Las filas desaparecen: el foco no vuelve al boton (lo coloca `clearEverything`).
+        restoreFocusOnClose={() => false}
+        title={t.recent.clearAllTitle}
+        body={t.recent.clearAllBody}
+        confirmLabel={t.recent.clearAllConfirm}
+        cancelLabel={t.common.cancel}
+        closeLabel={t.common.close}
+      />
     </div>
   );
 }

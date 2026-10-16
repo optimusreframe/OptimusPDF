@@ -215,6 +215,12 @@ export function Header() {
 
         <div className="ml-auto flex items-center gap-1 md:ml-0">
           <Link
+            href="/documents"
+            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors hover:text-foreground md:flex"
+          >
+            {t.nav.documents}
+          </Link>
+          <Link
             href="/pricing"
             className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors hover:text-foreground md:flex"
           >

@@ -21,6 +21,13 @@ export type SignPdfFeatureFlag =
   | "signaturesInDraft"
   | "multiDocument";
 
+/**
+ * Interruptores de las plantillas de documento (Fase 2 · U2.4). Van aparte de `SignPdfFeatureFlag`: su texto vive en
+ * `strings.template.flags` (no en el diccionario general de Ajustes) y Ajustes los pinta en su propio bloque.
+ */
+export type SignTemplateFlag = "autoApplyTemplates" | "autoDetectFields";
+export const SIGN_TEMPLATE_FLAGS: readonly SignTemplateFlag[] = ["autoApplyTemplates", "autoDetectFields"] as const;
+
 export const SIGN_PDF_FEATURE_FLAGS: readonly SignPdfFeatureFlag[] = [
   "keyboardNav",
   "fieldsCompleteNotice",
@@ -35,7 +42,7 @@ export const SIGN_PDF_FEATURE_FLAGS: readonly SignPdfFeatureFlag[] = [
   "multiDocument",
 ] as const;
 
-export type SignPdfFeatureFlagState = Record<SignPdfFeatureFlag, boolean>;
+export type SignPdfFeatureFlagState = Record<SignPdfFeatureFlag | SignTemplateFlag, boolean>;
 
 export const DEFAULT_SIGN_PDF_FEATURE_FLAGS: SignPdfFeatureFlagState = {
   keyboardNav: true,
@@ -53,6 +60,9 @@ export const DEFAULT_SIGN_PDF_FEATURE_FLAGS: SignPdfFeatureFlagState = {
   // guardan todo menos los trazos y al retomarlos se piden de nuevo.
   signaturesInDraft: true,
   multiDocument: true,
+  // Plantillas de documento (Fase 2): aplicar solas las ya configuradas y detectar campos en un PDF desconocido.
+  autoApplyTemplates: true,
+  autoDetectFields: true,
 };
 
 export const SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY =
@@ -67,8 +77,8 @@ export const SIGN_PDF_FEATURE_FLAGS_VERSION_KEY =
   "optimuspdf.signPdf.featureFlags.v";
 export const SIGN_PDF_FEATURE_FLAGS_VERSION = 2;
 
-function isSignPdfFeatureFlag(value: string): value is SignPdfFeatureFlag {
-  return (SIGN_PDF_FEATURE_FLAGS as readonly string[]).includes(value);
+function isSignPdfFeatureFlag(value: string): value is SignPdfFeatureFlag | SignTemplateFlag {
+  return (SIGN_PDF_FEATURE_FLAGS as readonly string[]).includes(value) || (SIGN_TEMPLATE_FLAGS as readonly string[]).includes(value);
 }
 
 /* ------------------------------------------------------------------ *
@@ -171,7 +181,7 @@ function writeFlags(next: SignPdfFeatureFlagState): void {
 
 /** Cambia un unico interruptor, preservando el resto. */
 export function setSignPdfFeatureFlag(
-  flag: SignPdfFeatureFlag,
+  flag: SignPdfFeatureFlag | SignTemplateFlag,
   enabled: boolean,
 ): void {
   const current = getSnapshot();
@@ -193,7 +203,7 @@ export function readSignaturesInDraft(): boolean {
 }
 
 /** Un unico interruptor, reactivo (para gatear una funcion concreta). */
-export function useSignPdfFeatureFlag(flag: SignPdfFeatureFlag): boolean {
+export function useSignPdfFeatureFlag(flag: SignPdfFeatureFlag | SignTemplateFlag): boolean {
   return useSignPdfFeatureFlags()[flag];
 }
 

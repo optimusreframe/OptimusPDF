@@ -231,7 +231,12 @@ test.describe("la ronda entera con tipografia ancha: ninguna pantalla desborda a
         await defineSigners(page);
         await fitsEverywhere(page, "dos firmantes con nombre");
         await selectSignMode(page, "independent");
-        await fitsEverywhere(page, "firmas distintas por documento");
+        await fitsEverywhere(page, "tabla «¿Quién firma qué?» con una firma por documento");
+        // «Por grupos» (con 2 documentos = una firma por documento) y una copia más de todos: tabla con copias y resumen.
+        await page.getByRole("button", { name: "Por grupos" }).click();
+        await page.getByRole("button", { name: "Una copia más en todos los documentos" }).click();
+        await expect(page.getByText("Se descargarán 4 archivos.")).toBeVisible();
+        await fitsEverywhere(page, "tabla «¿Quién firma qué?» con copias y resumen");
 
         await placeSlotsInBothDocuments(page);
         await fitsEverywhere(page, "paso Documento con huecos");
@@ -254,7 +259,10 @@ test.describe("la ronda entera con tipografia ancha: ninguna pantalla desborda a
         await signWholeTurn(page, 2, 20, true);
         await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
         await waitForDraftSettled(page);
-        await fitsEverywhere(page, "«Ya han firmado todos»");
+        // Las miniaturas de «Revisar antes de descargar» llegan de una en una.
+        await expect(page.getByRole("heading", { name: "Revisar antes de descargar" })).toBeVisible();
+        await expect(page.locator("[data-review-page] img")).toHaveCount(2, { timeout: 30_000 });
+        await fitsEverywhere(page, "«Ya han firmado todos» con «Revisar antes de descargar»");
 
         await page.getByRole("button", { name: "Firmar y descargar" }).click();
         const download = page.getByRole("button", { name: "Descargar", exact: true });

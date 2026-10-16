@@ -1,0 +1,64 @@
+{
+  "mode": "multi",
+  "signMode": "same",
+  "signers": [
+    {
+      "id": "sg-1",
+      "name": "Ana",
+      "color": "#0d4bff"
+    }
+  ],
+  "blocks": [
+    {
+      "id": "bk-5",
+      "signerId": "sg-1",
+      "appliesTo": [
+        "doc[0]"
+      ],
+      "signature": {
+        "dataUrl": "data:image/png;base64,AAAA",
+        "ratio": 0.3
+      },
+      "initials": null,
+      "stamps": {
+        "doc[0]": "k-viejo~f-a0|0|signature|0.1|0.7|0.3|0.08"
+      },
+      "auto": true
+    }
+  ],
+  "docs": {
+    "doc[0]": {
+      "fields": [
+        {
+          "id": "f-a0",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {},
+      "textFieldsDetectedFor": null,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "pageIndex": 0,
+      "fieldPageIndex": 0,
+      "sealedKey": "k-viejo"
+    }
+  },
+  "docOrder": [
+    "doc[0]"
+  ],
+  "activeDocId": "doc[0]",
+  "step": "signers"
+}

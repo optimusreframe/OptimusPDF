@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { FileText, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { MyDocumentsHomeSection } from "@/app/documents/MyDocumentsHomeSection";
 import { onSectionRequest } from "@/components/layout/activeSection";
 import { FeaturedToolCard } from "@/components/tool/FeaturedToolCard";
 import { ToolCatalogGrid, filterTools } from "@/components/tool/ToolCatalogGrid";
@@ -199,6 +200,8 @@ export function HomeView() {
           ))}
         </section>
       ) : null}
+
+      {!searching ? <MyDocumentsHomeSection /> : null}
 
       {!searching && mostUsed.length > 0 ? (
         <section className="mb-12" aria-labelledby="most-used-title">

@@ -27,7 +27,8 @@ export type RecentEntry = {
 };
 
 export const RECENT_STORAGE_KEY = "optimuspdf.recent";
-const MAX_ENTRIES = 20;
+/** Retencion del historial (plan U2.6): las 20 mas recientes. */
+export const MAX_RECENT_ENTRIES = 20;
 
 const EMPTY: RecentEntry[] = [];
 
@@ -72,7 +73,7 @@ function readStorage(): RecentEntry[] {
     if (!raw) return EMPTY;
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return EMPTY;
-    const entries = parsed.filter(isRecentEntry).slice(0, MAX_ENTRIES).map(normalizeEntry);
+    const entries = parsed.filter(isRecentEntry).slice(0, MAX_RECENT_ENTRIES).map(normalizeEntry);
     return entries.length === 0 ? EMPTY : entries;
   } catch {
     return EMPTY;
@@ -105,12 +106,28 @@ export function addRecentEntry(slug: ToolSlug, fileName: string, resume?: Resume
     date: new Date().toISOString(),
     ...(pointer ? { resume: pointer } : {}),
   };
-  const next = [entry, ...getRecentEntries()].slice(0, MAX_ENTRIES);
+  const next = [entry, ...getRecentEntries()].slice(0, MAX_RECENT_ENTRIES);
   cache = next;
   try {
     window.localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
   } catch {
     // Storage lleno o bloqueado: el historial es prescindible.
+  }
+  emit();
+}
+
+/** Borra UNA entrada del historial (por su id). Si ya no esta, no hace nada. */
+export function removeRecentEntry(id: string): void {
+  if (typeof window === "undefined") return;
+  const current = getRecentEntries();
+  const next = current.filter((entry) => entry.id !== id);
+  if (next.length === current.length) return;
+  cache = next.length === 0 ? EMPTY : next;
+  try {
+    if (next.length === 0) window.localStorage.removeItem(RECENT_STORAGE_KEY);
+    else window.localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Storage lleno o bloqueado: la lista en memoria ya cambio.
   }
   emit();
 }

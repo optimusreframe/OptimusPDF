@@ -213,6 +213,39 @@ export function signedFilename(input: SignedFilenameInput): string {
 }
 
 /* ------------------------------------------------------------------ *
+ * Copias
+ * ------------------------------------------------------------------ */
+
+/** «copia» / «copy»: el texto que acompana al numero de la copia. */
+const COPY_WORD: Record<NameLang, string> = {
+  es: "copia",
+  en: "copy",
+};
+
+/**
+ * Nombre de la copia `copy` (1 = el archivo tal cual): `Ana - Contrato-firmado (copia 2).pdf` /
+ * `Ana - Contrato-signed (copy 2).pdf`. El nombre final respeta los mismos limites que el original: si no cabe, se
+ * recorta el cuerpo (por grafemas, con elipsis) y NUNCA el sufijo, para que la copia se siga reconociendo.
+ */
+export function copyFilename(filename: string, copy: number, lang: NameLang): string {
+  if (!Number.isInteger(copy) || copy <= 1) return filename;
+  const dot = filename.lastIndexOf(".");
+  const base = dot > 0 ? filename.slice(0, dot) : filename;
+  const extension = dot > 0 ? filename.slice(dot) : "";
+  const suffix = ` (${COPY_WORD[lang]} ${copy})${extension}`;
+  const units = graphemes(base);
+  let candidate = `${units.join("")}${suffix}`;
+  while (
+    units.length > 1 &&
+    (graphemes(candidate).length > MAX_ENTRY_CHARS || byteLength(candidate) > MAX_ENTRY_BYTES)
+  ) {
+    units.pop();
+    candidate = `${units.join("").replace(/[.\s]+$/g, "")}${ELLIPSIS}${suffix}`;
+  }
+  return candidate;
+}
+
+/* ------------------------------------------------------------------ *
  * Colisiones y nombre del ZIP
  * ------------------------------------------------------------------ */
 

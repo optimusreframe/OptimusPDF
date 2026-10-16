@@ -66,11 +66,22 @@ export async function defineSigners(page: Page, names: readonly [string, string]
   await page.getByLabel("Nombre del firmante 2").fill(names[1]);
 }
 
-/** «Mismas firmas» / «Firmas distintas por documento» (solo con varios documentos, en el paso Firmantes). */
+/**
+ * «Una firma para todos» (antes «Mismas firmas») / «Una firma por documento» (antes «Firmas distintas por documento»):
+ * los atajos de la tabla «¿Quién firma qué?» (solo con varios documentos y algún firmante, en el paso Firmantes).
+ */
 export async function selectSignMode(page: Page, mode: "same" | "independent"): Promise<void> {
-  const label = mode === "same" ? "Mismas firmas" : "Firmas distintas por documento";
-  await page.getByRole("tab", { name: label }).click();
-  await expect(page.getByRole("tab", { name: label })).toHaveAttribute("aria-selected", "true");
+  const label = mode === "same" ? "Una firma para todos" : "Una firma por documento";
+  await page.getByRole("button", { name: label, exact: true }).click();
+  const cells = page.getByRole("grid", { name: /Quién firma cada documento/ }).locator("[data-cell]");
+  if (mode === "same") {
+    // Todas las celdas son la firma A.
+    await expect(cells.first()).toHaveAttribute("data-group", "A");
+    await expect(cells.and(page.locator('[data-group]:not([data-group="A"])'))).toHaveCount(0);
+  } else {
+    // Cada documento lleva la suya: aparece al menos una celda «B».
+    await expect(page.locator('[data-cell][data-group="B"]').first()).toBeVisible();
+  }
 }
 
 /** Coloca un hueco de firma del firmante dado sobre la pagina visible del lienzo (el paso «Documento» ya abierto). */
@@ -178,7 +189,7 @@ export async function startTurn(page: Page): Promise<void> {
 
 /**
  * Crea la firma de la fila `n` (1..) del turno en curso. Con mas de un bloque en el turno el boton lleva el contexto
- * («Crear mi firma · Bloque 2»); con uno solo, no.
+ * («Crear mi firma · Firma B»); con uno solo, no.
  */
 export async function createBlockSignature(
   page: Page,
@@ -189,7 +200,7 @@ export async function createBlockSignature(
 ): Promise<void> {
   const open =
     ofBlocks > 1
-      ? page.getByRole("button", { name: `Crear mi firma · Bloque ${n}`, exact: true })
+      ? page.getByRole("button", { name: `Crear mi firma · Firma ${String.fromCharCode(64 + n)}`, exact: true })
       : page.getByRole("button", { name: "Crear mi firma", exact: true });
   await open.click();
   await drawInOpenComposer(page, seed, options);
@@ -213,9 +224,9 @@ export async function signWholeTurn(page: Page, blocks: number, seedBase: number
 }
 
 /**
- * El recorrido del adjuster: 2 documentos, 2 firmantes, «Firmas distintas por documento» (4 bloques), huecos en ambos
+ * El recorrido del adjuster: 2 documentos, 2 firmantes, «Una firma por documento» (4 bloques), huecos en ambos
  * y la ceremonia entera hasta «Ya han firmado todos». Empieza desde Inicio para que el BACK del navegador tenga a donde
- * volver. Con `holdLast` se queda justo ANTES de la ultima firma (el Bloque 2 de Luis), para medir plazos de guardado.
+ * volver. Con `holdLast` se queda justo ANTES de la ultima firma (la Firma B de Luis), para medir plazos de guardado.
  */
 export async function collectAllSignatures(
   page: Page,
@@ -555,4 +566,130 @@ export async function collectFirstSigner(page: Page, docs: readonly SyntheticDoc
   await continueToSign(page);
   await signWholeTurn(page, 2, 10, false);
   await expect(page.getByText("Turno 2 de 2")).toBeVisible();
+}
+
+/* ------------------------------------------------------------------ *
+ * Firma agil · Fase 1: tabla «¿Quien firma que?», copias, orden de turnos y revision
+ * ------------------------------------------------------------------ */
+
+/** Un grupo de firma tal como lo guarda el borrador de sesion: de quien es, a que documentos aplica y sus trazos. */
+export type StoredGroup = {
+  signerId: string;
+  /** Nombres de archivo de los documentos del grupo, en el orden de la cola. */
+  fileNames: string[];
+  signature: string | null;
+  initials: string | null;
+};
+
+/** Los grupos (bloques) del unico borrador de sesion en IndexedDB, con los trazos tal como se capturaron. */
+export async function readStoredGroups(page: Page): Promise<StoredGroup[]> {
+  return page.evaluate(
+    () =>
+      new Promise<StoredGroup[]>((resolve, reject) => {
+        const request = indexedDB.open("optimuspdf-sign-drafts");
+        request.onerror = () => reject(new Error("no se pudo abrir IndexedDB"));
+        request.onsuccess = () => {
+          const db = request.result;
+          const all = db.transaction("sessionMeta", "readonly").objectStore("sessionMeta").getAll();
+          all.onsuccess = () => {
+            db.close();
+            const meta = all.result[0] as
+              | {
+                  documents: Array<{ id: string; fileName: string }>;
+                  blocks: Array<{
+                    signerId: string;
+                    appliesTo: string[];
+                    signature?: { dataUrl: string } | null;
+                    initials?: { dataUrl: string } | null;
+                  }>;
+                }
+              | undefined;
+            if (!meta) return resolve([]);
+            resolve(
+              meta.blocks.map((block) => ({
+                signerId: block.signerId,
+                fileNames: meta.documents.filter((doc) => block.appliesTo.includes(doc.id)).map((doc) => doc.fileName),
+                signature: block.signature?.dataUrl ?? null,
+                initials: block.initials?.dataUrl ?? null,
+              })),
+            );
+          };
+          all.onerror = () => reject(new Error("no se pudo leer sessionMeta"));
+        };
+      }),
+  );
+}
+
+/** Reescribe el unico borrador de sesion (para simular uno ANTERIOR a la tabla: sin copias, sin orden, en «distintas»). */
+export async function rewriteSessionMeta(page: Page, rewrite: string): Promise<void> {
+  await page.evaluate(
+    (source) =>
+      new Promise<void>((resolve, reject) => {
+        const edit = new Function("meta", source) as (meta: Record<string, unknown>) => Record<string, unknown>;
+        const request = indexedDB.open("optimuspdf-sign-drafts");
+        request.onerror = () => reject(new Error("no se pudo abrir IndexedDB"));
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction("sessionMeta", "readwrite");
+          const store = tx.objectStore("sessionMeta");
+          const all = store.getAll();
+          all.onsuccess = () => {
+            const meta = all.result[0] as Record<string, unknown> | undefined;
+            if (meta) store.put(edit(meta));
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(new Error("no se pudo escribir sessionMeta"));
+        };
+      }),
+    rewrite,
+  );
+}
+
+/** El orden de turnos guardado en el borrador de sesion (`null` = el de siempre). */
+export async function storedTurnOrder(page: Page): Promise<string[] | null> {
+  return page.evaluate(
+    () =>
+      new Promise<string[] | null>((resolve) => {
+        const request = indexedDB.open("optimuspdf-sign-drafts");
+        request.onerror = () => resolve(null);
+        request.onsuccess = () => {
+          const db = request.result;
+          const all = db.transaction("sessionMeta", "readonly").objectStore("sessionMeta").getAll();
+          all.onsuccess = () => {
+            db.close();
+            const meta = all.result[0] as { turnOrder?: string[] } | undefined;
+            resolve(meta?.turnOrder ?? null);
+          };
+          all.onerror = () => {
+            db.close();
+            resolve(null);
+          };
+        };
+      }),
+  );
+}
+
+/** La tabla «¿Quien firma que?»: la letra (o `null`) de cada celda, fila a fila (un documento) y columna a columna (un firmante). */
+export async function readAssignmentCells(page: Page): Promise<(string | null)[][]> {
+  return page.evaluate(() => {
+    const rows = [...document.querySelectorAll('[role="grid"] [role="row"]')].filter((row) => row.querySelector("[data-cell]"));
+    return rows.map((row) =>
+      [...row.querySelectorAll<HTMLElement>("[data-cell]")].map((cell) => (cell.dataset.group ? cell.dataset.group : null)),
+    );
+  });
+}
+
+/** Copias de cada documento segun el texto accesible de la tabla («Contrato: 2 copias»). */
+export async function readCopies(page: Page): Promise<number[]> {
+  return page.evaluate(() => {
+    const rows = [...document.querySelectorAll('[role="grid"] [role="row"]')].filter((row) => row.querySelector("[data-cell]"));
+    return rows.map((row) => {
+      const text = row.querySelector('[role="gridcell"]:last-child .sr-only')?.textContent ?? "";
+      const match = /(\d+)\s+cop/.exec(text);
+      return match ? Number(match[1]) : 1;
+    });
+  });
 }

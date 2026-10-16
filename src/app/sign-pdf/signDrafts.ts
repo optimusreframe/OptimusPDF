@@ -127,6 +127,8 @@ export type SessionDraftMeta = {
    * anteriores: se deriva del primer firmante pendiente. Al leer pasa por `sanitizeCeremony`.
    */
   ceremony?: CeremonyState;
+  /** Orden de los turnos de la ceremonia por bloques (ids de firmante); ausente = el de la lista de firmantes. */
+  turnOrder?: string[];
   /** Suma de los PDF: es lo que cuenta para el presupuesto. */
   fileSize: number;
   /** Nombre del primer documento (resumen para listas simples). */
@@ -1064,6 +1066,8 @@ export type SaveSessionParams = {
   step: MultiStep;
   /** Turno de la ceremonia; ausente = sin turno guardado. */
   ceremony?: CeremonyState;
+  /** Orden de los turnos (ids de firmante); ausente = el de la lista de firmantes. */
+  turnOrder?: string[];
   /** Ver `SaveDraftParams.keepSignatures`: `false` deja los bloques sin trazos ni sellos (y sin turno guardado). */
   keepSignatures?: boolean;
   /**
@@ -1118,6 +1122,7 @@ export function buildSessionMeta(
     activeDocId: params.activeDocId,
     step: params.step,
     ...(params.ceremony && !stripped ? { ceremony: params.ceremony } : {}),
+    ...(params.turnOrder && params.turnOrder.length > 0 ? { turnOrder: params.turnOrder } : {}),
     fileSize: params.documents.reduce((sum, doc) => sum + doc.size, 0),
     fileName: params.documents[0]?.fileName ?? "",
     documentCount: params.documents.length,

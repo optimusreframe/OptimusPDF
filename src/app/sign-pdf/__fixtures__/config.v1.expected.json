@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "mode": "multi",
+  "signMode": "same",
+  "signers": [
+    {
+      "id": "sg-1",
+      "name": "Ana",
+      "color": "#0d4bff"
+    }
+  ],
+  "blocks": [],
+  "documents": [
+    {
+      "id": "doc-1",
+      "file": {
+        "name": "documento.pdf",
+        "text": "%PDF-1.4\n% cfg1\n%%EOF\n"
+      },
+      "fields": [
+        {
+          "id": "f1",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {
+        "t": "x"
+      }
+    }
+  ]
+}

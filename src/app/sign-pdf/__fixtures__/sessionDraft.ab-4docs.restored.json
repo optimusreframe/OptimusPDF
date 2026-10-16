@@ -1,0 +1,253 @@
+{
+  "mode": "multi",
+  "signMode": "independent",
+  "signers": [
+    {
+      "id": "sg-1",
+      "name": "Ana",
+      "color": "#0d4bff"
+    },
+    {
+      "id": "sg-2",
+      "name": "Luis",
+      "color": "#0f9d68"
+    }
+  ],
+  "blocks": [
+    {
+      "id": "bk-1",
+      "signerId": "sg-1",
+      "appliesTo": [
+        "doc[0]",
+        "doc[1]"
+      ],
+      "signature": {
+        "dataUrl": "data:image/png;base64,AAAA",
+        "ratio": 0.3
+      },
+      "initials": null,
+      "stamps": {
+        "doc[0]": "k1~f-a0|0|signature|0.1|0.7|0.3|0.08",
+        "doc[1]": "k2~f-a1|0|signature|0.1|0.7|0.3|0.08"
+      },
+      "auto": false
+    },
+    {
+      "id": "bk-2",
+      "signerId": "sg-1",
+      "appliesTo": [
+        "doc[2]",
+        "doc[3]"
+      ],
+      "signature": {
+        "dataUrl": "data:image/png;base64,BBBB",
+        "ratio": 0.4
+      },
+      "initials": null,
+      "stamps": {
+        "doc[2]": "k3~f-a2|0|signature|0.1|0.7|0.3|0.08",
+        "doc[3]": "k4~f-a3|0|signature|0.1|0.7|0.3|0.08"
+      },
+      "auto": false
+    },
+    {
+      "id": "bk-3",
+      "signerId": "sg-2",
+      "appliesTo": [
+        "doc[0]",
+        "doc[1]",
+        "doc[2]",
+        "doc[3]"
+      ],
+      "signature": {
+        "dataUrl": "data:image/png;base64,AAAA",
+        "ratio": 0.3
+      },
+      "initials": {
+        "dataUrl": "data:image/png;base64,IIII",
+        "ratio": 0.5
+      },
+      "stamps": {
+        "doc[0]": "k1~f-l0|0|signature|0.1|0.7|0.3|0.08",
+        "doc[1]": "k2~f-l1|0|signature|0.1|0.7|0.3|0.08",
+        "doc[2]": "k3~f-l2|0|signature|0.1|0.7|0.3|0.08",
+        "doc[3]": "k4~f-l3|0|signature|0.1|0.7|0.3|0.08"
+      },
+      "auto": true
+    }
+  ],
+  "docs": {
+    "doc[0]": {
+      "fields": [
+        {
+          "id": "f-a0",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        },
+        {
+          "id": "f-l0",
+          "signerId": "sg-2",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {},
+      "textFieldsDetectedFor": null,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "pageIndex": 0,
+      "fieldPageIndex": 0,
+      "sealedKey": "k1"
+    },
+    "doc[1]": {
+      "fields": [
+        {
+          "id": "f-a1",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        },
+        {
+          "id": "f-l1",
+          "signerId": "sg-2",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {},
+      "textFieldsDetectedFor": null,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "pageIndex": 0,
+      "fieldPageIndex": 0,
+      "sealedKey": "k2"
+    },
+    "doc[2]": {
+      "fields": [
+        {
+          "id": "f-a2",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        },
+        {
+          "id": "f-l2",
+          "signerId": "sg-2",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {},
+      "textFieldsDetectedFor": null,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "pageIndex": 0,
+      "fieldPageIndex": 0,
+      "sealedKey": "k3"
+    },
+    "doc[3]": {
+      "fields": [
+        {
+          "id": "f-a3",
+          "signerId": "sg-1",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        },
+        {
+          "id": "f-l3",
+          "signerId": "sg-2",
+          "pageIndex": 0,
+          "type": "signature",
+          "rect": {
+            "x": 0.1,
+            "y": 0.7,
+            "width": 0.3,
+            "height": 0.08
+          }
+        }
+      ],
+      "textFields": [],
+      "textValues": {},
+      "textFieldsDetectedFor": null,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "pageIndex": 0,
+      "fieldPageIndex": 0,
+      "sealedKey": "k4"
+    }
+  },
+  "docOrder": [
+    "doc[0]",
+    "doc[1]",
+    "doc[2]",
+    "doc[3]"
+  ],
+  "activeDocId": "doc[2]",
+  "step": "sign",
+  "ceremony": {
+    "signerId": "sg-1",
+    "stage": "capture"
+  }
+}

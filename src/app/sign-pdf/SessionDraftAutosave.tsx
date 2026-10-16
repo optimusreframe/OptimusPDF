@@ -131,7 +131,7 @@ export function SessionDraftAutosave({
 }: SessionDraftAutosaveProps) {
   const generationRef = useRef(0);
   const keepSignatures = useSignPdfFeatureFlag("signaturesInDraft");
-  const { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder, ceremony } =
+  const { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder, ceremony, turnOrder } =
     session;
 
   useEffect(() => {
@@ -211,7 +211,7 @@ export function SessionDraftAutosave({
 
     const snapshot = snapshotSession({
       identity,
-      session: { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder, ceremony },
+      session: { mode, signMode, signers, blocks, docs, step, activeDocId, docOrder, ceremony, turnOrder },
       files,
       getBytes: bytesOf,
     });
@@ -275,6 +275,7 @@ export function SessionDraftAutosave({
     activeDocId,
     docOrder,
     ceremony,
+    turnOrder,
     keepSignatures,
     identityRef,
     onTooBig,

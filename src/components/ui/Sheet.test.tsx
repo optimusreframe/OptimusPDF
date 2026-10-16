@@ -778,3 +778,97 @@ describe("Sheet: salida marcada (Wave 8 · backlog b)", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });
+
+describe("Sheet: fondo inerte (inertBackground, opt-in)", () => {
+  function Modal({ inert, nestedInert = inert }: { inert: boolean; nestedInert?: boolean }) {
+    const [open, setOpen] = useState(false);
+    const [second, setSecond] = useState(false);
+    return (
+      <div data-app="">
+        <button type="button" onClick={() => setOpen(true)}>
+          Abrir
+        </button>
+        <Sheet open={open} onClose={() => setOpen(false)} title="Confirmar" closeLabel="Cerrar" inertBackground={inert}>
+          <button type="button" onClick={() => setSecond(true)}>
+            Abrir otra
+          </button>
+        </Sheet>
+        <Sheet open={second} onClose={() => setSecond(false)} title="Otra" closeLabel="Cerrar otra" inertBackground={nestedInert}>
+          <button type="button">Dentro</button>
+        </Sheet>
+      </div>
+    );
+  }
+  const appRoot = (container: HTMLElement) => container.parentElement!;
+
+  it("sin la opcion NO se toca el fondo (las demas hojas de la aplicacion no cambian)", async () => {
+    const { container } = render(<Modal inert={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Abrir" }));
+    await screen.findByRole("dialog");
+    expect(container.hasAttribute("inert")).toBe(false);
+    expect(document.body.querySelector("[inert]")).toBeNull();
+  });
+
+  it("con la opcion el resto de la pagina queda inert mientras la hoja esta abierta, la hoja no, y se restaura al cerrar", async () => {
+    const { container } = render(<Modal inert />);
+    const opener = screen.getByRole("button", { name: "Abrir" });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(container.hasAttribute("inert")).toBe(true));
+    expect(dialog.closest("[inert]")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+    // Un elemento inert no puede recibir el foco: al devolverselo a quien abrio la hoja el fondo YA debe estar destapado.
+    const inertWhenFocused: boolean[] = [];
+    const nativeFocus = opener.focus.bind(opener);
+    vi.spyOn(opener, "focus").mockImplementation((options?: FocusOptions) => {
+      inertWhenFocused.push(container.hasAttribute("inert"));
+      nativeFocus(options);
+    });
+    // Escape sigue funcionando y el foco vuelve a quien abrio la hoja (que ya no es inerte).
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(container.hasAttribute("inert")).toBe(false);
+    expect(document.body.querySelector("[inert]")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+    expect(inertWhenFocused.length).toBeGreaterThan(0);
+    expect(inertWhenFocused.every((inert) => !inert)).toBe(true);
+  });
+
+  it("hojas apiladas: la de arriba tapa a la de abajo, y el fondo no se destapa hasta cerrar la ultima", async () => {
+    const { container } = render(<Modal inert />);
+    fireEvent.click(screen.getByRole("button", { name: "Abrir" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir otra" }));
+    const dialogs = await screen.findAllByRole("dialog", { hidden: true });
+    expect(dialogs).toHaveLength(2);
+    await waitFor(() => expect(dialogs[0].closest("[inert]")).not.toBeNull());
+    expect(dialogs[1].closest("[inert]")).toBeNull();
+    expect(container.hasAttribute("inert")).toBe(true);
+    // Cierra la de arriba (Escape): la de abajo vuelve a ser operable, el fondo sigue inerte.
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getAllByRole("dialog", { hidden: true })).toHaveLength(1));
+    await waitFor(() => expect(screen.getByRole("dialog").closest("[inert]")).toBeNull());
+    expect(container.hasAttribute("inert")).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(container.hasAttribute("inert")).toBe(false);
+  });
+
+  it("lo que ya era inert por otro motivo no se destapa al cerrar", async () => {
+    const { container } = render(<Modal inert />);
+    container.setAttribute("inert", "");
+    fireEvent.click(screen.getByRole("button", { name: "Abrir" }));
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(container.hasAttribute("inert")).toBe(true);
+    container.removeAttribute("inert");
+    expect(appRoot(container)).toBe(document.body);
+  });
+
+  it("ConfirmSheet pasa la opcion a la hoja", async () => {
+    const { container } = render(<ConfirmSheet open onClose={() => {}} onConfirm={() => {}} title="¿Seguro?" body="x" confirmLabel="Si" cancelLabel="No" closeLabel="Cerrar" inertBackground />);
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(container.hasAttribute("inert")).toBe(true));
+  });
+});

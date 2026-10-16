@@ -32,6 +32,7 @@ import {
 } from "@/app/edit-pdf/editFeatureFlags";
 import {
   SIGN_PDF_FEATURE_FLAGS,
+  SIGN_TEMPLATE_FLAGS,
   setSignPdfFeatureFlag,
   useSignPdfFeatureFlags,
 } from "@/app/sign-pdf/signFeatureFlags";
@@ -111,6 +112,26 @@ export function SettingsView() {
                   <StripSavedSignatures strings={SIGN_STRINGS[language]} className="pt-2 pl-[34px]" />
                 ) : null}
               </div>
+            ))}
+          </div>
+        </GlassCard>
+
+        <GlassCard className="p-6">
+          <h2 className="text-headline text-foreground">
+            {SIGN_STRINGS[language].template.flags.title}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {SIGN_STRINGS[language].template.flags.body}
+          </p>
+          <div className="mt-5 space-y-4">
+            {SIGN_TEMPLATE_FLAGS.map((flag) => (
+              <Checkbox
+                key={flag}
+                label={SIGN_STRINGS[language].template.flags[flag].label}
+                hint={SIGN_STRINGS[language].template.flags[flag].hint}
+                checked={signPdfFlags[flag]}
+                onChange={(enabled) => setSignPdfFeatureFlag(flag, enabled)}
+              />
             ))}
           </div>
         </GlassCard>

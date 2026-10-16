@@ -73,6 +73,24 @@ export function isValidResumeId(kind: ResumeKind, id: unknown): id is string {
   return typeof id === "string" && ID_PATTERNS[kind].test(id);
 }
 
+/**
+ * Regla de «Continuar» (U2.6): una fila de Recientes solo ofrece «Continuar» si su puntero es VERIFICABLE: tipo de la lista
+ * blanca, id con la expresion de su tipo y un tipo que SEA de la herramienta de la fila. Devuelve el puntero ya saneado o
+ * `null` (la fila entonces no promete nada). Nunca lanza.
+ */
+export function verifiableResume(slug: string, target: unknown): ResumeTarget | null {
+  if (typeof target !== "object" || target === null) return null;
+  const { kind, id } = target as Record<string, unknown>;
+  if (typeof kind !== "string" || !isResumeKind(kind) || !isValidResumeId(kind, id)) return null;
+  return TOOL_OF_KIND[kind] === slug ? { kind, id } : null;
+}
+
+/** El destino de «Continuar» de una fila, o `null` si no tiene un puntero verificable. */
+export function continueHrefFor(slug: string, target: unknown): string | null {
+  const verified = verifiableResume(slug, target);
+  return verified ? resumeHref(verified) : null;
+}
+
 /** `<tipo>:<id>`, el valor del parametro. */
 export function resumeValue(target: ResumeTarget): string {
   return `${target.kind}:${target.id}`;

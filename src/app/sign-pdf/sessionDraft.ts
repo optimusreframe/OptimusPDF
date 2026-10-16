@@ -14,6 +14,7 @@ import {
 } from "@/app/sign-pdf/docSet";
 import type { CaptureMap } from "@/app/sign-pdf/captures";
 import { sanitizeCeremony } from "@/app/sign-pdf/blockModel";
+import { sanitizeTurnOrder } from "@/app/sign-pdf/turnOrder";
 import { activeDocOf, type SignSession } from "@/app/sign-pdf/signSession";
 import { migrateStep } from "@/app/sign-pdf/signSteps";
 import type {
@@ -22,6 +23,7 @@ import type {
 } from "@/app/sign-pdf/signDrafts";
 import type { SignatureField } from "@/lib/pdf/sign";
 import { sanitizeTextEdits } from "@/app/sign-pdf/textEdits";
+import { DEFAULT_COPIES, normalizeCopies } from "@/lib/pdf/signCopies";
 
 /*
  * Borrador de SESION (varios documentos): traduccion pura entre la sesion viva
@@ -133,7 +135,7 @@ export type SessionSource = Pick<
   SignSession,
   "mode" | "signMode" | "signers" | "blocks" | "docs" | "step" | "activeDocId" | "docOrder"
 > &
-  Partial<Pick<SignSession, "ceremony">>;
+  Partial<Pick<SignSession, "ceremony" | "turnOrder">>;
 
 export function snapshotSession(args: {
   identity: SessionIdentity;
@@ -158,6 +160,10 @@ export function snapshotSession(args: {
     session.ceremony,
     session.signers.map((signer) => signer.id),
   );
+  const turnOrder = sanitizeTurnOrder(
+    session.turnOrder,
+    session.signers.map((signer) => signer.id),
+  );
 
   return {
     id: identity.id,
@@ -179,6 +185,7 @@ export function snapshotSession(args: {
     activeDocId: active ? (identity.stored.get(active) ?? null) : null,
     step: session.step,
     ...(ceremony ? { ceremony } : {}),
+    ...(turnOrder ? { turnOrder } : {}),
   };
 }
 
@@ -207,6 +214,8 @@ function restoreDocState(
   const rect = base.rect;
   // Las ediciones de texto describen los bytes originales: si la huella cambio ya no valen.
   const textEdits = stale ? [] : sanitizeTextEdits(base.textEdits);
+  // Copias (U1.1): un borrador anterior no las trae (= 1) y uno manipulado se lleva a 1..MAX. Solo se escribe si vale > 1.
+  const copies = normalizeCopies(base.copies);
   return {
     stale,
     state: {
@@ -226,6 +235,7 @@ function restoreDocState(
       // Vuelve a sellar con la huella RECALCULADA de los bytes recuperados.
       sealedKey: key ?? "",
       ...(textEdits.length > 0 ? { textEdits } : {}),
+      ...(copies > DEFAULT_COPIES ? { copies } : {}),
     },
   };
 }
@@ -311,6 +321,10 @@ export function restoreSession(
     meta.ceremony,
     meta.signers.map((signer) => signer.id),
   );
+  const turnOrder = sanitizeTurnOrder(
+    (meta as { turnOrder?: unknown }).turnOrder,
+    meta.signers.map((signer) => signer.id),
+  );
 
   const identity: SessionIdentity = {
     id: meta.id,
@@ -333,6 +347,7 @@ export function restoreSession(
       activeDocId,
       step: migrateStep(meta.step),
       ...(ceremony ? { ceremony } : {}),
+      ...(turnOrder ? { turnOrder } : {}),
     },
     identity,
     normalized: normalized.warnings.length,

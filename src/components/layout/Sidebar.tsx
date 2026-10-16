@@ -14,6 +14,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Clock,
+  FolderOpen,
   House,
   Search,
   Settings,
@@ -139,6 +140,7 @@ export function Sidebar() {
 
   const isHome = pathname === "/";
   const isRecent = pathname.startsWith("/recent");
+  const isDocuments = pathname.startsWith("/documents");
   const isSettings = pathname.startsWith("/settings");
   const featuredActive = getFeaturedTools().find((tool) => pathname.startsWith(toolHref(tool.slug)));
   /* Una sola entrada activa: en Home manda la seccion visible; si aun no
@@ -147,11 +149,13 @@ export function Sidebar() {
     ? (activeSection ?? "home")
     : featuredActive
       ? featuredActive.slug
-      : isRecent
-        ? "recent"
-        : isSettings
-          ? "settings"
-          : null;
+      : isDocuments
+        ? "documents"
+        : isRecent
+          ? "recent"
+          : isSettings
+            ? "settings"
+            : null;
 
   return (
     <aside
@@ -301,6 +305,13 @@ export function Sidebar() {
         </ul>
 
         <ul className="mt-4 space-y-0.5 border-t border-hairline pt-3">
+          <SidebarLink
+            href="/documents"
+            icon={FolderOpen}
+            label={t.nav.documents}
+            active={activeKey === "documents"}
+            collapsed={collapsed}
+          />
           <SidebarLink
             href="/recent"
             icon={Clock}
