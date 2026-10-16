@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resetSignHandoffForTests,
   setSignHandoff,
@@ -9,7 +9,18 @@ import {
 } from "./signHandoff";
 
 describe("signHandoff", () => {
-  beforeEach(() => resetSignHandoffForTests());
+  // El entorno «engines» es Node puro: segun la version trae o no `sessionStorage`; se fija uno propio para que la prueba no dependa de ello.
+  beforeEach(() => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, String(value)),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    });
+    resetSignHandoffForTests();
+  });
+  afterEach(() => vi.unstubAllGlobals());
 
   it("se recoge una sola vez", () => {
     expect(setSignHandoff({ documentIds: ["doc-1", "doc-2"], mode: "sign" }, 1_000)).toBe(true);
