@@ -79,10 +79,30 @@ describe("commitVaultImport — src/app/sign-pdf/signVault.ts", () => {
     expect(await list()).toHaveLength(MAX_VAULT_ENTRIES);
   });
 
-  describe("T2 — tope de 20 MB comprobado DENTRO de la transaccion (guarda contra la carrera entre pestañas)", () => {
+  // Estas pruebas llenan el baul hasta el tope real de 20 MiB dentro de fake-indexeddb (clonado estructurado de ~20 MB por
+  // prueba): en el runner de CI (2 nucleos compartidos) tardan > 30 s, asi que llevan un plazo propio y holgado.
+  describe("T2 — tope de 20 MB comprobado DENTRO de la transaccion (guarda contra la carrera entre pestañas)", { timeout: 180_000 }, () => {
     const FULL = MAX_VAULT_IMAGE_BYTES; // 600 KB: lo maximo de una imagen
     const bytesOf = (entries: VaultEntry[]) =>
       entries.reduce((sum, e) => sum + (e.signature?.png.byteLength ?? 0) + (e.initials?.png.byteLength ?? 0), 0);
+    /**
+     * Igualdad profunda del baul SIN `toEqual` sobre ~20 MB de bytes (el recorrido de `pretty-format`/`equals` por
+     * `Uint8Array` es el que hacia lentas estas pruebas): mismo orden, mismos campos y bytes con `Buffer.compare`.
+     */
+    const sameVault = (a: VaultEntry[], b: VaultEntry[]): boolean =>
+      a.length === b.length &&
+      a.every((x, i) => {
+        const y = b[i];
+        const same = (p?: { png: Uint8Array } | null, q?: { png: Uint8Array } | null) =>
+          (!p && !q) || (!!p && !!q && Buffer.compare(Buffer.from(p.png), Buffer.from(q.png)) === 0);
+        return (
+          x.id === y.id &&
+          x.signerName === y.signerName &&
+          x.signerKey === y.signerKey &&
+          same(x.signature, y.signature) &&
+          same(x.initials, y.initials)
+        );
+      });
     /** 17 firmas con firma e iniciales de 600 KB: 20.889.600 bytes, quedan 81.920 hasta los 20 MiB. */
     async function fillNearly() {
       const puts = Array.from({ length: 17 }, (_, i) => ({
@@ -103,7 +123,7 @@ describe("commitVaultImport — src/app/sign-pdf/signVault.ts", () => {
       const small = vaultEntry("vault-ok", "Cabe", { sig: 1, ini: null });
       const tooBig = { ...vaultEntry("vault-big", "No cabe", { sig: 2, ini: null }), signature: makeImage({ seed: 2, totalBytes: room + 1 }) };
       expect(await commitVaultImport({ puts: [small, tooBig], deleteIds: [] })).toEqual({ ok: false, reason: "limit" });
-      expect(await list()).toEqual(all);
+      expect(sameVault(await list(), all)).toBe(true);
     });
 
     it("el borde es exacto: justo 20 MiB entra; un byte mas no", async () => {
@@ -115,7 +135,7 @@ describe("commitVaultImport — src/app/sign-pdf/signVault.ts", () => {
       // lleno hasta el byte: cualquier otra, por pequeña que sea, ya no cabe
       const before = await list();
       expect(await commitVaultImport({ puts: [vaultEntry("vault-uno-mas", "Una mas", { sig: 4, ini: null })], deleteIds: [] })).toEqual({ ok: false, reason: "limit" });
-      expect(await list()).toEqual(before);
+      expect(sameVault(await list(), before)).toBe(true);
     });
 
     it("contra el baul de AHORA, no contra el de la vista previa: otra pestaña lo llena entre medias", async () => {
@@ -125,7 +145,7 @@ describe("commitVaultImport — src/app/sign-pdf/signVault.ts", () => {
       const all = await fillNearly(); // otra pestaña
       const big = { ...wanted, signature: makeImage({ seed: 5, totalBytes: 100_000 }) };
       expect(await commitVaultImport({ puts: [big], deleteIds: [] })).toEqual({ ok: false, reason: "limit" });
-      expect(await list()).toEqual(all);
+      expect(sameVault(await list(), all)).toBe(true);
     });
 
     it("sustituir libera sitio: con el baul al limite, reemplazar una de 1,2 MB por otra igual cabe; por otra que ademas pase de lo libre, no", async () => {
