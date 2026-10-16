@@ -30,6 +30,17 @@ export type VaultImage = {
   height: number;
 };
 
+/**
+ * Como se creo una firma (informativo, OPCIONAL: las anteriores a este campo no lo traen). `uploaded` = imagen subida
+ * por el usuario; `extracted` = sacada de un PDF (Extractor). Misma lista que el modulo «Firmas» del respaldo.
+ */
+export const VAULT_ORIGINS = ["drawn", "typed", "uploaded", "extracted"] as const;
+export type VaultOrigin = (typeof VAULT_ORIGINS)[number];
+
+export function isVaultOrigin(value: unknown): value is VaultOrigin {
+  return typeof value === "string" && (VAULT_ORIGINS as readonly string[]).includes(value);
+}
+
 export type VaultEntry = {
   id: string;
   schema: 1;
@@ -37,6 +48,8 @@ export type VaultEntry = {
   /** `normalizeSignerKey(signerName)`: agrupa y deduplica sin acentos ni mayusculas. */
   signerKey: string;
   role?: string;
+  /** Opcional: ausente en las firmas guardadas antes de existir el campo. */
+  origin?: VaultOrigin;
   /** Nombre del documento donde se uso/creo por ultima vez. Informativo. */
   sourceDocument: string;
   /** ISO 8601. */
@@ -51,6 +64,8 @@ export type VaultEntry = {
 export type VaultEntryInput = {
   signerName: string;
   role?: string;
+  /** Como se creo; se guarda tal cual si es de la lista (si no, el guardado se rechaza como `invalid`). */
+  origin?: VaultOrigin;
   sourceDocument: string;
   signature: VaultImage | null;
   initials: VaultImage | null;
@@ -395,8 +410,8 @@ function isQuotaError(error: unknown): boolean {
   );
 }
 
-/** Registro leido de IndexedDB con la forma minima esperada (descarta basura). */
-function isStoredEntry(value: unknown): value is VaultEntry {
+/** Registro leido de IndexedDB con la forma minima esperada (descarta basura). Exportada para el respaldo (`lib/backup`). */
+export function isStoredEntry(value: unknown): value is VaultEntry {
   if (typeof value !== "object" || value === null) return false;
   const entry = value as Record<string, unknown>;
   return (
@@ -408,6 +423,7 @@ function isStoredEntry(value: unknown): value is VaultEntry {
     typeof entry.createdAt === "string" &&
     typeof entry.lastUsedAt === "string" &&
     (entry.role === undefined || typeof entry.role === "string") &&
+    (entry.origin === undefined || isVaultOrigin(entry.origin)) &&
     (entry.signature === null || isValidVaultImage(entry.signature)) &&
     (entry.initials === null || isValidVaultImage(entry.initials))
   );
@@ -518,6 +534,7 @@ export async function saveVaultEntry(
       (typeof input?.signerName === "string" &&
         input.signerName.trim().length > MAX_VAULT_TEXT_LENGTH) ||
       (signature === null && initials === null) ||
+      (input.origin !== undefined && !isVaultOrigin(input.origin)) ||
       (signature !== null && !isValidVaultImage(signature)) ||
       (initials !== null && !isValidVaultImage(initials))
     ) {
@@ -532,6 +549,7 @@ export async function saveVaultEntry(
 
     const signerKey = normalizeSignerKey(signerName);
     const role = cleanText(input.role) || undefined;
+    const origin = input.origin;
     const sourceDocument = cleanText(input.sourceDocument);
     const now = new Date().toISOString();
     const candidate: VaultEntry = {
@@ -540,6 +558,7 @@ export async function saveVaultEntry(
       signerName,
       signerKey,
       ...(role ? { role } : {}),
+      ...(origin ? { origin } : {}),
       sourceDocument,
       createdAt: now,
       lastUsedAt: now,
@@ -588,11 +607,14 @@ export async function saveVaultEntry(
                 setResult({ ok: false, reason: "limit" });
                 return;
               }
+              const mergedOrigin = origin ?? first.origin;
               const merged: VaultEntry = {
                 ...candidate,
                 id: first.id,
                 createdAt: first.createdAt,
                 ...(role || first.role ? { role: role ?? first.role } : {}),
+                // Lo nuevo manda; si no trae `origin`, se conserva el de la entrada que amplia.
+                ...(mergedOrigin ? { origin: mergedOrigin } : {}),
                 sourceDocument: sourceDocument || first.sourceDocument,
               };
               for (const entry of rest) store.delete(entry.id);
@@ -742,5 +764,129 @@ export async function clearVault(): Promise<VaultOpResult> {
     return { ok: true };
   } catch {
     return { ok: false, reason: "unavailable" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Importacion en bloque (respaldo)
+// ---------------------------------------------------------------------------
+
+export type CommitVaultImportInput = {
+  /** Entradas completas a escribir (ya validadas por quien llama; aqui se revalidan). */
+  puts: VaultEntry[];
+  /** Entradas existentes que se sustituyen (se borran en la MISMA transaccion). */
+  deleteIds: string[];
+};
+
+export type CommitVaultImportResult =
+  | { ok: true; written: number; skipped: number; deleted: number }
+  | { ok: false; reason: "limit" | "tooLarge" | "invalid" | "unavailable" };
+
+/**
+ * Escribe de golpe las entradas de una importacion de respaldo: TODO O NADA.
+ * Una sola transaccion lee el baul, comprueba los limites (30 firmas, 20 MB)
+ * sobre el resultado final y solo entonces borra/escribe; si algo falla (limite,
+ * cuota, base cerrada) la transaccion se aborta o no llega a escribir y el
+ * baul queda exactamente como estaba. Una entrada que otra del MISMO firmante
+ * ya cubre (mismas imagenes) se omite en vez de duplicarse (`skipped`); un id
+ * ya ocupado se reemplaza por uno nuevo. No cambia el esquema ni las demas
+ * operaciones del baul.
+ */
+export async function commitVaultImport(
+  input: CommitVaultImportInput,
+): Promise<CommitVaultImportResult> {
+  try {
+    const puts = input?.puts;
+    const deleteIds = input?.deleteIds ?? [];
+    if (
+      !Array.isArray(puts) ||
+      !Array.isArray(deleteIds) ||
+      deleteIds.some((id) => typeof id !== "string")
+    ) {
+      return { ok: false, reason: "invalid" };
+    }
+    const putIds = new Set<string>();
+    for (const entry of puts) {
+      if (
+        !isStoredEntry(entry) ||
+        entry.signerKey !== normalizeSignerKey(entry.signerName) ||
+        entry.signerName.length > MAX_VAULT_TEXT_LENGTH ||
+        (entry.signature === null && entry.initials === null) ||
+        putIds.has(entry.id)
+      ) {
+        return { ok: false, reason: "invalid" };
+      }
+      putIds.add(entry.id);
+      if (
+        (entry.signature && entry.signature.png.byteLength > MAX_VAULT_IMAGE_BYTES) ||
+        (entry.initials && entry.initials.png.byteLength > MAX_VAULT_IMAGE_BYTES)
+      ) {
+        return { ok: false, reason: "tooLarge" };
+      }
+    }
+
+    const result = await withDb(
+      (db) =>
+        new Promise<CommitVaultImportResult>((resolve, reject) => {
+          const tx = db.transaction(STORE, "readwrite");
+          let outcome: CommitVaultImportResult = { ok: false, reason: "unavailable" };
+          let failure: unknown;
+          tx.oncomplete = () => resolve(outcome);
+          // Si NOSOTROS abortamos por un error de escritura (p. ej. cuota), ese
+          // es el motivo: los `error` de las peticiones abortadas llegan antes
+          // que el `abort` y no lo saben.
+          tx.onerror = () => reject(failure ?? tx.error);
+          tx.onabort = () => reject(failure ?? tx.error ?? new Error("transaccion abortada"));
+          const store = tx.objectStore(STORE);
+          readAll(store, (all) => {
+            try {
+              const doomed = new Set(deleteIds);
+              const pool = all.filter((entry) => !doomed.has(entry.id));
+              const toWrite: VaultEntry[] = [];
+              let skipped = 0;
+              for (const put of puts) {
+                const covered = pool.some(
+                  (entry) => entry.signerKey === put.signerKey && covers(entry, put),
+                );
+                if (covered) {
+                  skipped += 1;
+                  continue;
+                }
+                const next = pool.some((entry) => entry.id === put.id)
+                  ? { ...put, id: newId() }
+                  : put;
+                toWrite.push(next);
+                pool.push(next);
+              }
+              const totalBytes = pool.reduce((sum, entry) => sum + entryBytes(entry), 0);
+              if (pool.length > MAX_VAULT_ENTRIES || totalBytes > MAX_VAULT_TOTAL_BYTES) {
+                // Nada escrito todavia: la transaccion termina sin cambios.
+                outcome = { ok: false, reason: "limit" };
+                return;
+              }
+              let deleted = 0;
+              for (const entry of all) {
+                if (doomed.has(entry.id)) {
+                  store.delete(entry.id);
+                  deleted += 1;
+                }
+              }
+              for (const entry of toWrite) store.put(entry);
+              outcome = { ok: true, written: toWrite.length, skipped, deleted };
+            } catch (error) {
+              failure = error;
+              try {
+                tx.abort();
+              } catch {
+                // ya terminada
+              }
+            }
+          });
+        }),
+    );
+    if (result.ok) announceChange();
+    return result;
+  } catch (error) {
+    return { ok: false, reason: isQuotaError(error) ? "limit" : "unavailable" };
   }
 }

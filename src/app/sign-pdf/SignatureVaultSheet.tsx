@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { FileUp, Pencil, SaveCheck, Trash2 } from "lucide-react";
+import { Archive, FileUp, ImageUp, Pencil, SaveCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { Sheet } from "@/components/ui/Sheet";
 import { Spinner } from "@/components/ui/Spinner";
+import { SignatureExportSheet, SignatureRestoreSheet } from "@/app/sign-pdf/SignatureBackupSheet";
+import { SignatureImportSheet } from "@/app/sign-pdf/SignatureImportSheet";
 import { cn } from "@/lib/cn";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { downloadBlob } from "@/lib/pdf/core";
@@ -118,6 +120,10 @@ export function SignatureVaultSheet({
   const [importBusy, setImportBusy] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  /** Hojas hijas de F6/U4.4: subir una imagen, exportar todas las firmas e importar un paquete. */
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [backupExportOpen, setBackupExportOpen] = useState(false);
+  const [backupImportOpen, setBackupImportOpen] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -238,6 +244,56 @@ export function SignatureVaultSheet({
           <Button variant="secondary" size="md" fullWidth onClick={onCreateNew}>
             {strings.vaultCreateNew}
           </Button>
+        ) : null}
+
+        {showToolbar ? (
+          <div className="space-y-2">
+            <Button
+              variant="secondary"
+              size="md"
+              fullWidth
+              wrap
+              disabled={status !== "ready"}
+              onClick={() => {
+                setNotice(null);
+                setUploadOpen(true);
+              }}
+            >
+              <ImageUp aria-hidden="true" className="size-4" />
+              {strings.inkImport.entryButton}
+            </Button>
+            <p className="text-footnote leading-relaxed text-muted-foreground">
+              {strings.vaultBackup.sectionHint}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button
+                variant="secondary"
+                size="md"
+                wrap
+                disabled={status !== "ready" || entries.length === 0}
+                onClick={() => {
+                  setNotice(null);
+                  setBackupExportOpen(true);
+                }}
+              >
+                <Archive aria-hidden="true" className="size-4" />
+                {strings.vaultBackup.exportButton}
+              </Button>
+              <Button
+                variant="secondary"
+                size="md"
+                wrap
+                disabled={status !== "ready"}
+                onClick={() => {
+                  setNotice(null);
+                  setBackupImportOpen(true);
+                }}
+              >
+                <FileUp aria-hidden="true" className="size-4" />
+                {strings.vaultBackup.importButton}
+              </Button>
+            </div>
+          </div>
         ) : null}
 
         {showToolbar ? (
@@ -367,6 +423,29 @@ export function SignatureVaultSheet({
         confirmLabel={strings.vaultDeleteAll}
         cancelLabel={strings.confirmCancel}
         closeLabel={strings.confirmClose}
+      />
+
+      <SignatureImportSheet
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        strings={strings}
+        target={{ kind: "vault" }}
+        preferSignerName={preferSignerName}
+        onSaved={(message) => showNotice(message)}
+      />
+      <SignatureExportSheet
+        open={backupExportOpen}
+        onClose={() => setBackupExportOpen(false)}
+        strings={strings}
+        count={entries.length}
+        onDone={(message) => showNotice(message)}
+      />
+      <SignatureRestoreSheet
+        open={backupImportOpen}
+        onClose={() => setBackupImportOpen(false)}
+        strings={strings}
+        onLegacyFile={(file) => void handleImportFile(file)}
+        onDone={(message) => showNotice(message)}
       />
 
       <Sheet

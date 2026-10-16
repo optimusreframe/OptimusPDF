@@ -17,6 +17,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/cn";
 import { colorName } from "@/lib/colorNames";
 import { useI18n, useT } from "@/lib/i18n";
+import { SignatureImportSheet } from "@/app/sign-pdf/SignatureImportSheet";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 
 /**
@@ -526,8 +527,9 @@ export function SignatureComposer({
   const [stroke, setStroke] = useState(4);
   const [typed, setTyped] = useState("");
   const [fontIndex, setFontIndex] = useState(0);
-  const [uploaded, setUploaded] = useState<HTMLCanvasElement | null>(null);
-  const [uploadName, setUploadName] = useState<string | null>(null);
+  /** «Subir»: el PNG de tinta ya limpio que devolvio la hoja de subida (`SignatureImportSheet`, U6.2). */
+  const [uploaded, setUploaded] = useState<SignatureDraft | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [warning, setWarning] = useState(false);
   /* N1: la fuente de «Escribir» aun no esta lista al guardar / no cargo a tiempo. */
   const [fontBusy, setFontBusy] = useState(false);
@@ -578,7 +580,6 @@ export function SignatureComposer({
     width: DRAW_SIZES[variant].portrait.width * CANVAS_DENSITY,
     height: DRAW_SIZES[variant].portrait.height * CANVAS_DENSITY,
   });
-  const uploadInputRef = useRef<HTMLInputElement>(null);
   /** Contenedor que se mide en pantalla completa para llenar el lienzo. */
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   /** Ultima medida del contenedor, a la espera de que no haya trazo en curso. */
@@ -843,35 +844,6 @@ export function SignatureComposer({
     applyPendingSizeRef.current();
   };
 
-  const readUpload = async (file: File): Promise<void> => {
-    const url = URL.createObjectURL(file);
-    try {
-      const image = new window.Image();
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error("image"));
-        image.src = url;
-      });
-      const maxWidth = 1600;
-      const scale = Math.min(1, maxWidth / (image.naturalWidth || 1));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      const context = canvas.getContext("2d");
-      if (!context) return;
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      setUploaded(trimTransparent(canvas));
-      setUploadName(file.name);
-      setWarning(false);
-    } catch {
-      setUploaded(null);
-      setUploadName(null);
-      setWarning(true);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  };
-
   // Precarga: la fuente solo se descarga cuando algo la usa, asi que se pide al
   // abrir el compositor y al cambiar de estilo; al guardar casi nunca se espera.
   useEffect(() => {
@@ -904,7 +876,11 @@ export function SignatureComposer({
 
   /** Cierra el flujo de guardado con el lienzo ya construido. */
   const finishSave = (canvas: HTMLCanvasElement | null) => {
-    const draft = canvas ? toDraft(canvas) : null;
+    finishDraft(canvas ? toDraft(canvas) : null);
+  };
+
+  /** Igual, con el borrador ya hecho (la imagen subida llega como PNG limpio, no como canvas). */
+  const finishDraft = (draft: SignatureDraft | null) => {
     if (!draft) {
       setWarning(true);
       return;
@@ -940,7 +916,7 @@ export function SignatureComposer({
       return;
     }
     if (mode !== "type") {
-      finishSave(uploaded);
+      finishDraft(uploaded);
       return;
     }
     // N1: el canvas exportado debe usar la MISMA fuente que la vista previa.
@@ -1153,33 +1129,47 @@ export function SignatureComposer({
 
         {mode === "upload" ? (
           <div className="space-y-3">
-            <input
-              ref={uploadInputRef}
-              type="file"
-              accept="image/png,image/jpeg,.png,.jpg,.jpeg"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void readUpload(file);
-                event.target.value = "";
-              }}
-            />
             <Button
               variant="secondary"
               size="md"
               fullWidth
-              onClick={() => uploadInputRef.current?.click()}
+              wrap
+              onClick={() => setImportOpen(true)}
             >
               <ImageUp aria-hidden="true" className="size-4" />
-              {strings.uploadPick}
+              {uploaded ? strings.inkImport.changeImage : strings.uploadPick}
             </Button>
-            {uploadName ? (
-              <p className="truncate text-sm text-foreground">{uploadName}</p>
+            {uploaded ? (
+              <div
+                className="flex min-h-20 items-center justify-center rounded-ios-sm border border-white/10 bg-white p-2"
+                data-composer-upload-preview
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={uploaded.dataUrl}
+                  alt={strings.inkImport.slotAlt(initials ? "initials" : "signature")}
+                  className="max-h-24 w-auto max-w-full object-contain"
+                />
+              </div>
             ) : (
               <p className="text-xs leading-relaxed text-muted-foreground">
                 {strings.uploadHint}
               </p>
             )}
+            <SignatureImportSheet
+              open={importOpen}
+              onClose={() => setImportOpen(false)}
+              strings={strings}
+              target={{
+                kind: "draft",
+                variant,
+                onUse: (draft) => {
+                  setUploaded(draft);
+                  setWarning(false);
+                },
+              }}
+              preferSignerName={signerName}
+            />
           </div>
         ) : null}
 

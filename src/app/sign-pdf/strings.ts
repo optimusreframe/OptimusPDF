@@ -587,6 +587,10 @@ export type SignStrings = {
   draftPrivacy: DraftPrivacyStrings;
   /** Opcion «E-sign» deshabilitada (F0 · U0.7): ver `ESignStrings`. */
   esign: ESignStrings;
+  /** Subir una firma o iniciales como imagen (F6 · U6.2): ver `InkImportStrings`. */
+  inkImport: InkImportStrings;
+  /** Exportar todas las firmas / importar firmas (U4.4-UI): ver `VaultBackupStrings`. */
+  vaultBackup: VaultBackupStrings;
 };
 
 /**
@@ -633,6 +637,192 @@ export type DraftPrivacyStrings = {
   clearStrokesDone: string;
   clearStrokesNone: string;
   clearStrokesFailed: string;
+};
+
+/**
+ * Subir una firma o iniciales como imagen (Fase 6 «Firma agil», U6.2): la hoja «Subir firma o iniciales» de «Firmas
+ * guardadas» y el modo «Subir» del compositor. Un solo bloque para que ES y EN se mantengan a la par.
+ */
+export type InkImportErrors = {
+  empty: string;
+  tooLargeFile: string;
+  unsupported: string;
+  decode: string;
+  heic: string;
+  tooManyPixels: string;
+  invalid: string;
+  noInk: string;
+  tooDark: string;
+  encode: string;
+  generic: string;
+};
+
+export type InkImportStrings = {
+  /** Boton en «Firmas guardadas». */
+  entryButton: string;
+  title: string;
+  /** Titulo cuando se abre desde el modo «Subir» del compositor. */
+  composeTitle: string;
+  /** Ayuda: como sacar una buena foto. */
+  tip: string;
+  /** Privacidad: lo que se guarda y lo que no. */
+  privacy: string;
+  pickFile: string;
+  takePhoto: string;
+  dropHint: string;
+  dropActive: string;
+  formats: string;
+  reading: string;
+  /* --- Paso de ajustes --- */
+  adjustTitle: string;
+  originalAlt: string;
+  cropTitle: string;
+  cropAutoHint: string;
+  cropManual: string;
+  cropReset: string;
+  cropHelp: string;
+  cropAreaLabel: string;
+  cropHandle: (corner: "nw" | "ne" | "sw" | "se") => string;
+  cropDone: string;
+  cleanLabel: string;
+  cleanAuto: string;
+  cleanAutoActive: string;
+  evenLighting: string;
+  evenLightingHint: string;
+  removeSpecks: string;
+  removeSpecksHint: string;
+  inkLabel: string;
+  inkOriginal: string;
+  inkBlack: string;
+  inkBlue: string;
+  previewTitle: string;
+  previewChecker: string;
+  previewLine: string;
+  previewWorking: string;
+  previewAlt: string;
+  /** Anuncio (region viva) cuando la vista previa termina. */
+  previewReady: string;
+  kindLabel: string;
+  kindSignature: string;
+  kindInitials: string;
+  /* --- Resumen y guardado --- */
+  summaryTitle: string;
+  slotSignature: string;
+  slotInitials: string;
+  slotEmpty: string;
+  slotAlt: (kind: "signature" | "initials") => string;
+  addInitials: string;
+  addSignature: string;
+  changeImage: string;
+  removeImage: string;
+  useAs: (kind: "signature" | "initials") => string;
+  useDraft: string;
+  chooseAnother: string;
+  nameLabel: string;
+  nameNeeded: string;
+  roleLabel: string;
+  save: string;
+  saving: string;
+  vaultFull: string;
+  saved: (name: string, kinds: "signature" | "initials" | "both") => string;
+  savedDuplicate: (name: string) => string;
+  saveLimit: string;
+  saveTooLarge: string;
+  saveUnavailable: string;
+  saveInvalid: string;
+  errors: InkImportErrors;
+};
+
+/**
+ * Exportar todas las firmas / importar firmas (Fase 4 «Firma agil», U4.4-UI): las dos hojas de respaldo de «Firmas
+ * guardadas». Un solo bloque para que ES y EN se mantengan a la par.
+ */
+export type VaultBackupStrings = {
+  sectionHint: string;
+  exportButton: string;
+  importButton: string;
+  exportTitle: string;
+  exportBody: (count: number) => string;
+  protect: string;
+  protectHint: string;
+  password: string;
+  confirmPassword: string;
+  strengthLabel: string;
+  strengthNone: string;
+  strength: [string, string, string, string];
+  passwordTooShort: string;
+  passwordMismatch: string;
+  plainWarning: string;
+  encryptionUnavailable: string;
+  exportConfirm: string;
+  exportWorking: string;
+  readyTitle: (filename: string) => string;
+  shareButton: string;
+  downloadButton: string;
+  shareCancelled: string;
+  done: (count: number, encrypted: boolean) => string;
+  doneFile: (filename: string) => string;
+  doneClose: string;
+  exportEmpty: string;
+  exportUnavailable: string;
+  exportTooLarge: string;
+  exportFailed: string;
+  /* --- Importar --- */
+  importTitle: string;
+  importIntro: string;
+  pickZip: string;
+  dropZip: string;
+  dropZipActive: string;
+  reading: string;
+  passwordTitle: string;
+  passwordBody: string;
+  passwordLabel: string;
+  passwordOpen: string;
+  wrongPassword: string;
+  readErrors: {
+    badFile: string;
+    tooLarge: string;
+    unsafe: string;
+    damaged: string;
+    newer: string;
+    needsPassword: string;
+    wrongPassword: string;
+    unavailable: string;
+    noSignatures: string;
+    generic: string;
+  };
+  previewTitle: string;
+  previewIntro: (count: number, encrypted: boolean) => string;
+  statusNew: string;
+  statusIdentical: string;
+  statusDifferent: string;
+  statusInvalid: string;
+  invalidReasons: {
+    integrity: string;
+    tooLarge: string;
+    invalidImage: string;
+    invalidEntry: string;
+    duplicateId: string;
+  };
+  contents: (hasSignature: boolean, hasInitials: boolean) => string;
+  differentHint: (name: string) => string;
+  replaceLoses: string;
+  decisionGroup: (name: string) => string;
+  decisionImport: string;
+  decisionReplace: string;
+  decisionKeepBoth: string;
+  decisionOmit: string;
+  limitOk: (after: number, max: number) => string;
+  limitExceeded: (fits: number, wanted: number, max: number) => string;
+  importConfirm: (count: number) => string;
+  importNothing: string;
+  importing: string;
+  result: (imported: number, skipped: number, replaced: number) => string;
+  applyFailed: {
+    limit: string;
+    unavailable: string;
+    invalid: string;
+  };
 };
 
 /** La opcion «E-sign» (firma por email), solo visual y deshabilitada (Fase 0 «Firma agil», U0.7). */
@@ -830,7 +1020,7 @@ const es: SignStrings = {
   styleNames: ["Manuscrita", "Caligráfica", "Clásica", "Sobria"],
   uploadPick: "Elegir imagen de la firma",
   uploadHint:
-    "Un PNG con fondo transparente da el mejor resultado. También se admite JPG.",
+    "Sube una imagen o haz una foto de la firma sobre papel blanco, con buena luz: se recorta y se limpia el fondo sola.",
   inkLabel: "Color de la tinta",
   strokeLabel: "Grosor del trazo",
   rotateHint: "Gira el teléfono para firmar con más espacio.",
@@ -1480,6 +1670,197 @@ const es: SignStrings = {
     label: "E-sign · Pedir firma por email",
     soon: "Próximamente",
     unavailable: "Disponible próximamente",
+  },  inkImport: {
+    entryButton: "Subir firma o iniciales",
+    title: "Subir firma o iniciales",
+    composeTitle: "Subir una imagen",
+    tip: "Toma una foto de la firma sobre papel blanco, con buena luz.",
+    privacy:
+      "La imagen original no se guarda ni sale de tu dispositivo: solo se guarda la firma ya limpia, con el fondo transparente.",
+    pickFile: "Elegir imagen",
+    takePhoto: "Tomar una foto",
+    dropHint: "También puedes arrastrar una imagen hasta aquí o pegarla desde el portapapeles.",
+    dropActive: "Suelta la imagen aquí",
+    formats: "PNG, JPG, WEBP o SVG, de hasta 10 MB.",
+    reading: "Leyendo la imagen",
+    adjustTitle: "Ajusta la imagen",
+    originalAlt: "Imagen original con la zona de recorte",
+    cropTitle: "Recorte",
+    cropAutoHint: "Por defecto se recorta sola, justo alrededor de la tinta.",
+    cropManual: "Recortar a mano",
+    cropReset: "Volver al recorte automático",
+    cropHelp:
+      "Arrastra las esquinas para encuadrar solo la firma. Con el teclado, usa las flechas (con Mayús, saltos más grandes).",
+    cropAreaLabel: "Zona de recorte sobre la imagen original",
+    cropHandle: (corner) =>
+      ({
+        nw: "Esquina superior izquierda del recorte",
+        ne: "Esquina superior derecha del recorte",
+        sw: "Esquina inferior izquierda del recorte",
+        se: "Esquina inferior derecha del recorte",
+      })[corner],
+    cropDone: "Listo",
+    cleanLabel: "Limpiar fondo",
+    cleanAuto: "Automático",
+    cleanAutoActive: "automático",
+    evenLighting: "Igualar iluminación (fotos)",
+    evenLightingHint: "Corrige sombras y luz desigual de una foto.",
+    removeSpecks: "Quitar motas",
+    removeSpecksHint: "Borra puntitos sueltos. Apágalo si tu firma lleva puntos.",
+    inkLabel: "Color de la tinta",
+    inkOriginal: "Original",
+    inkBlack: "Negro",
+    inkBlue: "Azul",
+    previewTitle: "Así quedará",
+    previewChecker: "Sobre fondo transparente",
+    previewLine: "Sobre una línea de firma",
+    previewWorking: "Limpiando la imagen",
+    previewAlt: "Firma limpia, con el fondo transparente",
+    previewReady: "Vista previa actualizada.",
+    kindLabel: "¿Qué es esta imagen?",
+    kindSignature: "Firma",
+    kindInitials: "Iniciales",
+    summaryTitle: "Lo que se guardará",
+    slotSignature: "Firma",
+    slotInitials: "Iniciales",
+    slotEmpty: "Sin imagen",
+    slotAlt: (kind) => (kind === "signature" ? "Firma lista para guardar" : "Iniciales listas para guardar"),
+    addInitials: "Añadir las iniciales (otra imagen)",
+    addSignature: "Añadir la firma (otra imagen)",
+    changeImage: "Cambiar imagen",
+    removeImage: "Quitar",
+    useAs: (kind) => (kind === "signature" ? "Usar como firma" : "Usar como iniciales"),
+    useDraft: "Usar esta imagen",
+    chooseAnother: "Elegir otra imagen",
+    nameLabel: "Nombre del firmante",
+    nameNeeded: "Escribe el nombre del firmante para guardarla.",
+    roleLabel: "Cargo (opcional)",
+    save: "Guardar en Firmas guardadas",
+    saving: "Guardando",
+    vaultFull:
+      "Ya tienes 30 firmas guardadas, el máximo. Solo podrás guardar una del mismo firmante; borra alguna para añadir otra.",
+    saved: (name, kinds) =>
+      kinds === "both"
+        ? `Guardadas la firma y las iniciales de ${name}.`
+        : kinds === "initials"
+          ? `Guardadas las iniciales de ${name}.`
+          : `Guardada la firma de ${name}.`,
+    savedDuplicate: (name) => `Esa imagen de ${name} ya estaba guardada.`,
+    saveLimit:
+      "No cabe una firma más en Firmas guardadas (máximo 30 firmas y 20 MB). Borra alguna e inténtalo de nuevo.",
+    saveTooLarge: "La imagen limpia sigue siendo demasiado grande para guardarla. Prueba con un recorte más ajustado.",
+    saveUnavailable:
+      "Este navegador no permite guardar firmas ahora mismo (por ejemplo, en una ventana privada). No se ha guardado nada.",
+    saveInvalid: "No se pudo guardar: faltan datos de la firma.",
+    errors: {
+      empty: "El archivo está vacío. Elige otra imagen.",
+      tooLargeFile: "La imagen pesa más de 10 MB. Elige una más pequeña o hazla de nuevo con menos resolución.",
+      unsupported: "Ese formato no se puede usar. Elige una imagen PNG, JPG, WEBP o SVG.",
+      decode: "No se pudo leer la imagen. Puede estar dañada: prueba con otra o con otra foto.",
+      heic: "Este navegador no puede abrir fotos en formato HEIC. Pide la foto en JPG o PNG (en el iPhone: Ajustes > Cámara > Formatos > Más compatible).",
+      tooManyPixels: "La imagen tiene demasiados píxeles. Elige una con menos resolución.",
+      invalid: "La imagen no es válida. Elige otra.",
+      noInk:
+        "No se encontró tinta. Comprueba que la firma se vea bien, sobre papel claro y con buena luz, o mueve «Limpiar fondo».",
+      tooDark: "La imagen es demasiado oscura: hace falta tinta oscura sobre un fondo claro. Toma la foto con más luz.",
+      encode: "No se pudo preparar la imagen limpia. Prueba con un recorte más pequeño.",
+      generic: "No se pudo procesar la imagen. Inténtalo con otra.",
+    },
+  },
+  vaultBackup: {
+    sectionHint: "Respaldo: guarda todas tus firmas en un archivo para llevarlas a otro dispositivo o recuperarlas si pierdes datos.",
+    exportButton: "Exportar todas mis firmas",
+    importButton: "Importar firmas",
+    exportTitle: "Exportar todas mis firmas",
+    exportBody: (count) =>
+      `Se creará un archivo .zip con ${count === 1 ? "tu firma guardada" : `tus ${count} firmas guardadas`}, con sus iniciales y los datos de cada firmante. Sirve de respaldo y para llevarlas a otro dispositivo.`,
+    protect: "Proteger con contraseña",
+    protectHint: "Recomendado: el archivo se cifra y solo se abre con ella. Si la olvidas, no se puede recuperar.",
+    password: "Contraseña",
+    confirmPassword: "Repite la contraseña",
+    strengthLabel: "Seguridad de la contraseña",
+    strengthNone: "Escribe una contraseña",
+    strength: ["Muy corta (mínimo 8 caracteres)", "Floja: añade más letras, números o símbolos", "Buena", "Fuerte"],
+    passwordTooShort: "La contraseña necesita al menos 8 caracteres.",
+    passwordMismatch: "Las dos contraseñas no coinciden.",
+    plainWarning:
+      "Sin contraseña, el archivo llevará tus firmas sin cifrar: cualquiera que lo tenga podrá usarlas. Guárdalo solo en un sitio de confianza.",
+    encryptionUnavailable:
+      "Este navegador no puede cifrar el archivo (hace falta una conexión segura, https). Solo se puede exportar sin contraseña.",
+    exportConfirm: "Exportar",
+    exportWorking: "Preparando el archivo. Con contraseña puede tardar unos segundos.",
+    readyTitle: (filename) => `Archivo listo: ${filename}`,
+    shareButton: "Compartir o guardar en Archivos",
+    downloadButton: "Descargar",
+    shareCancelled: "No se guardó el archivo. Puedes intentarlo de nuevo.",
+    done: (count, encrypted) =>
+      `${count} ${count === 1 ? "firma exportada" : "firmas exportadas"}${encrypted ? " (cifradas con contraseña)" : " (sin cifrar)"}.`,
+    doneFile: (filename) => `Archivo: ${filename}`,
+    doneClose: "Listo",
+    exportEmpty: "Todavía no hay firmas guardadas que exportar.",
+    exportUnavailable: "Este navegador no permite leer las firmas guardadas ahora mismo.",
+    exportTooLarge: "Las firmas ocupan demasiado para un solo archivo.",
+    exportFailed: "No se pudo crear el archivo. Inténtalo de nuevo.",
+    importTitle: "Importar firmas",
+    importIntro:
+      "Elige un archivo de firmas de OptimusPDF (termina en .optimuspdf.zip). Antes de importar verás qué trae y decidirás qué hacer con cada firma.",
+    pickZip: "Elegir archivo .zip",
+    dropZip: "O suelta aquí el archivo.",
+    dropZipActive: "Suelta el archivo aquí",
+    reading: "Leyendo el archivo",
+    passwordTitle: "Archivo con contraseña",
+    passwordBody: "Este archivo está cifrado. Escribe la contraseña para abrirlo.",
+    passwordLabel: "Contraseña",
+    passwordOpen: "Abrir archivo",
+    wrongPassword: "La contraseña no es correcta, o el archivo está dañado.",
+    readErrors: {
+      badFile: "Este archivo no es un paquete de firmas de OptimusPDF.",
+      tooLarge: "El archivo es demasiado grande para ser un paquete de firmas.",
+      unsafe: "El archivo no es seguro de abrir y se ha descartado. No se ha importado nada.",
+      damaged: "El archivo está dañado o no se reconoce. No se ha importado nada.",
+      newer: "Creado con una versión más nueva de OptimusPDF; actualiza la página.",
+      needsPassword: "El archivo está cifrado: escribe su contraseña.",
+      wrongPassword: "La contraseña no es correcta, o el archivo está dañado.",
+      unavailable: "Este navegador no puede abrir archivos cifrados (hace falta una conexión segura, https).",
+      noSignatures: "Este paquete no contiene firmas.",
+      generic: "No se pudo abrir el archivo. Inténtalo con otro.",
+    },
+    previewTitle: "Revisa antes de importar",
+    previewIntro: (count, encrypted) =>
+      `El archivo trae ${count} ${count === 1 ? "firma" : "firmas"}${encrypted ? " (estaba cifrado)" : ""}. Elige qué hacer con cada una; no se cambia nada hasta que pulses el botón.`,
+    statusNew: "Nuevo",
+    statusIdentical: "Ya lo tienes (idéntico)",
+    statusDifferent: "Distinto",
+    statusInvalid: "No se puede importar",
+    invalidReasons: {
+      integrity: "El archivo no coincide con su huella: está dañado.",
+      tooLarge: "La imagen es demasiado grande.",
+      invalidImage: "La imagen no es válida.",
+      invalidEntry: "Los datos de esta firma no son válidos.",
+      duplicateId: "Está repetida en el archivo.",
+    },
+    contents: (hasSignature, hasInitials) =>
+      hasSignature && hasInitials ? "Firma e iniciales" : hasSignature ? "Solo firma" : hasInitials ? "Solo iniciales" : "Sin imágenes",
+    differentHint: (name) => `Ya tienes una firma de ${name} con otra imagen.`,
+    replaceLoses: "Si reemplazas, se pierde alguna imagen que tienes ahora (la del archivo no la trae).",
+    decisionGroup: (name) => `Qué hacer con la firma de ${name}`,
+    decisionImport: "Importar",
+    decisionReplace: "Reemplazar",
+    decisionKeepBoth: "Conservar ambos",
+    decisionOmit: "Omitir",
+    limitOk: (after, max) => `Después de importar tendrás ${after} de ${max} firmas.`,
+    limitExceeded: (fits, wanted, max) =>
+      `Solo ${fits === 1 ? "cabe 1" : `caben ${fits}`} de las ${wanted} elegidas en Firmas guardadas (máximo ${max} firmas y 20 MB). Omite algunas o borra otras antes de importar.`,
+    importConfirm: (count) => `Importar ${count} ${count === 1 ? "firma" : "firmas"}`,
+    importNothing: "No hay nada que importar",
+    importing: "Importando las firmas",
+    result: (imported, skipped, replaced) =>
+      `${imported} ${imported === 1 ? "importada" : "importadas"}, ${skipped} ${skipped === 1 ? "omitida" : "omitidas"}${replaced > 0 ? ` (${replaced} ${replaced === 1 ? "reemplazada" : "reemplazadas"})` : ""}.`,
+    applyFailed: {
+      limit: "No cabe todo en Firmas guardadas. No se ha importado nada.",
+      unavailable: "Este navegador no permite guardar firmas ahora mismo. No se ha importado nada.",
+      invalid: "Alguna firma del archivo no es válida. No se ha importado nada.",
+    },
   },
 };
 
@@ -1500,7 +1881,7 @@ const en: SignStrings = {
   styleNames: ["Handwritten", "Calligraphic", "Classic", "Plain"],
   uploadPick: "Choose signature image",
   uploadHint:
-    "A PNG with a transparent background gives the best result. JPG also works.",
+    "Upload an image or take a photo of the signature on white paper, in good light: it is cropped and the background is cleaned automatically.",
   inkLabel: "Ink colour",
   strokeLabel: "Stroke weight",
   rotateHint: "Turn your phone sideways to sign with more room.",
@@ -2138,6 +2519,197 @@ const en: SignStrings = {
     label: "E-sign · Request signature by email",
     soon: "Soon",
     unavailable: "Coming soon",
+  },  inkImport: {
+    entryButton: "Upload a signature or initials",
+    title: "Upload a signature or initials",
+    composeTitle: "Upload an image",
+    tip: "Take a photo of the signature on white paper, in good light.",
+    privacy:
+      "The original image is not saved and never leaves your device: only the cleaned-up signature, with a transparent background, is kept.",
+    pickFile: "Choose image",
+    takePhoto: "Take a photo",
+    dropHint: "You can also drag an image here or paste one from the clipboard.",
+    dropActive: "Drop the image here",
+    formats: "PNG, JPG, WEBP or SVG, up to 10 MB.",
+    reading: "Reading the image",
+    adjustTitle: "Adjust the image",
+    originalAlt: "Original image with the crop area",
+    cropTitle: "Crop",
+    cropAutoHint: "By default it crops itself, right around the ink.",
+    cropManual: "Crop by hand",
+    cropReset: "Back to automatic crop",
+    cropHelp:
+      "Drag the corners to frame just the signature. With the keyboard, use the arrow keys (hold Shift for bigger steps).",
+    cropAreaLabel: "Crop area over the original image",
+    cropHandle: (corner) =>
+      ({
+        nw: "Top-left corner of the crop",
+        ne: "Top-right corner of the crop",
+        sw: "Bottom-left corner of the crop",
+        se: "Bottom-right corner of the crop",
+      })[corner],
+    cropDone: "Done",
+    cleanLabel: "Clean background",
+    cleanAuto: "Automatic",
+    cleanAutoActive: "automatic",
+    evenLighting: "Even out the lighting (photos)",
+    evenLightingHint: "Fixes shadows and uneven light in a photo.",
+    removeSpecks: "Remove specks",
+    removeSpecksHint: "Erases stray dots. Turn it off if your signature has dots.",
+    inkLabel: "Ink color",
+    inkOriginal: "Original",
+    inkBlack: "Black",
+    inkBlue: "Blue",
+    previewTitle: "How it will look",
+    previewChecker: "On a transparent background",
+    previewLine: "On a signature line",
+    previewWorking: "Cleaning the image",
+    previewAlt: "Cleaned signature with a transparent background",
+    previewReady: "Preview updated.",
+    kindLabel: "What is this image?",
+    kindSignature: "Signature",
+    kindInitials: "Initials",
+    summaryTitle: "What will be saved",
+    slotSignature: "Signature",
+    slotInitials: "Initials",
+    slotEmpty: "No image",
+    slotAlt: (kind) => (kind === "signature" ? "Signature ready to save" : "Initials ready to save"),
+    addInitials: "Add the initials (another image)",
+    addSignature: "Add the signature (another image)",
+    changeImage: "Change image",
+    removeImage: "Remove",
+    useAs: (kind) => (kind === "signature" ? "Use as signature" : "Use as initials"),
+    useDraft: "Use this image",
+    chooseAnother: "Choose another image",
+    nameLabel: "Signer name",
+    nameNeeded: "Enter the signer's name to save it.",
+    roleLabel: "Role (optional)",
+    save: "Save to Saved signatures",
+    saving: "Saving",
+    vaultFull:
+      "You already have 30 saved signatures, the maximum. You can only save one for an existing signer; delete one to add another.",
+    saved: (name, kinds) =>
+      kinds === "both"
+        ? `Saved the signature and initials of ${name}.`
+        : kinds === "initials"
+          ? `Saved the initials of ${name}.`
+          : `Saved the signature of ${name}.`,
+    savedDuplicate: (name) => `That image of ${name} was already saved.`,
+    saveLimit:
+      "There is no room for another signature in Saved signatures (maximum 30 signatures and 20 MB). Delete one and try again.",
+    saveTooLarge: "The cleaned image is still too large to save. Try a tighter crop.",
+    saveUnavailable:
+      "This browser does not allow saving signatures right now (for example, in a private window). Nothing was saved.",
+    saveInvalid: "Could not save: some signature data is missing.",
+    errors: {
+      empty: "The file is empty. Choose another image.",
+      tooLargeFile: "The image is larger than 10 MB. Choose a smaller one or retake it at a lower resolution.",
+      unsupported: "That format cannot be used. Choose a PNG, JPG, WEBP or SVG image.",
+      decode: "The image could not be read. It may be damaged: try another one or take a new photo.",
+      heic: "This browser cannot open HEIC photos. Ask for the photo as JPG or PNG (on iPhone: Settings > Camera > Formats > Most Compatible).",
+      tooManyPixels: "The image has too many pixels. Choose one with a lower resolution.",
+      invalid: "The image is not valid. Choose another one.",
+      noInk:
+        "No ink was found. Check that the signature is clearly visible on light paper in good light, or move “Clean background”.",
+      tooDark: "The image is too dark: dark ink on a light background is needed. Take the photo with more light.",
+      encode: "The cleaned image could not be prepared. Try a smaller crop.",
+      generic: "The image could not be processed. Try another one.",
+    },
+  },
+  vaultBackup: {
+    sectionHint: "Backup: save all your signatures in one file to move them to another device or recover them if you lose data.",
+    exportButton: "Export all my signatures",
+    importButton: "Import signatures",
+    exportTitle: "Export all my signatures",
+    exportBody: (count) =>
+      `A .zip file will be created with ${count === 1 ? "your saved signature" : `your ${count} saved signatures`}, their initials and each signer's details. Use it as a backup or to move them to another device.`,
+    protect: "Protect with a password",
+    protectHint: "Recommended: the file is encrypted and only opens with it. If you forget it, it cannot be recovered.",
+    password: "Password",
+    confirmPassword: "Repeat the password",
+    strengthLabel: "Password strength",
+    strengthNone: "Enter a password",
+    strength: ["Too short (minimum 8 characters)", "Weak: add more letters, numbers or symbols", "Good", "Strong"],
+    passwordTooShort: "The password needs at least 8 characters.",
+    passwordMismatch: "The two passwords do not match.",
+    plainWarning:
+      "Without a password, the file will hold your signatures unencrypted: anyone who has it can use them. Keep it only somewhere you trust.",
+    encryptionUnavailable:
+      "This browser cannot encrypt the file (a secure connection, https, is required). It can only be exported without a password.",
+    exportConfirm: "Export",
+    exportWorking: "Preparing the file. With a password it can take a few seconds.",
+    readyTitle: (filename) => `File ready: ${filename}`,
+    shareButton: "Share or save to Files",
+    downloadButton: "Download",
+    shareCancelled: "The file was not saved. You can try again.",
+    done: (count, encrypted) =>
+      `${count} ${count === 1 ? "signature exported" : "signatures exported"}${encrypted ? " (encrypted with a password)" : " (unencrypted)"}.`,
+    doneFile: (filename) => `File: ${filename}`,
+    doneClose: "Done",
+    exportEmpty: "There are no saved signatures to export yet.",
+    exportUnavailable: "This browser does not allow reading the saved signatures right now.",
+    exportTooLarge: "The signatures are too big for a single file.",
+    exportFailed: "The file could not be created. Please try again.",
+    importTitle: "Import signatures",
+    importIntro:
+      "Choose an OptimusPDF signatures file (it ends in .optimuspdf.zip). Before importing you will see what it holds and decide what to do with each signature.",
+    pickZip: "Choose .zip file",
+    dropZip: "Or drop the file here.",
+    dropZipActive: "Drop the file here",
+    reading: "Reading the file",
+    passwordTitle: "Password-protected file",
+    passwordBody: "This file is encrypted. Enter the password to open it.",
+    passwordLabel: "Password",
+    passwordOpen: "Open file",
+    wrongPassword: "The password is incorrect, or the file is damaged.",
+    readErrors: {
+      badFile: "This file is not an OptimusPDF signatures package.",
+      tooLarge: "The file is too large to be a signatures package.",
+      unsafe: "The file is not safe to open and was discarded. Nothing was imported.",
+      damaged: "The file is damaged or not recognized. Nothing was imported.",
+      newer: "Created with a newer version of OptimusPDF; update the page.",
+      needsPassword: "The file is encrypted: enter its password.",
+      wrongPassword: "The password is incorrect, or the file is damaged.",
+      unavailable: "This browser cannot open encrypted files (a secure connection, https, is required).",
+      noSignatures: "This package does not contain any signatures.",
+      generic: "The file could not be opened. Try another one.",
+    },
+    previewTitle: "Review before importing",
+    previewIntro: (count, encrypted) =>
+      `The file holds ${count} ${count === 1 ? "signature" : "signatures"}${encrypted ? " (it was encrypted)" : ""}. Choose what to do with each one; nothing changes until you press the button.`,
+    statusNew: "New",
+    statusIdentical: "You already have it (identical)",
+    statusDifferent: "Different",
+    statusInvalid: "Cannot be imported",
+    invalidReasons: {
+      integrity: "The file does not match its fingerprint: it is damaged.",
+      tooLarge: "The image is too large.",
+      invalidImage: "The image is not valid.",
+      invalidEntry: "The data of this signature is not valid.",
+      duplicateId: "It is repeated in the file.",
+    },
+    contents: (hasSignature, hasInitials) =>
+      hasSignature && hasInitials ? "Signature and initials" : hasSignature ? "Signature only" : hasInitials ? "Initials only" : "No images",
+    differentHint: (name) => `You already have a signature for ${name} with a different image.`,
+    replaceLoses: "If you replace it, an image you have now is lost (the one in the file does not include it).",
+    decisionGroup: (name) => `What to do with the signature of ${name}`,
+    decisionImport: "Import",
+    decisionReplace: "Replace",
+    decisionKeepBoth: "Keep both",
+    decisionOmit: "Skip",
+    limitOk: (after, max) => `After importing you will have ${after} of ${max} signatures.`,
+    limitExceeded: (fits, wanted, max) =>
+      `Only ${fits} of the ${wanted} chosen ${fits === 1 ? "fits" : "fit"} in Saved signatures (maximum ${max} signatures and 20 MB). Skip some or delete others before importing.`,
+    importConfirm: (count) => `Import ${count} ${count === 1 ? "signature" : "signatures"}`,
+    importNothing: "Nothing to import",
+    importing: "Importing the signatures",
+    result: (imported, skipped, replaced) =>
+      `${imported} imported, ${skipped} skipped${replaced > 0 ? ` (${replaced} replaced)` : ""}.`,
+    applyFailed: {
+      limit: "Not everything fits in Saved signatures. Nothing was imported.",
+      unavailable: "This browser does not allow saving signatures right now. Nothing was imported.",
+      invalid: "Some signature in the file is not valid. Nothing was imported.",
+    },
   },
 };
 

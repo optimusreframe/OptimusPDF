@@ -2,6 +2,12 @@ import type JSZip from "jszip";
 import { loadJSZip } from "@/lib/pdf/lazyZip";
 import { slugify, stripExtension } from "@/lib/pdf/core";
 import {
+  PasswordBoxError,
+  decryptWithPassword,
+  encryptWithPassword,
+  passwordBoxAvailable,
+} from "@/lib/crypto/passwordBox";
+import {
   BIDI_CONTROLS,
   MAX_VAULT_IMAGE_BYTES,
   MAX_VAULT_IMAGE_DIMENSION,
@@ -31,7 +37,10 @@ import {
  *
  * Cifrado: PBKDF2-SHA256 (600 000 iteraciones) -> AES-GCM-256 sobre el zip
  * interior, con el `manifest.json` exterior serializado como dato asociado
- * (AAD): tocar sal, IV o parametros invalida el descifrado.
+ * (AAD): tocar sal, IV o parametros invalida el descifrado. La criptografia
+ * vive en `lib/crypto/passwordBox.ts` (compartida con el respaldo); aqui solo
+ * queda el contenedor: `manifest.json` exterior = cabecera de la caja y
+ * `vault.enc` = su payload. El formato en disco NO ha cambiado.
  */
 
 const MANIFEST_NAME = "manifest.json";
@@ -55,11 +64,6 @@ export const MAX_VAULT_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 16 * 1024;
 /** Entradas maximas del zip (3 en plano, 2 cifrado; 4 de margen). */
 const MAX_ZIP_ENTRIES = 4;
-
-const PBKDF2_ITERATIONS = 600_000;
-const SALT_BYTES = 16;
-const IV_BYTES = 12;
-const GCM_TAG_BYTES = 16;
 
 /** Motivos de fallo de `importVaultFile`. */
 export type ImportVaultReason =
@@ -90,11 +94,7 @@ export type ExportVaultResult =
 
 /** `true` si este navegador expone WebCrypto (`crypto.subtle` falta en http no seguro). */
 export function encryptionAvailable(): boolean {
-  try {
-    return Boolean(globalThis.crypto?.subtle);
-  } catch {
-    return false;
-  }
+  return passwordBoxAvailable();
 }
 
 // ---------------------------------------------------------------------------
@@ -142,100 +142,8 @@ export function vaultFilename(
   return `Firma-${signer}-${document}.zip`;
 }
 
-// ---------------------------------------------------------------------------
-// Utilidades
-// ---------------------------------------------------------------------------
-
-const encoder = new TextEncoder();
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
-/** `null` si no es base64 canonico. */
-function fromBase64(text: string): Uint8Array | null {
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(text) || text.length % 4 !== 0) return null;
-  try {
-    const binary = atob(text);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-    return bytes;
-  } catch {
-    return null;
-  }
-}
-
-function randomBytes(length: number): Uint8Array {
-  return globalThis.crypto.getRandomValues(new Uint8Array(length));
-}
-
-// ---------------------------------------------------------------------------
-// Cifrado
-// ---------------------------------------------------------------------------
-
-async function deriveKey(
-  password: string,
-  salt: Uint8Array,
-  usage: "encrypt" | "decrypt",
-): Promise<CryptoKey> {
-  const subtle = globalThis.crypto.subtle;
-  // NFKC: la misma contraseña escrita con otra composicion Unicode (macOS
-  // vs Windows, teclado movil) tiene que derivar la misma clave.
-  const base = await subtle.importKey(
-    "raw",
-    encoder.encode(password.normalize("NFKC")) as BufferSource,
-    "PBKDF2",
-    false,
-    ["deriveKey"],
-  );
-  return subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: salt as BufferSource,
-      iterations: PBKDF2_ITERATIONS,
-    },
-    base,
-    { name: "AES-GCM", length: 256 },
-    false,
-    [usage],
-  );
-}
-
-type EncryptedParams = { salt: Uint8Array; iv: Uint8Array };
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Type-guard a mano del manifiesto exterior (mismo criterio que
- * `isSignConfigManifest`). Los parametros del KDF son EXACTOS: aceptar
- * `iterations` ajenas permitiria a un archivo hostil clavar el navegador.
- */
-function readEncryptedParams(manifest: Record<string, unknown>): EncryptedParams | null {
-  const kdf = manifest.kdf;
-  if (!isRecord(kdf)) return null;
-  if (
-    kdf.name !== "PBKDF2" ||
-    kdf.hash !== "SHA-256" ||
-    kdf.iterations !== PBKDF2_ITERATIONS ||
-    typeof kdf.salt !== "string" ||
-    typeof manifest.iv !== "string"
-  ) {
-    return null;
-  }
-  const salt = fromBase64(kdf.salt);
-  const iv = fromBase64(manifest.iv);
-  if (!salt || salt.length !== SALT_BYTES || !iv || iv.length !== IV_BYTES) {
-    return null;
-  }
-  return { salt, iv };
 }
 
 // ---------------------------------------------------------------------------
@@ -308,35 +216,13 @@ export async function exportVaultEntry(
     }
 
     const innerBytes = await inner.generateAsync({ type: "uint8array" });
-    const salt = randomBytes(SALT_BYTES);
-    const iv = randomBytes(IV_BYTES);
-    const outerManifest = JSON.stringify({
-      version: FORMAT_VERSION,
+    const box = await encryptWithPassword(innerBytes, opts.password as string, {
       kind: KIND_ENCRYPTED,
-      kdf: {
-        name: "PBKDF2",
-        hash: "SHA-256",
-        iterations: PBKDF2_ITERATIONS,
-        salt: toBase64(salt),
-      },
-      iv: toBase64(iv),
+      version: FORMAT_VERSION,
     });
-    const key = await deriveKey(opts.password as string, salt, "encrypt");
-    const cipher = new Uint8Array(
-      await globalThis.crypto.subtle.encrypt(
-        {
-          name: "AES-GCM",
-          iv: iv as BufferSource,
-          additionalData: encoder.encode(outerManifest) as BufferSource,
-        },
-        key,
-        innerBytes as BufferSource,
-      ),
-    );
-
     const outer = new Zip();
-    outer.file(MANIFEST_NAME, outerManifest);
-    outer.file(ENCRYPTED_NAME, cipher);
+    outer.file(MANIFEST_NAME, box.header);
+    outer.file(ENCRYPTED_NAME, box.payload);
     const blob = await outer.generateAsync({ type: "blob" });
     return { ok: true, blob, filename, encrypted: true };
   } catch {
@@ -512,7 +398,8 @@ function readText(value: unknown, required: boolean): string | null | undefined 
 
 const PNG_IEND = [0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
 
-function hasPngEnd(bytes: Uint8Array): boolean {
+/** `true` si el PNG termina con un chunk IEND completo (lo usa tambien el respaldo). */
+export function hasPngEnd(bytes: Uint8Array): boolean {
   if (bytes.length < PNG_IEND.length) return false;
   const start = bytes.length - PNG_IEND.length;
   return PNG_IEND.every((byte, i) => bytes[start + i] === byte);
@@ -586,38 +473,26 @@ async function readPlainVault(zip: JSZip): Promise<VaultEntryInput> {
 
 async function readEncryptedVault(
   zip: JSZip,
-  manifest: Record<string, unknown>,
   rawManifest: Uint8Array,
   password: string | undefined,
 ): Promise<VaultEntryInput> {
-  const params = readEncryptedParams(manifest);
   const entry = zip.file(ENCRYPTED_NAME);
-  if (!params || !entry) throw new ImportFailure("invalid");
-  const cipher = await readEntryBytes(entry, MAX_VAULT_FILE_BYTES);
-  if (!cipher || cipher.length < GCM_TAG_BYTES) throw new ImportFailure("invalid");
-
-  if (!encryptionAvailable()) throw new ImportFailure("encryptionUnavailable");
-  if (!password) throw new ImportFailure("needsPassword");
+  if (!entry) throw new ImportFailure("invalid");
+  const payload = await readEntryBytes(entry, MAX_VAULT_FILE_BYTES);
+  if (!payload) throw new ImportFailure("invalid");
 
   let plain: Uint8Array;
   try {
-    const key = await deriveKey(password, params.salt, "decrypt");
-    plain = new Uint8Array(
-      await globalThis.crypto.subtle.decrypt(
-        {
-          name: "AES-GCM",
-          iv: params.iv as BufferSource,
-          // Los bytes EXACTOS del manifiesto del archivo, no una
-          // re-serializacion: cualquier cambio rompe el descifrado.
-          additionalData: rawManifest as BufferSource,
-        },
-        key,
-        cipher as BufferSource,
-      ),
-    );
-  } catch {
+    plain = await decryptWithPassword({ header: rawManifest, payload }, password);
+  } catch (error) {
     // Contraseña incorrecta y archivo manipulado son indistinguibles a
-    // proposito: no se le dice a quien ataca cual de las dos fallo.
+    // proposito (ver `passwordBox.ts`): no se le dice a quien ataca cual de
+    // las dos fallo.
+    if (error instanceof PasswordBoxError) {
+      if (error.code === "corrupt") throw new ImportFailure("invalid");
+      if (error.code === "unavailable") throw new ImportFailure("encryptionUnavailable");
+      if (error.code === "needsPassword") throw new ImportFailure("needsPassword");
+    }
     throw new ImportFailure("wrongPassword");
   }
 
@@ -651,7 +526,7 @@ export async function importVaultFile(
       if (names.length !== ENCRYPTED_ENTRY_NAMES.length) {
         throw new ImportFailure("invalid");
       }
-      const entry = await readEncryptedVault(zip, manifest, raw, opts.password);
+      const entry = await readEncryptedVault(zip, raw, opts.password);
       return { ok: true, entry };
     }
     return { ok: true, entry: await readPlainVault(zip) };

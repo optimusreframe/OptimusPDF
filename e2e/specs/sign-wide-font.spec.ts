@@ -18,6 +18,9 @@ import {
   uploadDocs,
   waitForDraftSettled,
 } from "../helpers/sign-flow";
+import { SIGN_STRINGS } from "../../src/app/sign-pdf/strings";
+import { jpgSignature } from "../helpers/ink-images";
+import { PRIVACY_SEEN_KEY } from "../helpers/sign-vault-flow";
 import {
   SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY,
   SIGN_PDF_FEATURE_FLAGS_VERSION_KEY,
@@ -491,6 +494,112 @@ test.describe("el boton «Descargar registro (.json)» con tipografia ancha", ()
         await page.waitForTimeout(900);
         await expect(page.getByRole("button", { name: "Descargar registro (.json)" })).toBeVisible();
         await fitsEverywhere(page, "resultado de un documento con «Descargar registro (.json)»");
+      } finally {
+        await context.close();
+      }
+    });
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * 3. Subir firma o iniciales y exportar / importar todas las firmas (F6 · U6.2 y U4.4-UI)
+ * ------------------------------------------------------------------ */
+
+test.describe("subir firmas y respaldarlas con tipografia ancha: ninguna hoja desborda a 375 ni a 320 px", () => {
+  for (const cell of CELLS) {
+    test(`${cell.theme} · ${cell.language} · ${cell.touch ? "tactil" : "raton"}: «Firmas guardadas», subir imagen (3 pasos), exportar e importar`, async ({ browser }) => {
+      test.setTimeout(300_000);
+      const strings = SIGN_STRINGS[cell.language];
+      const ink = strings.inkImport;
+      const backup = strings.vaultBackup;
+      const context = await newWideContext(browser, cell);
+      await context.addInitScript((key) => window.localStorage.setItem(key, "1"), PRIVACY_SEEN_KEY);
+      const page = await context.newPage();
+      try {
+        await page.goto("/sign-pdf");
+        await expectWideFontActive(page);
+        await page.locator('input[type="file"][accept*="pdf"]').first().setInputFiles({
+          name: "contrato.pdf",
+          mimeType: "application/pdf",
+          buffer: await makeSyntheticPdf("C", 1),
+        });
+        await page.locator('img[alt]:not([alt=""])').first().waitFor({ state: "visible", timeout: 30_000 });
+
+        await page.getByRole("button", { name: strings.vaultButton }).first().click();
+        const vault = page.getByRole("dialog", { name: strings.vaultTitle });
+        await expect(vault).toBeVisible();
+        await page.waitForTimeout(900);
+        await fitsEverywhere(page, "Firmas guardadas (vacia) con los tres botones nuevos", { both: false });
+
+        // --- Subir: elegir -> ajustar (recorte a mano incluido) -> resumen ---
+        await vault.getByRole("button", { name: ink.entryButton }).click();
+        const upload = page.getByRole("dialog", { name: ink.title });
+        await expect(upload).toBeVisible();
+        await page.waitForTimeout(900);
+        await fitsEverywhere(page, "subir: elegir imagen", { both: false });
+        await upload.locator("[data-ink-file-input]").setInputFiles(jpgSignature("shadow"));
+        await expect(upload.getByRole("heading", { name: ink.adjustTitle })).toBeVisible({ timeout: 30_000 });
+        await expect(upload.locator("[data-ink-accept]")).toBeEnabled({ timeout: 60_000 });
+        await page.waitForTimeout(600);
+        await fitsEverywhere(page, "subir: ajustar (vista previa, limpiar fondo, interruptores, color, tipo)", { both: false });
+        await upload.getByRole("button", { name: ink.cropManual }).first().click();
+        await expect(upload.getByRole("group", { name: ink.cropAreaLabel })).toBeVisible();
+        await page.waitForTimeout(400);
+        await fitsEverywhere(page, "subir: recorte a mano con las asas de 44 px", { both: false });
+        await upload.getByRole("button", { name: ink.cropDone }).click();
+        await expect(upload.locator("[data-ink-accept]")).toBeEnabled({ timeout: 60_000 });
+        await upload.locator("[data-ink-accept]").click();
+        await expect(upload.getByRole("heading", { name: ink.summaryTitle })).toBeVisible();
+        await upload.getByLabel(ink.nameLabel).fill("María de los Ángeles Fernández-Villanueva y Ortega");
+        await fitsEverywhere(page, "subir: resumen con nombre largo", { both: false });
+        await upload.getByRole("button", { name: ink.save }).click();
+        await expect(upload).toBeHidden({ timeout: 15_000 });
+        await fitsEverywhere(page, "Firmas guardadas con la firma subida y su aviso", { both: false });
+
+        // --- Exportar ---
+        await vault.getByRole("button", { name: backup.exportButton }).click();
+        const exportSheet = page.getByRole("dialog", { name: backup.exportTitle });
+        await expect(exportSheet).toBeVisible();
+        await exportSheet.getByLabel(backup.password, { exact: true }).fill("una-clave-larga-3");
+        await page.waitForTimeout(900);
+        await fitsEverywhere(page, "exportar: contraseña, medidor y confirmacion", { both: false });
+        await exportSheet.locator("label", { hasText: backup.protect }).click();
+        await expect(exportSheet.getByRole("checkbox", { name: backup.protect })).not.toBeChecked();
+        await fitsEverywhere(page, "exportar: sin contraseña (aviso de que quedan sin cifrar)", { both: false });
+        await exportSheet.locator("label", { hasText: backup.protect }).click();
+        await expect(exportSheet.getByRole("checkbox", { name: backup.protect })).toBeChecked();
+        await exportSheet.getByLabel(backup.password, { exact: true }).fill("una-clave-larga-3");
+        await exportSheet.getByLabel(backup.confirmPassword).fill("una-clave-larga-3");
+        const downloadPromise = page.waitForEvent("download", { timeout: 60_000 });
+        await exportSheet.getByRole("button", { name: backup.exportConfirm, exact: true }).click();
+        const shareOrDownload = exportSheet.getByRole("button", { name: backup.downloadButton, exact: true });
+        const download = await Promise.race([
+          downloadPromise,
+          shareOrDownload.waitFor({ timeout: 60_000 }).then(async () => {
+            const next = page.waitForEvent("download", { timeout: 30_000 });
+            await shareOrDownload.click();
+            return next;
+          }).catch(() => new Promise<never>(() => {})),
+        ]);
+        const filePath = await download.path();
+        await expect(exportSheet.getByRole("button", { name: backup.doneClose })).toBeVisible();
+        await fitsEverywhere(page, "exportar: confirmacion «N firmas exportadas»", { both: false });
+        await exportSheet.getByRole("button", { name: backup.doneClose }).click();
+
+        // --- Importar: contraseña y vista previa ---
+        await vault.getByRole("button", { name: backup.importButton, exact: true }).click();
+        const importSheet = page.getByRole("dialog", { name: backup.importTitle });
+        await expect(importSheet).toBeVisible();
+        await page.waitForTimeout(900);
+        await fitsEverywhere(page, "importar: elegir archivo", { both: false });
+        await importSheet.locator("[data-backup-file-input]").setInputFiles(filePath);
+        await expect(importSheet.getByLabel(backup.passwordLabel)).toBeVisible({ timeout: 30_000 });
+        await fitsEverywhere(page, "importar: pedir contraseña", { both: false });
+        await importSheet.getByLabel(backup.passwordLabel).fill("una-clave-larga-3");
+        await importSheet.getByRole("button", { name: backup.passwordOpen }).click();
+        await expect(importSheet.getByText(backup.statusIdentical).first()).toBeVisible({ timeout: 30_000 });
+        await page.waitForTimeout(500);
+        await fitsEverywhere(page, "importar: vista previa (ya lo tienes, nombre largo)", { both: false });
       } finally {
         await context.close();
       }
