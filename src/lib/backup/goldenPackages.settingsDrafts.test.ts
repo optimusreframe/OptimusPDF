@@ -13,7 +13,7 @@ import { applySettingsImport, defaultSettingsDecisions, planSettingsImport } fro
 import { SETTINGS_WRITABLE_KEYS } from "@/lib/backup/settingsRegistry";
 import { MemoryStorage } from "@/lib/backup/__fixtures__/memoryStorage";
 import { clearAllLocalDrafts } from "@/lib/backup/__fixtures__/draftsKit";
-import { makeRealPng } from "@/lib/backup/__fixtures__/pngFactory";
+import { makeRealPng, pngPixelsSha256 } from "@/lib/backup/__fixtures__/pngFactory";
 
 /**
  * Dorados de «Ajustes» y «Borradores» (`__fixtures__/packages/settings-v1*.zip`, `drafts-v1*.zip`), generados con el codigo
@@ -100,7 +100,7 @@ describe("dorados de borradores", () => {
       expect(doc.id).toMatch(/^[0-9a-f]{32}(ab){16}$/);
       expect(doc.fingerprint).toBe(doc.id.slice(0, 32) + doc.fingerprint!.slice(32));
       const signature = doc.captures["sg-1"].signature!;
-      expect(await sha256Hex(pngBytesFromDataUrl(signature.dataUrl)!)).toBe(await sha256Hex(makeRealPng({ width: 60, height: 24, seed: 11 })));
+      expect(pngPixelsSha256(pngBytesFromDataUrl(signature.dataUrl)!)).toBe(pngPixelsSha256(makeRealPng({ width: 60, height: 24, seed: 11 })));
       expect(signature.ratio).toBeCloseTo(0.4, 5);
       // Firmar: sesion con dos documentos y turno
       const [session] = await listSessionDrafts();

@@ -16,7 +16,7 @@ import { SETTINGS_WRITABLE_KEYS } from "@/lib/backup/settingsRegistry";
 import { clearAllLocalDrafts, realPdf } from "@/lib/backup/__fixtures__/draftsKit";
 import { GOLDEN_ALL, GOLDEN_ALL_NOW, GOLDEN_ALL_PASSWORD } from "@/lib/backup/__fixtures__/goldenAll";
 import { countWrites } from "@/lib/backup/__fixtures__/libraryKit";
-import { makeImage } from "@/lib/backup/__fixtures__/pngFactory";
+import { makeImage, pngPixelsSha256 } from "@/lib/backup/__fixtures__/pngFactory";
 import { asFile } from "@/lib/backup/__fixtures__/testKit";
 
 /**
@@ -119,9 +119,9 @@ describe("dorados package-all", () => {
       for (const row of GOLDEN_ALL.signatures) {
         const entry = entries.find((e) => e.id === row.id)!;
         expect([entry.signerName, entry.role]).toEqual([row.name, row.role]);
-        if (row.sig !== null) expect(await sha256Hex(entry.signature!.png)).toBe(await sha256Hex(makeImage({ seed: row.sig, real: true }).png));
+        if (row.sig !== null) expect(pngPixelsSha256(entry.signature!.png)).toBe(pngPixelsSha256(makeImage({ seed: row.sig, real: true }).png));
         else expect(entry.signature).toBeNull();
-        if (row.ini !== null) expect(await sha256Hex(entry.initials!.png)).toBe(await sha256Hex(makeImage({ width: 20, height: 20, seed: row.ini, real: true }).png));
+        if (row.ini !== null) expect(pngPixelsSha256(entry.initials!.png)).toBe(pngPixelsSha256(makeImage({ width: 20, height: 20, seed: row.ini, real: true }).png));
         else expect(entry.initials).toBeNull();
       }
       expect(entries.find((e) => e.id === "pkgall-ana")).toMatchObject({ createdAt: "2026-10-01T10:00:00.000Z", lastUsedAt: "2026-10-05T10:00:00.000Z" });

@@ -1,4 +1,5 @@
-import { deflateSync } from "node:zlib";
+import { createHash } from "node:crypto";
+import { deflateSync, inflateSync } from "node:zlib";
 import { crc32 } from "@/app/sign-pdf/signVault";
 
 /**
@@ -139,4 +140,23 @@ export function makeImage(
 ): TestImage {
   const { width = 40, height = 20 } = opts;
   return { png: opts.real ? makeRealPng(opts) : makePng(opts), ratio: height / width, width, height };
+}
+
+/**
+ * SHA-256 de los PIXELES de un PNG (IDAT inflado), no de sus bytes: dos versiones de zlib comprimen distinto el mismo
+ * dibujo, asi que los dorados (con PNG generados en otra maquina) se comparan por contenido.
+ */
+export function pngPixelsSha256(png: Uint8Array): string {
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  const parts: Uint8Array[] = [];
+  let header = "";
+  for (let offset = 8; offset + 8 <= png.length; ) {
+    const length = view.getUint32(offset);
+    const type = String.fromCharCode(...png.subarray(offset + 4, offset + 8));
+    const data = png.subarray(offset + 8, offset + 8 + length);
+    if (type === "IHDR") header = Buffer.from(data).toString("hex");
+    if (type === "IDAT") parts.push(data);
+    offset += 12 + length;
+  }
+  return createHash("sha256").update(header).update(inflateSync(Buffer.concat(parts))).digest("hex");
 }
