@@ -156,7 +156,16 @@ function ImportBody({
   const apply = async () => {
     if (!plan || !check || check.wanted === 0 || !check.ok) return;
     setPhase("importing");
-    const outcome = await applyLibraryBackup(plan, decisions);
+    let outcome: Awaited<ReturnType<typeof applyLibraryBackup>>;
+    try {
+      outcome = await applyLibraryBackup(plan, decisions);
+    } catch {
+      // Un fallo no previsto no debe dejar la hoja bloqueada.
+      if (!aliveRef.current) return;
+      setError(copy.applyFailed.unavailable);
+      setPhase("preview");
+      return;
+    }
     if (!aliveRef.current) return;
     if (!outcome.ok) {
       const failure = describeApplyFailure(outcome.reason);

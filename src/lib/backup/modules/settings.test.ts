@@ -193,6 +193,18 @@ describe("aplicar: Reemplazar / Omitir", () => {
     expect(target.keys()).not.toContain("apiKey");
   });
 
+  it("un paquete con MENOS interruptores que los de ahora no borra los que no trae (sin filas visibles, «Reemplazar» fusiona)", async () => {
+    const key = "optimuspdf.signPdf.featureFlags";
+    const { read } = await packaged(fill(new MemoryStorage(), { [key]: JSON.stringify({ keyboardNav: true }) }));
+    const target = fill(new MemoryStorage(), { [key]: JSON.stringify({ keyboardNav: true, signatureVault: false, signaturesInDraft: false }) });
+    const plan = planSettingsImport(read, { storage: target });
+    await applySettingsImport(plan, { settings: "replace" }, { storage: target });
+    const after = JSON.parse(target.snapshot()[key] ?? "{}") as Record<string, boolean>;
+    expect(after.signatureVault).toBe(false);
+    expect(after.signaturesInDraft).toBe(false);
+    expect(after.keyboardNav).toBe(true);
+  });
+
   it("Omitir no escribe nada; un paquete idéntico tampoco", async () => {
     const { read } = await packaged(fill(new MemoryStorage(), USER_SETTINGS));
     const target = new MemoryStorage();

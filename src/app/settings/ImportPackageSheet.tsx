@@ -162,11 +162,21 @@ function ImportBody({
     if (!plans || !decisions || !limits || limits.wanted === 0 || !limits.ok) return;
     setPhase("importing");
     setError("");
-    const outcome = await applyEverything(plans, decisions, {
-      onModule: (module) => {
-        if (aliveRef.current) setWorking(module);
-      },
-    });
+    let outcome: Awaited<ReturnType<typeof applyEverything>>;
+    try {
+      outcome = await applyEverything(plans, decisions, {
+        onModule: (module) => {
+          if (aliveRef.current) setWorking(module);
+        },
+      });
+    } catch {
+      // Un fallo no previsto no debe dejar la hoja bloqueada: se vuelve a la vista previa con un aviso.
+      if (!aliveRef.current) return;
+      setWorking(null);
+      setError(copy.moduleStates.unavailable);
+      setPhase("preview");
+      return;
+    }
     if (!aliveRef.current) return;
     setWorking(null);
     setResult({ outcome, lines: outcomeLines(outcome.outcomes, copy) });

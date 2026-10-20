@@ -545,7 +545,8 @@ function resolveSettingWrites(plan: Pick<SettingsImportPlan, "items">, decisions
     const rows = rowsOfItem(item);
     if (rows.length === 0) {
       // Sin filas visibles (todo igual al valor de ahora o al de por defecto): sigue la decisión general.
-      if (decisions.settings === "replace") out.push({ item, value: item.value });
+      // Un objeto de interruptores del paquete que trae menos claves que los de ahora no debe borrar los demas: se fusiona.
+      if (decisions.settings === "replace") out.push({ item, value: isObjectValue(item.local) && isObjectValue(item.value) ? { ...item.local, ...item.value } : item.value });
       continue;
     }
     const chosen = rows.filter((row) => decide(row.id) === "replace");
