@@ -955,7 +955,16 @@ export function SignToolClient() {
   const [writeFailed, setWriteFailed] = useState(false);
   /** Otra pestaña toco la misma sesion (F0-fix, D1): el id del borrador al que se refiere el aviso y de que tipo es. */
   const [tabNotice, setTabNotice] = useState<{ id: string; kind: "newer" | "forked" } | null>(null);
+  // Un guardado en vuelo puede terminar cuando la herramienta ya se desmonto: no se toca el estado de un componente ido.
+  const draftWriteAliveRef = useRef(true);
+  useEffect(() => {
+    draftWriteAliveRef.current = true;
+    return () => {
+      draftWriteAliveRef.current = false;
+    };
+  }, []);
   const handleDraftWrite = useCallback((report: DraftWriteReport) => {
+    if (!draftWriteAliveRef.current) return;
     if (report.kind === "failed") {
       setWriteFailed(true);
       return;
