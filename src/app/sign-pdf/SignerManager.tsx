@@ -169,7 +169,7 @@ export function SignerManager({
                 aria-label={strings.signerNameLabel(index + 1)}
                 onChange={(event) => rename(signer.id, event.target.value)}
                 onFocus={() => onActiveSignerIdChange(signer.id)}
-                className="h-9 pointer-coarse:h-11 min-w-0 flex-1 rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+                className="h-9 pointer-coarse:h-11 min-w-0 flex-1 rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm pointer-coarse:text-base text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
               />
 
               <span className="shrink-0 text-caption text-muted-foreground tabular-nums">

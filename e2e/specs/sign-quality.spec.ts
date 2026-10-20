@@ -1,3 +1,4 @@
+import { unfoldPalette } from "../helpers/mobile-sign";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   makeFormPdf,
@@ -305,6 +306,7 @@ test.describe("campos sugeridos (1280x800)", () => {
 const EDITED_TITLE = "Recibo editado por Optimus";
 
 async function editFirstTitle(page: Page, touch: boolean) {
+  await unfoldPalette(page); // movil: la paleta llega plegada en un boton
   await page.getByRole("button", { name: "Editar texto" }).click();
   const title: Locator = page.locator('[data-block-layer] [aria-label*="Receipt from"]').first();
   await title.waitFor({ timeout: 20_000 });
@@ -334,6 +336,7 @@ async function signEditedReceipt(page: Page, touch: boolean) {
 
   await editFirstTitle(page, touch);
   // Vuelve a Seleccionar: lo editado sigue pintado y los controles de firma vuelven a responder.
+  await unfoldPalette(page); // movil: elegir una herramienta pliega la paleta
   await page.getByRole("button", { name: "Seleccionar" }).click();
   await expect(page.locator("[data-edit-text-layer]").first()).toHaveAttribute("inert", "");
   await expect(page.locator('[data-text-view]').first()).toContainText(EDITED_TITLE);
@@ -392,6 +395,7 @@ test.describe("editar el texto original y firmar", () => {
       const toggle = page.getByRole("switch");
       await expect(toggle).toBeVisible({ timeout: 15_000 });
       expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
+      await unfoldPalette(page); // movil: la paleta llega plegada en un boton
       const tool = page.getByRole("button", { name: "Editar texto" });
       expect((await tool.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
       const meta = await settleImage(page);

@@ -126,6 +126,7 @@ describe("el aviso de privacidad de Firmar trae el boton", () => {
   it("esta dentro del aviso abierto, junto al interruptor, con el interruptor encendido y apagado", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
     const { container } = render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     const card = container.querySelector(".surface-card")!;
     const button = screen.getByRole("button", { name: strings.draftPrivacy.clearStrokesButton });
     expect(card.contains(button)).toBe(true);
@@ -136,6 +137,7 @@ describe("el aviso de privacidad de Firmar trae el boton", () => {
   it("con el interruptor apagado el texto dice que lo ya guardado conserva sus firmas hasta que caduquen o las quites", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
     render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     fireEvent.click(screen.getByRole("checkbox", { name: strings.draftPrivacy.signaturesLabel }));
     expect(document.body.textContent).toContain("Los borradores ya guardados conservan sus firmas hasta que caduquen o las quites");
   });

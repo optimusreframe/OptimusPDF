@@ -10,6 +10,8 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarDays,
+  ChevronDown,
+  ChevronUp,
   MousePointer2,
   PenLine,
   Signature,
@@ -17,7 +19,8 @@ import {
   Type,
   TextCursorInput,
 } from "lucide-react";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useMatchMedia } from "@/app/sign-pdf/useMatchMedia";
+import { useInProSuite } from "@/app/sign-pdf/useInProSuite";
 import { cn } from "@/lib/cn";
 import {
   TOOL_SHORTCUTS,
@@ -35,9 +38,17 @@ import type { SignStrings } from "@/app/sign-pdf/strings";
  * "Campo anterior/siguiente": la alternativa NO precisa a tocar un campo
  * pequeno (WCAG 2.2 · 2.5.8).
  *
- * Escritorio (>= md): carril vertical fijo junto a la pagina. Movil: barra
- * horizontal pegajosa sobre la barra de accion de ToolShell, a todo el ancho
- * para que ocho botones quepan a 44 px en 375 px.
+ * Escritorio ancho (>= 1 280 px): carril vertical pegajoso junto a la pagina, por debajo de la barra de zoom.
+ *
+ * Movil y tablet (< 1 280 px; auditoria movil/iPad SC-02 / VI-04 / GE-02 / GE-04): la paleta ya NO es una capa `fixed` de
+ * todo el ancho que flotaba sobre el texto de configuracion y tapaba el pie de la hoja y la firma, ni un carril que le
+ * quitaba ancho a la hoja y, al final de la pagina, quedaba bajo la barra de zoom. Es un DOCK PEGAJOSO dentro del propio
+ * lienzo, DETRAS de la hoja: pegado al borde de abajo (sobre la barra «Opciones/Procesar» en el movil o sobre la barra
+ * «Procesar» en tablet) mientras la hoja se ve; al final de la pagina descansa bajo la hoja, sin taparla. En el movil
+ * (< 768 px) esta PLEGADO por defecto en un boton con la herramienta activa: asi las capas fijas de abajo (barra + tab
+ * bar) suman ~16 % del alto de un iPhone y no ~34 %; al abrirlo, una fila (o dos) de botones de 44 px separados 8 px, y
+ * elegir una herramienta lo pliega de nuevo. Dentro de PDF Pro (`<html data-pro-suite>`) la paleta no se pliega y el
+ * carril de escritorio empieza en 768 px, como antes: ese layout lo gobierna la suite.
  */
 
 const TOOL_ICONS: Record<PlacementTool, typeof Type> = {
@@ -70,7 +81,13 @@ export function paletteItemClass(active: boolean, dimmed = false): string {
   );
 }
 
-type ItemKey = PlacementTool | "prev" | "next";
+type ItemKey = PlacementTool | "prev" | "next" | "collapse";
+
+/**
+ * Lo que el lienzo (`DocumentCanvas`) le pasa en `className` y esta paleta decide ella misma: la colocacion en movil
+ * (`max-md:*`: era `fixed` a 9,25 rem del borde) y el `top` del carril, que debe quedar bajo la barra de zoom.
+ */
+const OWN_LAYOUT = /^(max-md:.*|md:sticky|md:top-24|md:w-12|md:shrink-0|z-20)$/;
 
 export type ToolPaletteProps = {
   tool: PlacementTool;
@@ -100,7 +117,18 @@ export function ToolPalette({
   className,
 }: ToolPaletteProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const vertical = useMediaQuery("(min-width: 768px)");
+  const fabRef = useRef<HTMLButtonElement>(null);
+  const inPro = useInProSuite();
+  /** Carril vertical: desde 1 280 px (dentro de PDF Pro, desde 768 px). Por debajo, dock pegajoso tras la hoja. */
+  const railWide = useMatchMedia("(min-width: 1280px)");
+  const railMedium = useMatchMedia("(min-width: 768px)");
+  const vertical = inPro ? railMedium : railWide;
+  const narrow = useMatchMedia("(max-width: 767.98px)");
+  /** Movil fuera de PDF Pro: la paleta se pliega en un boton. En jsdom (`matchMedia` ausente) nunca. */
+  const collapsible = narrow && !inPro;
+  const [open, setOpen] = useState(false);
+  /** Quien debe recibir el foco tras plegar/abrir: lo que la persona acaba de pulsar desaparece del arbol. */
+  const focusAfterRef = useRef<"fab" | "tool" | null>(null);
 
   const labelOf = (key: PlacementTool): string => {
     switch (key) {
@@ -126,7 +154,7 @@ export function ToolPalette({
    * "siguiente" en el ultimo campo pendiente el boton se quedaria
    * deshabilitado y el foco caeria a <body>.
    */
-  const enabledKeys: ItemKey[] = [...tools, "prev", "next"];
+  const enabledKeys: ItemKey[] = [...tools, "prev", "next", ...(collapsible ? (["collapse"] as const) : [])];
 
   /* Tabindex itinerante: la parada es el ultimo boton enfocado, o la herramienta activa. */
   const [focusKey, setFocusKey] = useState<ItemKey | null>(null);
@@ -142,6 +170,19 @@ export function ToolPalette({
     rootRef.current
       ?.querySelector<HTMLElement>(`[data-palette-item="${key}"]`)
       ?.focus();
+  };
+
+  useEffect(() => {
+    const target = focusAfterRef.current;
+    if (!target) return;
+    focusAfterRef.current = null;
+    if (target === "fab") fabRef.current?.focus({ preventScroll: true });
+    else rootRef.current?.querySelector<HTMLElement>(`[data-palette-item="${tool}"]`)?.focus({ preventScroll: true });
+  }, [open, tool]);
+
+  const fold = () => {
+    focusAfterRef.current = "fab";
+    setOpen(false);
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -166,20 +207,51 @@ export function ToolPalette({
     focusItem(keys[next]);
   };
 
-  const itemClass = paletteItemClass;
+  const onEscape = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && collapsible && open) fold();
+  };
 
-  return (
+  /* En movil cada boton mide 44 px y no se estira (la paleta separa 8 px); en el carril de escritorio/tablet, como siempre. */
+  const itemClass = (active: boolean, dimmed = false) =>
+    cn(paletteItemClass(active, dimmed), inPro ? "max-md:w-11 max-md:flex-none" : "max-xl:h-11 max-xl:w-11 max-xl:flex-none");
+
+  const owned = (className ?? "")
+    .split(/\s+/)
+    .filter((token) => token && !OWN_LAYOUT.test(token))
+    .join(" ");
+
+  const ActiveIcon = TOOL_ICONS[tool];
+  const armed = tool !== "select";
+
+  /* Plegada (solo movil fuera de PDF Pro): un boton con la herramienta activa. */
+  const folded = collapsible && !open;
+
+  const toolbar = (
     <div
       ref={rootRef}
       role="toolbar"
       aria-label={strings.paletteLabel}
       aria-orientation={vertical ? "vertical" : "horizontal"}
       data-tool-palette=""
-      onKeyDown={onKeyDown}
+      onKeyDown={(event) => {
+        onKeyDown(event);
+        onEscape(event);
+      }}
       className={cn(
         "material-thick shadow-elevation-2 rounded-ios p-1",
-        "flex items-center md:flex-col md:gap-0.5",
-        className,
+        "flex items-center",
+        inPro
+          ? [
+              "max-md:pointer-events-auto max-md:mx-auto max-md:max-w-full max-md:flex-wrap max-md:justify-center max-md:gap-2",
+              // Carril dentro de PDF Pro: pegado bajo la barra de zoom (la de md mide ~54 px y se pega a 4,5 rem de arriba).
+              "md:sticky md:top-[calc(8.25rem+env(safe-area-inset-top,0px))] md:w-12 md:shrink-0 md:flex-col md:gap-0.5 md:pointer-coarse:gap-2 lg:top-20",
+            ]
+          : [
+              "max-xl:pointer-events-auto max-xl:mx-auto max-xl:max-w-full max-xl:flex-wrap max-xl:justify-center max-xl:gap-2",
+              // Carril de escritorio ancho: bajo la barra de zoom (que se pega a 0,75 rem de arriba desde 1 024 px).
+              "xl:sticky xl:top-20 xl:w-12 xl:shrink-0 xl:flex-col xl:gap-0.5 xl:pointer-coarse:gap-2",
+            ],
+        owned,
       )}
     >
       {tools.map((key) => {
@@ -203,7 +275,10 @@ export function ToolPalette({
             }
             tabIndex={stop === key ? 0 : -1}
             onFocus={() => setFocusKey(key)}
-            onClick={() => onToolChange(active && key !== "select" ? "select" : key)}
+            onClick={() => {
+              onToolChange(active && key !== "select" ? "select" : key);
+              if (collapsible) fold();
+            }}
             className={itemClass(active)}
           >
             <Icon aria-hidden="true" className="size-5" />
@@ -223,7 +298,10 @@ export function ToolPalette({
       <span
         role="separator"
         aria-orientation={vertical ? "horizontal" : "vertical"}
-        className="mx-0.5 h-6 w-px shrink-0 bg-hairline md:mx-0 md:my-0.5 md:h-px md:w-6"
+        className={cn(
+          "shrink-0 bg-hairline",
+          inPro ? "mx-0.5 h-6 w-px max-md:hidden md:mx-0 md:my-0.5 md:h-px md:w-6" : "mx-0.5 h-6 w-px max-xl:hidden xl:mx-0 xl:my-0.5 xl:h-px xl:w-6",
+        )}
       />
 
       <button
@@ -252,6 +330,66 @@ export function ToolPalette({
       >
         <ArrowDown aria-hidden="true" className="size-5" />
       </button>
+      {collapsible ? (
+        <button
+          type="button"
+          data-palette-item="collapse"
+          aria-label={strings.paletteCollapse}
+          title={strings.paletteCollapse}
+          tabIndex={stop === "collapse" ? 0 : -1}
+          onFocus={() => setFocusKey("collapse")}
+          onClick={fold}
+          className={itemClass(false)}
+        >
+          <ChevronDown aria-hidden="true" className="size-5" />
+        </button>
+      ) : null}
+    </div>
+  );
+
+  return (
+    /*
+     * Movil y tablet: contenedor PEGAJOSO al final del lienzo (se pone detras de la hoja con `order`): no pinta ni recibe
+     * toques, solo sus botones. `bottom` = sobre la barra «Opciones/Procesar» del movil (4,5 rem de la tab bar + 4,25 rem de
+     * la barra, 0,5 rem de aire) o sobre la barra «Procesar» de tablet; en PDF Pro no hay esas barras. En escritorio ancho el
+     * contenedor desaparece (`contents`) y manda el carril.
+     */
+    <div
+      data-palette-dock=""
+      className={
+        inPro
+          ? "max-md:pointer-events-none max-md:sticky max-md:bottom-2 max-md:z-20 max-md:order-last max-md:flex max-md:justify-start md:contents"
+          : "max-xl:pointer-events-none max-xl:sticky max-xl:z-20 max-xl:order-last max-xl:flex max-xl:justify-start max-md:bottom-[calc(9.5rem+env(safe-area-inset-bottom,0px))] md:max-xl:bottom-28 xl:contents"
+      }
+    >
+      {folded ? (
+        <button
+          ref={fabRef}
+          type="button"
+          data-palette-fab=""
+          aria-label={strings.paletteExpand(labelOf(tool))}
+          aria-expanded={false}
+          title={strings.paletteExpand(labelOf(tool))}
+          onClick={() => {
+            focusAfterRef.current = "tool";
+            setOpen(true);
+          }}
+          className={cn(
+            "material-thick shadow-elevation-2 pointer-events-auto flex h-12 min-w-12 items-center justify-center gap-1.5 rounded-full px-3 text-footnote font-semibold",
+            "transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] active:scale-[0.94] active:duration-[80ms]",
+            "focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
+            armed
+              ? "text-foreground shadow-[inset_0_0_0_1.5px_var(--color-signal)] forced-colors:border-2 forced-colors:border-[Highlight]"
+              : "text-muted-foreground",
+          )}
+        >
+          <ActiveIcon aria-hidden="true" className="size-5" />
+          {armed ? <span>{labelOf(tool)}</span> : null}
+          <ChevronUp aria-hidden="true" className="size-4 opacity-70" />
+        </button>
+      ) : (
+        toolbar
+      )}
     </div>
   );
 }

@@ -50,7 +50,7 @@ export function DocumentTabs({
   return (
     <div className="space-y-2">
       <nav ref={navRef} aria-label={strings.documentsLabel}>
-        <ul className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+        <ul className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 pointer-coarse:gap-2">
           {docs.map((doc, index) => {
             const current = doc.id === activeId;
             const badge = badges?.[doc.id];

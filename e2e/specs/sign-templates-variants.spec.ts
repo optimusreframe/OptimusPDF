@@ -1,3 +1,4 @@
+import { openOptions, optionsText } from "../helpers/sign-options";
 import { expect, test, type Page } from "@playwright/test";
 import { downloadBytes } from "../helpers/downloads";
 import { embeddedImages, shapeHash } from "../helpers/pdf-images";
@@ -33,7 +34,7 @@ const SEEDS: [number, number] = [10, 21];
 const NAME = "Mold Test Agreement";
 const dialogOf = (page: Page) => page.getByRole("dialog", { name: "¿Cambiar a 1 firmante?" });
 const goTo = async (page: Page, step: "1. Firmantes" | "3. Firmar") => page.getByRole("button", { name: step }).click();
-const huecos = async (page: Page) => Number(/(\d+) huecos en total/.exec(await page.locator("main").innerText())?.[1] ?? "NaN");
+const huecos = async (page: Page) => Number(/(\d+) huecos en total/.exec(await optionsText(page))?.[1] ?? "NaN");
 
 const center = (p: Placement) => ({ x: p.x + p.width / 2, y: p.y + p.height / 2 });
 const inside = (p: Placement, f: StoredField, slack = 0.004) => {
@@ -182,7 +183,8 @@ test("(F1-c) automapeo: con los dos firmados «1 firmante» pide confirmar solo 
 });
 
 async function saveFromEditorAndSign(page: Page, openName: RegExp): Promise<void> {
-  await page.getByRole("button", { name: openName }).click({ timeout: 15_000 });
+  const options = await openOptions(page);
+  await options.root.getByRole("button", { name: openName }).click({ timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Configurar plantilla" })).toBeVisible({ timeout: 25_000 });
   await page.getByRole("button", { name: /Guardar cambios|Guardar plantilla/ }).click();
   await expect(page.locator("[data-template-saved]")).toBeVisible();

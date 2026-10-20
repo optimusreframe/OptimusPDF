@@ -1670,3 +1670,30 @@ Corrige los hallazgos de PDF Pro de `docs/AUDITORIA-MOVIL-IPAD.md`. Todo vive en
 ### No verificado
 
 Safari/iPad reales (rebote, barra de direcciones dinámica y `dvh`, zoom automático por campos < 16 px, `touch-action` en iOS, isla/notch), VoiceOver, Apple Pencil, 120 Hz real (la velocidad del auto-desplazamiento se midió en Chromium a la tasa de fotogramas del emulador y se prueba como función pura en px/s) y PDF reales grandes.
+## Correcciones móvil/iPad: Firmar PDF (unidad M1)
+
+Responde a los hallazgos de Firmar de esta auditoría. Todo el cambio vive en `src/app/sign-pdf/**` (sin tocar el lienzo `DocumentCanvas*` ni `DocumentSessionHost*`, de otra unidad) y en las pruebas `e2e/specs/mobile-sign-*.spec.ts`. Las medidas «antes» son las de la auditoría; las «después» salen de las propias pruebas (Chromium con perfil iOS táctil y WebKit de `webkit-ipad`).
+
+| ID | Qué cambia para quien firma | Cómo |
+|---|---|---|
+| SC-01 | Al pasar de paso («Continuar», «2. Documento», «Ir a corregirlo», turnos de la ceremonia) la vista empieza arriba del paso nuevo, el foco va al paso actual y se anuncia «Paso 2 de 3: Documento». Ya no se aterriza a mitad de página con «Pásale el dispositivo a Ana» fuera de pantalla. Abrir una hoja no mueve la página de detrás ni su contenido arranca desplazado. | `scrollReveal.ts` (franja libre de capas `fixed`/`sticky`) + efecto de cambio de paso de `MultiFlow` + `useCeremonyFocus` |
+| ER-01 | Tras «Usar esta firma» (o elegir una guardada) la firma colocada se desplaza al centro de la zona libre, con un destello de 0,9 s (no con «reducir movimiento»); si la hoja estaba ampliada se vuelve a 100 % para que se vea. | `useRevealPlacedSignature` en `SoloSignatureSurface` |
+| SC-02 | Fuera de PDF Pro la paleta ya no es una capa `fixed` de todo el ancho: es un **dock pegajoso dentro del lienzo, detrás de la hoja** (solo se ve con la hoja en pantalla, descansa bajo ella al final y nunca tapa su pie). En un teléfono (< 768 px) está **plegada** en un botón con la herramienta activa; las capas fijas (barra «Opciones/Procesar» + tab bar) suman 16-21 % del alto (antes 29-34 %). | `ToolPalette.tsx` |
+| VI-04 | La paleta no solapa la barra de zoom: en tablet deja de ser un carril lateral y pasa al dock de abajo; el carril vertical queda desde 1 280 px, bajo la barra de zoom. | `ToolPalette.tsx` + `CANVAS_OVERRIDES` |
+| ER-02 | «Continuar» ya no está al final del paso (250-2 200 px de desplazamiento): en el móvil queda pegado abajo, al alcance del pulgar, sobre la barra «Opciones/Procesar»; en tablet (y en un móvil muy alto, como un iPad mini vertical) va al final de la barra de pasos, siempre a la vista tras el cambio de paso; en escritorio ancho y en PDF Pro sigue al final. «Atrás» sigue en el flujo. | contenedor `data-step-actions` / barra de pasos de `MultiFlow` |
+| ER-03 | La primera vez el aviso de privacidad es un resumen de una frase con «Leer completo» y «Entendido» (≈ 130 px en vez de ≈ 800-1 000 px); ambos —o cerrar el texto— recuerdan que ya se vio. | `PrivacyNotice.tsx` |
+| GE-02 / GE-04 | En iPad vertical (834 px) y horizontal (1 194 px) la hoja mide 760 y 832 px (antes 295-370 y ≈ 460): el panel «Opciones» pasa de columna fija a una hoja que abre el botón «Opciones», y la paleta pasa al dock. Escritorio ≥ 1 280 px sin cambios. | `tabletOptions` + `TabletOptions` + `CANVAS_OVERRIDES` |
+| VI-07 | Botones contiguos de Firmar con puntero grueso a ≥ 8 px (paleta, pestañas de documentos, flechas de turnos, barra flotante del elemento, barra de zoom y de documentos). | `pointer-coarse:gap-2` |
+| SC-04 | Campos propios de Firmar (nombres, texto de la hoja, nombre de plantilla, tecleada de la firma, contraseñas de copia/importación, formulario) a ≥ 16 px con táctil (no se amplía en Safari); el de la hoja sobresale 6 px para que entre la letra. Con ratón no cambia nada. | `pointer-coarse:text-base` |
+
+### Pruebas
+
+- `e2e/specs/mobile-sign-multi.spec.ts` (SC-01, ER-02, GE-02/GE-04, VI-07 en el flujo de varios firmantes), `mobile-sign-quality.spec.ts` (ER-01, SC-02, VI-04, VI-07, SC-04), `mobile-sign-privacy.spec.ts` (ER-03 y hojas), `mobile-sign-a11y.spec.ts` (axe 0 y sin scroll horizontal). Perfiles: 375×667, 393×852, 744×1133, 834×1194 y 1194×834.
+- Unitarias: `ToolPalette.mobile.test.tsx`, `scrollReveal.test.tsx` y los casos nuevos de `PrivacyNotice.test.tsx`.
+- Ajustadas por exigir el comportamiento antiguo: `PrivacyNotice.test.tsx`, `StripSavedSignatures.test.tsx` y `touchTargets.test.tsx` (el texto completo ya no se abre solo la primera vez: se pulsa «Leer completo») y `ceremonyFocus.test.tsx` (tras «Continuar» el foco va al paso nuevo de la barra, no se queda en el botón).
+
+### Lo que queda para otros dueños
+
+- `DocumentCanvas.tsx` (M3): sigue pasando a `ToolPalette` las clases `max-md:fixed …` (la paleta las ignora); `max-w-[640px]` de la hoja y el `text-xs` del campo de texto se corrigen desde fuera con selectores sobre `data-canvas="host"` / `data-element-kind`; conviene que el lienzo los asuma. `globals.css` sigue reservando 4 rem más al final de la página (`data-fixed-palette`), ya innecesarios.
+- `ToolShell` / `Sidebar` / `MobileTabBar`: «Subir/Bajar» de la lista de archivos siguen a 0 px (VI-07); la barra lateral global de escritorio (272 px) y la tab bar de 72 px siguen fijas dentro de Firmar.
+- Pendiente de verificar en dispositivo real: Safari/iPad (teclado, `visualViewport`, barra de direcciones y `dvh`, gestos reales).

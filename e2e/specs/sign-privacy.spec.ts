@@ -185,6 +185,14 @@ async function reachResultScreen(page: Page, docs: readonly SyntheticDoc[]): Pro
   await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible();
 }
 
+/**
+ * Primer uso: el aviso de privacidad abre un RESUMEN de una frase (ER-03, auditoria movil/iPad) y el texto entero, con el
+ * interruptor y el boton «Quitar ahora las firmas…», queda tras «Leer completo». Estas pruebas miran ese texto.
+ */
+async function readNoticeInFull(page: Page, language: "es" | "en" = "es"): Promise<void> {
+  await page.getByRole("button", { name: language === "es" ? "Leer completo" : "Read in full", exact: true }).click();
+}
+
 /* ------------------------------------------------------------------ *
  * U0.4 · aviso e interruptor
  * ------------------------------------------------------------------ */
@@ -193,6 +201,7 @@ test.describe("el interruptor «Guardar también las firmas recogidas»", () => 
   test("(p1) primer uso: el aviso trae el interruptor ENCENDIDO; apagarlo cambia el texto y queda en Ajustes (y viceversa)", async ({ page }) => {
     await openSignAndUpload(page, await makeTwoDocs());
     await page.getByRole("tab", { name: "Varios firmantes" }).click();
+    await readNoticeInFull(page);
 
     const toggle = page.getByRole("checkbox", { name: NOTICE_SWITCH.es });
     await expect(toggle).toBeVisible();
@@ -226,6 +235,7 @@ test.describe("el interruptor «Guardar también las firmas recogidas»", () => 
     await seedLocalStorage(page, { "optimuspdf.language": "en" });
     await openSignAndUpload(page, await makeTwoDocs());
     await page.getByRole("tab", { name: "Several signers" }).click();
+    await readNoticeInFull(page, "en");
     await expect(page.getByRole("checkbox", { name: NOTICE_SWITCH.en })).toBeChecked();
     await expect(page.getByText("Only on this device; deleted after 7 days.")).toBeVisible();
     await expect(page.getByText(/Signatures already collected are also saved in the draft/)).toBeVisible();
@@ -801,6 +811,7 @@ test.describe("F0-fix2 N2 · quitar ahora las firmas de los borradores guardados
     await page.reload();
     await uploadDocs(page, await makeTwoDocs());
     await page.getByRole("tab", { name: "Several signers" }).click();
+    await readNoticeInFull(page, "en");
     const notice = page.locator(".surface-card:has(input[type=checkbox])");
     await expect(notice).toBeVisible();
     const button = notice.getByRole("button", { name: STRIP_BUTTON.en });
@@ -986,6 +997,7 @@ test.describe("axe: el boton «Quitar ahora las firmas» (F0-fix2, N2)", () => {
         // Aviso de privacidad de Firmar.
         await openSignAndUpload(page, await makeTwoDocs());
         await page.getByRole("tab", { name: combo.language === "es" ? "Varios firmantes" : "Several signers" }).click();
+        await readNoticeInFull(page, combo.language);
         const notice = page.locator(".surface-card:has(input[type=checkbox])");
         const noticeButton = notice.getByRole("button", { name: STRIP_BUTTON[combo.language] });
         await expect(noticeButton).toBeVisible();
@@ -1028,6 +1040,7 @@ test.describe("axe: el aviso, el interruptor y la opcion «E-sign»", () => {
           try {
             await openSignAndUpload(page, await makeTwoDocs());
             await page.getByRole("tab", { name: language === "es" ? "Varios firmantes" : "Several signers" }).click();
+            await readNoticeInFull(page, language);
             const toggle = page.getByRole("checkbox", { name: NOTICE_SWITCH[language] });
             await expect(toggle).toBeVisible();
             await expectTouchTarget(toggle.locator("xpath=ancestor::div[contains(@class,'min-h-11')][1]"), "interruptor");

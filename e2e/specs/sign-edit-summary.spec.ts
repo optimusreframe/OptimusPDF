@@ -1,3 +1,4 @@
+import { unfoldPalette } from "../helpers/mobile-sign";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PDFDocument, PDFName, StandardFonts } from "@cantoo/pdf-lib";
 import JSZip from "jszip";
@@ -140,6 +141,7 @@ async function editTitle(
   options: { touch?: boolean; strings?: typeof SG; ariaLabel?: string } = {},
 ): Promise<void> {
   const strings = options.strings ?? SG;
+  await unfoldPalette(page); // movil: la paleta llega plegada en un boton
   await page.getByRole("button", { name: strings.toolEditText }).click();
   const title: Locator = page.locator(`[data-block-layer] [aria-label*="${options.ariaLabel ?? "Receipt from"}"]`).first();
   await title.waitFor({ timeout: 20_000 });
@@ -156,6 +158,7 @@ async function editTitle(
   await expect(editor).toContainText(text);
   await page.keyboard.press("Escape");
   await expect(editor).toBeHidden();
+  await unfoldPalette(page); // movil: elegir una herramienta pliega la paleta
   await page.getByRole("button", { name: strings.toolSelect }).click();
   await expect(page.locator("[data-edit-text-panel]")).toContainText(strings.editTextCount(1));
 }

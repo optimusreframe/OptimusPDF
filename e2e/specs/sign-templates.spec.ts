@@ -1,3 +1,4 @@
+import { openOptions, optionsText } from "../helpers/sign-options";
 import JSZip from "jszip";
 import { expect, test, type Page } from "@playwright/test";
 import { embeddedImages, shapeHash } from "../helpers/pdf-images";
@@ -268,8 +269,8 @@ test("(ii) documento desconocido: el automapeo coloca los de confianza alta, dej
   await expect(page.getByRole("button", { name: "Sugerencias (1)" })).toBeVisible();
 
   // Firmar y descargar.
-  const slots = await page.getByText(/^\d+ huecos en total$/).first().innerText();
-  const slotCount = Number(/^(\d+)/.exec(slots)?.[1]);
+  const slots = /(\d+) huecos en total/.exec(await optionsText(page))?.[1] ?? "NaN";
+  const slotCount = Number(slots);
   expect(slotCount).toBeGreaterThanOrEqual(placed - 2);
   await page.getByRole("button", { name: "Ir a firmar" }).click();
   const taps = new Taps(page);
@@ -374,7 +375,7 @@ test("(iv) una página distinta marca «Revisar»: se pregunta, no se aplica sol
   await expect(notices(page).locator("[data-template-pending]")).toContainText("Esta página cambió respecto a la plantilla");
   await notices(page).getByRole("button", { name: "Añadir todas" }).click();
   await expect(notices(page)).not.toContainText("Revisar la página 3");
-  await expect(page.getByText(`${PAGES * 2 + 2} huecos en total`)).toBeVisible();
+  expect(await optionsText(page)).toContain(`${PAGES * 2 + 2} huecos en total`);
 });
 
 test("(v) traspaso desde «Mis documentos»: firmar con su plantilla y configurarla", async ({ page }) => {
@@ -424,7 +425,8 @@ test("(vi) lo guardado sobrevive a recargar; editarlo guarda una versión nueva 
   // Con el documento cargado, «Configurar plantilla de este documento» abre la guardada (version nueva al guardar).
   await upload(page, "Mold Test.pdf", await reexport(original));
   await expect(notices(page)).toContainText("aplicada", { timeout: 20_000 });
-  await page.getByRole("button", { name: "Configurar plantilla de este documento" }).click();
+  const options = await openOptions(page);
+  await options.root.getByRole("button", { name: "Configurar plantilla de este documento" }).click();
   await expect(page.getByRole("heading", { name: "Configurar plantilla" })).toBeVisible();
   await expect(page.getByText(`En este documento: ${PAGES * 2 + 2} huecos`).first()).toBeVisible();
   await page.getByRole("button", { name: "Guardar cambios" }).click();
@@ -514,13 +516,13 @@ test("(viii) un borrador restaurado manda: recargar la sesión no vuelve a aplic
   await page.reload();
   await upload(page, "Mold Test.pdf", await reexport(original));
   await expect(notices(page)).toContainText("aplicada", { timeout: 20_000 });
-  await expect(page.getByText(`${PAGES * 2 + 2} huecos en total`)).toBeVisible();
+  expect(await optionsText(page)).toContain(`${PAGES * 2 + 2} huecos en total`);
   // El autoguardado guarda lo aplicado; la direccion lleva la sesion (`?s=`): recargar la restaura.
   await expect.poll(() => page.url(), { timeout: 20_000 }).toContain("s=");
   await page.waitForTimeout(1500);
   await page.reload();
   await expect(page.getByLabel("Nombre del firmante 1")).toHaveValue(SIGNER_1_ROLE, { timeout: 20_000 });
   await page.waitForTimeout(2500);
-  await expect(page.getByText(`${PAGES * 2 + 2} huecos en total`)).toBeVisible();
+  expect(await optionsText(page)).toContain(`${PAGES * 2 + 2} huecos en total`);
   await expect(page.locator("[data-template-notice]")).toHaveCount(0);
 });

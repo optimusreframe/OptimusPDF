@@ -156,6 +156,8 @@ describe("PrivacyNotice — «Borrar datos»", () => {
       window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
       __resetSignPdfFeatureFlagsCacheForTests();
       render(<PrivacyNotice strings={SIGN_STRINGS[language]} />);
+      // La primera vez se ve un resumen; el texto entero queda tras «Leer completo» (ER-03).
+      fireEvent.click(screen.getByRole("button", { name: SIGN_STRINGS[language].privacyReadFull }));
     }
 
     for (const language of ["es", "en"] as const) {
@@ -186,9 +188,10 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
     __resetSignPdfFeatureFlagsCacheForTests();
   });
 
-  it("abierto por primera vez trae el interruptor «Guardar también las firmas recogidas…», ENCENDIDO por defecto", () => {
+  it("con «Leer completo» (primera vez) trae el interruptor «Guardar también las firmas recogidas…», ENCENDIDO por defecto", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
     render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     const toggle = screen.getByRole("checkbox", { name: privacy.signaturesLabel }) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
     expect(privacy.signaturesLabel).toBe("Guardar también las firmas recogidas para no perderlas");
@@ -206,6 +209,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
   it("apagarlo lo guarda en el ajuste (el mismo que Ajustes) y el texto del aviso lo refleja; volver a encenderlo lo revierte", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
     render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     expect(screen.getByText(new RegExp(privacy.noticeSignaturesOn.slice(0, 40)))).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: privacy.signaturesLabel }));
     expect((screen.getByRole("checkbox", { name: privacy.signaturesLabel }) as HTMLInputElement).checked).toBe(false);
@@ -222,6 +226,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
     __resetSignPdfFeatureFlagsCacheForTests();
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
     render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     expect((screen.getByRole("checkbox", { name: privacy.signaturesLabel }) as HTMLInputElement).checked).toBe(false);
   });
 
@@ -229,6 +234,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
     const en = SIGN_STRINGS.en;
     render(<PrivacyNotice strings={en} />);
+    fireEvent.click(screen.getByRole("button", { name: en.privacyReadFull }));
     expect(screen.getByRole("checkbox", { name: en.draftPrivacy.signaturesLabel })).toBeTruthy();
     expect(screen.getByText(en.draftPrivacy.signaturesHint)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/draftPrivacy|signaturesLabel|noticeSignatures/);
@@ -237,8 +243,64 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
   it("la caja del interruptor mide 44 px de alto y esta dentro del aviso", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
     const { container } = render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     const toggle = screen.getByRole("checkbox", { name: privacy.signaturesLabel });
     expect(toggle.closest(".min-h-11")).toBeTruthy();
     expect(container.querySelector(".surface-card")?.contains(toggle)).toBe(true);
+  });
+});
+
+describe("PrivacyNotice — resumen corto la primera vez (ER-03, auditoria movil/iPad)", () => {
+  const first = () => window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
+
+  it("la primera vez NO abre el texto entero: muestra un resumen con «Leer completo» y «Entendido»", () => {
+    first();
+    const { container } = render(<PrivacyNotice strings={strings} />);
+    const summary = container.querySelector("[data-privacy-summary]")!;
+    expect(summary.textContent).toContain(strings.privacySummary);
+    expect(screen.queryByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: strings.draftPrivacy.signaturesLabel })).toBeNull();
+    expect(screen.getByRole("button", { name: strings.privacyReadFull }).className).not.toBe("");
+    expect(screen.getByRole("button", { name: strings.privacyUnderstood })).toBeTruthy();
+  });
+
+  it("«Leer completo» abre el texto entero y cerrarlo recuerda que ya se vio", () => {
+    first();
+    const { container } = render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
+    expect(container.querySelector("[data-privacy-summary]")).toBeNull();
+    expect(screen.getByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+    expect(window.localStorage.getItem("optimuspdf.sign-pdf.privacyNoticeSeen")).toBe("1");
+    expect(screen.queryByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeNull();
+  });
+
+  it("«Entendido» cierra el resumen y recuerda que ya se vio: la siguiente visita no lo muestra", () => {
+    first();
+    const view = render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyUnderstood }));
+    expect(view.container.querySelector("[data-privacy-summary]")).toBeNull();
+    expect(window.localStorage.getItem("optimuspdf.sign-pdf.privacyNoticeSeen")).toBe("1");
+    view.unmount();
+    const again = render(<PrivacyNotice strings={strings} />);
+    expect(again.container.querySelector("[data-privacy-summary]")).toBeNull();
+    expect(screen.queryByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeNull();
+  });
+
+  it("abrir el texto con el icono «i» tambien sustituye al resumen", () => {
+    first();
+    const { container } = render(<PrivacyNotice strings={strings} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyNoticeToggle }));
+    expect(container.querySelector("[data-privacy-summary]")).toBeNull();
+    expect(screen.getByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeTruthy();
+  });
+
+  it("en ingles el resumen y sus botones salen en ingles", () => {
+    first();
+    const en = SIGN_STRINGS.en;
+    const { container } = render(<PrivacyNotice strings={en} />);
+    expect(container.querySelector("[data-privacy-summary]")?.textContent).toContain(en.privacySummary);
+    expect(screen.getByRole("button", { name: en.privacyReadFull })).toBeTruthy();
+    expect(screen.getByRole("button", { name: en.privacyUnderstood })).toBeTruthy();
   });
 });

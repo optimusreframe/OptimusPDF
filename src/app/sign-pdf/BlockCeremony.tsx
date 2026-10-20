@@ -632,7 +632,7 @@ export function BlockCeremony({
                 {nameOf(signer)}
               </span>
               {queue.length > 1 && onTurnOrderChange ? (
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1 pointer-coarse:gap-2">
                   <button
                     type="button"
                     className={TURN_ARROW}

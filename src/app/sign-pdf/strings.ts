@@ -63,6 +63,8 @@ export type SignStrings = {
   stepSign: string;
   back: string;
   next: string;
+  /** Anuncio (region viva) al entrar a un paso: «Paso 2 de 3: Documento». */
+  stepAnnounce: (position: number, total: number, label: string) => string;
 
   /* --- Paso "Documento": lienzo unico de huecos y campos (W2-A) --- */
   documentTitle: string;
@@ -81,6 +83,10 @@ export type SignStrings = {
 
   /* --- Paleta de herramientas y barra flotante (W2-B) --- */
   paletteLabel: string;
+  /** Boton de la paleta plegada (movil): «Herramientas del documento (activa: Firma)». */
+  paletteExpand: (activeTool: string) => string;
+  /** Plegar la paleta abierta (movil). */
+  paletteCollapse: string;
   toolSelect: string;
   /** Estado de la herramienta activa (region viva): "Herramienta: Firma. Toca o arrastra sobre la pagina." */
   toolArmedStatus: (tool: string) => string;
@@ -316,6 +322,11 @@ export type SignStrings = {
   /* --- Privacidad del historial de valores (localStorage) --- */
   privacyNoticeToggle: string;
   privacyNoticeBody: string;
+  /** Resumen de una linea que se ve la PRIMERA vez (el texto entero queda tras «Leer completo»). */
+  privacySummary: string;
+  privacyReadFull: string;
+  /** «Entendido»: cierra el resumen y recuerda que ya se vio. */
+  privacyUnderstood: string;
   /** Solo se muestra con el baul de firmas encendido: habla de una casilla que, apagado, no existe. */
   privacyNoticeVaultNote: string;
   privacyClearData: string;
@@ -1448,6 +1459,7 @@ const es: SignStrings = {
   stepSign: "Firmar",
   back: "Atrás",
   next: "Continuar",
+  stepAnnounce: (position, total, label) => `Paso ${position} de ${total}: ${label}`,
 
   documentTitle: "Prepara el documento",
   documentHint:
@@ -1465,6 +1477,8 @@ const es: SignStrings = {
   a11ySlot: "hueco de firma",
 
   paletteLabel: "Herramientas del documento",
+  paletteExpand: (activeTool) => `Herramientas del documento (activa: ${activeTool})`,
+  paletteCollapse: "Plegar herramientas",
   toolSelect: "Seleccionar",
   toolArmedStatus: (tool) =>
     `Herramienta activa: ${tool}. Toca la página para colocar uno o arrastra para dibujarlo. Escape vuelve a Seleccionar.`,
@@ -1711,6 +1725,9 @@ const es: SignStrings = {
   progressMessage: "Aplicando las firmas",
 
   privacyNoticeToggle: "Cómo usamos tus datos",
+  privacySummary: "Tus documentos y firmas se quedan en este dispositivo: no se suben a ningún servidor.",
+  privacyReadFull: "Leer completo",
+  privacyUnderstood: "Entendido",
   privacyNoticeBody:
     "OptimusPDF no guarda datos en la nube ni en un servidor. Los datos únicamente existen y se manejan en su dispositivo y tu navegador. Si deseas eliminar completamente los datos, solo cierra la pestaña, borra los datos de navegación de tu navegador o haz clic en el botón 'Borrar datos'. Los datos que se guardan en tu navegador solo sirven para usarlos en otros documentos que abras en tu navegador, puedes borrarlos cuando lo desees. Mientras trabajas con varios firmantes, el borrador guarda la sesión completa en este dispositivo (los documentos, los firmantes, los campos y, mientras no lo apagues, las firmas ya hechas) para que puedas retomarla, y si exportas la configuración, el archivo .zip contiene tus documentos. El borrador se guarda unas décimas de segundo después de cada cambio; si el navegador se cierra a la fuerza (o la pestaña se descarta) justo después de un cambio, lo último podría no guardarse. Todo se elimina con «Borrar datos» (o «Borrar datos locales» en Ajustes).",
   privacyNoticeVaultNote:
@@ -2325,6 +2342,7 @@ const en: SignStrings = {
   stepSign: "Sign",
   back: "Back",
   next: "Continue",
+  stepAnnounce: (position, total, label) => `Step ${position} of ${total}: ${label}`,
 
   documentTitle: "Prepare the document",
   documentHint:
@@ -2342,6 +2360,8 @@ const en: SignStrings = {
   a11ySlot: "signature slot",
 
   paletteLabel: "Document tools",
+  paletteExpand: (activeTool) => `Document tools (active: ${activeTool})`,
+  paletteCollapse: "Fold tools",
   toolSelect: "Select",
   toolArmedStatus: (tool) =>
     `Active tool: ${tool}. Tap the page to place one, or drag to draw it. Escape goes back to Select.`,
@@ -2584,6 +2604,9 @@ const en: SignStrings = {
   progressMessage: "Applying the signatures",
 
   privacyNoticeToggle: "How we use your data",
+  privacySummary: "Your documents and signatures stay on this device: they are not uploaded to any server.",
+  privacyReadFull: "Read in full",
+  privacyUnderstood: "Got it",
   privacyNoticeBody:
     "OptimusPDF does not store data in the cloud or on a server. Data only exists and is handled on your own device and browser. If you want to fully remove it, just close the tab, clear your browser's browsing data, or click the 'Clear data' button. Whatever is stored in your browser is only used to fill in other documents you open in this browser, and you can clear it whenever you want. While you work with several signers, the draft saves the whole session on this device (the documents, the signers, the fields and, unless you turn it off, the signatures already made) so you can pick it up again, and if you export the configuration, the .zip file contains your documents. The draft is saved a fraction of a second after each change; if the browser is force-closed (or the tab is discarded) right after a change, the latest edit may not be saved. Everything is removed with 'Clear data' (or 'Clear local data' in Settings).",
   privacyNoticeVaultNote:

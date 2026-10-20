@@ -94,7 +94,17 @@ async function runAxe(page: Page): Promise<Violation[]> {
   if (!(await page.evaluate(() => "axe" in window))) await page.addScriptTag({ path: AXE_PATH });
   return page.evaluate(async (rules) => {
     const axe = (window as unknown as { axe: { run: (ctx: unknown, opts: unknown) => Promise<{ violations: Array<{ id: string; help: string; nodes: Array<{ target: string[]; failureSummary?: string }> }> }> } }).axe;
-    const result = await axe.run(document.querySelector("main") ?? document, { runOnly: { type: "rule", values: [...rules] } });
+    // «Continuar» queda pegado abajo (ER-02, auditoria movil/iPad) y flota sobre el contenido que se desplaza por debajo:
+    // `target-size` lo cuenta como tapa de cualquier control que quede justo detras en el desplazamiento del momento. Se
+    // oculta SOLO durante la medida (la propia pantalla, con el boton, la mide `mobile-sign-a11y.spec.ts`).
+    const floating = [...document.querySelectorAll<HTMLElement>("[data-step-actions]")];
+    for (const element of floating) element.style.visibility = "hidden";
+    let result: Awaited<ReturnType<typeof axe.run>>;
+    try {
+      result = await axe.run(document.querySelector("main") ?? document, { runOnly: { type: "rule", values: [...rules] } });
+    } finally {
+      for (const element of floating) element.style.visibility = "";
+    }
     return result.violations.map((violation) => ({
       id: violation.id,
       help: violation.help,

@@ -8,13 +8,18 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
-import { Bookmark, PenLine } from "lucide-react";
+import { Bookmark, PenLine, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Sheet } from "@/components/ui/Sheet";
-import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
+import { ToolShell, type ProcessResult, type ToolRenderContext } from "@/components/tool/ToolShell";
+import { useMatchMedia } from "@/app/sign-pdf/useMatchMedia";
+import { cn } from "@/lib/cn";
+import { isRevealed, pulseElement, revealElement } from "@/app/sign-pdf/scrollReveal";
+import { useInProSuite } from "@/app/sign-pdf/useInProSuite";
 import {
   FileAdmissionContext,
   type FileAdmission,
@@ -167,6 +172,7 @@ import {
   type RejectReason,
 } from "@/app/sign-pdf/signLimits";
 import {
+  SOLO_SLOT_ID,
   UNPLACED_RECT,
   buildSoloPlacements,
   buildTextPlacements,
@@ -1762,6 +1768,326 @@ export function SignToolClient() {
     [processBatch, processDocument],
   );
 
+  /** Tablet (iPad vertical y horizontal): sin columna «Opciones» fija; ver `renderOptionsPanel`. */
+  const tabletOptions = useMatchMedia("(min-width: 768px) and (max-width: 1279.98px)");
+
+  /**
+   * Contenido del panel «Opciones». En escritorio ancho es una columna a la derecha (`ToolShell`); en movil, una hoja
+   * (la barra «Opciones/Procesar»); en tablet (768-1279 px, iPad vertical y horizontal) NO es una columna —le quitaba 320 px
+   * a la hoja del documento (GE-02 / GE-04)— sino una hoja que abre el boton «Opciones» de la propia pantalla.
+   */
+  const renderOptionsPanel = ({ files, options: session }: Pick<ToolRenderContext<SignSession>, "files" | "options">): ReactNode => {
+        // El panel no esta atado a un flujo: trabaja con el documento activo.
+        const active = activeViewOf(session, files);
+        const options = active.view;
+        const activeFile = active.file;
+        return options.mode === "single" ? (
+          <section className="space-y-4">
+            <Button
+              variant={options.signaturePng ? "secondary" : "primary"}
+              size="md"
+              fullWidth
+              onClick={() => setComposerOpen(true)}
+            >
+              <PenLine aria-hidden="true" className="size-4" />
+              {options.signaturePng
+                ? strings.changeSignature
+                : strings.createSignature}
+            </Button>
+
+            {vaultEnabled ? (
+              <Button
+                variant="secondary"
+                size="md"
+                fullWidth
+                onClick={() => {
+                  setVaultNotice(null);
+                  setVaultOpen(true);
+                }}
+              >
+                <Bookmark aria-hidden="true" className="size-4" />
+                {strings.vaultButton}
+              </Button>
+            ) : null}
+
+            {options.signaturePng ? (
+              <div className="rounded-ios-sm flex items-center justify-center border border-white/10 bg-white p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={options.signaturePng}
+                  alt={strings.createTitle}
+                  className="max-h-24 w-auto max-w-full object-contain"
+                />
+              </div>
+            ) : (
+              <p role="alert" className="text-xs text-destructive">
+                {strings.noSignature}
+              </p>
+            )}
+
+            {files.length > 1 ? (
+              <BatchStatus files={files} session={session} strings={strings} />
+            ) : null}
+
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {strings.legalNote}
+            </p>
+          </section>
+        ) : (
+          <section className="space-y-3">
+            <span className="ui-label block text-muted-foreground">
+              {strings.modeMulti}
+            </span>
+            {files.length > 1 ? (
+              <BatchStatus files={files} session={session} strings={strings} />
+            ) : (
+              <>
+                <p className="text-sm text-foreground tabular-nums">
+                  {strings.totalFields(options.fields.length)}
+                </p>
+                {options.fields.length === 0 &&
+                !hasFilledTextValue(options.textFields, options.textValues) &&
+                !hasTextEdits(options.textEdits) ? (
+                  <p className="text-xs leading-relaxed text-destructive">
+                    {strings.noFieldsError}
+                  </p>
+                ) : multiReady(options, options.signature) ? (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {strings.allSignedBody}
+                  </p>
+                ) : (
+                  <p className="text-xs leading-relaxed text-destructive">
+                    {strings.notAllSignedError}{" "}
+                    {strings.pendingBody(
+                      pendingSigners(
+                        options.signers,
+                        options.fields,
+                        options.captures,
+                        stampKeyOf(options.signature, options.textEdits),
+                      ).length,
+                    )}
+                  </p>
+                )}
+              </>
+            )}
+            {activeFile ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  onClick={() => void handleExportConfig(files, session)}
+                >
+                  {strings.exportConfigButton}
+                </Button>
+                <p className="text-footnote leading-relaxed text-muted-foreground">
+                  {strings.exportConfigNote}
+                </p>
+                {/* Las ediciones del texto original no viajan en la configuracion (van en el borrador). */}
+                <ExportEditsNotice
+                  hasEdits={docIdsOf(files).some((id) => hasTextEdits(docStateOf(session.docs, id).textEdits))}
+                  strings={strings}
+                />
+              </>
+            ) : null}
+
+            {activeFile ? (
+              <div className="space-y-2" data-template-group="">
+                <span className="ui-label block text-muted-foreground">{strings.template.entry.groupTitle}</span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  wrap
+                  disabled={editorBusy}
+                  onClick={() => void openEditorFor({ file: activeFile, docId: active.docId })}
+                >
+                  {templates.notices.some((notice) => notice.docId === active.docId && notice.record?.source === "template")
+                    ? strings.template.entry.editForDocument
+                    : strings.template.entry.createForDocument}
+                </Button>
+                {legacyDocId === active.docId ? (
+                  <>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      fullWidth
+                      wrap
+                      disabled={editorBusy}
+                      onClick={() => {
+                        setLegacyDocId(null);
+                        void openEditorFor({ file: activeFile, docId: active.docId });
+                      }}
+                    >
+                      {strings.template.entry.legacyConvert}
+                    </Button>
+                    <p className="text-footnote leading-relaxed text-muted-foreground">{strings.template.entry.legacyConvertHint}</p>
+                  </>
+                ) : (
+                  <p className="text-footnote leading-relaxed text-muted-foreground">{strings.template.entry.groupHint}</p>
+                )}
+              </div>
+            ) : null}
+
+            {reusableTemplatesEnabled ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  onClick={() => {
+                    setTemplateFeedback(null);
+                    setTemplatesOpen(true);
+                  }}
+                >
+                  {strings.templatesButton}
+                </Button>
+                {activeFile &&
+                (options.signers.length > 0 ||
+                  options.fields.length > 0 ||
+                  options.textFields.length > 0) ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    onClick={() => {
+                      setTemplateName("");
+                      setTemplateFeedback(null);
+                      setSaveTemplateOpen(true);
+                    }}
+                  >
+                    {strings.saveAsTemplateButton}
+                  </Button>
+                ) : null}
+
+                <TemplatesSheet
+                  open={templatesOpen}
+                  onClose={() => setTemplatesOpen(false)}
+                  onApply={(template) => {
+                    const hasExisting =
+                      options.signers.length > 0 ||
+                      options.fields.length > 0 ||
+                      options.textFields.length > 0;
+                    if (!activeFile) return;
+                    if (hasExisting) {
+                      setPendingApplyTemplate(template);
+                    } else {
+                      void performApplyTemplate(template, activeFile, (patch) =>
+                        bridge.setView(active.docId, patch),
+                      );
+                    }
+                  }}
+                  onApplyAll={
+                    files.length > 1
+                      ? (template) => {
+                          const hasExisting =
+                            session.signers.length > 0 ||
+                            files.some((item) => {
+                              const state = docStateOf(session.docs, docIdOf(item));
+                              return (
+                                liveFields(state, session.signers).length > 0 ||
+                                state.textFields.length > 0
+                              );
+                            });
+                          if (hasExisting) setPendingApplyAll(template);
+                          else void performApplyTemplateToAll(template, files);
+                        }
+                      : undefined
+                  }
+                  strings={strings}
+                />
+
+                <ConfirmSheet
+                  open={pendingApplyAll !== null}
+                  onClose={() => setPendingApplyAll(null)}
+                  onConfirm={() => {
+                    if (pendingApplyAll) {
+                      void performApplyTemplateToAll(pendingApplyAll, files);
+                    }
+                  }}
+                  title={strings.applyTemplateConfirmTitle}
+                  body={strings.applyTemplateAllConfirmBody}
+                  confirmLabel={strings.templatesApplyAll}
+                  cancelLabel={strings.confirmCancel}
+                  closeLabel={strings.confirmClose}
+                />
+
+                {templateFeedback && !saveTemplateOpen ? (
+                  <p role="status" className="text-footnote leading-relaxed text-muted-foreground">
+                    {templateFeedback}
+                  </p>
+                ) : null}
+
+                <ConfirmSheet
+                  open={pendingApplyTemplate !== null}
+                  onClose={() => setPendingApplyTemplate(null)}
+                  onConfirm={() => {
+                    if (pendingApplyTemplate && activeFile) {
+                      void performApplyTemplate(
+                        pendingApplyTemplate,
+                        activeFile,
+                        (patch) => bridge.setView(active.docId, patch),
+                      );
+                    }
+                  }}
+                  title={strings.applyTemplateConfirmTitle}
+                  body={strings.applyTemplateConfirmBody}
+                  confirmLabel={strings.applyTemplateConfirm}
+                  cancelLabel={strings.confirmCancel}
+                  closeLabel={strings.confirmClose}
+                />
+
+                <Sheet
+                  open={saveTemplateOpen}
+                  onClose={() => setSaveTemplateOpen(false)}
+                  title={strings.saveTemplateTitle}
+                  closeLabel={t.common.close}
+                >
+                  <p className="pb-2 text-sm leading-relaxed text-muted-foreground">
+                    {strings.saveTemplateBody}
+                  </p>
+                  <label
+                    htmlFor="sign-pdf-template-name"
+                    className="block pb-1 text-xs font-medium text-foreground"
+                  >
+                    {strings.saveTemplateNameLabel}
+                  </label>
+                  <input
+                    id="sign-pdf-template-name"
+                    type="text"
+                    value={templateName}
+                    maxLength={TEMPLATE_NAME_MAX}
+                    placeholder={strings.saveTemplateNamePlaceholder}
+                    onChange={(event) => setTemplateName(event.target.value)}
+                    className="mb-3 h-10 pointer-coarse:h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm pointer-coarse:text-base text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+                  />
+                  {templateFeedback ? (
+                    <p role="status" className="pb-2 text-xs text-muted-foreground">
+                      {templateFeedback}
+                    </p>
+                  ) : null}
+                  <Button
+                    size="md"
+                    fullWidth
+                    disabled={templateName.trim().length === 0}
+                    onClick={() => {
+                      if (!activeFile) return;
+                      void handleSaveTemplate(activeFile, options, templateName);
+                    }}
+                  >
+                    {strings.saveTemplateConfirm}
+                  </Button>
+                </Sheet>
+              </>
+            ) : null}
+
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {strings.legalNote}
+            </p>
+          </section>
+        );
+  };
+
   return (
     <Fragment>
     {editor ? (
@@ -2047,6 +2373,16 @@ export function SignToolClient() {
                 : strings.modeMultiHint}
             </p>
             <ESignTeaser className="mt-3 sm:max-w-sm" />
+            {tabletOptions ? (
+              <TabletOptions
+                label={t.tool.openOptions}
+                title={t.tool.optionsTitle}
+                closeLabel={t.common.close}
+                // El editor de plantillas ocupa toda la pantalla: la hoja «Opciones» no se queda abierta encima.
+                suspended={editor !== null}
+                render={() => renderOptionsPanel({ files, options: session })}
+              />
+            ) : null}
           </section>
 
           <TemplateDriver files={files} session={hostSession} notify={templates.notify} />
@@ -2137,317 +2473,7 @@ export function SignToolClient() {
           )}
         </DocumentSessionHost>
       )}
-      renderOptions={({ files, options: session }) => {
-        // El panel no esta atado a un flujo: trabaja con el documento activo.
-        const active = activeViewOf(session, files);
-        const options = active.view;
-        const activeFile = active.file;
-        return options.mode === "single" ? (
-          <section className="space-y-4">
-            <Button
-              variant={options.signaturePng ? "secondary" : "primary"}
-              size="md"
-              fullWidth
-              onClick={() => setComposerOpen(true)}
-            >
-              <PenLine aria-hidden="true" className="size-4" />
-              {options.signaturePng
-                ? strings.changeSignature
-                : strings.createSignature}
-            </Button>
-
-            {vaultEnabled ? (
-              <Button
-                variant="secondary"
-                size="md"
-                fullWidth
-                onClick={() => {
-                  setVaultNotice(null);
-                  setVaultOpen(true);
-                }}
-              >
-                <Bookmark aria-hidden="true" className="size-4" />
-                {strings.vaultButton}
-              </Button>
-            ) : null}
-
-            {options.signaturePng ? (
-              <div className="rounded-ios-sm flex items-center justify-center border border-white/10 bg-white p-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={options.signaturePng}
-                  alt={strings.createTitle}
-                  className="max-h-24 w-auto max-w-full object-contain"
-                />
-              </div>
-            ) : (
-              <p role="alert" className="text-xs text-destructive">
-                {strings.noSignature}
-              </p>
-            )}
-
-            {files.length > 1 ? (
-              <BatchStatus files={files} session={session} strings={strings} />
-            ) : null}
-
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {strings.legalNote}
-            </p>
-          </section>
-        ) : (
-          <section className="space-y-3">
-            <span className="ui-label block text-muted-foreground">
-              {strings.modeMulti}
-            </span>
-            {files.length > 1 ? (
-              <BatchStatus files={files} session={session} strings={strings} />
-            ) : (
-              <>
-                <p className="text-sm text-foreground tabular-nums">
-                  {strings.totalFields(options.fields.length)}
-                </p>
-                {options.fields.length === 0 &&
-                !hasFilledTextValue(options.textFields, options.textValues) &&
-                !hasTextEdits(options.textEdits) ? (
-                  <p className="text-xs leading-relaxed text-destructive">
-                    {strings.noFieldsError}
-                  </p>
-                ) : multiReady(options, options.signature) ? (
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    {strings.allSignedBody}
-                  </p>
-                ) : (
-                  <p className="text-xs leading-relaxed text-destructive">
-                    {strings.notAllSignedError}{" "}
-                    {strings.pendingBody(
-                      pendingSigners(
-                        options.signers,
-                        options.fields,
-                        options.captures,
-                        stampKeyOf(options.signature, options.textEdits),
-                      ).length,
-                    )}
-                  </p>
-                )}
-              </>
-            )}
-            {activeFile ? (
-              <>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  onClick={() => void handleExportConfig(files, session)}
-                >
-                  {strings.exportConfigButton}
-                </Button>
-                <p className="text-footnote leading-relaxed text-muted-foreground">
-                  {strings.exportConfigNote}
-                </p>
-                {/* Las ediciones del texto original no viajan en la configuracion (van en el borrador). */}
-                <ExportEditsNotice
-                  hasEdits={docIdsOf(files).some((id) => hasTextEdits(docStateOf(session.docs, id).textEdits))}
-                  strings={strings}
-                />
-              </>
-            ) : null}
-
-            {activeFile ? (
-              <div className="space-y-2" data-template-group="">
-                <span className="ui-label block text-muted-foreground">{strings.template.entry.groupTitle}</span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  wrap
-                  disabled={editorBusy}
-                  onClick={() => void openEditorFor({ file: activeFile, docId: active.docId })}
-                >
-                  {templates.notices.some((notice) => notice.docId === active.docId && notice.record?.source === "template")
-                    ? strings.template.entry.editForDocument
-                    : strings.template.entry.createForDocument}
-                </Button>
-                {legacyDocId === active.docId ? (
-                  <>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      fullWidth
-                      wrap
-                      disabled={editorBusy}
-                      onClick={() => {
-                        setLegacyDocId(null);
-                        void openEditorFor({ file: activeFile, docId: active.docId });
-                      }}
-                    >
-                      {strings.template.entry.legacyConvert}
-                    </Button>
-                    <p className="text-footnote leading-relaxed text-muted-foreground">{strings.template.entry.legacyConvertHint}</p>
-                  </>
-                ) : (
-                  <p className="text-footnote leading-relaxed text-muted-foreground">{strings.template.entry.groupHint}</p>
-                )}
-              </div>
-            ) : null}
-
-            {reusableTemplatesEnabled ? (
-              <>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  onClick={() => {
-                    setTemplateFeedback(null);
-                    setTemplatesOpen(true);
-                  }}
-                >
-                  {strings.templatesButton}
-                </Button>
-                {activeFile &&
-                (options.signers.length > 0 ||
-                  options.fields.length > 0 ||
-                  options.textFields.length > 0) ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    fullWidth
-                    onClick={() => {
-                      setTemplateName("");
-                      setTemplateFeedback(null);
-                      setSaveTemplateOpen(true);
-                    }}
-                  >
-                    {strings.saveAsTemplateButton}
-                  </Button>
-                ) : null}
-
-                <TemplatesSheet
-                  open={templatesOpen}
-                  onClose={() => setTemplatesOpen(false)}
-                  onApply={(template) => {
-                    const hasExisting =
-                      options.signers.length > 0 ||
-                      options.fields.length > 0 ||
-                      options.textFields.length > 0;
-                    if (!activeFile) return;
-                    if (hasExisting) {
-                      setPendingApplyTemplate(template);
-                    } else {
-                      void performApplyTemplate(template, activeFile, (patch) =>
-                        bridge.setView(active.docId, patch),
-                      );
-                    }
-                  }}
-                  onApplyAll={
-                    files.length > 1
-                      ? (template) => {
-                          const hasExisting =
-                            session.signers.length > 0 ||
-                            files.some((item) => {
-                              const state = docStateOf(session.docs, docIdOf(item));
-                              return (
-                                liveFields(state, session.signers).length > 0 ||
-                                state.textFields.length > 0
-                              );
-                            });
-                          if (hasExisting) setPendingApplyAll(template);
-                          else void performApplyTemplateToAll(template, files);
-                        }
-                      : undefined
-                  }
-                  strings={strings}
-                />
-
-                <ConfirmSheet
-                  open={pendingApplyAll !== null}
-                  onClose={() => setPendingApplyAll(null)}
-                  onConfirm={() => {
-                    if (pendingApplyAll) {
-                      void performApplyTemplateToAll(pendingApplyAll, files);
-                    }
-                  }}
-                  title={strings.applyTemplateConfirmTitle}
-                  body={strings.applyTemplateAllConfirmBody}
-                  confirmLabel={strings.templatesApplyAll}
-                  cancelLabel={strings.confirmCancel}
-                  closeLabel={strings.confirmClose}
-                />
-
-                {templateFeedback && !saveTemplateOpen ? (
-                  <p role="status" className="text-footnote leading-relaxed text-muted-foreground">
-                    {templateFeedback}
-                  </p>
-                ) : null}
-
-                <ConfirmSheet
-                  open={pendingApplyTemplate !== null}
-                  onClose={() => setPendingApplyTemplate(null)}
-                  onConfirm={() => {
-                    if (pendingApplyTemplate && activeFile) {
-                      void performApplyTemplate(
-                        pendingApplyTemplate,
-                        activeFile,
-                        (patch) => bridge.setView(active.docId, patch),
-                      );
-                    }
-                  }}
-                  title={strings.applyTemplateConfirmTitle}
-                  body={strings.applyTemplateConfirmBody}
-                  confirmLabel={strings.applyTemplateConfirm}
-                  cancelLabel={strings.confirmCancel}
-                  closeLabel={strings.confirmClose}
-                />
-
-                <Sheet
-                  open={saveTemplateOpen}
-                  onClose={() => setSaveTemplateOpen(false)}
-                  title={strings.saveTemplateTitle}
-                  closeLabel={t.common.close}
-                >
-                  <p className="pb-2 text-sm leading-relaxed text-muted-foreground">
-                    {strings.saveTemplateBody}
-                  </p>
-                  <label
-                    htmlFor="sign-pdf-template-name"
-                    className="block pb-1 text-xs font-medium text-foreground"
-                  >
-                    {strings.saveTemplateNameLabel}
-                  </label>
-                  <input
-                    id="sign-pdf-template-name"
-                    type="text"
-                    value={templateName}
-                    maxLength={TEMPLATE_NAME_MAX}
-                    placeholder={strings.saveTemplateNamePlaceholder}
-                    onChange={(event) => setTemplateName(event.target.value)}
-                    className="mb-3 h-10 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
-                  />
-                  {templateFeedback ? (
-                    <p role="status" className="pb-2 text-xs text-muted-foreground">
-                      {templateFeedback}
-                    </p>
-                  ) : null}
-                  <Button
-                    size="md"
-                    fullWidth
-                    disabled={templateName.trim().length === 0}
-                    onClick={() => {
-                      if (!activeFile) return;
-                      void handleSaveTemplate(activeFile, options, templateName);
-                    }}
-                  >
-                    {strings.saveTemplateConfirm}
-                  </Button>
-                </Sheet>
-              </>
-            ) : null}
-
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {strings.legalNote}
-            </p>
-          </section>
-        );
-      }}
+      renderOptions={tabletOptions ? undefined : renderOptionsPanel}
     />
     </FileAdmissionContext.Provider>
     <LeaveSheet state={leave} strings={strings.resume} closeLabel={t.common.close} />
@@ -2477,6 +2503,73 @@ export function SignToolClient() {
     </div>
     </Fragment>
   );
+}
+
+/**
+ * Tablet (768-1279 px): el panel «Opciones» no ocupa una columna fija junto al documento (le quitaba ~320 px a la hoja)
+ * sino que se abre como hoja desde este boton, igual que en el movil. «Procesar» queda en la barra pegajosa de abajo.
+ */
+function TabletOptions({
+  label,
+  title,
+  closeLabel,
+  suspended,
+  render,
+}: {
+  label: string;
+  title: string;
+  closeLabel: string;
+  /** Otra pantalla (el editor de plantillas) tapa la herramienta: la hoja se cierra. */
+  suspended: boolean;
+  render: () => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cierra la hoja cuando otra pantalla pasa a primer plano
+    if (suspended) setOpen(false);
+  }, [suspended]);
+  return (
+    <div className="mt-3 flex justify-end">
+      <Button variant="secondary" size="md" aria-haspopup="dialog" onClick={() => setOpen(true)}>
+        <SlidersHorizontal aria-hidden="true" className="size-4" />
+        {label}
+      </Button>
+      <Sheet open={open} onClose={() => setOpen(false)} title={title} closeLabel={closeLabel}>
+        <div className="space-y-5 pt-2">{render()}</div>
+      </Sheet>
+    </div>
+  );
+}
+
+/**
+ * Ajustes del lienzo hechos desde fuera (el lienzo es de otro modulo; solo se toca su contrato `data-*`):
+ *  - Tablet (768-1279 px): la paleta pasa de carril lateral a dock bajo la hoja y la hoja puede pasar de los 640 px de escritorio —en un iPad vertical (834 px) y horizontal
+ *    (1 194 px) ocupaba 295-460 px—. Se sube el tope SOLO ahi y solo para el anfitrion (`data-canvas="host"`); el escritorio
+ *    (>= 1 280 px) queda igual.
+ *  - Tactil: el campo de texto que se escribe sobre la hoja (12 px) pasa a 16 px, que Safari no amplia al enfocarlo
+ *    (SC-04), y sobresale 6 px por arriba y por abajo para que la letra entre; con raton no cambia nada.
+ */
+/** Ajustes tactiles, validos en cualquier contenedor (herramienta suelta y PDF Pro). */
+const CANVAS_TOUCH_OVERRIDES = [
+  "pointer-coarse:[&_[data-element-kind=text]_input]:text-base",
+  "pointer-coarse:[&_[data-element-kind=text]_input]:h-auto",
+  "pointer-coarse:[&_[data-element-kind=text]_input]:-inset-y-1.5",
+  // Barra de zoom del lienzo: «Alejar / 100 % / Acercar» a 2 px entre si; con el dedo, 8 px (VI-07).
+  "pointer-coarse:[&_[data-canvas-sticky]_[role=group]]:gap-2",
+].join(" ");
+
+/** Solo la herramienta suelta (no PDF Pro, que gobierna su propio layout de tablet). */
+export const CANVAS_OVERRIDES = [
+  CANVAS_TOUCH_OVERRIDES,
+  "md:max-xl:[&_[data-canvas=host]]:max-w-[52rem]",
+  // El dock de la paleta va DETRAS de la hoja (columna) tambien en tablet; el lienzo la pone en fila desde 768 px.
+  "md:max-xl:[&_div:has(>[data-palette-dock])]:flex-col",
+  "md:max-xl:[&_div:has(>[data-palette-dock])]:items-stretch",
+].join(" ");
+
+/** Clases del contenedor del lienzo segun donde se monte (PDF Pro conserva su layout de tablet). */
+function canvasOverridesFor(inPro: boolean): string {
+  return inPro ? CANVAS_TOUCH_OVERRIDES : CANVAS_OVERRIDES;
 }
 
 /** Notifica a la aplicacion automatica de plantillas los archivos de la ronda. No pinta nada. */
@@ -3129,26 +3222,63 @@ export function MultiFlow({
   }, [options.step]);
 
   /**
-   * Al cambiar de paso con los botones «Atrás» / «Continuar», el que se acaba
-   * de pulsar puede desaparecer (no hay «Atrás» en el primer paso ni «Continuar»
-   * en el ultimo) y el foco caeria a `<body>`. Solo en ese caso se lleva al
-   * paso actual de la barra; si el foco sigue en un boton vivo, no se toca.
+   * Al cambiar de paso (stepper, «Atrás» / «Continuar», «Ir a corregirlo»...):
+   *  1. la vista empieza en el paso nuevo —la barra de pasos queda justo bajo las barras fijas—: el navegador conservaba
+   *     la posicion del paso anterior y el traspaso del turno caia fuera de pantalla (movil e iPad, SC-01);
+   *  2. el foco va al paso actual de la barra cuando se habia quedado en `<body>` o en uno de los botones «Atrás» /
+   *     «Continuar» (que pueden desaparecer, o quedar al final de un paso largo); si la persona (o la tabla de
+   *     asignacion, «Ir a corregirlo») ya lo puso en otro control vivo, no se toca;
+   *  3. se anuncia «Paso 2 de 3: Documento» en una region viva.
    * No actua al montar.
    */
   const stepNavRef = useRef<HTMLElement>(null);
   const lastStepRef = useRef(options.step);
+  const [stepAnnouncement, setStepAnnouncement] = useState("");
+  const stepAnnounceText = strings.stepAnnounce(position + 1, MULTI_STEPS.length, stepLabels[options.step]);
   useEffect(() => {
     if (lastStepRef.current === options.step) return;
     lastStepRef.current = options.step;
+    const nav = stepNavRef.current;
+    if (nav) revealElement(nav, { align: "start", margin: 8 });
     const active = document.activeElement;
-    if (active && active !== document.body) return;
-    stepNavRef.current
-      ?.querySelector<HTMLElement>('[aria-current="step"]')
-      ?.focus({ preventScroll: true });
+    if (!active || active === document.body || (active instanceof HTMLElement && active.hasAttribute("data-step-nav"))) {
+      nav?.querySelector<HTMLElement>('[aria-current="step"]')?.focus({ preventScroll: true });
+    }
+    setStepAnnouncement(stepAnnounceText);
+    // `stepAnnounceText` cambia SOLO con el paso (y el idioma): no hace falta en las dependencias.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.step]);
+  const inProSuite = useInProSuite();
+  /**
+   * Donde vive «Continuar» (ER-02, auditoria movil/iPad): movil (< 768 px de ancho y <= 960 de alto) = pegado abajo, al alcance del pulgar; tablet
+   * (768-1279 px, o un movil muy alto como un iPad mini vertical) = al final de la barra de pasos, siempre a la vista tras el cambio de paso (pegado abajo tapaba controles
+   * del contenido: la barra «Procesar» de tablet ya ocupa ese borde); escritorio ancho y PDF Pro = al final del paso, como
+   * siempre.
+   */
+  // Un iPad mini vertical (744 x 1 133) es «movil» por ancho pero alto como una tablet: su contenido cabe sin desplazarse y un
+  // boton pegado abajo tapaba controles; recibe el «Continuar» de la barra de pasos como las tablets.
+  const phoneLayout = useMatchMedia("(max-width: 767.98px) and (max-height: 960px)");
+  const tabletLayout = useMatchMedia(
+    "(min-width: 768px) and (max-width: 1279.98px), (max-width: 767.98px) and (min-height: 961px)",
+  );
+  const nextPlacement: "sticky" | "nav" | "flow" = inProSuite ? "flow" : phoneLayout ? "sticky" : tabletLayout ? "nav" : "flow";
+  const nextButton = nextStep ? (
+    <Button
+      size="md"
+      data-step-nav=""
+      disabled={!reachable(nextStep)}
+      onClick={() => setOptions({ step: nextStep })}
+    >
+      {strings.next}
+    </Button>
+  ) : null;
 
   return (
-    <div className="space-y-5">
+    <div className={cn("space-y-5", canvasOverridesFor(inProSuite))}>
+      {/* Anuncio del cambio de paso (region viva siempre montada; sin `role` para no duplicar los `status` de la pagina). */}
+      <p aria-live="polite" aria-atomic="true" className="sr-only" data-step-announce="">
+        {stepAnnouncement}
+      </p>
       {/* Region viva siempre montada (varios documentos): modo, alcance y bloques. */}
       {multi ? (
         <p role="status" aria-live="polite" className="sr-only">
@@ -3158,7 +3288,7 @@ export function MultiFlow({
       <nav
         ref={stepNavRef}
         aria-label={strings.ceremonyTitle}
-        className="flex flex-wrap gap-1.5"
+        className="flex flex-wrap gap-2"
       >
         {MULTI_STEPS.map((step, index) => {
           const active = step === options.step;
@@ -3180,6 +3310,7 @@ export function MultiFlow({
             </button>
           );
         })}
+        {nextPlacement === "nav" && nextButton ? <span className="ml-auto">{nextButton}</span> : null}
       </nav>
 
       <PrivacyNotice strings={strings} />
@@ -3393,26 +3524,35 @@ export function MultiFlow({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        {previousStep ? (
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={() => setOptions({ step: previousStep })}
-          >
-            {strings.back}
-          </Button>
-        ) : null}
-        {nextStep ? (
-          <Button
-            size="md"
-            disabled={!reachable(nextStep)}
-            onClick={() => setOptions({ step: nextStep })}
-          >
-            {strings.next}
-          </Button>
-        ) : null}
-      </div>
+      {previousStep || (nextPlacement === "flow" && nextButton) ? (
+        <div className="flex flex-wrap gap-2">
+          {previousStep ? (
+            <Button
+              variant="secondary"
+              size="md"
+              data-step-nav=""
+              onClick={() => setOptions({ step: previousStep })}
+            >
+              {strings.back}
+            </Button>
+          ) : null}
+          {nextPlacement === "flow" ? nextButton : null}
+        </div>
+      ) : null}
+      {/*
+        «Continuar» en el movil: pegado al borde de abajo, al alcance del pulgar, mientras el paso sea mas largo que la
+        pantalla (antes iba al FINAL del contenido: 250-2 200 px de desplazamiento). Queda sobre la barra «Opciones/Procesar»
+        y la tab bar. El contenedor no pinta ni recibe toques: el boton lleva su propio material. «Atras» queda en el flujo
+        (la paleta plegada del lienzo ocupa ese rincon).
+      */}
+      {nextPlacement === "sticky" && nextButton ? (
+        <div
+          data-step-actions=""
+          className="pointer-events-none sticky bottom-[calc(9.5rem+env(safe-area-inset-bottom,0px))] z-20 flex justify-end"
+        >
+          <span className="pointer-events-auto material-thick shadow-elevation-2 rounded-ios-sm">{nextButton}</span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3438,6 +3578,67 @@ export type SoloSignatureSurfaceProps = {
   onVaultNoticeChange: (notice: VaultNotice | null) => void;
 };
 
+/** Hueco de la firma propia en el lienzo (contrato de `DocumentCanvas`: `data-element-kind` / `data-element-id`). */
+const SOLO_SIGNATURE_SELECTOR = `[data-element-kind="slot"][data-element-id="${SOLO_SLOT_ID}"]`;
+
+/**
+ * ER-01 (auditoria movil/iPad): tras «Usar esta firma» (o elegir una guardada) la firma se coloca SOLA en la hoja, pero la
+ * vista no se movia y el resultado de la accion principal quedaba fuera de pantalla (y, en el movil, bajo las barras fijas).
+ * Cuando llega una firma nueva y ya no hay hoja encima (compositor / baul cerrados), se lleva el hueco al centro de la
+ * franja libre —entre la barra de zoom y las barras de abajo—, con un destello corto. Se repite una vez al asentarse la
+ * pantalla (la hoja sale animada y devuelve el desplazamiento de la pagina). Una sesion restaurada no se desplaza.
+ */
+function useRevealPlacedSignature(signaturePng: string, placed: boolean, blocked: boolean, resetZoomLabel: string): void {
+  const seenRef = useRef(signaturePng);
+  const pendingRef = useRef(false);
+  useEffect(() => {
+    if (signaturePng && signaturePng !== seenRef.current) pendingRef.current = true;
+    seenRef.current = signaturePng;
+  }, [signaturePng]);
+  useEffect(() => {
+    if (!pendingRef.current || blocked || !placed) return;
+    let cancelled = false;
+    const timers: number[] = [];
+    let first = true;
+    /** La firma cabe entera dentro del recuadro de la hoja (con zoom la hoja se recorta: el hueco puede quedar fuera). */
+    const insideSheet = (target: Element): boolean => {
+      const clip = target.closest('[data-canvas="host"]')?.parentElement;
+      if (!clip) return true;
+      const sheet = clip.getBoundingClientRect();
+      const r = target.getBoundingClientRect();
+      return r.left >= sheet.left - 1 && r.right <= sheet.right + 1 && r.top >= sheet.top - 1 && r.bottom <= sheet.bottom + 1;
+    };
+    const attempt = (triesLeft: number) => {
+      if (cancelled) return;
+      const target = document.querySelector(SOLO_SIGNATURE_SELECTOR);
+      if (!target) {
+        if (triesLeft > 0) timers.push(window.setTimeout(() => attempt(triesLeft - 1), 100));
+        return;
+      }
+      // Con la hoja ampliada y desplazada el hueco puede quedar fuera de su recuadro: se vuelve a 100 %.
+      if (!insideSheet(target)) {
+        const reset = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.getAttribute("aria-label") === resetZoomLabel && !button.disabled,
+        );
+        reset?.click();
+      }
+      if (!isRevealed(target)) revealElement(target, { align: "center", smooth: first });
+      if (first) {
+        first = false;
+        pulseElement(target);
+        pendingRef.current = false;
+        // Segunda comprobacion cuando la hoja termino de salir y la pagina recupero su desplazamiento.
+        timers.push(window.setTimeout(() => attempt(0), 700));
+      }
+    };
+    timers.push(window.setTimeout(() => attempt(30), 250));
+    return () => {
+      cancelled = true;
+      for (const timer of timers) window.clearTimeout(timer);
+    };
+  }, [blocked, placed, signaturePng, resetZoomLabel]);
+}
+
 /**
  * «Solo yo» con todo lo que cuelga de la firma propia: el flujo sobre el lienzo, el compositor de la
  * firma y la hoja del baul, con sus avisos. El estado (hojas abiertas, aviso del baul) lo pone quien
@@ -3461,6 +3662,7 @@ export function SoloSignatureSurface({
   vaultNotice,
   onVaultNoticeChange,
 }: SoloSignatureSurfaceProps) {
+  useRevealPlacedSignature(options.signaturePng, options.rect.width > 0, composerOpen || vaultOpen, strings.resetZoomButton);
   return (
     <>
       <VaultNoticeLine notice={vaultNotice} />
@@ -3605,9 +3807,10 @@ export function SoloFlow({
     seen,
   });
   const textEditConfig = useTextEditConfig(options.textEdits, setOptions, editStrings);
+  const inProSuite = useInProSuite();
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className={cn("flex flex-col gap-4", canvasOverridesFor(inProSuite))}>
       <DetectionStatus
         detecting={detecting}
         failed={detectionFailed}

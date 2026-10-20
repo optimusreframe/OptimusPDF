@@ -524,7 +524,7 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
 const DROPDOWN_HEIGHT_CLASS = "h-11";
 
 const CONTROL_CLASS =
-  "min-h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-callout text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:opacity-60";
+  "min-h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-callout pointer-coarse:text-base text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:opacity-60";
 
 /** Radios, desplegables y listas: el lienzo no los edita, asi que se eligen con controles nativos. */
 function ChoiceFields({

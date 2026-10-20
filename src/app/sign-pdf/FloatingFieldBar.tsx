@@ -599,7 +599,7 @@ export function FloatingFieldBar({
               "material-thick shadow-elevation-3",
               placement?.fixed ? "fixed" : "absolute",
               aboveSticky ? "z-40" : "z-20",
-              "flex w-max max-w-full flex-wrap items-center justify-center gap-1 rounded-ios p-1",
+              "flex w-max max-w-full flex-wrap items-center justify-center gap-1 rounded-ios p-1 pointer-coarse:gap-2",
             )}
           >
             {description ? (
@@ -639,7 +639,7 @@ export function BarGroup({
     <div
       role="group"
       aria-label={label}
-      className={cn("flex items-center gap-0.5 rounded-ios-sm bg-white/6 p-0.5 pointer-coarse:p-0", className)}
+      className={cn("flex items-center gap-0.5 rounded-ios-sm bg-white/6 p-0.5 pointer-coarse:gap-2 pointer-coarse:p-0", className)}
     >
       {children}
     </div>

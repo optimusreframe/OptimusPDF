@@ -79,7 +79,7 @@ export type TemplateEditorProps = {
 const NOOP = () => {};
 const EMPTY_VALUES: Record<string, string> = {};
 const FIELD_INPUT =
-  "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal";
+  "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm pointer-coarse:text-base text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal";
 
 type DetectState =
   | { status: "idle" }

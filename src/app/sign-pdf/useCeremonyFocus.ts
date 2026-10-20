@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
+import { revealElement } from "@/app/sign-pdf/scrollReveal";
 
 /**
  * Foco de la ceremonia por turnos. Cada etapa («traspaso», «captura»,
@@ -11,7 +12,10 @@ import { useEffect, useRef, type RefObject } from "react";
  *
  * Devuelve la referencia que hay que poner (con `tabIndex={-1}`) en el
  * encabezado de la etapa visible; al cambiar `stage` o `position` se enfoca
- * con `preventScroll`.
+ * con `preventScroll` y la vista se lleva a ese encabezado, justo bajo las
+ * barras fijas: sin esto el navegador conservaba la posicion de la etapa
+ * anterior y el traspaso («Pasale el dispositivo a Ana») quedaba fuera de
+ * pantalla (movil e iPad, SC-01).
  *
  * NO enfoca al montar: entrar al paso no debe robar el foco (la persona viene
  * de pulsar «Continuar» en el paso anterior, que ya gestiona el suyo). Se
@@ -30,7 +34,10 @@ export function useCeremonyFocus<T extends HTMLElement = HTMLHeadingElement>(
     lastRef.current = { stage, position };
     if (!last) return;
     if (last.stage === stage && last.position === position) return;
-    headingRef.current?.focus({ preventScroll: true });
+    const heading = headingRef.current;
+    if (!heading) return;
+    heading.focus({ preventScroll: true });
+    revealElement(heading, { align: "start", margin: 12 });
   }, [stage, position]);
 
   return headingRef;

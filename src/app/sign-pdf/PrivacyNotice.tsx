@@ -44,8 +44,9 @@ export type PrivacyNoticeProps = {
  * -- el único que toca `src/lib/valueHistory.ts`, `signDrafts.ts` y el baúl
  * de firmas (`signVault.ts`). El modo "solo yo" no tiene este aviso: su hoja
  * de firmas guardadas lleva sus propios «Borrar» (una o todas). El texto
- * completo se abre solo, sin preguntar, la primera vez que se ve un documento; a partir de ahí queda colapsado mientras siga
- * alcanzable con el icono "i". El botón de borrado vive siempre en la
+ * completo YA NO se abre solo (era un muro de ~1 000 px la primera vez, ER-03 de la auditoria movil/iPad): la primera vez se ve
+ * un RESUMEN de una frase con «Leer completo» y «Entendido»; cualquiera de los dos (o cerrar el texto) recuerda que ya se vio
+ * y a partir de ahí queda colapsado mientras siga alcanzable con el icono "i". El botón de borrado vive siempre en la
  * misma fila, no solo dentro del aviso: la idea explícita del producto es
  * que "Borrar datos" nunca dependa de haber abierto el aviso primero.
  *
@@ -55,7 +56,10 @@ export type PrivacyNoticeProps = {
  * «Quitar ahora las firmas de los borradores guardados» (F0-fix2, N2): apagar el interruptor no purga lo ya guardado.
  */
 export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
-  const [open, setOpen] = useState(() => !hasSeenNotice());
+  /** Texto completo abierto. */
+  const [open, setOpen] = useState(false);
+  /** Primera vez: el resumen corto con «Leer completo» y «Entendido». */
+  const [summary, setSummary] = useState(() => !hasSeenNotice());
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const vaultEnabled = useSignPdfFeatureFlag("signatureVault");
   const signaturesInDraft = useSignPdfFeatureFlag("signaturesInDraft");
@@ -72,12 +76,18 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
     markNoticeSeen();
   };
 
+  const toggleFull = () => {
+    setSummary(false);
+    if (open) markNoticeSeen();
+    setOpen(!open);
+  };
+
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="button"
-          onClick={() => setOpen((value) => !value)}
+          onClick={toggleFull}
           aria-expanded={open}
           // Zona de toque de 44 px de alto bajo puntero grueso, sin cambiar el aspecto de escritorio. Con raton, 24 px
           // reales de alto (WCAG 2.5.8): la linea de texto sola mide ~19,5 px y, segun la tipografia del sistema (p. ej.
@@ -109,6 +119,36 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
           {statusText}
         </StatusRegion>
       </div>
+
+      {summary && !open ? (
+        <div data-privacy-summary="" className="surface-card rounded-ios flex flex-col gap-3 p-4">
+          <p className="flex items-start gap-3 text-footnote leading-relaxed text-foreground">
+            <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0">{strings.privacySummary}</span>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => {
+                setSummary(false);
+                setOpen(true);
+              }}
+            >
+              {strings.privacyReadFull}
+            </Button>
+            <Button
+              size="md"
+              onClick={() => {
+                setSummary(false);
+                markNoticeSeen();
+              }}
+            >
+              {strings.privacyUnderstood}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {open ? (
         <div className="surface-card rounded-ios flex items-start gap-3 p-4">

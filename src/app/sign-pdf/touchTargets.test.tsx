@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
 import { SignerManager } from "@/app/sign-pdf/SignerManager";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
@@ -59,6 +59,10 @@ describe("objetivos tactiles de 44 px", () => {
         <PrivacyNotice strings={strings} />
       </LanguageProvider>,
     );
+    // La primera vez se ve el resumen; «Leer completo» abre el texto con su «Cerrar» (ER-03).
+    expect(screen.getByRole("button", { name: strings.privacyReadFull }).className).toMatch(/h-11/);
+    expect(screen.getByRole("button", { name: strings.privacyUnderstood }).className).toMatch(/h-11/);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     expect(screen.getByRole("button", { name: strings.privacyNoticeToggle }).className).toContain(
       "pointer-coarse:min-h-11",
     );

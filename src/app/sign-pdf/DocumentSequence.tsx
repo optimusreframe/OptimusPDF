@@ -380,14 +380,14 @@ export function DocumentSequence({
         <div
           data-canvas-sticky=""
           data-sequence-bar=""
-          className="material-thick shadow-elevation-2 rounded-ios sticky top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] z-30 flex items-center justify-between gap-x-1 p-1 md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3"
+          className="material-thick shadow-elevation-2 rounded-ios sticky top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] z-30 flex items-center justify-between gap-x-1 p-1 md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3 pointer-coarse:gap-x-2"
         >
-          <div ref={setZoomSlot} className="flex shrink-0 items-center" />
+          <div ref={setZoomSlot} className="flex shrink-0 items-center pointer-coarse:[&_[role=group]]:gap-2" />
           {/* Una sola fila a 375 px: lo que sobra se lo lleva el nombre del documento (se recorta). */}
           <div
             role="group"
             aria-label={strings.sequenceBarLabel}
-            className="flex min-w-0 items-center gap-1"
+            className="flex min-w-0 items-center gap-1 pointer-coarse:gap-2"
           >
             <Button
               ref={previousRef}

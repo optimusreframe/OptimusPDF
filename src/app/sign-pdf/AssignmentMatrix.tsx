@@ -575,7 +575,7 @@ function Stepper({ value, onLess, onMore, lessLabel, moreLabel, valueLabel, less
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:pointer-events-none disabled:opacity-50 " +
     "forced-colors:border-[ButtonText] forced-colors:disabled:border-[GrayText]";
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 pointer-coarse:gap-2">
       <button type="button" className={button} aria-label={lessLabel} disabled={lessDisabled} onClick={onLess}>
         <Minus aria-hidden="true" className="size-4" />
       </button>

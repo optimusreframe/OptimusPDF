@@ -316,7 +316,7 @@ describe("MultiFlow — el foco no se pierde al llegar al ultimo / primer paso",
     expect(document.activeElement).toBe(stepButton(1, strings.stepSigners));
   });
 
-  it("si el boton pulsado sigue en pantalla («Continuar» de Firmantes a Documento), el foco se queda en el", async () => {
+  it("aunque «Continuar» siga en pantalla (de Firmantes a Documento), el foco va al paso nuevo de la barra: la vista empieza arriba del paso (SC-01)", async () => {
     render(
       <LanguageProvider>
         <Flow step="signers" />
@@ -329,7 +329,12 @@ describe("MultiFlow — el foco no se pierde al llegar al ultimo / primer paso",
     await waitFor(() =>
       expect(stepButton(2, strings.stepDocument).getAttribute("aria-current")).toBe("step"),
     );
-    expect(document.activeElement).toBe(nextButton());
+    // Antes el foco se quedaba en «Continuar», al final de un paso largo y fuera de la vista tras el cambio de paso.
+    expect(document.activeElement).toBe(stepButton(2, strings.stepDocument));
+    // El cambio de paso se anuncia en una region viva (sin `role`, para no duplicar los `status` de la pagina).
+    expect(document.querySelector("[data-step-announce]")?.textContent).toBe(
+      strings.stepAnnounce(2, 3, strings.stepDocument),
+    );
   });
 
   it("pulsar un paso de la barra deja el foco en ese paso", async () => {

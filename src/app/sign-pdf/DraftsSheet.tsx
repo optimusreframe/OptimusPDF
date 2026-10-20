@@ -161,7 +161,7 @@ export function DraftsSheet({ open, onClose, onResume, strings }: DraftsSheetPro
                         </p>
                       ) : null}
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="flex shrink-0 items-center gap-1 pointer-coarse:gap-2">
                       <Button
                         size="md"
                         aria-describedby={infoId}
