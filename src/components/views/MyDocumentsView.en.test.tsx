@@ -71,8 +71,10 @@ describe("Mis documentos (EN)", () => {
     expect(Object.keys(en.documents).sort()).toEqual(Object.keys(es.documents).sort());
     for (const key of Object.keys(es.documents) as (keyof typeof es.documents)[]) {
       expect(en.documents[key], key).toBeTruthy();
+      // `backup` es un bloque anidado (U4.5): se compara su texto serializado (las claves anidadas, en `documentsBackup.test.ts`).
+      const textOf = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
       for (const marker of ["{n}", "{name}", "{max}", "{used}", "{maxDocs}"]) {
-        expect(en.documents[key].includes(marker), `${key} ${marker}`).toBe(es.documents[key].includes(marker));
+        expect(textOf(en.documents[key]).includes(marker), `${key} ${marker}`).toBe(textOf(es.documents[key]).includes(marker));
       }
     }
   });

@@ -116,11 +116,14 @@ describe("estado vacío y privacidad", () => {
     expect(within(storage as HTMLElement).getByText(/0 B usados de 400 MB · 0 de 50 documentos/)).toBeTruthy();
   });
 
-  it("hueco «Respaldar mis documentos» deshabilitado con «Próximamente»", async () => {
+  it("el hueco «Próximamente» del respaldo ya no existe: hay «Exportar plantillas y documentos» e «Importar» habilitados", async () => {
     renderView();
-    const backup = await screen.findByRole("button", { name: es.documents.backup });
-    expect((backup as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(es.documents.backupSoon)).toBeTruthy();
+    const exportButton = await screen.findByRole("button", { name: es.documents.backup.exportAction });
+    const importButton = screen.getByRole("button", { name: es.documents.backup.importAction });
+    expect((exportButton as HTMLButtonElement).disabled).toBe(false);
+    expect((importButton as HTMLButtonElement).disabled).toBe(false);
+    expect(document.body.textContent ?? "").not.toContain("Próximamente");
+    expect(screen.getByText(es.documents.backup.lastNever)).toBeTruthy();
   });
 
   it("sin IndexedDB explica el motivo, no ofrece añadir y no rompe", async () => {

@@ -4,6 +4,8 @@ import { useMemo, useRef, useState } from "react";
 import { FilePlus2, FolderOpen, ShieldCheck, TriangleAlert } from "lucide-react";
 import { addDocument, deleteDoc, keepTemplate, renameDoc, replaceDoc } from "@/app/documents/documentActions";
 import { DocumentCard } from "@/app/documents/DocumentCard";
+import { ExportBackupSheet } from "@/app/documents/ExportBackupSheet";
+import { ImportBackupSheet } from "@/app/documents/ImportBackupSheet";
 import { AddDocumentSheet, DocumentMenuSheet, RenameSheet } from "@/app/documents/DocumentSheets";
 import { MAX_SELECTION, pruneSelection, toggleSelection, type ErrorKey } from "@/app/documents/documentsModel";
 import { StoragePanel } from "@/app/documents/StoragePanel";
@@ -11,6 +13,7 @@ import { useDocumentLibrary } from "@/app/documents/useDocumentLibrary";
 import { useOpenInSign } from "@/app/documents/useOpenInSign";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
+import { readLastBackup } from "@/lib/backup/lastBackup";
 import { requestPersistence } from "@/lib/docLibrary/store";
 import type { DocumentEntry } from "@/lib/docLibrary/types";
 import { useT } from "@/lib/i18n";
@@ -43,6 +46,9 @@ export function MyDocumentsView() {
   const [announcement, setAnnouncement] = useState("");
   const [warning, setWarning] = useState("");
   const [requesting, setRequesting] = useState(false);
+  const [backupSheet, setBackupSheet] = useState<"export" | "import" | null>(null);
+  // El panel de almacenamiento solo se pinta cuando la biblioteca ya cargó (en el navegador): leer aquí no desajusta la hidratación.
+  const [lastBackup, setLastBackup] = useState<Date | null>(() => (typeof window === "undefined" ? null : readLastBackup()));
 
   const { documents, statuses, loaded, available, usage, meta, refresh } = library;
   const byId = useMemo(() => new Map(documents.map((doc) => [doc.id, doc])), [documents]);
@@ -259,7 +265,15 @@ export function MyDocumentsView() {
       ) : null}
 
       {loaded && available ? (
-        <StoragePanel usage={usage} meta={meta} onRequestPersistence={() => void handlePersistence()} requesting={requesting} />
+        <StoragePanel
+          usage={usage}
+          meta={meta}
+          onRequestPersistence={() => void handlePersistence()}
+          requesting={requesting}
+          lastBackup={lastBackup}
+          onExport={() => setBackupSheet("export")}
+          onImport={() => setBackupSheet("import")}
+        />
       ) : null}
 
       <input
@@ -275,6 +289,26 @@ export function MyDocumentsView() {
           event.target.value = "";
           if (file) void handleReplace(file);
           else replaceTargetRef.current = null;
+        }}
+      />
+
+      <ExportBackupSheet
+        open={backupSheet === "export"}
+        onClose={() => {
+          setLastBackup(readLastBackup());
+          setBackupSheet(null);
+        }}
+        onDone={(message) => {
+          setLastBackup(readLastBackup());
+          say(message);
+        }}
+      />
+      <ImportBackupSheet
+        open={backupSheet === "import"}
+        onClose={() => setBackupSheet(null)}
+        onDone={(message) => {
+          void refresh();
+          say(message);
         }}
       />
 
