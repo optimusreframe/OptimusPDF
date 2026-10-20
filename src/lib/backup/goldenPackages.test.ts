@@ -23,6 +23,8 @@ import { makePng } from "@/lib/backup/__fixtures__/pngFactory";
 const DIR = path.resolve(__dirname, "__fixtures__/packages");
 const PASSWORD = "dorada-2026";
 const goldens = readdirSync(DIR).filter((f) => f.endsWith(".optimuspdf.zip")).sort();
+/** Los dorados de cada modulo se nombran `<modulo>-v<N>[-encrypted]…`; el contenido de cada familia lo comprueba su propia prueba. */
+const signatureGoldens = goldens.filter((f) => f.startsWith("signatures-"));
 
 beforeEach(async () => {
   await clearVault();
@@ -34,10 +36,24 @@ function open(name: string): Blob {
 
 describe("paquetes dorados — src/lib/backup/__fixtures__/packages", () => {
   it("hay al menos el dorado de firmas v1 (en claro y cifrado)", () => {
-    expect(goldens).toEqual(["signatures-v1-encrypted.optimuspdf.zip", "signatures-v1.optimuspdf.zip"]);
+    expect(signatureGoldens).toEqual(["signatures-v1-encrypted.optimuspdf.zip", "signatures-v1.optimuspdf.zip"]);
   });
 
+  // Cualquier familia (firmas, ajustes, borradores, biblioteca...): el paquete se abre con su contrasena, todos sus modulos se
+  // leen sin avisos y declaran un esquema que esta version soporta.
   for (const name of goldens) {
+    it(`${name}: se abre, todos sus modulos son legibles y no hay avisos`, async () => {
+      const encrypted = name.includes("-encrypted");
+      const read = await readPackage(open(name), encrypted ? PASSWORD : undefined);
+      expect(read).toMatchObject({ formatVersion: 1, encrypted, app: { version: "0.1.0", build: "golden" } });
+      expect(read.modules.length).toBeGreaterThan(0);
+      expect(read.modules.every((m) => m.status === "ok" && m.declaredSchemaVersion >= 1)).toBe(true);
+      expect(read.modules.flatMap((m) => [...m.files.values()]).every((f) => f.status === "ok")).toBe(true);
+      expect(read.warnings).toEqual([]);
+    });
+  }
+
+  for (const name of signatureGoldens) {
     it(`${name}: se lee, se planifica y se importa con los datos y PNG exactos`, async () => {
       const encrypted = name.includes("-encrypted");
       const read = await readPackage(open(name), encrypted ? PASSWORD : undefined);

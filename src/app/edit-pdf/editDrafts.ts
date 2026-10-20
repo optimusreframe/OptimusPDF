@@ -798,3 +798,206 @@ export async function clearAllEditDrafts(): Promise<ClearEditDraftsResult> {
     return { ok: false, reason: "unavailable" };
   }
 }
+
+/** `Array.isArray` sin estrechar el tipo (sobre una lista `readonly` lo vuelve `any[]` y se pierde la comprobacion de tipos). */
+function isArrayValue(value: unknown): boolean {
+  return Array.isArray(value);
+}
+
+/* ------------------------------------------------------------------ *
+ * Respaldo (U4.6): importar borradores
+ * ------------------------------------------------------------------ */
+
+/** Un borrador del editor que se importa: sus metadatos (ya con la sesion serializada) y TODOS sus archivos (el PDF `<id>` y las imagenes `<id>/<assetId>`). */
+export type EditDraftImport = {
+  meta: EditDraftMeta;
+  files: ReadonlyArray<{ key: string; bytes: Uint8Array }>;
+};
+
+/** Lo que la vista previa vio de un borrador local que se va a SUSTITUIR: se compara dentro de la transaccion. */
+export type EditDraftImportExpectation = { id: string; savedAt: string };
+
+export type CommitEditDraftImportResult =
+  | {
+      ok: true;
+      written: number;
+      replaced: number;
+      /** Deshace TODO lo escrito (restaura lo sustituido, borra lo creado). Nunca lanza. */
+      undo: () => Promise<void>;
+    }
+  | { ok: false; reason: "invalid" | "changed" | "limit" | "unavailable" };
+
+/**
+ * Escribe borradores IMPORTADOS del editor en UNA transaccion (todos o ninguno). Dentro comprueba que lo que sustituye
+ * sigue siendo lo que vio la vista previa (`replace`), que ningun id ocupado queda sin declarar (`changed`) y que el
+ * resultado cabe sin expulsar a nadie (`MAX_EDIT_DRAFTS`, `MAX_EDIT_DRAFTS_TOTAL_BYTES`, `MAX_EDIT_DRAFT_BYTES`): el
+ * respaldo nunca borra trabajo ajeno para hacer sitio. Conserva el `savedAt` del paquete. Un borrador del editor se llama
+ * como la huella del PDF (uno por documento), asi que aqui no hay «conservar ambos»: sustituir u omitir.
+ */
+export async function commitEditDraftImport(input: {
+  puts: readonly EditDraftImport[];
+  replace: readonly EditDraftImportExpectation[];
+}): Promise<CommitEditDraftImportResult> {
+  try {
+    const puts = input?.puts;
+    const replace = input?.replace;
+    if (!isArrayValue(puts) || !isArrayValue(replace)) return { ok: false, reason: "invalid" };
+    const seen = new Set<string>();
+    for (const put of puts) {
+      const rawFiles: unknown = put?.files;
+      if (!put || !isEditDraftMeta(put.meta) || seen.has(put.meta.id) || !isArrayValue(rawFiles)) {
+        return { ok: false, reason: "invalid" };
+      }
+      seen.add(put.meta.id);
+      const keys = new Set(put.files.map((file) => file.key));
+      const wanted = [fileKey(put.meta.id), ...Object.keys(put.meta.session.assets).map((a) => fileKey(put.meta.id, a))];
+      if (
+        keys.size !== put.files.length ||
+        wanted.length !== keys.size ||
+        !wanted.every((key) => keys.has(key)) ||
+        !put.files.every((file) => file.bytes instanceof Uint8Array) ||
+        put.meta.totalBytes > limits.maxDraftBytes
+      ) {
+        return { ok: false, reason: put.meta.totalBytes > limits.maxDraftBytes ? "limit" : "invalid" };
+      }
+    }
+    if (puts.length === 0) return { ok: true, written: 0, replaced: 0, undo: async () => {} };
+
+    const db = await openDb();
+    type Outcome =
+      | { ok: true; replaced: number; created: string[]; before: { metas: EditDraftMeta[]; files: FileRecord[] } }
+      | { ok: false; reason: "changed" | "limit" };
+    let outcome: Outcome;
+    try {
+      outcome = await new Promise<Outcome>((resolve, reject) => {
+        const tx = db.transaction([FILES_STORE, META_STORE], "readwrite");
+        let result: Outcome | null = null;
+        let failure: unknown;
+        tx.oncomplete = () => (result ? resolve(result) : reject(new Error("sin resultado")));
+        tx.onerror = () => {
+          failure ??= tx.error;
+        };
+        tx.onabort = () => reject(failure ?? tx.error ?? new Error("transaccion abortada"));
+        const filesStore = tx.objectStore(FILES_STORE);
+        const metaStore = tx.objectStore(META_STORE);
+        const metasRequest = metaStore.getAll();
+        const keysRequest = filesStore.getAllKeys();
+        let pending = 2;
+        const abort = (error: unknown) => {
+          failure = error;
+          try {
+            tx.abort();
+          } catch {
+            // ya terminada
+          }
+        };
+        const onRead = () => {
+          pending -= 1;
+          if (pending > 0) return;
+          try {
+            const local = new Map((metasRequest.result as unknown[]).filter(isEditDraftMeta).map((m) => [m.id, m]));
+            const replacing = new Set<string>();
+            for (const expected of replace) {
+              const current = local.get(expected.id);
+              if (!current || current.savedAt !== expected.savedAt) {
+                result = { ok: false, reason: "changed" };
+                return;
+              }
+              replacing.add(expected.id);
+            }
+            for (const put of puts) {
+              if (local.has(put.meta.id) && !replacing.has(put.meta.id)) {
+                result = { ok: false, reason: "changed" };
+                return;
+              }
+            }
+            let count = local.size - replacing.size + puts.length;
+            let bytes = puts.reduce((sum, put) => sum + put.meta.totalBytes, 0);
+            for (const meta of local.values()) if (!replacing.has(meta.id)) bytes += meta.totalBytes;
+            if (count > limits.maxDrafts || bytes > limits.maxTotalBytes) {
+              result = { ok: false, reason: "limit" };
+              return;
+            }
+            const doomed = (keysRequest.result as string[]).filter((key) => {
+              const slash = key.indexOf("/");
+              return replacing.has(slash < 0 ? key : key.slice(0, slash));
+            });
+            const backups = doomed.map((key) => filesStore.get(key));
+            const before = { metas: [...replacing].map((id) => local.get(id) as EditDraftMeta), files: [] as FileRecord[] };
+            const write = () => {
+              try {
+                for (const key of doomed) filesStore.delete(key);
+                for (const put of puts) {
+                  for (const file of put.files) filesStore.put({ id: file.key, bytes: file.bytes } satisfies FileRecord);
+                  metaStore.put(put.meta);
+                }
+                count = 0;
+                result = {
+                  ok: true,
+                  replaced: replacing.size,
+                  created: puts.filter((put) => !replacing.has(put.meta.id)).map((put) => put.meta.id),
+                  before,
+                };
+              } catch (error) {
+                abort(error);
+              }
+            };
+            if (backups.length === 0) {
+              write();
+              return;
+            }
+            let backupsPending = backups.length;
+            for (const request of backups) {
+              request.onsuccess = () => {
+                const record = request.result as FileRecord | undefined;
+                if (record) before.files.push(record);
+                backupsPending -= 1;
+                if (backupsPending === 0) write();
+              };
+            }
+          } catch (error) {
+            abort(error);
+          }
+        };
+        metasRequest.onsuccess = onRead;
+        keysRequest.onsuccess = onRead;
+      });
+    } finally {
+      db.close();
+    }
+    if (!outcome.ok) return outcome;
+    for (const put of puts) forgetWritten(put.meta.id);
+    announceChange();
+    const undo = async (): Promise<void> => {
+      try {
+        const udb = await openDb();
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const tx = udb.transaction([FILES_STORE, META_STORE], "readwrite");
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+            const filesStore = tx.objectStore(FILES_STORE);
+            const metaStore = tx.objectStore(META_STORE);
+            for (const put of puts) {
+              filesStore.delete(put.meta.id);
+              filesStore.delete(assetKeyRange(put.meta.id));
+              metaStore.delete(put.meta.id);
+            }
+            for (const meta of outcome.before.metas) metaStore.put(meta);
+            for (const record of outcome.before.files) filesStore.put(record);
+          });
+        } finally {
+          udb.close();
+        }
+        for (const put of puts) forgetWritten(put.meta.id);
+        announceChange();
+      } catch {
+        // Nada mas que hacer: el llamador informa de que el respaldo no se pudo deshacer del todo.
+      }
+    };
+    return { ok: true, written: puts.length, replaced: outcome.replaced, undo };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}

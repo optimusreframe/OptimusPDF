@@ -836,3 +836,211 @@ export async function clearLocalProData(): Promise<"proDrafts"[]> {
   const result = await clearAllProDrafts();
   return result.ok ? [] : ["proDrafts"];
 }
+
+/** `Array.isArray` sin estrechar el tipo (sobre una lista `readonly` lo vuelve `any[]` y se pierde la comprobacion de tipos). */
+function isArrayValue(value: unknown): boolean {
+  return Array.isArray(value);
+}
+
+/* ------------------------------------------------------------------ *
+ * Respaldo (U4.6): importar borradores
+ * ------------------------------------------------------------------ */
+
+/** Un borrador de PDF Pro que se importa: metadatos + los bytes del snapshot (se guardan como UNA fila, no troceados). */
+export type ProDraftImport = { meta: ProDraftMeta; bytes: Uint8Array };
+
+/** Lo que la vista previa vio de un borrador local que se va a SUSTITUIR: se compara dentro de la transaccion. */
+export type ProDraftImportExpectation = { id: string; savedAt: string };
+
+export type CommitProDraftImportResult =
+  | {
+      ok: true;
+      written: number;
+      replaced: number;
+      /** Deshace TODO lo escrito (restaura lo sustituido, borra lo creado). Nunca lanza. */
+      undo: () => Promise<void>;
+      /** Barre los trozos que ya no nombra ningun manifiesto (los de borradores troceados sustituidos). Nunca lanza. */
+      finalize: () => Promise<void>;
+    }
+  | { ok: false; reason: "invalid" | "changed" | "limit" | "unavailable" };
+
+/**
+ * Escribe borradores IMPORTADOS de PDF Pro en UNA transaccion (todos o ninguno), con las mismas garantias que
+ * `commitEditDraftImport` (comprueba lo que sustituye, no expulsa a nadie, conserva `savedAt`). Los bytes entran como UNA
+ * fila entera (el formato que `loadProDraft` lee primero tras mirar si hay manifiesto): el siguiente autoguardado de ese
+ * documento ya lo vuelve a trocear si es grande. Si el borrador sustituido estaba troceado, su manifiesto sale pero sus
+ * trozos se QUEDAN hasta `finalize()` (asi `undo()` puede restaurarlo).
+ */
+export async function commitProDraftImport(input: {
+  puts: readonly ProDraftImport[];
+  replace: readonly ProDraftImportExpectation[];
+}): Promise<CommitProDraftImportResult> {
+  try {
+    const puts = input?.puts;
+    const replace = input?.replace;
+    if (!isArrayValue(puts) || !isArrayValue(replace)) return { ok: false, reason: "invalid" };
+    const seen = new Set<string>();
+    for (const put of puts) {
+      if (!put || !isProDraftMeta(put.meta) || seen.has(put.meta.id) || !(put.bytes instanceof Uint8Array) || put.bytes.byteLength === 0) {
+        return { ok: false, reason: "invalid" };
+      }
+      seen.add(put.meta.id);
+      if (put.bytes.byteLength > limits.maxDraftBytes) return { ok: false, reason: "limit" };
+    }
+    if (puts.length === 0) {
+      return { ok: true, written: 0, replaced: 0, undo: async () => {}, finalize: async () => {} };
+    }
+
+    const db = await openDb();
+    type Outcome =
+      | { ok: true; replaced: number; before: { metas: ProDraftMeta[]; rows: unknown[] } }
+      | { ok: false; reason: "changed" | "limit" };
+    let outcome: Outcome;
+    try {
+      outcome = await new Promise<Outcome>((resolve, reject) => {
+        const tx = db.transaction([FILES_STORE, META_STORE], "readwrite");
+        let result: Outcome | null = null;
+        let failure: unknown;
+        tx.oncomplete = () => (result ? resolve(result) : reject(new Error("sin resultado")));
+        tx.onerror = () => {
+          failure ??= tx.error;
+        };
+        tx.onabort = () => reject(failure ?? tx.error ?? new Error("transaccion abortada"));
+        const filesStore = tx.objectStore(FILES_STORE);
+        const metaStore = tx.objectStore(META_STORE);
+        const abort = (error: unknown) => {
+          failure = error;
+          try {
+            tx.abort();
+          } catch {
+            // ya terminada
+          }
+        };
+        const metasRequest = metaStore.getAll();
+        metasRequest.onsuccess = () => {
+          try {
+            const local = new Map((metasRequest.result as unknown[]).filter(isProDraftMeta).map((m) => [m.id, m]));
+            const replacing = new Set<string>();
+            for (const expected of replace) {
+              const current = local.get(expected.id);
+              if (!current || current.savedAt !== expected.savedAt) {
+                result = { ok: false, reason: "changed" };
+                return;
+              }
+              replacing.add(expected.id);
+            }
+            for (const put of puts) {
+              if (local.has(put.meta.id) && !replacing.has(put.meta.id)) {
+                result = { ok: false, reason: "changed" };
+                return;
+              }
+            }
+            const count = local.size - replacing.size + puts.length;
+            let bytes = puts.reduce((sum, put) => sum + put.bytes.byteLength, 0);
+            for (const meta of local.values()) if (!replacing.has(meta.id)) bytes += meta.fileSize;
+            if (count > limits.maxDrafts || bytes > limits.maxTotalBytes) {
+              result = { ok: false, reason: "limit" };
+              return;
+            }
+            // Copia de seguridad de las filas que se van a pisar: la fila entera y el manifiesto (los trozos no se tocan).
+            const ids = [...replacing];
+            const backups = ids.flatMap((id) => [filesStore.get(id), filesStore.get(`${MANIFEST_PREFIX}${id}`)]);
+            const before = { metas: ids.map((id) => local.get(id) as ProDraftMeta), rows: [] as unknown[] };
+            const write = () => {
+              try {
+                for (const id of ids) {
+                  filesStore.delete(id);
+                  deleteManifest(filesStore, id);
+                  writtenSnapshots.delete(id);
+                }
+                for (const put of puts) {
+                  const record: FileRecord = { id: put.meta.id, bytes: put.bytes };
+                  filesStore.put(record);
+                  deleteManifest(filesStore, put.meta.id);
+                  writtenSnapshots.delete(put.meta.id);
+                  metaStore.put(put.meta);
+                }
+                result = { ok: true, replaced: replacing.size, before };
+              } catch (error) {
+                abort(error);
+              }
+            };
+            if (backups.length === 0) {
+              write();
+              return;
+            }
+            let backupsPending = backups.length;
+            for (const request of backups) {
+              request.onsuccess = () => {
+                if (request.result !== undefined) before.rows.push(request.result);
+                backupsPending -= 1;
+                if (backupsPending === 0) write();
+              };
+            }
+          } catch (error) {
+            abort(error);
+          }
+        };
+      });
+    } finally {
+      db.close();
+    }
+    if (!outcome.ok) return outcome;
+    announceChange();
+    const undo = async (): Promise<void> => {
+      try {
+        const udb = await openDb();
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const tx = udb.transaction([FILES_STORE, META_STORE], "readwrite");
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+            const filesStore = tx.objectStore(FILES_STORE);
+            const metaStore = tx.objectStore(META_STORE);
+            for (const put of puts) {
+              filesStore.delete(put.meta.id);
+              metaStore.delete(put.meta.id);
+              writtenSnapshots.delete(put.meta.id);
+            }
+            for (const meta of outcome.before.metas) metaStore.put(meta);
+            for (const row of outcome.before.rows) filesStore.put(row);
+          });
+        } finally {
+          udb.close();
+        }
+        announceChange();
+      } catch {
+        // Nada mas que hacer: el llamador informa de que el respaldo no se pudo deshacer del todo.
+      }
+    };
+    const finalize = async (): Promise<void> => {
+      try {
+        const fdb = await openDb();
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const tx = fdb.transaction([FILES_STORE], "readwrite");
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+            collectChunkGarbage(tx.objectStore(FILES_STORE), () => {}, (error) => {
+              reject(error);
+              try {
+                tx.abort();
+              } catch {
+                // ya terminada
+              }
+            });
+          });
+        } finally {
+          fdb.close();
+        }
+      } catch {
+        // Los trozos huerfanos los barre el siguiente autoguardado.
+      }
+    };
+    return { ok: true, written: puts.length, replaced: outcome.replaced, undo, finalize };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}

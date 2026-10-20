@@ -1702,3 +1702,429 @@ export async function clearAllDrafts(): Promise<ClearDraftsResult> {
     return { ok: false, reason: "unavailable" };
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * Respaldo (U4.6): leer sin efectos y escribir importando
+ * ------------------------------------------------------------------ */
+
+/**
+ * Forma minima de un borrador de UN documento (lo que viene de IndexedDB no se da por bueno). No existia: los borradores v1
+ * se leian a ciegas porque solo los escribia esta misma herramienta; el respaldo los vuelve a leer para EXPORTARLOS.
+ */
+export function isDocumentDraftMeta(value: unknown): value is DraftMeta {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    typeof value.fileName === "string" &&
+    typeof value.fileSize === "number" &&
+    typeof value.savedAt === "string" &&
+    typeof value.step === "string" &&
+    Array.isArray(value.signers) &&
+    Array.isArray(value.fields) &&
+    Array.isArray(value.textFields) &&
+    isRecord(value.textValues) &&
+    isRecord(value.captures)
+  );
+}
+
+/**
+ * Lee un borrador de UN documento SIN efectos: no borra nada (ni lo caducado ni lo huerfano), no persiste fechas de
+ * caducidad y NO anota la version leida en esta pestana (`noteRev`/`noteRestored`): exportar o comparar no es restaurar, y
+ * anotarla haria que esta pestana creyera haber visto una version que otra pestana escribio (D1). `null` si no existe,
+ * esta caducado (el respaldo no exporta borradores caducados), no es valido o le faltan los bytes.
+ */
+export async function peekDocumentDraft(id: string, now: number = Date.now()): Promise<LoadedDraft | null> {
+  try {
+    const db = await openDb();
+    try {
+      const stored = await getFromStore<unknown>(db, META_STORE, id);
+      if (!isDocumentDraftMeta(stored)) return null;
+      const meta = withLegacyExpiry(stored, documentHasStrokes(stored));
+      if (isExpired(meta, now)) return null;
+      const record = await getFromStore<FileRecord>(db, FILES_STORE, id);
+      return record ? { meta, bytes: record.bytes } : null;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** Igual que `peekDocumentDraft` para una sesion de varios documentos (sin efectos; `null` si falta cualquier documento). */
+export async function peekSessionDraft(id: string, now: number = Date.now()): Promise<LoadedSessionDraft | null> {
+  try {
+    const db = await openDb();
+    try {
+      const row = await getFromStore<unknown>(db, SESSION_STORE, id);
+      if (!isSessionDraftMeta(row)) return null;
+      const meta = withLegacyExpiry(row, sessionHasStrokes(row));
+      if (isExpired(meta, now)) return null;
+      const files: LoadedSessionDraft["files"] = [];
+      for (const doc of meta.documents) {
+        const record = await getFromStore<FileRecord>(db, FILES_STORE, sessionFileKey(id, doc.id));
+        if (!record) return null;
+        files.push({ id: doc.id, fileName: doc.fileName, bytes: record.bytes });
+      }
+      return { meta, files };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+export type DraftListings = {
+  documents: DraftMeta[];
+  sessions: SessionDraftMeta[];
+  /** Filas de documento que no tienen una forma valida (no se pueden exportar). */
+  unreadable: number;
+  /** Borradores caducados que NO se ofrecen (todavia no se purgaron). */
+  expired: number;
+};
+
+/**
+ * Metadatos de TODOS los borradores vigentes (sin bytes y sin efectos): lo que el resumen previo a exportar cuenta.
+ * `null` si no hay IndexedDB o no se pudo leer.
+ */
+export async function listDraftsForBackup(now: number = Date.now()): Promise<DraftListings | null> {
+  try {
+    const db = await openDb();
+    try {
+      const metaRows = await getAllFromStore<unknown>(db, META_STORE);
+      const sessionRows = await getAllFromStore<unknown>(db, SESSION_STORE);
+      const documents: DraftMeta[] = [];
+      const sessions: SessionDraftMeta[] = [];
+      let unreadable = 0;
+      let expired = 0;
+      for (const row of metaRows) {
+        if (!isDocumentDraftMeta(row)) {
+          unreadable += 1;
+          continue;
+        }
+        const meta = withLegacyExpiry(row, documentHasStrokes(row));
+        if (isExpired(meta, now)) expired += 1;
+        else documents.push(meta);
+      }
+      for (const row of sessionRows) {
+        if (!isSessionDraftMeta(row)) {
+          unreadable += 1;
+          continue;
+        }
+        const meta = withLegacyExpiry(row, sessionHasStrokes(row));
+        if (isExpired(meta, now)) expired += 1;
+        else sessions.push(meta);
+      }
+      return { documents, sessions, unreadable, expired };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** Un borrador de documento suelto que se importa (sin `rev` ni `writerId`: los pone la escritura). */
+export type DraftImportDocument = { meta: Omit<DraftMeta, "rev" | "writerId">; bytes: Uint8Array };
+/** Una sesion que se importa; `files` son TODOS sus documentos (mismos ids que `meta.documents`). */
+export type DraftImportSession = {
+  meta: Omit<SessionDraftMeta, "rev" | "writerId">;
+  files: ReadonlyArray<{ id: string; bytes: Uint8Array }>;
+};
+/** Lo que la vista previa vio de cada borrador local que se va a SUSTITUIR: se compara dentro de la transaccion. */
+export type DraftImportExpectation = { kind: "document" | "session"; id: string; savedAt: string; rev: number };
+
+export type CommitDraftImportInput = {
+  documents: readonly DraftImportDocument[];
+  sessions: readonly DraftImportSession[];
+  /** Ids locales que las escrituras sustituyen. Una escritura sobre un id ocupado que no esta aqui es un choque (`changed`). */
+  replace: readonly DraftImportExpectation[];
+};
+
+export type CommitDraftImportResult =
+  | {
+      ok: true;
+      written: number;
+      replaced: number;
+      /** Deshace TODO lo escrito (restaura lo sustituido y borra lo creado). Nunca lanza. */
+      undo: () => Promise<void>;
+    }
+  | { ok: false; reason: "invalid" | "changed" | "limit" | "unavailable" };
+
+type StoredRows = {
+  metas: Map<string, DraftMeta>;
+  sessions: Map<string, SessionDraftMeta>;
+  files: Map<string, FileRecord>;
+};
+
+function isFileList(value: unknown): value is ReadonlyArray<{ id: string; bytes: Uint8Array }> {
+  return Array.isArray(value);
+}
+
+type CommitOutcome =
+  | {
+      ok: true;
+      written: number;
+      replaced: number;
+      stamps: { id: string; rev: number }[];
+      before: StoredRows;
+      createdDocs: string[];
+      createdSessions: string[];
+    }
+  | { ok: false; reason: "changed" | "limit" };
+
+/**
+ * Escribe borradores IMPORTADOS en UNA transaccion (los tres almacenes): o entran todos o no entra ninguno. Dentro de la
+ * propia transaccion comprueba que lo que se va a sustituir sigue siendo lo que vio la vista previa (`replace`), que los
+ * ids nuevos no estan ocupados y que el resultado cabe en el presupuesto (`MAX_DRAFTS` borradores, `MAX_DRAFTS_TOTAL_BYTES`,
+ * `MAX_SESSION_DRAFT_BYTES` por sesion): NO expulsa borradores para hacer sitio (el respaldo nunca borra trabajo ajeno a
+ * escondidas), devuelve `limit` sin escribir nada.
+ *
+ * Versionado coherente (D1): un borrador nuevo entra con `rev` 1; uno que sustituye a otro, con `max(rev del local, rev
+ * conocida) + 1`, y todos con el `writerId` de ESTA pestana, de modo que otra pestana que tuviera abierta esa sesion se
+ * entera (`announceChange({ id, rev })`) y no la pisa a ciegas. Conserva `savedAt` y `expiresAt` del paquete.
+ */
+export async function commitDraftImport(input: CommitDraftImportInput): Promise<CommitDraftImportResult> {
+  try {
+    const documents = input?.documents;
+    const sessions = input?.sessions;
+    const replace = input?.replace;
+    if (!Array.isArray(documents) || !Array.isArray(sessions) || !Array.isArray(replace)) {
+      return { ok: false, reason: "invalid" };
+    }
+    const newIds = new Set<string>();
+    for (const doc of documents) {
+      if (!doc || typeof doc.meta?.id !== "string" || !(doc.bytes instanceof Uint8Array) || newIds.has(`d:${doc.meta.id}`)) {
+        return { ok: false, reason: "invalid" };
+      }
+      newIds.add(`d:${doc.meta.id}`);
+    }
+    for (const session of sessions) {
+      const meta = session?.meta as SessionDraftMeta | undefined;
+      const sessionFiles: unknown = session?.files;
+      if (
+        !meta ||
+        !isSessionDraftMeta({ ...meta, rev: 1 }) ||
+        newIds.has(`s:${meta.id}`) ||
+        !isFileList(sessionFiles) ||
+        sessionFiles.length !== meta.documents.length ||
+        !meta.documents.every((d) => sessionFiles.some((f) => f.id === d.id && f.bytes instanceof Uint8Array))
+      ) {
+        return { ok: false, reason: "invalid" };
+      }
+      newIds.add(`s:${meta.id}`);
+    }
+    if (documents.length + sessions.length === 0) return { ok: true, written: 0, replaced: 0, undo: async () => {} };
+
+    const db = await openDb();
+    let outcome: CommitOutcome;
+    try {
+      outcome = await new Promise<CommitOutcome>((resolve, reject) => {
+        const tx = db.transaction([FILES_STORE, META_STORE, SESSION_STORE], "readwrite");
+        let result: Parameters<typeof resolve>[0] | null = null;
+        let failure: unknown;
+        tx.oncomplete = () => (result ? resolve(result) : reject(new Error("sin resultado")));
+        tx.onerror = () => {
+          failure ??= tx.error;
+        };
+        tx.onabort = () => reject(failure ?? tx.error ?? new Error("transaccion abortada"));
+        const filesStore = tx.objectStore(FILES_STORE);
+        const metaStore = tx.objectStore(META_STORE);
+        const sessionStore = tx.objectStore(SESSION_STORE);
+
+        const metasRequest = metaStore.getAll();
+        const sessionsRequest = sessionStore.getAll();
+        const fileKeysRequest = filesStore.getAllKeys();
+        let pending = 3;
+        const onRead = () => {
+          pending -= 1;
+          if (pending > 0) return;
+          try {
+            const metaRows = (metasRequest.result as unknown[]).filter(isDocumentDraftMeta);
+            const sessionRows = (sessionsRequest.result as unknown[]).filter(isSessionDraftMeta);
+            const localDocs = new Map(metaRows.map((m) => [m.id, m]));
+            const localSessions = new Map(sessionRows.map((m) => [m.id, m]));
+
+            // 1) Lo que se sustituye sigue siendo lo que vio la vista previa.
+            const replaceDocs = new Set<string>();
+            const replaceSessions = new Set<string>();
+            for (const expected of replace) {
+              const current = (expected.kind === "document" ? localDocs : localSessions).get(expected.id);
+              if (!current || current.savedAt !== expected.savedAt || (current.rev ?? 0) !== expected.rev) {
+                result = { ok: false, reason: "changed" };
+                return;
+              }
+              (expected.kind === "document" ? replaceDocs : replaceSessions).add(expected.id);
+            }
+            // 2) Los ids nuevos no estan ocupados por algo que NO se sustituye.
+            for (const doc of documents) {
+              if (localDocs.has(doc.meta.id) && !replaceDocs.has(doc.meta.id)) {
+                result = { ok: false, reason: "changed" };
+                return;
+              }
+            }
+            for (const session of sessions) {
+              if (localSessions.has(session.meta.id) && !replaceSessions.has(session.meta.id)) {
+                result = { ok: false, reason: "changed" };
+                return;
+              }
+            }
+            // 3) Cabe sin expulsar nada.
+            let count = metaRows.length + sessionRows.length - replaceDocs.size - replaceSessions.size;
+            let bytes = 0;
+            for (const meta of metaRows) if (!replaceDocs.has(meta.id)) bytes += meta.fileSize;
+            for (const meta of sessionRows) if (!replaceSessions.has(meta.id)) bytes += meta.fileSize;
+            for (const doc of documents) {
+              count += 1;
+              bytes += doc.bytes.byteLength;
+            }
+            for (const session of sessions) {
+              const size = session.files.reduce((sum: number, f: { bytes: Uint8Array }) => sum + f.bytes.byteLength, 0);
+              if (size > MAX_SESSION_DRAFT_BYTES) {
+                result = { ok: false, reason: "limit" };
+                return;
+              }
+              count += 1;
+              bytes += size;
+            }
+            if (count > MAX_DRAFTS || bytes > MAX_DRAFTS_TOTAL_BYTES) {
+              result = { ok: false, reason: "limit" };
+              return;
+            }
+
+            // 4) Copia de seguridad de lo que se sustituye (para `undo`) y borrado.
+            const before: StoredRows = { metas: new Map(), sessions: new Map(), files: new Map() };
+            for (const id of replaceDocs) before.metas.set(id, localDocs.get(id) as DraftMeta);
+            for (const id of replaceSessions) before.sessions.set(id, localSessions.get(id) as SessionDraftMeta);
+            const fileKeys = fileKeysRequest.result as string[];
+            const doomedKeys = fileKeys.filter((key) => {
+              const sid = sessionIdOfFileKey(key);
+              return sid === null ? replaceDocs.has(key) : replaceSessions.has(sid);
+            });
+            const backups = doomedKeys.map((key) => filesStore.get(key));
+            let backupsPending = backups.length;
+            const write = () => {
+              try {
+                for (const key of doomedKeys) filesStore.delete(key);
+                for (const id of replaceDocs) metaStore.delete(id);
+                for (const id of replaceSessions) sessionStore.delete(id);
+                const stamps: { id: string; rev: number }[] = [];
+                for (const doc of documents) {
+                  const previous = localDocs.get(doc.meta.id);
+                  const rev = previous ? Math.max(previous.rev ?? 0, knownDraftRev(doc.meta.id)) + 1 : 1;
+                  stamps.push({ id: doc.meta.id, rev });
+                  filesStore.put({ id: doc.meta.id, bytes: doc.bytes } satisfies FileRecord);
+                  metaStore.put({ ...doc.meta, rev, writerId: tab.id } satisfies DraftMeta);
+                }
+                for (const session of sessions) {
+                  const previous = localSessions.get(session.meta.id);
+                  const rev = previous ? Math.max(previous.rev ?? 0, knownDraftRev(session.meta.id)) + 1 : 1;
+                  stamps.push({ id: session.meta.id, rev });
+                  for (const file of session.files) {
+                    filesStore.put({ id: sessionFileKey(session.meta.id, file.id), bytes: file.bytes } satisfies FileRecord);
+                  }
+                  sessionStore.put({ ...session.meta, rev, writerId: tab.id } satisfies SessionDraftMeta);
+                }
+                result = {
+                  ok: true,
+                  written: documents.length + sessions.length,
+                  replaced: replaceDocs.size + replaceSessions.size,
+                  stamps,
+                  before,
+                  createdDocs: documents.filter((d) => !replaceDocs.has(d.meta.id)).map((d) => d.meta.id),
+                  createdSessions: sessions.filter((s) => !replaceSessions.has(s.meta.id)).map((s) => s.meta.id),
+                };
+              } catch (error) {
+                failure = error;
+                try {
+                  tx.abort();
+                } catch {
+                  // ya terminada
+                }
+              }
+            };
+            if (backups.length === 0) {
+              write();
+              return;
+            }
+            backups.forEach((request) => {
+              request.onsuccess = () => {
+                const record = request.result as FileRecord | undefined;
+                if (record) before.files.set(record.id, record);
+                backupsPending -= 1;
+                if (backupsPending === 0) write();
+              };
+            });
+          } catch (error) {
+            failure = error;
+            try {
+              tx.abort();
+            } catch {
+              // ya terminada
+            }
+          }
+        };
+        metasRequest.onsuccess = onRead;
+        sessionsRequest.onsuccess = onRead;
+        fileKeysRequest.onsuccess = onRead;
+      });
+    } finally {
+      db.close();
+    }
+    if (!outcome.ok) return outcome;
+
+    // Esta pestana ya conoce las versiones que acaba de escribir, y lo que restauro de ellos dejo de ser la referencia.
+    for (const stamp of outcome.stamps) {
+      noteRev(stamp.id, stamp.rev);
+      tab.restored.delete(stamp.id);
+      writtenFileIds.delete(stamp.id);
+    }
+    const created = new Set([...outcome.createdDocs, ...outcome.createdSessions]);
+    for (const stamp of outcome.stamps) {
+      announceChange(created.has(stamp.id) ? undefined : stamp);
+    }
+    if (outcome.stamps.length === 0) announceChange();
+    const undo = async (): Promise<void> => {
+      try {
+        const udb = await openDb();
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const tx = udb.transaction([FILES_STORE, META_STORE, SESSION_STORE], "readwrite");
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+            const filesStore = tx.objectStore(FILES_STORE);
+            const metaStore = tx.objectStore(META_STORE);
+            const sessionStore = tx.objectStore(SESSION_STORE);
+            for (const id of outcome.createdDocs) {
+              filesStore.delete(id);
+              metaStore.delete(id);
+              writtenFileIds.delete(id);
+            }
+            for (const id of outcome.createdSessions) {
+              filesStore.delete(sessionKeyRange(id));
+              sessionStore.delete(id);
+            }
+            // Lo sustituido se devuelve tal como estaba (los archivos de la sesion nueva ya se borraron arriba por rango).
+            for (const stamp of outcome.stamps) {
+              if (outcome.before.sessions.has(stamp.id)) filesStore.delete(sessionKeyRange(stamp.id));
+              if (outcome.before.metas.has(stamp.id)) filesStore.delete(stamp.id);
+            }
+            for (const meta of outcome.before.metas.values()) metaStore.put(meta);
+            for (const meta of outcome.before.sessions.values()) sessionStore.put(meta);
+            for (const record of outcome.before.files.values()) filesStore.put(record);
+          });
+        } finally {
+          udb.close();
+        }
+        announceChange();
+      } catch {
+        // Nada mas que hacer: el llamador informa de que el respaldo no se pudo deshacer del todo.
+      }
+    };
+    return { ok: true, written: outcome.written, replaced: outcome.replaced, undo };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}
