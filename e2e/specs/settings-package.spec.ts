@@ -450,6 +450,9 @@ test("firmas + 2 contratos con plantilla + borrador con trazos + ajustes: export
 
 test("un paquete exportado en Chromium se importa en WebKit (iPad) y el exportado en WebKit, en Chromium: firmas idénticas por hash", async ({ baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "lanza ambos motores por su cuenta; basta con correrlo una vez");
+  // WebKit aplica `upgrade-insecure-requests` a http://localhost (pagina en blanco) salvo que la build lleve `CSP_SKIP_UPGRADE_INSECURE=1`,
+  // que solo se activa al pedir un proyecto WebKit con `PW_BROWSERS` (ver playwright.config.ts y docs/COMPATIBILIDAD-NAVEGADORES.md).
+  test.skip(!/webkit/.test(process.env.PW_BROWSERS ?? ""), "necesita una build con CSP_SKIP_UPGRADE_INSECURE=1 (PW_BROWSERS=webkit-ipad)");
   const engines = { chromium: await chromium.launch(), webkit: await webkit.launch() };
   const openPage = async (engine: "chromium" | "webkit") => {
     const common = { baseURL: baseURL as string, locale: "es-ES", acceptDownloads: true };
