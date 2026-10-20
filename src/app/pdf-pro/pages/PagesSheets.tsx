@@ -25,7 +25,7 @@ import type { PagesSource } from "@/app/pdf-pro/pages/pagesStore";
  */
 
 const INPUT_CLASS =
-  "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-callout text-foreground transition-colors placeholder:text-muted-foreground/60 disabled:opacity-50 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal aria-[invalid=true]:border-destructive/60 forced-colors:border-[ButtonText]";
+  "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-callout text-foreground pointer-coarse:text-base transition-colors placeholder:text-muted-foreground/60 disabled:opacity-50 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal aria-[invalid=true]:border-destructive/60 forced-colors:border-[ButtonText]";
 
 function Field({
   label,

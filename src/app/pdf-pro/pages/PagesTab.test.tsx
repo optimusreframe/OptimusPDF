@@ -686,3 +686,41 @@ describe("PagesTab: documento de una sola pagina", () => {
     expect(cards()).toHaveLength(1);
   });
 });
+
+describe("PagesTab: barra compacta del movil (GE-05, ER-02)", () => {
+  it("«Aplicar» y «Descartar» viven en la barra de abajo, con texto corto y nombre accesible completo", async () => {
+    await setup({ pages: 5 });
+    const bottom = document.querySelector("[data-pages-toolbar][data-compact]") as HTMLElement;
+    const status = document.querySelector("[data-pages-status]") as HTMLElement;
+    // Sin cambios: «Aplicar» esta (apagado) abajo; «Descartar» no existe todavia.
+    const apply = within(bottom).getByRole("button", { name: S.status.apply });
+    expect(apply.textContent).toBe(S.status.applyShort);
+    expect(aria(apply)).toBe("true");
+    expect(within(bottom).queryByRole("button", { name: S.status.discard })).toBeNull();
+    // La fila de arriba es solo estado + deshacer/rehacer: una fila, sin botones de aplicar.
+    expect(within(status).queryByRole("button", { name: S.status.apply })).toBeNull();
+    expect(within(status).getByRole("button", { name: S.status.undo })).toBeTruthy();
+    fireEvent.click(cardOf(2));
+    fireEvent.click(labelOf(S.actions.rotateRight));
+    const discard = await within(bottom).findByRole("button", { name: S.status.discard });
+    expect(discard.textContent).toBe(S.status.discardShort);
+    expect(aria(within(bottom).getByRole("button", { name: S.status.apply }))).toBeNull();
+    // Hay UN solo «Aplicar cambios» en la pantalla (no uno arriba y otro abajo).
+    expect(screen.getAllByRole("button", { name: S.status.apply })).toHaveLength(1);
+  });
+
+  it("los textos cortos son una parte del nombre accesible (etiqueta en el nombre) y existen en los dos idiomas", () => {
+    for (const language of ["es", "en"] as const) {
+      const status = PRO_STRINGS[language].pages.status;
+      expect(status.apply.toLowerCase()).toContain(status.applyShort.toLowerCase());
+      expect(status.discard.toLowerCase()).toContain(status.discardShort.toLowerCase());
+    }
+  });
+
+  it("la cuadricula de la barra compacta usa tres columnas de miniaturas pequeñas (se ven varias filas)", async () => {
+    await setup({ pages: 9 });
+    const options = screen.getAllByRole("option");
+    const lefts = new Set(options.map((option) => (option as HTMLElement).style.left));
+    expect(lefts.size).toBe(3);
+  });
+});

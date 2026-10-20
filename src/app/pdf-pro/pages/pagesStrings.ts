@@ -32,6 +32,9 @@ export type PagesStrings = {
     redo: string;
     apply: string;
     discard: string;
+    /** (M2) Textos cortos de «Aplicar cambios» y «Descartar cambios» para la barra inferior del movil (el nombre accesible es el largo). */
+    applyShort: string;
+    discardShort: string;
     applying: string;
     cancel: string;
     discardTitle: string;
@@ -224,6 +227,8 @@ const es: PagesStrings = {
     redo: "Rehacer",
     apply: "Aplicar cambios",
     discard: "Descartar cambios",
+    applyShort: "Aplicar",
+    discardShort: "Descartar",
     applying: "Aplicando…",
     cancel: "Cancelar",
     discardTitle: "¿Descartar los cambios?",
@@ -431,6 +436,8 @@ const en: PagesStrings = {
     redo: "Redo",
     apply: "Apply changes",
     discard: "Discard changes",
+    applyShort: "Apply",
+    discardShort: "Discard",
     applying: "Applying…",
     cancel: "Cancel",
     discardTitle: "Discard the changes?",

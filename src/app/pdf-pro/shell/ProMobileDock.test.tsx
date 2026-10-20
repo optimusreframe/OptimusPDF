@@ -74,4 +74,37 @@ describe("barra inferior de movil", () => {
     expect(screen.getByRole("toolbar", { name: PRO_STRINGS.en.shell.dockLabel })).toBeTruthy();
     expect(screen.getByRole("button", { name: PRO_STRINGS.en.suite.tabs.sign })).toBeTruthy();
   });
+
+  it("cada boton tiene un ancho minimo de 56 px: a 320 px el dock se desplaza en vez de tocar las etiquetas (VI-03)", () => {
+    render(<ProMobileDock language="es" openTab={null} onSelect={() => undefined} />);
+    for (const button of screen.getAllByRole("button")) expect(button.className).toContain("min-w-14");
+    expect(screen.getByRole("toolbar").className).toContain("overflow-x-auto");
+  });
+});
+
+describe("raíl lateral (movil horizontal)", () => {
+  it("es una barra vertical: las flechas arriba/abajo mueven el foco y las de los lados no", () => {
+    render(<ProMobileDock rail language="es" openTab={null} onSelect={() => undefined} />);
+    const toolbar = screen.getByRole("toolbar");
+    expect(toolbar.getAttribute("aria-orientation")).toBe("vertical");
+    expect(toolbar.getAttribute("data-rail")).toBe("");
+    fireEvent.keyDown(toolbar, { key: "ArrowRight" });
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: S.suite.tabs.pages }));
+    fireEvent.keyDown(toolbar, { key: "ArrowDown" });
+    expect(document.activeElement?.textContent).toBe(S.suite.tabs.pages);
+    fireEvent.keyDown(toolbar, { key: "ArrowUp" });
+    expect(document.activeElement?.textContent).toBe(S.suite.tabs.home);
+  });
+
+  it("respeta la zona segura izquierda (isla/notch) y sigue siendo de 44 px o mas por boton", () => {
+    render(<ProMobileDock rail language="es" openTab={null} onSelect={() => undefined} />);
+    expect(screen.getByRole("toolbar").className).toContain("safe-area-inset-left");
+    for (const button of screen.getAllByRole("button")) expect(button.className).toContain("min-h-14");
+  });
+
+  it("la barra inferior normal no es vertical", () => {
+    render(<ProMobileDock language="es" openTab={null} onSelect={() => undefined} />);
+    expect(screen.getByRole("toolbar").hasAttribute("aria-orientation")).toBe(false);
+    expect(screen.getByRole("toolbar").hasAttribute("data-rail")).toBe(false);
+  });
 });

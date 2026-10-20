@@ -47,7 +47,15 @@ export type ModeStrings = {
     entered: (mode: string) => string;
     discarded: (mode: string) => string;
     kept: string;
+    /** (M2) Barras plegables del modo en movil: el boton que oculta/muestra paleta, avisos y dock para dar sitio a la hoja. */
+    hideTools: string;
+    showTools: string;
+    /** (M2) Interruptor «Desplazar»: con el, un dedo sobre la hoja la desplaza aunque haya una herramienta armada. */
+    panLabel: string;
+    panHint: string;
   };
+  /** (M2) Ayudas de cada herramienta armada con el dedo (sin «clic», sin «Esc»): sustituyen a las de escritorio en tactil. */
+  touchHints: Record<"text" | "note" | "image" | "rect" | "ellipse" | "line" | "highlight" | "check", string>;
   edit: {
     /** Nombre del modo en las etiquetas («Editando»). */
     name: string;
@@ -124,6 +132,20 @@ const ES: ModeStrings = {
     entered: (mode) => `${mode}: modo abierto. Aplica o descarta los cambios para volver al documento.`,
     discarded: (mode) => `${mode}: cambios descartados.`,
     kept: "Sigues en el modo.",
+    hideTools: "Ocultar herramientas",
+    showTools: "Mostrar herramientas",
+    panLabel: "Desplazar",
+    panHint: "Con «Desplazar» activado, un dedo sobre la hoja la mueve; toca para colocar el elemento.",
+  },
+  touchHints: {
+    text: "Toca o arrastra en la página para añadir un cuadro de texto. Toca otra herramienta para cancelar.",
+    note: "Toca o arrastra en la página para añadir una nota. Toca otra herramienta para cancelar.",
+    image: "Elige un PNG o un JPG para colocarlo en la página. Toca otra herramienta para cancelar.",
+    rect: "Arrastra sobre la página para dibujar el rectángulo, o toca para soltar uno.",
+    ellipse: "Arrastra para dibujar la elipse, o toca para soltar una.",
+    line: "Arrastra de un punto al otro, o toca para soltar una línea.",
+    highlight: "Arrastra por encima del texto que quieras resaltar.",
+    check: "Toca la casilla para dejar el símbolo, o arrastra para darle otro tamaño.",
   },
   edit: {
     name: "Editar",
@@ -200,6 +222,20 @@ const EN: ModeStrings = {
     entered: (mode) => `${mode}: mode open. Apply or discard your changes to go back to the document.`,
     discarded: (mode) => `${mode}: changes discarded.`,
     kept: "You are still in the mode.",
+    hideTools: "Hide tools",
+    showTools: "Show tools",
+    panLabel: "Scroll",
+    panHint: "With “Scroll” on, one finger on the page moves it; tap to place the item.",
+  },
+  touchHints: {
+    text: "Tap or drag on the page to add a text box. Tap another tool to cancel.",
+    note: "Tap or drag on the page to add a note. Tap another tool to cancel.",
+    image: "Pick a PNG or a JPG to place it on the page. Tap another tool to cancel.",
+    rect: "Drag across the page to draw the rectangle, or tap to drop one.",
+    ellipse: "Drag to draw the ellipse, or tap to drop one.",
+    line: "Drag from one point to the other, or tap to drop a line.",
+    highlight: "Drag over the text you want to highlight.",
+    check: "Tap the box to leave the symbol, or drag to give it another size.",
   },
   edit: {
     name: "Edit",

@@ -18,6 +18,7 @@ import { useProWorkingDoc } from "@/app/pdf-pro/useProWorkingDoc";
 import { ProModeApplyError, useProModeControls, useProModeHost } from "@/app/pdf-pro/modes/modeContext";
 import { getModeStrings } from "@/app/pdf-pro/modes/modeStrings";
 import type { ProModeProps } from "@/app/pdf-pro/modes/modeTypes";
+import { useCoarsePointer } from "@/app/pdf-pro/shell/useIsDesktop";
 
 /**
  * Modos Editar y Anotar de PDF Pro (Wave 7 · U6): el MISMO editor de la herramienta suelta («Editar PDF»,
@@ -51,9 +52,15 @@ export function ProEditorMode({
   onDirtyChange,
 }: ProModeProps & { variant: ProEditorVariant }) {
   const { t } = useI18n();
-  const strings = EDIT_STRINGS[lang];
   const flow = EDIT_FLOW_STRINGS[lang];
   const m = getModeStrings(lang);
+  // (M2 · VI-08) Con el dedo no hay clic ni Esc: las ayudas de cada herramienta hablan de «tocar» y de «arrastrar».
+  const coarse = useCoarsePointer();
+  const baseStrings = EDIT_STRINGS[lang];
+  const strings = useMemo(
+    () => (coarse ? { ...baseStrings, inline: { ...baseStrings.inline, toolHints: { ...baseStrings.inline.toolHints, ...m.touchHints } } } : baseStrings),
+    [coarse, baseStrings, m.touchHints],
+  );
   const { document } = useProWorkingDoc();
   const host = useProModeHost();
   const existingFlag = useEditPdfFeatureFlag("editExistingText");
@@ -215,7 +222,7 @@ export function ProEditorMode({
       className="flex h-full min-h-0 flex-col gap-2"
     >
       {variant === "annotate" ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div data-pro-fold="" className="flex shrink-0 flex-wrap items-center gap-2">
           <button
             type="button"
             role="switch"

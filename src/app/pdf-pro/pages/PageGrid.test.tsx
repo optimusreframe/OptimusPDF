@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { PageGrid, type GridCommand, type GridItem, type PageGridHandle } from "@/app/pdf-pro/pages/PageGrid";
+import { PageGrid, edgeScrollSpeed, type GridCommand, type GridItem, type PageGridHandle } from "@/app/pdf-pro/pages/PageGrid";
 import { computeGrid, itemPosition } from "@/app/pdf-pro/pages/pagesLayout";
 
 const STRINGS = {
@@ -621,5 +621,82 @@ describe("PageGrid: arrastrar y soltar", () => {
     const removed = removeSpy.mock.calls.map((call) => call[0]);
     expect(removed).toEqual(expect.arrayContaining(["pointermove", "pointerup", "pointercancel", "keydown"]));
     removeSpy.mockRestore();
+  });
+});
+
+describe("PageGrid: auto-desplazamiento por tiempo (GE-03)", () => {
+  it("no hay desplazamiento en el centro de la cuadricula", () => {
+    expect(edgeScrollSpeed(300, 100, 400)).toBe(0);
+  });
+
+  it("sube cerca del borde de arriba (negativo) y baja cerca del de abajo (positivo)", () => {
+    expect(edgeScrollSpeed(110, 100, 400)).toBeLessThan(0);
+    expect(edgeScrollSpeed(490, 100, 400)).toBeGreaterThan(0);
+  });
+
+  it("es proporcional a lo cerca que esta el dedo del borde y arranca al entrar en la franja", () => {
+    const farther = edgeScrollSpeed(100 + 60, 100, 400);
+    const nearer = edgeScrollSpeed(100 + 30, 100, 400);
+    const atEdge = edgeScrollSpeed(100, 100, 400);
+    expect(Math.abs(farther)).toBeGreaterThan(0);
+    expect(Math.abs(nearer)).toBeGreaterThan(Math.abs(farther));
+    expect(Math.abs(atEdge)).toBeGreaterThan(Math.abs(nearer));
+  });
+
+  it("tiene tope en px/s aunque el dedo salga de la cuadricula (antes: 26 px por fotograma = 3 100 px/s a 120 Hz)", () => {
+    expect(Math.abs(edgeScrollSpeed(100, 100, 400))).toBeLessThanOrEqual(900);
+    expect(Math.abs(edgeScrollSpeed(-5000, 100, 400))).toBeLessThanOrEqual(900);
+    expect(Math.abs(edgeScrollSpeed(9000, 100, 400))).toBeLessThanOrEqual(900);
+  });
+
+  it("no depende de la tasa de fotogramas: dos pasos de 8 ms equivalen a uno de 16 ms", () => {
+    // La velocidad es un dato (px/s); el controlador la multiplica por el tiempo real transcurrido.
+    const speed = edgeScrollSpeed(110, 100, 400);
+    expect((speed * 16) / 1000).toBeCloseTo(2 * ((speed * 8) / 1000), 6);
+  });
+});
+
+describe("PageGrid: foco tras reordenar (GE-03)", () => {
+  /** Reordena (la pagina 1 pasa al final) y pide el foco EN EL MISMO turno, como hace «Aplicar» el arrastre al soltar. */
+  function Reorder({ count, handleRef }: { count: number; handleRef: { current: PageGridHandle | null } }) {
+    const [items, setItems] = useState(() => makeItems(count));
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            setItems((current) => [...current.slice(1), current[0]]);
+            handleRef.current?.focusItem("p0");
+          }}
+        >
+          Mover la primera al final
+        </button>
+        <PageGrid
+          ref={(value) => {
+            handleRef.current = value;
+          }}
+          items={items}
+          selection={new Set()}
+          anchorId={null}
+          focusId={null}
+          label="Paginas"
+          strings={STRINGS}
+          onSelectionChange={() => undefined}
+          onFocusChange={() => undefined}
+        />
+      </>
+    );
+  }
+
+  it("la pagina movida queda a la vista: la cuadricula NO salta a donde estaba antes de moverla", () => {
+    const handle: { current: PageGridHandle | null } = { current: null };
+    render(<Reorder count={60} handleRef={handle} />);
+    const scroller = screen.getByRole("listbox") as HTMLDivElement;
+    expect(scroller.scrollTop).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "Mover la primera al final" }));
+    // La pagina 1 ahora es la ultima (indice 59): el desplazamiento la lleva a la vista, no se queda arriba.
+    expect(scroller.scrollTop).toBeGreaterThan(1000);
+    expect(document.activeElement?.getAttribute("data-page-id")).toBe("p0");
+    expect(document.activeElement?.getAttribute("aria-posinset")).toBe("60");
   });
 });

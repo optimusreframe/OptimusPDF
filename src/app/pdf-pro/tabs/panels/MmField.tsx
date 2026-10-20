@@ -44,7 +44,7 @@ export function MmField({ label, value, onChange, min = 0, max = 2000, step = 0.
           else if (text === "") onChange(0);
         }}
         onBlur={() => setDraft(null)}
-        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground tabular-nums transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground pointer-coarse:text-base tabular-nums transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
       />
     </div>
   );

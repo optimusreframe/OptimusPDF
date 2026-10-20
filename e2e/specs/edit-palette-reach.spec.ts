@@ -207,6 +207,12 @@ for (const viewport of VIEWPORTS) {
         await expect(page.locator("[data-pro-viewer-scroller]")).toBeVisible();
         await page.locator('[data-dock="edit"]').tap();
         await expect(page.locator('[data-pro-editor] [data-render-state="ready"]')).toBeVisible({ timeout: 40_000 });
+        // M2 · VP-01: en un alto pequeño (< 720 px: 360x640) PDF Pro arranca con las barras del modo PLEGADAS para dar sitio a la
+        // hoja; la paleta se alcanza con UN toque en «Mostrar herramientas» (boton de 44 px de la barra de abajo). Una vez a la
+        // vista, la comprobacion es la de siempre: todos los botones miden >= 44 px, caen en la ventana y nada los tapa.
+        const fold = page.locator("[data-pro-fold-toggle]");
+        if ((await fold.getAttribute("aria-expanded")) === "false") await fold.tap();
+        await expect(page.locator("[data-tool-palette]")).toBeVisible();
         await expectReachable(page, `Pro Editar ${viewport.name} ${scheme}`);
         expect(errors).toEqual([]);
       });

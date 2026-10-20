@@ -120,7 +120,7 @@ export function ViewerToolbar({
       role="toolbar"
       aria-label={s.toolbarLabel}
       data-pro-viewer-toolbar=""
-      className="flex shrink-0 flex-wrap items-center gap-x-1 border-b border-hairline px-2"
+      className="flex shrink-0 flex-wrap items-center gap-x-1 border-b border-hairline pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.5rem,env(safe-area-inset-right,0px))] pointer-coarse:gap-x-2"
     >
       <ToolbarIconButton
         label={thumbsOpen && !thumbsAsSheet ? s.hideThumbs : thumbsAsSheet ? s.openThumbs : s.showThumbs}
@@ -160,14 +160,15 @@ export function ViewerToolbar({
               setDraft(null);
             }
           }}
-          className="h-11 w-14 rounded-ios-sm border border-hairline bg-white/5 px-2 text-center text-subheadline tabular-nums text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+          // 16 px con el dedo: por debajo, Safari de iPhone acerca la pagina al enfocar el campo y no la devuelve (SC-04).
+          className="h-11 w-14 rounded-ios-sm border border-hairline bg-white/5 px-2 text-center text-subheadline tabular-nums text-foreground pointer-coarse:text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
         />
         <span className="text-subheadline whitespace-nowrap text-muted-foreground tabular-nums">
           {s.pageTotal(pageCount)}
         </span>
       </div>
 
-      <div role="group" aria-label={s.zoomGroup} className="flex items-center">
+      <div role="group" aria-label={s.zoomGroup} className="flex items-center pointer-coarse:gap-2">
         <ToolbarIconButton
           label={s.zoomOut}
           onClick={() => api.zoomOut()}

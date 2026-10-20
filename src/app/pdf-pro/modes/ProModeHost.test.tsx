@@ -1306,3 +1306,134 @@ describe("ocupado", () => {
     expect(history()).toHaveLength(2);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * (M2 · VP-01, ER-02, GE-01) Reparto del alto en movil
+ * ------------------------------------------------------------------ */
+
+/** `matchMedia` de un telefono: ancho de movil, puntero grueso y, si se pide, alto pequeño o de movil horizontal. */
+function stubPhone(options: { compactHeight?: boolean; short?: boolean; coarse?: boolean } = {}) {
+  const { compactHeight = false, short = false, coarse = true } = options;
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches:
+        query.includes("max-width: 767px") ||
+        (coarse && query.includes("pointer: coarse")) ||
+        ((compactHeight || short) && query.includes("max-height: 719")) ||
+        (short && query.includes("max-height: 479")),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+      onchange: null,
+    })),
+  );
+}
+const dockButton = (id: string) => document.querySelector<HTMLElement>(`[data-dock="${id}"]`)!;
+const foldToggle = () => document.querySelector<HTMLElement>("[data-pro-fold-toggle]")!;
+const panToggle = () => document.querySelector<HTMLElement>("[data-pro-pan-toggle]");
+
+describe("movil: reparto del alto con un modo abierto", () => {
+  async function enterOnPhone(options?: Parameters<typeof stubPhone>[0]) {
+    stubPhone(options);
+    await openPro();
+    fireEvent.click(dockButton("annotate"));
+    await screen.findByTestId("fake-mode");
+    await settle();
+  }
+
+  it("la barra del modo va DEBAJO del contenido (al alcance del pulgar) y la cabecera es compacta", async () => {
+    await enterOnPhone();
+    expect(bar()!.getAttribute("data-placement")).toBe("bottom");
+    expect(host()!.lastElementChild).toBe(bar());
+    expect(within(bar()!).getByRole("button", { name: M.host.apply })).toBeTruthy();
+    expect(within(bar()!).getByRole("button", { name: M.host.discard })).toBeTruthy();
+    expect(document.querySelector('[data-pro-region="top"]')!.getAttribute("data-compact")).toBe("");
+    // El deshacer global sigue en la cabecera (apagado dentro del modo): la fila no crece por ello.
+    expect(topUndo().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("«Ocultar herramientas» pliega las barras del editor y «Mostrar» las devuelve; el dock siempre queda a la vista y el foco no se pierde", async () => {
+    await enterOnPhone();
+    expect(document.querySelector("[data-pro-dock]")).not.toBeNull();
+    expect(foldToggle().getAttribute("aria-expanded")).toBe("true");
+    expect(foldToggle().getAttribute("aria-label")).toBe(M.host.hideTools);
+    expect(host()!.hasAttribute("data-chrome")).toBe(false);
+    foldToggle().focus();
+    fireEvent.click(foldToggle());
+    await settle();
+    expect(host()!.getAttribute("data-chrome")).toBe("collapsed");
+    // Cambiar de herramienta es lo que mas se hace: el dock no se pliega.
+    expect(document.querySelector("[data-pro-dock]")).not.toBeNull();
+    expect(foldToggle().getAttribute("aria-expanded")).toBe("false");
+    expect(foldToggle().getAttribute("aria-label")).toBe(M.host.showTools);
+    expect(document.activeElement).toBe(foldToggle());
+    fireEvent.click(foldToggle());
+    await settle();
+    expect(host()!.hasAttribute("data-chrome")).toBe(false);
+  });
+
+  it("en un alto pequeño (SE, horizontal) las barras del editor arrancan plegadas, el dock sigue y se pueden desplegar", async () => {
+    stubPhone({ compactHeight: true });
+    await openPro();
+    fireEvent.click(dockButton("annotate"));
+    await screen.findByTestId("fake-mode");
+    await settle();
+    expect(host()!.getAttribute("data-chrome")).toBe("collapsed");
+    expect(document.querySelector("[data-pro-dock]")).not.toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    // La persona puede desplegarlas aunque el alto sea pequeño.
+    fireEvent.click(foldToggle());
+    await settle();
+    expect(host()!.hasAttribute("data-chrome")).toBe(false);
+  });
+
+  it("en un movil horizontal la barra del modo se pinta en la cabecera y el dock es un raíl lateral", async () => {
+    await enterOnPhone({ short: true });
+    const slot = document.querySelector('[data-pro-region="top"] [data-pro-mode-slot]');
+    expect(slot).not.toBeNull();
+    expect(slot!.contains(bar())).toBe(true);
+    expect(bar()!.getAttribute("data-placement")).toBe("header");
+    expect(document.querySelector("[data-pro-dock]")!.getAttribute("data-rail")).toBe("");
+    expect(document.querySelector('[data-pro-suite][data-rail]')).not.toBeNull();
+    // Aplicar y Descartar siguen siendo accesibles por nombre.
+    expect(within(bar()!).getByRole("button", { name: M.host.apply })).toBeTruthy();
+    expect(within(bar()!).getByRole("button", { name: M.host.discard })).toBeTruthy();
+  });
+
+  it("con el dedo hay un interruptor «Desplazar» de 44 px que activa el desplazamiento con un dedo sobre la hoja", async () => {
+    await enterOnPhone();
+    const toggle = panToggle()!;
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute("role")).toBe("switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.className).toContain("min-h-11");
+    expect(host()!.hasAttribute("data-pan")).toBe(false);
+    // El texto de ayuda es una descripcion, no parte del nombre.
+    expect(toggle.getAttribute("aria-describedby")).toBeTruthy();
+    expect(toggle.textContent).toBe(M.host.panLabel);
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(host()!.hasAttribute("data-pan")).toBe(true);
+    fireEvent.click(toggle);
+    expect(host()!.hasAttribute("data-pan")).toBe(false);
+  });
+
+  it("con un puntero fino (raton) no hay interruptor «Desplazar»", async () => {
+    await enterOnPhone({ coarse: false });
+    expect(panToggle()).toBeNull();
+  });
+
+  it("en escritorio la barra sigue ARRIBA, sin boton de plegar ni interruptor", async () => {
+    await openPro();
+    await enterAnnotate();
+    expect(bar()!.getAttribute("data-placement")).toBe("top");
+    expect(host()!.firstElementChild).toBe(bar());
+    expect(foldToggle()).toBeNull();
+    expect(panToggle()).toBeNull();
+    expect(topUndo()).toBeTruthy();
+  });
+});

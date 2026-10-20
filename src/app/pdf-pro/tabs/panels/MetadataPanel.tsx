@@ -35,7 +35,7 @@ function DateField({
           type="datetime-local"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="h-11 min-w-0 flex-1 rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground tabular-nums transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+          className="h-11 min-w-0 flex-1 rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground pointer-coarse:text-base tabular-nums transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
         />
         <Button variant="secondary" size="md" aria-label={`${clearLabel}: ${label}`} onClick={() => onChange("")} aria-disabled={value === "" || undefined}>
           {clearLabel}

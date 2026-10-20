@@ -4,6 +4,7 @@ import {
   DEFAULT_LAYOUT_PREFS,
   MIN_VIEWER_WIDTH,
   THUMBS_WIDTH,
+  TOUCH_MIN_VIEWER_WIDTH,
   clampContextWidth,
   clampThumbsWidth,
   fitPanels,
@@ -115,6 +116,30 @@ describe("fitPanels: reparto del ancho", () => {
     expect(fitted.contextAutoHidden).toBe(true);
     expect(fitted.showThumbs).toBe(true);
     expect(700 - fitted.thumbsWidth).toBeGreaterThanOrEqual(MIN_VIEWER_WIDTH);
+  });
+
+  it("con un DEDO, en una tableta vertical (834 px) la hoja del visor es grande: el panel de herramienta se pliega y solo quedan las miniaturas (GE-02)", () => {
+    const fitted = fitPanels(834, prefs(), TOUCH_MIN_VIEWER_WIDTH);
+    expect(fitted.showContext).toBe(false);
+    expect(fitted.contextAutoHidden).toBe(true);
+    expect(834 - fitted.thumbsWidth).toBeGreaterThanOrEqual(600);
+    // Con el panel pedido y las miniaturas plegadas, el panel cabe y el visor sigue por encima del minimo.
+    const asked = fitPanels(834, prefs({ thumbsOpen: false }), TOUCH_MIN_VIEWER_WIDTH);
+    expect(asked.showContext).toBe(true);
+    expect(834 - asked.contextWidth).toBeGreaterThanOrEqual(TOUCH_MIN_VIEWER_WIDTH);
+  });
+
+  it("el minimo tactil no deja sin sitio al panel en el ancho de escritorio mas estrecho (768 px): cabe si se pide", () => {
+    const asked = fitPanels(768, prefs({ thumbsOpen: false }), TOUCH_MIN_VIEWER_WIDTH);
+    expect(asked.showContext).toBe(true);
+    expect(asked.contextAutoHidden).toBe(false);
+  });
+
+  it("con raton (minimo por defecto) el reparto no cambia: 834 px siguen dando visor de 320 px", () => {
+    const fitted = fitPanels(834, prefs());
+    expect(MIN_VIEWER_WIDTH).toBe(320);
+    expect(fitted.showContext).toBe(true);
+    expect(834 - fitted.thumbsWidth - fitted.contextWidth).toBeGreaterThanOrEqual(MIN_VIEWER_WIDTH);
   });
 
   it("en un ancho muy estrecho se pliegan los dos", () => {

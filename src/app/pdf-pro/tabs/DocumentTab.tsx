@@ -92,10 +92,15 @@ export function DocumentTab() {
                 >
                   <Icon aria-hidden="true" className="size-4 shrink-0 text-signal" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-subheadline font-semibold text-foreground">{text.title}</span>
+                    {/* (M2 · VI-02) El titulo envuelve en vez de truncarse («Reco…» a 320 px) y la etiqueta de red baja bajo el. */}
+                    <span className="block text-subheadline font-semibold break-words text-foreground">{text.title}</span>
+                    {tool.needsNetwork ? (
+                      <span className="mt-0.5 mb-0.5 block">
+                        <Badge variant="neutral">{s.runner.networkBadge}</Badge>
+                      </span>
+                    ) : null}
                     <span className="block text-footnote text-muted-foreground">{text.description}</span>
                   </span>
-                  {tool.needsNetwork ? <Badge variant="neutral">{s.runner.networkBadge}</Badge> : null}
                   <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                 </button>
               </li>

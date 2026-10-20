@@ -31,15 +31,22 @@ function focusReturnTarget(): void {
  * se coloca, ANTES de que el DOM se retire, en la pestana activa de PDF Pro (de donde se llego) o, si no la hay,
  * en el visor. El anfitrion la corrige despues con el control exacto de la pestana de vuelta.
  */
-export function useFocusReturn(rootRef: RefObject<HTMLElement | null>): void {
+export function useFocusReturn(
+  rootRef: RefObject<HTMLElement | null>,
+  /** (M2) Barra del modo pintada FUERA de `rootRef` (en la cabecera, en un movil horizontal): tambien devuelve el foco. */
+  barRef?: RefObject<HTMLElement | null>,
+): void {
   useLayoutEffect(() => {
     const root = rootRef.current;
     return () => {
       const active = window.document.activeElement;
-      if (!root || !active || active === window.document.body || !root.contains(active)) return;
+      if (!root || !active || active === window.document.body) return;
+      // La barra puede cambiar de sitio (de abajo a la cabecera) tras montar: se lee EN EL MOMENTO de salir, no al montar.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      if (!root.contains(active) && !barRef?.current?.contains(active)) return;
       focusReturnTarget();
     };
-  }, [rootRef]);
+  }, [rootRef, barRef]);
 }
 
 /**

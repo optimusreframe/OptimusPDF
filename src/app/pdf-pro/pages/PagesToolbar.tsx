@@ -44,6 +44,8 @@ export type ActionButtonProps = {
   pressed?: boolean;
   testId?: string;
   describedBy?: string;
+  /** Texto corto que se VE (el nombre accesible sigue siendo `label`, que lo contiene): para filas estrechas. */
+  shortLabel?: string;
 };
 
 export function ActionButton({
@@ -57,12 +59,13 @@ export function ActionButton({
   className,
   testId,
   describedBy,
+  shortLabel,
 }: ActionButtonProps) {
   return (
     <Button
       variant={variant}
       size={size}
-      aria-label={iconOnly ? label : undefined}
+      aria-label={iconOnly || shortLabel ? label : undefined}
       aria-disabled={disabled || undefined}
       aria-describedby={describedBy}
       title={iconOnly ? label : undefined}
@@ -83,7 +86,7 @@ export function ActionButton({
           {icon}
         </span>
       ) : null}
-      {iconOnly ? null : label}
+      {iconOnly ? null : (shortLabel ?? label)}
     </Button>
   );
 }
@@ -127,6 +130,48 @@ export type PagesToolbarHandlers = {
   onMore: () => void;
 };
 
+/**
+ * «Descartar» (solo con cambios) y «Aplicar cambios». En la barra inferior del movil (`compact`) llevan texto corto («Aplicar»,
+ * «Descartar») y nombre accesible completo: caben en una fila con el recuento de seleccion.
+ */
+function PagesApplyButtons({
+  model,
+  handlers,
+  compact,
+  className,
+}: {
+  model: PagesToolbarModel;
+  handlers: PagesToolbarHandlers;
+  compact: boolean;
+  className?: string;
+}) {
+  const { strings: s, dirty, busy, blocked } = model;
+  return (
+    <div className={cn("flex items-center gap-2", className)}>
+      {dirty ? (
+        <ActionButton
+          label={s.status.discard}
+          shortLabel={compact ? s.status.discardShort : undefined}
+          disabled={busy}
+          onClick={handlers.onDiscard}
+          variant="ghost"
+          size={compact ? "md" : "sm"}
+          testId="discard"
+        />
+      ) : null}
+      <ActionButton
+        label={busy ? s.status.applying : s.status.apply}
+        shortLabel={compact ? (busy ? s.status.applying : s.status.applyShort) : undefined}
+        variant="primary"
+        size={compact ? "md" : "sm"}
+        disabled={!dirty || busy || blocked}
+        onClick={handlers.onApply}
+        testId="apply"
+      />
+    </div>
+  );
+}
+
 /** Fila de estado: chip de cambios, deshacer/rehacer y Aplicar/Descartar. */
 export function PagesStatusBar({
   model,
@@ -137,13 +182,17 @@ export function PagesStatusBar({
   handlers: PagesToolbarHandlers;
   compact: boolean;
 }) {
-  const { strings: s, dirty, changeCount, canUndo, canRedo, busy, blocked } = model;
+  const { strings: s, dirty, changeCount, canUndo, canRedo, busy } = model;
   return (
     <div
       role="group"
       aria-label={s.status.changes(changeCount)}
       data-pages-status=""
-      className={cn("flex flex-wrap items-center gap-x-2 gap-y-2", compact ? "px-3 py-2" : "px-4 py-3")}
+      className={cn(
+        "flex items-center gap-x-2 gap-y-2",
+        // Compacta (movil): UNA fila con el estado y deshacer/rehacer; «Aplicar» y «Descartar» viven abajo, al alcance del pulgar.
+        compact ? "px-3 py-1.5" : "flex-wrap px-4 py-3",
+      )}
     >
       <span
         data-pages-chip=""
@@ -156,7 +205,7 @@ export function PagesStatusBar({
       >
         {dirty ? s.status.changes(changeCount) : s.status.noChanges}
       </span>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 pointer-coarse:gap-2">
         <ActionButton
           iconOnly
           size="sm"
@@ -176,26 +225,7 @@ export function PagesStatusBar({
           testId="redo"
         />
       </div>
-      <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
-        {dirty ? (
-          <ActionButton
-            label={s.status.discard}
-            disabled={busy}
-            onClick={handlers.onDiscard}
-            variant="ghost"
-            size={compact ? "md" : "sm"}
-            testId="discard"
-          />
-        ) : null}
-        <ActionButton
-          label={busy ? s.status.applying : s.status.apply}
-          variant="primary"
-          size={compact ? "md" : "sm"}
-          disabled={!dirty || busy || blocked}
-          onClick={handlers.onApply}
-          testId="apply"
-        />
-      </div>
+      {compact ? null : <PagesApplyButtons model={model} handlers={handlers} compact={false} className="ml-auto max-w-full flex-wrap justify-end" />}
     </div>
   );
 }
@@ -252,9 +282,13 @@ export function PagesCompactBar({ model, handlers }: { model: PagesToolbarModel;
       data-compact=""
       className="shrink-0 border-t border-hairline bg-background/80 px-2 pt-1.5 pb-2 backdrop-blur"
     >
-      <p data-pages-selection="" className="px-1 pb-1 text-caption text-muted-foreground tabular-nums">
-        {selectionCount === 0 ? s.status.none : s.status.selected(selectionCount, total)}
-      </p>
+      {/* Fila 1: el recuento y «Aplicar» (con «Descartar» si hay cambios) al alcance del pulgar (M2 · ER-02, GE-05). */}
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pb-1.5 pl-1">
+        <p data-pages-selection="" className="min-w-0 flex-1 basis-32 text-caption text-muted-foreground tabular-nums">
+          {selectionCount === 0 ? s.status.none : s.status.selected(selectionCount, total)}
+        </p>
+        <PagesApplyButtons model={model} handlers={handlers} compact />
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-1.5 pointer-coarse:gap-2">
         <ActionButton iconOnly size="sm" label={s.actions.rotateLeft} icon={<RotateCcw />} onClick={handlers.onRotateLeft} disabled={none} testId="rotate-left" />
         <ActionButton iconOnly size="sm" label={s.actions.rotateRight} icon={<RotateCw />} onClick={handlers.onRotateRight} disabled={none} testId="rotate-right" />

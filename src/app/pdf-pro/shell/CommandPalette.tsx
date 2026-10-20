@@ -174,7 +174,7 @@ function PaletteBody({
             setActiveIndex(0);
           }}
           onKeyDown={onKeyDown}
-          className="h-11 w-full rounded-ios-sm border border-hairline bg-white/5 pr-3 pl-9 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+          className="h-11 w-full rounded-ios-sm border border-hairline bg-white/5 pr-3 pl-9 text-body text-foreground pointer-coarse:text-base placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
         />
       </div>
       <ul

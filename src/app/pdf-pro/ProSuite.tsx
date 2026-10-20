@@ -36,7 +36,9 @@ import { getProAction } from "@/app/pdf-pro/shell/proActions";
 import { useRegisteredCommands } from "@/app/pdf-pro/shell/proCommands";
 import {
   CONTEXT_WIDTH,
+  MIN_VIEWER_WIDTH,
   THUMBS_WIDTH,
+  TOUCH_MIN_VIEWER_WIDTH,
   clampContextWidth,
   clampThumbsWidth,
   fitPanels,
@@ -44,8 +46,9 @@ import {
 } from "@/app/pdf-pro/shell/proLayout";
 import { focusRegion, useRegionShortcuts, type ProRegionId } from "@/app/pdf-pro/shell/proRegions";
 import { goToPageCommands, useBuiltInCommands } from "@/app/pdf-pro/shell/useBuiltInCommands";
+import { COARSE_INPUT_CLASSES } from "@/app/pdf-pro/shell/coarseInputs";
 import { useElementWidth } from "@/app/pdf-pro/shell/useElementWidth";
-import { useIsDesktop } from "@/app/pdf-pro/shell/useIsDesktop";
+import { useCoarsePointer, useIsCompactHeight, useIsDesktop, useIsShortViewport } from "@/app/pdf-pro/shell/useIsDesktop";
 import { PRO_TAB_CONTENT } from "@/app/pdf-pro/tabs/proTabContent";
 import { useProOperation } from "@/app/pdf-pro/useProOperation";
 import { useProWorkingDoc } from "@/app/pdf-pro/useProWorkingDoc";
@@ -53,7 +56,7 @@ import { ProViewer } from "@/app/pdf-pro/viewer/ProViewer";
 import { ProThumbnails } from "@/app/pdf-pro/viewer/ProThumbnails";
 import { ProViewerProvider, useProViewer } from "@/app/pdf-pro/viewer/ProViewerContext";
 import { ViewerToolbar } from "@/app/pdf-pro/viewer/ViewerToolbar";
-import { ProModeHost, ProModeResult, ProModeSheets } from "@/app/pdf-pro/modes/ProModeHost";
+import { ProModeHost, ProModeResult, ProModeSheets, type ProModeHostLayout } from "@/app/pdf-pro/modes/ProModeHost";
 import { getProMode } from "@/app/pdf-pro/modes/proModes";
 import { useModeCommands } from "@/app/pdf-pro/modes/useModeCommands";
 import { useProModeSession } from "@/app/pdf-pro/modes/useProModeSession";
@@ -163,10 +166,16 @@ function ProSuiteBody({
   const sizeWarnings = useMemo(() => limitWarnings(state.document), [state.document]);
   const viewer = useProViewer();
   const isDesktop = useIsDesktop();
+  const shortViewport = useIsShortViewport();
+  const compactHeight = useIsCompactHeight();
   const { prefs: layoutPrefs, update: updateLayout, commit: commitLayout, reset: resetLayout } = useProLayout();
   const run = useProOperation();
   const rowWidth = useElementWidth(rowRef);
-  const fitted = useMemo(() => fitPanels(rowWidth, layoutPrefs), [rowWidth, layoutPrefs]);
+  const coarsePointer = useCoarsePointer();
+  const fitted = useMemo(
+    () => fitPanels(rowWidth, layoutPrefs, coarsePointer ? TOUCH_MIN_VIEWER_WIDTH : MIN_VIEWER_WIDTH),
+    [rowWidth, layoutPrefs, coarsePointer],
+  );
   useRegionShortcuts(rootRef);
 
   /* ------------------------ modos (Editar, Anotar, Firmar...) ------------------------ */
@@ -208,6 +217,21 @@ function ProSuiteBody({
   const { guard: guardMode, setIntent: setModeIntent } = modeSession;
   const showThumbs = isDesktop && fitted.showThumbs && !modeActive;
   const showContext = isDesktop && fitted.showContext && !modeActive;
+
+  /* (M2 · VP-01) Reparto del alto en movil. Raíl: movil horizontal (sin alto para una barra inferior). Barras plegadas: con
+     un modo abierto, la paleta, el aviso de privacidad y «Aplanar» se ocultan con un boton; en un alto pequeño (< 720 px: SE,
+     horizontales) arrancan plegadas y la hoja conserva casi todo el alto. El dock NO se pliega (cambiar de herramienta es
+     lo que mas se hace y debe estar siempre a un toque). La preferencia es de esta sesion. */
+  const rail = !isDesktop && shortViewport;
+  const [foldPref, setFoldPref] = useState<boolean | null>(null);
+  const foldActive = !isDesktop && modeActive;
+  const folded = foldActive && (foldPref ?? compactHeight);
+  const toggleFold = useCallback(() => setFoldPref(!(foldPref ?? compactHeight)), [foldPref, compactHeight]);
+  const [modeSlot, setModeSlot] = useState<HTMLDivElement | null>(null);
+  const modeLayout = useMemo<ProModeHostLayout>(
+    () => ({ mobile: !isDesktop, collapsed: folded, onToggleCollapsed: toggleFold, slot: rail ? modeSlot : null, dockBelow: !rail }),
+    [isDesktop, folded, toggleFold, rail, modeSlot],
+  );
 
   /* «Retomar» o «Descartar» borrador quitan la oferta (con el boton que tenia el foco): el foco pasa al titulo del
      documento en el MISMO commit, sin pasar por <body> (WCAG 2.4.3). */
@@ -519,6 +543,21 @@ function ProSuiteBody({
     ...(showContext ? [{ id: "context" as const, label: shell.skipPanel }] : []),
   ];
 
+  /** Las siete herramientas del movil: barra inferior, o raíl lateral en un movil horizontal (M2). */
+  const dock = (
+    <ProMobileDock
+      rail={rail}
+      language={language}
+      openTab={sheet === "panel" ? tab : null}
+      modeTab={modeActive ? tab : null}
+      modeTabs={MODE_TAB_IDS.filter((id) => getProMode(id) !== undefined)}
+      onSelect={(next) => {
+        if (sheet === "panel" && next === tab) setSheet(null);
+        else goToTab(next);
+      }}
+    />
+  );
+
   const running = run.status === "running";
   const problemCopy = intakeProblem ? errorCopy(t, intakeProblem.code, { fileProblem: true }) : null;
 
@@ -528,7 +567,11 @@ function ProSuiteBody({
       aria-label={s.regionLabel}
       data-pro-suite=""
       data-layout={isDesktop ? "desktop" : "mobile"}
-      className="flex h-[calc(100dvh-3.75rem-env(safe-area-inset-top,0px))] min-h-0 flex-col md:h-[calc(100dvh-4.25rem-env(safe-area-inset-top,0px))] lg:h-dvh"
+      data-rail={rail ? "" : undefined}
+      // (M2 · SC-05) `touch-action: pan-x pan-y`: un pellizco fuera de la hoja (cabecera, barras, dock) ya no acerca TODA la
+      // pagina y deja la interfaz fuera de pantalla. La hoja hace su propio zoom con el pellizco y los botones «+ / −» de la
+      // barra del visor (alternativa accesible a gestos); el zoom de TEXTO del navegador (Ajustes · Tamaño) sigue funcionando.
+      className="flex h-[calc(100dvh-3.75rem-env(safe-area-inset-top,0px))] min-h-0 touch-pan-x touch-pan-y flex-col md:h-[calc(100dvh-4.25rem-env(safe-area-inset-top,0px))] lg:h-dvh"
     >
       <nav aria-label={shell.skipLabel} data-pro-skip="">
         {skipTargets.map((target) => (
@@ -562,6 +605,8 @@ function ProSuiteBody({
         moreMenuSignal={moreMenuSignal}
         headingRef={headingRef}
         status={<ExportIndicator />}
+        compact={foldActive || rail}
+        modeSlotRef={rail && modeActive ? setModeSlot : undefined}
       />
 
       {running ? (
@@ -698,7 +743,9 @@ function ProSuiteBody({
         />
       ) : null}
 
-      <div ref={rowRef} data-pro-row="" className="flex min-h-0 flex-1">
+      <div data-pro-body="" className={cn("flex min-h-0 flex-1", rail ? "flex-row" : "flex-col")}>
+      {rail ? dock : null}
+      <div ref={rowRef} data-pro-row="" className="flex min-h-0 min-w-0 flex-1">
         {showThumbs ? (
           <>
             <aside
@@ -738,6 +785,7 @@ function ProSuiteBody({
               session={modeSession}
               panelId={proPanelDomId(baseId)}
               labelledBy={isDesktop ? proTabDomId(baseId, tab) : undefined}
+              layout={modeLayout}
             />
           ) : (
             <>
@@ -776,7 +824,7 @@ function ProSuiteBody({
               tabIndex={-1}
               data-pro-slot="context"
               data-pro-region="context"
-              className={cn("shrink-0 overflow-y-auto border-l border-hairline p-4 outline-none")}
+              className={cn("shrink-0 overflow-y-auto border-l border-hairline p-4 outline-none", COARSE_INPUT_CLASSES)}
               style={{ width: fitted.contextWidth }}
             >
               {panelBody}
@@ -785,18 +833,8 @@ function ProSuiteBody({
         ) : null}
       </div>
 
-      {!isDesktop ? (
-        <ProMobileDock
-          language={language}
-          openTab={sheet === "panel" ? tab : null}
-          modeTab={modeActive ? tab : null}
-          modeTabs={MODE_TAB_IDS.filter((id) => getProMode(id) !== undefined)}
-          onSelect={(next) => {
-            if (sheet === "panel" && next === tab) setSheet(null);
-            else goToTab(next);
-          }}
-        />
-      ) : null}
+      {!isDesktop && !rail ? dock : null}
+      </div>
 
       {/* Movil: miniaturas y panel de herramienta en hojas. */}
       <Sheet
@@ -815,7 +853,7 @@ function ProSuiteBody({
         title={s.tabs[tab]}
         closeLabel={t.common.close}
       >
-        <div data-pro-slot="context" data-pro-region="context">
+        <div data-pro-slot="context" data-pro-region="context" className={COARSE_INPUT_CLASSES}>
           {panelBody}
         </div>
       </Sheet>

@@ -63,6 +63,7 @@ import {
   actionTargets,
   type ActionDeps,
 } from "@/app/pdf-pro/pages/pagesActions";
+import type { GridOptions } from "@/app/pdf-pro/pages/pagesLayout";
 import { ThumbHost, useContainerSize, usePagesStore, type ThumbMap } from "@/app/pdf-pro/pages/pagesHooks";
 import { pagesApplyOperation, type PagesApplyReport } from "@/app/pdf-pro/pages/pagesOperation";
 import { addImageFiles, addPdfFiles, unlockPdfSource } from "@/app/pdf-pro/pages/pagesSources";
@@ -107,6 +108,11 @@ export type PagesTabProps = {
 /** Debajo de este ancho (px) el panel usa la barra inferior compacta. */
 const COMPACT_BELOW = 560;
 const FALLBACK = { width: 360, height: 640 };
+/**
+ * (M2 · GE-05) Cuadricula de la barra compacta (movil, panel estrecho): tres columnas de miniaturas de ~115 px y menos alto por
+ * tarjeta, para que se vean al menos dos filas a la vez (con las de 157×250 de antes solo se veia una).
+ */
+const COMPACT_GRID: Partial<GridOptions> = { minCard: 92, gap: 10, padding: 10, labelHeight: 44, aspect: 1.25 };
 
 type SheetName = "range" | "blank" | "pdf" | "images" | "merge" | "extract" | "split" | "more" | null;
 
@@ -770,6 +776,8 @@ export function PagesTab({ bridge, onOpenAsNew, sharedPdf, className }: PagesTab
       className={cn(
         // En la hoja movil (alto automatico) la cuadricula pide un alto digno; en el panel lateral ocupa lo que hay.
         "flex h-full min-h-[min(34rem,72dvh)] flex-col [[role=tabpanel]_&]:min-h-64",
+        // En la hoja movil la barra de acciones y la cuadricula ocupan todo el ancho (el contenido de la hoja lleva 20 px de margen).
+        "[[role=dialog]_&]:-mx-5 [[role=dialog]_&]:min-h-[min(36rem,76dvh)]",
         className,
       )}
     >
@@ -879,6 +887,7 @@ export function PagesTab({ bridge, onOpenAsNew, sharedPdf, className }: PagesTab
           label={strings.gridLabel(state.plan.length)}
           strings={gridStrings}
           className="min-h-[16rem] flex-1 basis-0 border-y border-hairline bg-white/2"
+          options={compact ? COMPACT_GRID : undefined}
           onSelectionChange={(ids, anchor, focus) => {
             store.setSelection(ids, anchor, focus);
             doc.announce(strings.announce.selected(ids.length));

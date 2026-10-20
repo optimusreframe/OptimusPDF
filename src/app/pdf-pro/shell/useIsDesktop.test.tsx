@@ -1,6 +1,15 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PRO_DESKTOP_QUERY, useIsDesktop } from "@/app/pdf-pro/shell/useIsDesktop";
+import {
+  PRO_COARSE_QUERY,
+  PRO_COMPACT_HEIGHT_QUERY,
+  PRO_DESKTOP_QUERY,
+  PRO_SHORT_QUERY,
+  useCoarsePointer,
+  useIsCompactHeight,
+  useIsDesktop,
+  useIsShortViewport,
+} from "@/app/pdf-pro/shell/useIsDesktop";
 
 afterEach(() => {
   cleanup();
@@ -63,5 +72,48 @@ describe("useIsDesktop", () => {
     expect(media.listenerCount()).toBe(1);
     unmount();
     expect(media.listenerCount()).toBe(0);
+  });
+});
+
+/** `matchMedia` con una lista de consultas que coinciden (el resto, no). */
+function stubQueries(matching: readonly string[]) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: matching.includes(query),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })),
+  );
+}
+
+describe("reparto por alto y puntero (M2)", () => {
+  it("un movil horizontal (ancho de escritorio pero poco alto) NO es escritorio", () => {
+    stubQueries([PRO_DESKTOP_QUERY, PRO_SHORT_QUERY]);
+    expect(renderHook(() => useIsDesktop()).result.current).toBe(false);
+    expect(renderHook(() => useIsShortViewport()).result.current).toBe(true);
+  });
+
+  it("una tableta con ancho y alto de escritorio SI lo es", () => {
+    stubQueries([PRO_DESKTOP_QUERY]);
+    expect(renderHook(() => useIsDesktop()).result.current).toBe(true);
+    expect(renderHook(() => useIsShortViewport()).result.current).toBe(false);
+  });
+
+  it("el alto pequeño y el puntero grueso se leen de sus consultas", () => {
+    stubQueries([PRO_COMPACT_HEIGHT_QUERY, PRO_COARSE_QUERY]);
+    expect(renderHook(() => useIsCompactHeight()).result.current).toBe(true);
+    expect(renderHook(() => useCoarsePointer()).result.current).toBe(true);
+    cleanup();
+    stubQueries([]);
+    expect(renderHook(() => useIsCompactHeight()).result.current).toBe(false);
+    expect(renderHook(() => useCoarsePointer()).result.current).toBe(false);
+  });
+
+  it("sin matchMedia: ni corto, ni compacto, ni puntero grueso", () => {
+    expect(renderHook(() => useIsShortViewport()).result.current).toBe(false);
+    expect(renderHook(() => useIsCompactHeight()).result.current).toBe(false);
+    expect(renderHook(() => useCoarsePointer()).result.current).toBe(false);
   });
 });

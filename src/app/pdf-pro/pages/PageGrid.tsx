@@ -105,7 +105,28 @@ export type PageGridProps = {
 
 /** Movimiento minimo (px) antes de que un clic pase a ser un arrastre. */
 const DRAG_THRESHOLD = 5;
-const EDGE_ZONE = 56;
+/** Franja (px) junto a cada borde donde el arrastre desplaza la cuadricula. */
+const EDGE_ZONE = 72;
+/**
+ * (M2 · GE-03) Velocidad maxima del auto-desplazamiento, en px POR SEGUNDO: con 26 px por fotograma iba a 1 560 px/s a 60 Hz y a
+ * 3 100 px/s en un iPad de 120 Hz (la lista pasaba de largo). Ahora no depende de la tasa de fotogramas y es proporcional a lo
+ * cerca que esta el dedo del borde (0 al entrar en la franja, tope en el borde), con un minimo para que arranque al entrar.
+ */
+const MAX_SCROLL_SPEED = 720;
+const MIN_SCROLL_SPEED = 90;
+/** Un fotograma largo (pestaña en segundo plano, CPU saturada) no da un salto: el tiempo se acota. */
+const MAX_FRAME_MS = 48;
+
+/** Velocidad (px/s, con signo) del auto-desplazamiento para un puntero a `clientY` de un contenedor `top`..`top + height`. */
+export function edgeScrollSpeed(clientY: number, top: number, height: number): number {
+  const fromTop = top + EDGE_ZONE - clientY;
+  const fromBottom = clientY - (top + height - EDGE_ZONE);
+  const depth = fromTop > 0 ? fromTop : fromBottom > 0 ? fromBottom : 0;
+  if (depth === 0) return 0;
+  const closeness = Math.min(1, depth / EDGE_ZONE);
+  const speed = MIN_SCROLL_SPEED + (MAX_SCROLL_SPEED - MIN_SCROLL_SPEED) * closeness;
+  return fromTop > 0 ? -speed : speed;
+}
 
 type DragState = {
   ids: string[];
@@ -157,6 +178,9 @@ function createDragController(deps: DragDeps) {
     ids: string[];
     insertBefore: number;
     raf: number | null;
+    /** Marca de tiempo del fotograma anterior (para medir por tiempo, no por fotograma) y resto de pixeles sin aplicar. */
+    lastFrame: number | null;
+    carry: number;
   };
   let session: Session | null = null;
 
@@ -176,23 +200,29 @@ function createDragController(deps: DragDeps) {
     deps.setDrag({ ids: session.ids, x: point.x, y: point.y, insertBefore: session.insertBefore });
   };
 
-  const tick = () => {
+  const tick = (now: number) => {
     const scroller = deps.scrollerRef.current;
     if (!session || !session.active || !scroller) return;
+    const elapsed = session.lastFrame === null ? 0 : Math.min(MAX_FRAME_MS, Math.max(0, now - session.lastFrame));
+    session.lastFrame = now;
     const box = scroller.getBoundingClientRect();
     const height = box.height || scroller.clientHeight;
-    let delta = 0;
-    if (session.clientY < box.top + EDGE_ZONE) delta = -Math.min(26, 4 + (box.top + EDGE_ZONE - session.clientY) / 2);
-    else if (session.clientY > box.top + height - EDGE_ZONE) {
-      delta = Math.min(26, 4 + (session.clientY - (box.top + height - EDGE_ZONE)) / 2);
-    }
-    if (delta !== 0) {
-      const before = scroller.scrollTop;
-      scroller.scrollTop = before + delta;
-      if (scroller.scrollTop !== before) {
-        deps.setScrollTop(scroller.scrollTop);
-        update(session.clientX, session.clientY);
+    const speed = edgeScrollSpeed(session.clientY, box.top, height);
+    if (speed !== 0 && elapsed > 0) {
+      // Pixeles = velocidad × tiempo; la parte fraccionaria se acumula (el navegador redondea `scrollTop` a pixeles).
+      const wanted = (speed * elapsed) / 1000 + session.carry;
+      const delta = Math.trunc(wanted);
+      session.carry = wanted - delta;
+      if (delta !== 0) {
+        const before = scroller.scrollTop;
+        scroller.scrollTop = before + delta;
+        if (scroller.scrollTop !== before) {
+          deps.setScrollTop(scroller.scrollTop);
+          update(session.clientX, session.clientY);
+        }
       }
+    } else if (speed === 0) {
+      session.carry = 0;
     }
     session.raf = requestAnimationFrame(tick);
   };
@@ -276,6 +306,8 @@ function createDragController(deps: DragDeps) {
         ids: [],
         insertBefore: 0,
         raf: null,
+        lastFrame: null,
+        carry: 0,
       };
       window.addEventListener("pointermove", onMove, true);
       window.addEventListener("pointerup", onUp, true);
@@ -368,28 +400,20 @@ export function PageGrid({
     return false;
   }, []);
 
-  const revealIndex = useCallback(
-    (index: number) => {
-      const scroller = scrollerRef.current;
-      if (!scroller) return;
-      const next = scrollTopToReveal(latest.current.metrics, index, scroller.scrollTop, scroller.clientHeight || size.height);
-      if (next !== scroller.scrollTop) {
-        scroller.scrollTop = next;
-        setScrollTop(next);
-      }
-    },
-    [size.height],
-  );
-
-  const focusItem = useCallback(
-    (id: string) => {
-      const index = latest.current.indexById.get(id);
-      if (index === undefined) return;
-      revealIndex(index);
-      if (!focusDom(id)) pendingFocus.current = id;
-    },
-    [focusDom, revealIndex],
-  );
+  /**
+   * (M2 · GE-03) Llevar el foco a una tarjeta se DIFIERE al siguiente pintado (ver el efecto de abajo): quien lo pide justo
+   * despues de reordenar (soltar un arrastre, «Mover antes/despues») lo hace con las tarjetas aun en el orden VIEJO, y la
+   * posicion que daba `latest` era la de antes del movimiento: la cuadricula saltaba a la fila de donde SALIA la pagina (la
+   * primera, tras arrastrar la pagina 1) y la pagina movida quedaba fuera de vista. Con el pintado nuevo en la mano, el indice
+   * es el de ahora y el desplazamiento solo ocurre si la tarjeta no esta ya a la vista.
+   */
+  const pendingReveal = useRef<string | null>(null);
+  const [, requestPaint] = useState(0);
+  const focusItem = useCallback((id: string) => {
+    pendingFocus.current = id;
+    pendingReveal.current = id;
+    requestPaint((tick) => tick + 1);
+  }, []);
 
   useImperativeHandle(
     ref,
@@ -403,8 +427,25 @@ export function PageGrid({
     [focusItem, tabId],
   );
 
-  // Una tarjeta que aun no estaba pintada recibe el foco en cuanto aparece.
+  // La tarjeta pedida se lleva a la vista (con el orden y las medidas de ESTE pintado) y recibe el foco en cuanto aparece.
+  // Sin lista de dependencias a proposito: corre tras cada pintado y solo actua si hay un foco pendiente (`setScrollTop` queda protegido).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
+    const revealId = pendingReveal.current;
+    if (revealId) {
+      pendingReveal.current = null;
+      const index = indexById.get(revealId);
+      const scroller = scrollerRef.current;
+      if (index === undefined) {
+        pendingFocus.current = null;
+      } else if (scroller) {
+        const next = scrollTopToReveal(metrics, index, scroller.scrollTop, scroller.clientHeight || size.height);
+        if (next !== scroller.scrollTop) {
+          scroller.scrollTop = next;
+          setScrollTop(next);
+        }
+      }
+    }
     const id = pendingFocus.current;
     if (id && focusDom(id)) pendingFocus.current = null;
   });
@@ -595,7 +636,7 @@ export function PageGrid({
           <div
             aria-hidden="true"
             data-drop-marker=""
-            className="pointer-events-none absolute z-20 w-1 -translate-x-1/2 rounded-full bg-signal shadow-[0_0_0_2px_rgba(255,255,255,0.35)] forced-colors:bg-[Highlight]"
+            className="pointer-events-none absolute z-20 w-1 -translate-x-1/2 rounded-full bg-signal pointer-coarse:w-1.5 shadow-[0_0_0_2px_rgba(255,255,255,0.35)] forced-colors:bg-[Highlight]"
             style={{ left: marker.x, top: marker.y, height: marker.height }}
           />
         ) : null}
@@ -739,15 +780,22 @@ const PageCard = memo(function PageCard({
             {item.rotation}°
           </span>
         ) : null}
-        {draggable ? (
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-1.5 pointer-coarse:pl-11 text-center leading-tight">
+        <span className="text-footnote font-semibold tabular-nums">{item.number}</span>
+        <span className="line-clamp-1 w-full text-caption text-muted-foreground" title={item.detail}>
+          {item.detail}
+        </span>
+      </div>
+      {draggable ? (
           <span
             aria-hidden="true"
             data-drag-handle=""
             title={handleLabel}
             className={cn(
-              "absolute bottom-1.5 left-1.5 flex size-7 touch-none items-center justify-center rounded-full bg-black/55 text-white",
+              "absolute bottom-1 left-1 z-10 flex size-7 touch-none items-center justify-center rounded-full bg-black/55 text-white",
               "opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-focus-visible:opacity-100",
-              "pointer-coarse:size-11 pointer-coarse:opacity-100",
+              "pointer-coarse:bottom-0 pointer-coarse:left-0 pointer-coarse:size-11 pointer-coarse:opacity-100",
               selected && "opacity-100",
               "forced-colors:border forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:text-[CanvasText]",
             )}
@@ -755,13 +803,6 @@ const PageCard = memo(function PageCard({
             <GripVertical className="size-4" />
           </span>
         ) : null}
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-1.5 text-center leading-tight">
-        <span className="text-footnote font-semibold tabular-nums">{item.number}</span>
-        <span className="line-clamp-1 w-full text-caption text-muted-foreground" title={item.detail}>
-          {item.detail}
-        </span>
-      </div>
     </div>
   );
 });

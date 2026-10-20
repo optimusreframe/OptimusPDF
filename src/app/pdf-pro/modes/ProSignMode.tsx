@@ -78,7 +78,7 @@ export function ProSignMode({ file, bytes, lang, onApply, onCancel, onDirtyChang
     <div ref={rootRef} className="flex h-full min-h-0 flex-col" data-pro-mode-switch-host="">
       <div className="shrink-0 px-3 pt-1 md:px-4">
         <div className="mx-auto flex w-full max-w-[1100px] flex-wrap items-center gap-x-3 gap-y-1">
-          <div className="w-full max-w-sm min-w-[16rem] flex-1" data-pro-mode-switch="">
+          <div className="w-full max-w-sm min-w-[16rem] flex-1" data-pro-mode-switch="" data-pro-fold="">
             <SegmentedControl<SubMode>
               label={e.switchLabel}
               hideLabel

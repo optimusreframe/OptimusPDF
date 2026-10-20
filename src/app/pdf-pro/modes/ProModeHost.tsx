@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, Check, Hand, PanelBottomClose, PanelBottomOpen, X } from "lucide-react";
 import { createBatchedSink, LiveSinkProvider } from "@/components/tool/liveRouting";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Spinner } from "@/components/ui/Spinner";
+import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { proWarningText } from "@/app/pdf-pro/proStrings";
 import { useProMode, useProWorkingDoc, useProWorkingDocInstance } from "@/app/pdf-pro/useProWorkingDoc";
@@ -13,6 +15,7 @@ import { ProModeHostContext, type ProModeHostValue } from "@/app/pdf-pro/modes/m
 import { useFocusReturn } from "@/app/pdf-pro/modes/modeFocus";
 import { getModeStrings, modeBarName, modeShortName } from "@/app/pdf-pro/modes/modeStrings";
 import type { ProModeSession } from "@/app/pdf-pro/modes/useProModeSession";
+import { useCoarsePointer } from "@/app/pdf-pro/shell/useIsDesktop";
 
 /**
  * Host de modos de PDF Pro (Wave 7 · U6): monta el modo de la pestana activa EN LUGAR DEL VISOR, con su barra
@@ -22,15 +25,42 @@ import type { ProModeSession } from "@/app/pdf-pro/modes/useProModeSession";
 /** Dos avisos del modo con menos de este tiempo de diferencia se leen juntos. */
 const MERGE_WINDOW_MS = 1200;
 
+/**
+ * (M2 · VP-01) Como se reparte el alto con el modo abierto. En escritorio la barra del modo va arriba (como siempre). En
+ * movil el alto manda: la barra pasa ABAJO (el pulgar llega a «Aplicar» y «Descartar»), la paleta y los avisos del editor
+ * se pliegan con un boton (el dock no), y en un movil horizontal (sin alto para otra fila) la barra se pinta dentro de la cabecera.
+ */
+export type ProModeHostLayout = {
+  /** Reparto movil (hojas + dock): barra abajo y barras plegables. */
+  mobile: boolean;
+  /** Barras plegadas (paleta de herramientas, aviso de privacidad, «Aplanar»...): la hoja ocupa casi todo el alto. */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  /** Movil horizontal: la barra del modo se pinta en este hueco de la cabecera (si ya existe). */
+  slot: HTMLElement | null;
+  /** El dock inferior esta debajo de la barra: la barra no necesita su propia zona segura. */
+  dockBelow: boolean;
+};
+
+const DESKTOP_LAYOUT: ProModeHostLayout = {
+  mobile: false,
+  collapsed: false,
+  onToggleCollapsed: () => {},
+  slot: null,
+  dockBelow: false,
+};
+
 export function ProModeHost({
   session,
   panelId,
   labelledBy,
+  layout = DESKTOP_LAYOUT,
 }: {
   session: ProModeSession;
   panelId: string;
   /** Id de la pestaña que lo abre (escritorio); sin el (movil: no hay pestañas) la region lleva su propia etiqueta. */
   labelledBy?: string;
+  layout?: ProModeHostLayout;
 }) {
   const { language } = useI18n();
   const { def } = session;
@@ -43,9 +73,29 @@ export function ProModeHost({
       panelId={panelId}
       labelledBy={labelledBy}
       language={language}
+      layout={layout}
     />
   );
 }
+
+/**
+ * Lo que se pliega con «Ocultar herramientas» (solo movil; el dock no): lo que el editor pinta ENCIMA y DEBAJO de la hoja y no es ella.
+ * Se apoya en los marcadores del propio editor (`data-tool-palette`, `data-edit-privacy`, `data-page-actions`) y en los de
+ * este host (`data-pro-fold`); la paleta solo se pliega en pantalla estrecha (en horizontal es una columna que no resta alto).
+ */
+const FOLD_CLASSES = [
+  "data-[chrome=collapsed]:[&_[data-pro-fold]]:hidden",
+  "data-[chrome=collapsed]:[&_[data-edit-privacy]]:hidden",
+  "data-[chrome=collapsed]:max-md:[&_[data-tool-palette]]:hidden",
+  "data-[chrome=collapsed]:max-md:[&_[data-page-actions]]:hidden",
+].join(" ");
+
+/**
+ * Interruptor «Desplazar» (herramienta armada): mientras esta activo, un dedo sobre la hoja la DESPLAZA (`touch-action:
+ * pan-y`) en vez de dibujar o colocar; un toque corto sigue colocando el elemento. Anula el `touch-none` que el editor
+ * pone a la hoja con una herramienta armada, sin tocar el editor.
+ */
+const PAN_CLASSES = "data-[pan]:[&_[data-tool]]:touch-pan-y! data-[pan]:[&_[data-tool]]:touch-pan-x!";
 
 function ProModeHostInner({
   session,
@@ -53,12 +103,14 @@ function ProModeHostInner({
   panelId,
   labelledBy,
   language,
+  layout,
 }: {
   session: ProModeSession;
   def: NonNullable<ProModeSession["def"]>;
   panelId: string;
   labelledBy?: string;
   language: "es" | "en";
+  layout: ProModeHostLayout;
 }) {
   const m = getModeStrings(language);
   const { busy, dirty, error, hasControls } = session;
@@ -71,9 +123,15 @@ function ProModeHostInner({
 
   const [subName, setSubName] = useState<"sign" | "fill" | null>(null);
   const modeName = modeBarName(language, subName ?? def.tab);
+  const coarse = useCoarsePointer();
+  const panHintId = useId();
+  // «Desplazar» solo tiene sentido con un dedo y en los modos que dibujan sobre la hoja (Editar y Anotar).
+  const [pan, setPan] = useState(false);
+  const panAvailable = coarse && (def.tab === "edit" || def.tab === "annotate");
   // Al salir del modo, el foco nunca cae a <body> en el instante en que se retira la barra (sus botones).
   const rootRef = useRef<HTMLDivElement>(null);
-  useFocusReturn(rootRef);
+  const barRef = useRef<HTMLDivElement>(null);
+  useFocusReturn(rootRef, barRef);
   /*
    * Todo lo que el modo dice (entrar, campos detectados, avisos...) sale por la UNICA region viva de PDF Pro. Un aviso que
    * llega en el segundo siguiente a otro se SUMA a el en vez de pisarlo («Anotar: modo abierto... Buscando campos...»).
@@ -103,6 +161,149 @@ function ProModeHostInner({
   if (!document || !snapshot || !file) return null;
   const Component = def.Component;
   const canApply = hasControls && dirty && !busy;
+  const { mobile, collapsed, onToggleCollapsed, slot, dockBelow } = layout;
+  // En un movil horizontal la barra va dentro de la cabecera (si su hueco ya existe); si no, abajo.
+  const inSlot = mobile && slot !== null;
+  const bottom = mobile && !inSlot;
+
+  const controls = (
+    <>
+      {mobile ? (
+        <button
+          type="button"
+          data-pro-fold-toggle=""
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? m.host.showTools : m.host.hideTools}
+          title={collapsed ? m.host.showTools : m.host.hideTools}
+          onClick={onToggleCollapsed}
+          className="group flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-6px] focus-visible:outline-signal forced-colors:focus-visible:outline-[Highlight]"
+        >
+          <span className="flex size-8 items-center justify-center rounded-full text-foreground transition-[background-color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-active:scale-90 group-active:duration-[80ms] forced-colors:border forced-colors:border-[ButtonText]">
+            {collapsed ? (
+              <PanelBottomOpen aria-hidden="true" className="size-[18px]" />
+            ) : (
+              <PanelBottomClose aria-hidden="true" className="size-[18px]" />
+            )}
+          </span>
+        </button>
+      ) : null}
+      {panAvailable ? (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={pan}
+          data-pro-pan-toggle=""
+          aria-describedby={panHintId}
+          title={m.host.panHint}
+          onClick={() => setPan((value) => !value)}
+          className={cn(
+            "flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-ios-sm px-2.5 text-subheadline font-medium text-muted-foreground",
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal forced-colors:focus-visible:outline-[Highlight]",
+            "aria-checked:bg-signal/15 aria-checked:text-foreground forced-colors:border forced-colors:border-[ButtonText] forced-colors:aria-checked:border-2 forced-colors:aria-checked:border-[Highlight]",
+          )}
+        >
+          <Hand aria-hidden="true" className="size-4" />
+          <span className={inSlot ? "sr-only" : "max-[389px]:sr-only"}>{m.host.panLabel}</span>
+        </button>
+      ) : null}
+      {panAvailable ? (
+        <span id={panHintId} className="sr-only">
+          {m.host.panHint}
+        </span>
+      ) : null}
+    </>
+  );
+
+  const actions = hasControls ? (
+    <div className="flex shrink-0 items-center gap-2">
+      {busy && session.hasControls ? (
+        <Button variant="ghost" size="md" data-pro-mode-cancel="" onClick={session.cancelApply}>
+          {m.host.cancelApply}
+        </Button>
+      ) : null}
+      <Button
+        variant="secondary"
+        size="md"
+        data-pro-mode-discard=""
+        aria-disabled={busy || undefined}
+        className="aria-disabled:opacity-50"
+        onClick={() => {
+          if (!busy) session.requestDiscard();
+        }}
+      >
+        <X aria-hidden="true" className="size-4" />
+        {/* En movil estrecho solo el icono (el nombre accesible sigue siendo «Descartar»): «Aplicar» conserva su texto. */}
+        <span className={inSlot ? "sr-only" : mobile ? "max-[420px]:sr-only" : undefined}>{m.host.discard}</span>
+      </Button>
+      <Button
+        variant="primary"
+        size="md"
+        data-pro-mode-apply=""
+        aria-disabled={!canApply || undefined}
+        // Con `aria-disabled` el boton se ve igual que uno activo: se le da el aspecto apagado.
+        className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:shadow-none"
+        onClick={() => {
+          if (canApply) session.requestApply();
+          else if (!busy) doc.announce(m.host.noChanges);
+        }}
+      >
+        <Check aria-hidden="true" className="size-4" />
+        {busy ? m.host.applying : m.host.apply}
+      </Button>
+    </div>
+  ) : null;
+
+  const bar = (
+    <div
+      ref={barRef}
+      role="group"
+      aria-label={m.host.barLabel}
+      data-pro-mode-bar=""
+      data-placement={inSlot ? "header" : bottom ? "bottom" : "top"}
+      className={cn(
+        "flex items-center gap-x-2 gap-y-1",
+        inSlot
+          ? "min-w-0 shrink"
+          : bottom
+            ? cn(
+                "shrink-0 border-t border-hairline bg-background pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] py-1",
+                // Sin el dock debajo (plegado) la barra hace de borde inferior: respeta la zona segura del iPhone.
+                dockBelow ? "" : "pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]",
+              )
+            : "shrink-0 flex-wrap gap-x-3 border-b border-hairline px-3 py-1.5 md:px-4",
+      )}
+    >
+      {controls}
+      <p
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-2 text-subheadline font-semibold text-foreground",
+          inSlot && "max-lg:sr-only",
+        )}
+      >
+        <span data-pro-mode-name="" className={mobile ? "truncate max-[359px]:sr-only" : undefined}>
+          {modeName}
+        </span>
+        {/* En el movil el estado cabe como un punto (la barra ya es estrecha); el texto sigue para lectores de pantalla. */}
+        <span
+          aria-hidden="true"
+          data-pro-mode-dot=""
+          className={
+            dirty
+              ? "size-2 shrink-0 rounded-full bg-signal sm:hidden forced-colors:bg-[Highlight]"
+              : "hidden"
+          }
+        />
+        <span
+          data-pro-mode-state=""
+          className="truncate text-footnote font-normal text-muted-foreground max-sm:sr-only"
+        >
+          {busy ? m.host.applying : dirty ? m.host.dirty : m.host.clean}
+        </span>
+        {busy ? <Spinner className="size-4" /> : null}
+      </p>
+      {actions}
+    </div>
+  );
 
   return (
     <div
@@ -116,72 +317,11 @@ function ProModeHostInner({
       data-mode={def.tab}
       data-dirty={dirty ? "" : undefined}
       data-busy={busy ? "" : undefined}
-      className="flex min-h-0 min-w-0 flex-1 flex-col outline-none"
+      data-chrome={mobile && collapsed ? "collapsed" : undefined}
+      data-pan={pan && panAvailable ? "" : undefined}
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col outline-none", FOLD_CLASSES, PAN_CLASSES)}
     >
-      <div
-        role="group"
-        aria-label={m.host.barLabel}
-        data-pro-mode-bar=""
-        className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-3 py-1.5 md:px-4"
-      >
-        <p className="flex min-w-0 flex-1 items-center gap-2 text-subheadline font-semibold text-foreground">
-          <span data-pro-mode-name="">{modeName}</span>
-          {/* En el movil el estado cabe como un punto (la barra ya es estrecha); el texto sigue para lectores de pantalla. */}
-          <span
-            aria-hidden="true"
-            data-pro-mode-dot=""
-            className={
-              dirty
-                ? "size-2 shrink-0 rounded-full bg-signal sm:hidden forced-colors:bg-[Highlight]"
-                : "hidden"
-            }
-          />
-          <span
-            data-pro-mode-state=""
-            className="truncate text-footnote font-normal text-muted-foreground max-sm:sr-only"
-          >
-            {busy ? m.host.applying : dirty ? m.host.dirty : m.host.clean}
-          </span>
-          {busy ? <Spinner className="size-4" /> : null}
-        </p>
-        {hasControls ? (
-          <div className="flex shrink-0 items-center gap-2">
-            {busy && session.hasControls ? (
-              <Button variant="ghost" size="md" data-pro-mode-cancel="" onClick={session.cancelApply}>
-                {m.host.cancelApply}
-              </Button>
-            ) : null}
-            <Button
-              variant="secondary"
-              size="md"
-              data-pro-mode-discard=""
-              aria-disabled={busy || undefined}
-              className="aria-disabled:opacity-50"
-              onClick={() => {
-                if (!busy) session.requestDiscard();
-              }}
-            >
-              <X aria-hidden="true" className="size-4" />
-              {m.host.discard}
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              data-pro-mode-apply=""
-              aria-disabled={!canApply || undefined}
-              // Con `aria-disabled` el boton se ve igual que uno activo: se le da el aspecto apagado.
-              className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:shadow-none"
-              onClick={() => {
-                if (canApply) session.requestApply();
-                else if (!busy) doc.announce(m.host.noChanges);
-              }}
-            >
-              <Check aria-hidden="true" className="size-4" />
-              {busy ? m.host.applying : m.host.apply}
-            </Button>
-          </div>
-        ) : null}
-      </div>
+      {bottom || inSlot ? null : bar}
 
       {error ? (
         <p
@@ -194,7 +334,10 @@ function ProModeHostInner({
         </p>
       ) : null}
 
-      <div data-pro-mode-body="" className="min-h-0 min-w-0 flex-1 overflow-hidden p-2 md:p-3">
+      <div
+        data-pro-mode-body=""
+        className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mobile ? "p-1 sm:p-2" : "p-2 md:p-3")}
+      >
         <ProModeHostContext.Provider value={value}>
           <LiveSinkProvider value={sink}>
             <Component
@@ -209,6 +352,8 @@ function ProModeHostInner({
           </LiveSinkProvider>
         </ProModeHostContext.Provider>
       </div>
+      {bottom ? bar : null}
+      {inSlot && slot ? createPortal(bar, slot) : null}
     </div>
   );
 }

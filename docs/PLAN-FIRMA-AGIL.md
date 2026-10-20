@@ -1630,3 +1630,43 @@ Safe-area emulada por CDP, no un iPhone real. Safari/iPad reales sin verificar (
 - E2E nuevos (Chromium): 48 (gestos 14, UI base 20, safe-area/hoja/barra lateral 8, axe 4 × 6 anchos × claro/oscuro × ES/EN); WebKit-iPad: 24 pasan y 23 se omiten (los de tacto CDP).
 - Regresión: E2E completo en Chromium 1 246 pasan; los 2 únicos fallos (`pdf-pro-modes-sign` «Aplicar» apagado, opacidad < 1) se corrigieron (`aria-disabled` al 90 %) y pasan; WebKit-iPad (Firmar, Pro, paleta, a11y) 96 pasan.
 - Los E2E nuevos fallan sobre el código base (20 + 4 de 52 en una pasada con `git stash` de `src`) y pasan con el arreglo.
+## Correcciones móvil/iPad: PDF Pro (M2)
+
+Corrige los hallazgos de PDF Pro de `docs/AUDITORIA-MOVIL-IPAD.md`. Todo vive en `src/app/pdf-pro/**` (más sus specs). Cada hallazgo tiene una prueba E2E que FALLA sin el arreglo (`e2e/specs/mobile-pro-*.spec.ts`, helper `e2e/helpers/mobile-pro.ts`) y pruebas unitarias.
+
+| ID | Qué cambia para el usuario | Dónde |
+|---|---|---|
+| VP-01 (BLOQUEANTE) | Editar y Anotar dejan una hoja útil en todas las pantallas del informe (px de hoja visible, medidos): SE 320: 0 → 204; SE 375: 124 → 352; iPhone 15 Pro: 309 → 324-336; iPhone horizontal: 13 → 172; móvil 800×360: 0 → 136; iPad mini/Pro: sin cambio (≥ 450). La barra del modo («Editando · Descartar · Aplicar») pasa abajo, la cabecera del documento es de una sola fila, el dock pasa a raíl lateral en horizontal y un botón de 44 px («Ocultar/Mostrar herramientas») pliega paleta, aviso de privacidad y «Aplanar»; el dock queda siempre a un toque. En un alto < 720 px arrancan plegadas. Firmar (parte del lienzo de M1/M3) sigue sin hoja visible en móvil vertical: ver peticiones. | `ProSuite.tsx`, `ProTopBar.tsx`, `modes/ProModeHost.tsx`, `shell/ProMobileDock.tsx`, `shell/useIsDesktop.ts` |
+| GE-03 | El auto-desplazamiento al reordenar va en px/s (90–720 px/s según la cercanía al borde, con tope, igual a 60 o 120 Hz); al soltar la lista ya no vuelve al inicio: la página movida queda a la vista (la causa era `focusItem` con el índice viejo) y seleccionada; el marcador de destino es más grueso con el dedo. | `pages/PageGrid.tsx` |
+| GE-05 | Hoja «Páginas» en móvil: 3 columnas, ≥ 2 filas completas, asa de arrastre fuera de la miniatura, estado en una fila y «Aplicar»/«Descartar» abajo (texto corto, nombre accesible completo). | `pages/PagesTab.tsx`, `pages/PagesToolbar.tsx`, `pages/PageGrid.tsx` |
+| SC-05 | `touch-action: pan-x pan-y` en la suite: pellizcar fuera de la hoja ya no acerca toda la página (medido: ×5 antes, ×1 ahora). El zoom de la hoja sigue con pellizco y con los botones +/−. | `ProSuite.tsx` |
+| VI-02 | «Reconocer texto (OCR)» envuelve y la etiqueta «Requiere conexión» baja bajo el título. | `tabs/DocumentTab.tsx` |
+| VI-03 | Dock con celdas de 56 px mínimo: a 320 px se desplaza en vez de tocar las etiquetas. | `shell/ProMobileDock.tsx` |
+| VI-08 | Con puntero táctil las ayudas de Editar/Anotar hablan de «tocar» y «arrastrar», sin «Haz clic» ni «Esc». | `modes/ProEditorMode.tsx`, `modes/modeStrings.ts` |
+| GE-02 (Pro) | iPad vertical (834 px): el visor mide ≈ 680 px (antes 332 px): con un dedo (`pointer: coarse`) el visor no baja de 448 px (`TOUCH_MIN_VIEWER_WIDTH`), el panel de herramientas se pliega solo y las pestañas lo reabren; con ratón el reparto no cambia (320 px). Un móvil horizontal (> 768 px de ancho pero < 480 px de alto) usa el reparto móvil. | `shell/proLayout.ts`, `shell/useIsDesktop.ts` |
+| ER-02 (Pro) | «Aplicar» y «Descartar» de los modos y «Aplicar cambios» de Páginas están en la mitad inferior de la pantalla. | `modes/ProModeHost.tsx`, `pages/PagesToolbar.tsx` |
+| VI-07 (Pro) | ≥ 8 px entre botones contiguos con puntero táctil en la barra del visor, la cabecera, la barra del modo y la barra de Páginas. | `viewer/ViewerToolbar.tsx`, `pages/PagesToolbar.tsx` |
+| SC-04 (Pro) | «Ir a la página», la paleta de comandos y los campos de los paneles de herramienta miden 16 px con puntero táctil. | `viewer/ViewerToolbar.tsx`, `shell/coarseInputs.ts`, `shell/CommandPalette.tsx`, `tabs/panels/*` |
+| GE-01 (Pro) | Con puntero táctil, Editar y Anotar traen un interruptor «Desplazar» (44 px, `role="switch"`): activado, un dedo sobre la hoja la desplaza aunque haya una herramienta armada y un toque corto sigue colocando el elemento. | `modes/ProModeHost.tsx` |
+| SC-03 (extra) | Zona segura lateral en cabecera, barra del visor, barra del modo y raíl. | idem |
+
+### Diseño
+
+- **Un solo estado de plegado** (`foldPref ?? alto < 720`) en `ProSuite`; el host de modos pinta la barra (arriba en escritorio, abajo en móvil, dentro de la cabecera en móvil horizontal) y marca `data-chrome="collapsed"`. El dock no se pliega. Lo que se pliega se apoya en los marcadores del propio editor (`data-tool-palette`, `data-edit-privacy`, `data-page-actions`) y en `data-pro-fold`, sin tocar `edit-pdf`.
+- **Interruptor «Desplazar»**: anula el `touch-none` que `EditWorkspace` pone a la hoja con una herramienta armada mediante `data-pan` + `touch-pan-y!` en el host; el editor no cambia.
+- **Escritorio no cambia**: la barra del modo sigue arriba y sin botón de plegar; todos los textos de escritorio se conservan para puntero fino.
+
+### Pruebas que cambian (y por qué)
+
+- `edit-palette-reach.spec.ts` (Pro · modo Editar, 360×640): con alto < 720 px las barras arrancan plegadas, así que la prueba pulsa «Mostrar herramientas» antes de medir; la comprobación (≥ 44 px, dentro de la ventana, nada encima) es la misma.
+
+### Peticiones a otros dueños
+
+- **M3 (lienzo compartido `DocumentCanvas*.tsx`)**: GE-01 en Firmar (`touch-none` con herramienta armada o zoom > 1); en el modo Firmar de Pro la hoja sigue empezando bajo la configuración (0–16 px visibles en móvil vertical): con `useProModeHost()` ≠ null conviene ordenar la hoja primero, plegar «Solo yo/Varios», «Qué debes saber» y la tarjeta de firma, y anclar la paleta al contenedor (hoy es `fixed` y flota sobre la barra de Pro). Pro expone `[data-pro-mode-host][data-chrome="collapsed"]` por si quieren compactar más.
+- **Dueño de `edit-pdf`**: el campo «Ir a la página» y «Fuente/Tamaño» del editor siguen en 13–14 px; las ayudas de escritorio (`toolHints`) se sustituyen desde Pro por `modeStrings.touchHints` y podrían vivir allí.
+- **M3 (layout)**: opcional, ocultar la cabecera global en horizontal bajo 480 px de alto cuando `<html data-pro-suite>` (Pro ya fija la altura con `dvh`, pero la cabecera de 56 px sigue siendo el 14 % de 393 px).
+- **Config de Playwright**: añadir `mobile-pro-(sheet-space|pages|touch|a11y)` a `CROSS_SPECS` si se quiere que corran por defecto en `webkit-ipad`.
+
+### No verificado
+
+Safari/iPad reales (rebote, barra de direcciones dinámica y `dvh`, zoom automático por campos < 16 px, `touch-action` en iOS, isla/notch), VoiceOver, Apple Pencil, 120 Hz real (la velocidad del auto-desplazamiento se midió en Chromium a la tasa de fotogramas del emulador y se prueba como función pura en px/s) y PDF reales grandes.

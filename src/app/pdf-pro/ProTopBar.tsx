@@ -34,6 +34,16 @@ export type ProTopBarProps = {
    * pinta algo (`data-export-indicator`), la barra se parte en dos filas para darle su propia linea.
    */
   status?: ReactNode;
+  /**
+   * Barra COMPACTA (movil con un modo abierto, o movil horizontal): una sola fila de 48 px para que la hoja conserve
+   * sitio, con el estado «sin cambios» reducido a un punto (el texto sigue ahi para lectores de pantalla).
+   */
+  compact?: boolean;
+  /**
+   * Hueco para la barra del modo cuando no hay alto para una fila propia (movil horizontal): `ProModeHost` pinta
+   * ahi «Descartar» y «Aplicar», junto a «Descargar» y «Mas».
+   */
+  modeSlotRef?: (element: HTMLDivElement | null) => void;
 };
 
 /** Boton de icono de 44 px (patron del Sidebar): el relleno visible es de 32 px. */
@@ -101,6 +111,8 @@ export function ProTopBar({
   moreMenuSignal,
   headingRef,
   status,
+  compact = false,
+  modeSlotRef,
 }: ProTopBarProps) {
   const strings = getProStrings(language);
   const s = strings.suite;
@@ -109,14 +121,18 @@ export function ProTopBar({
       role="group"
       data-pro-region="top"
       aria-label={s.topBarLabel}
+      data-compact={compact ? "" : undefined}
       className={cn(
-        "flex min-h-14 shrink-0 items-center gap-2 border-b border-hairline px-3 md:px-4",
+        "flex shrink-0 items-center gap-2 border-b border-hairline px-3 max-[360px]:gap-1 md:px-4",
+        compact ? "min-h-12" : "min-h-14",
+        // Con `viewport-fit=cover` un iPhone horizontal tapa los bordes con la isla y las esquinas: la barra respeta la zona segura.
+        "pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))]",
         // Con un indicador a la vista el indicador baja a su propia fila: la barra se parte en dos mientras dura.
         "has-[[data-export-indicator]]:flex-wrap has-[[data-export-indicator]]:py-1",
       )}
     >
       <Layers aria-hidden="true" className="hidden size-5 shrink-0 text-accent-pro sm:block" />
-      <div className="min-w-0 flex-1">
+      <div className={cn("flex-1", modeSlotRef ? "min-w-[6rem]" : "min-w-0")}>
         <h1
           ref={headingRef}
           tabIndex={-1}
@@ -128,7 +144,18 @@ export function ProTopBar({
         </h1>
         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-muted-foreground">
           <span>{s.pageCount(pageCount)}</span>
-          <Badge variant={dirty ? "signal" : "neutral"}>{dirty ? s.unsaved : s.saved}</Badge>
+          {compact ? (
+            <>
+              {/* Compacta: un punto si hay cambios (la fila no se parte en dos); el texto completo sigue para lectores. */}
+              <span
+                aria-hidden="true"
+                className={dirty ? "size-2 shrink-0 rounded-full bg-signal forced-colors:bg-[Highlight]" : "hidden"}
+              />
+              <span className="sr-only">{dirty ? s.unsaved : s.saved}</span>
+            </>
+          ) : (
+            <Badge variant={dirty ? "signal" : "neutral"}>{dirty ? s.unsaved : s.saved}</Badge>
+          )}
         </p>
       </div>
       <BarIconButton label={s.undo} shortcut="Control+Z Meta+Z" disabled={!canUndo} onClick={onUndo}>
@@ -138,9 +165,10 @@ export function ProTopBar({
         <Redo2 aria-hidden="true" className="size-[18px]" />
       </BarIconButton>
       {status}
+      {modeSlotRef ? <div ref={modeSlotRef} data-pro-mode-slot="" className="contents" /> : null}
       <Button size="md" onClick={onDownload} className="shrink-0">
         <Download aria-hidden="true" className="size-4" />
-        <span className="max-sm:sr-only">{s.download}</span>
+        <span className={compact ? "sr-only" : "max-sm:sr-only"}>{s.download}</span>
       </Button>
       {saveItems ? (
         <MoreMenu

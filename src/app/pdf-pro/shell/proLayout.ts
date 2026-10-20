@@ -14,6 +14,12 @@ export const THUMBS_WIDTH = { min: 144, max: 280, def: 176 } as const;
 export const CONTEXT_WIDTH = { min: 280, max: 560, def: 340 } as const;
 /** El visor nunca baja de este ancho: antes se estrechan y luego se pliegan los paneles. */
 export const MIN_VIEWER_WIDTH = 320;
+/**
+ * (M2 · GE-02) Con un DEDO (iPad, tabletas Android) el visor no baja de este ancho: en un iPad vertical (834 px) la hoja quedaba en
+ * ≈ 330 px entre miniaturas y panel. Con 448 px el panel de herramientas se pliega solo (el boton «Mostrar panel» y las pestañas lo
+ * reabren) y la hoja ocupa el resto; con 768 px de pantalla aun cabe el panel de 280 si se pide. Con raton no cambia nada.
+ */
+export const TOUCH_MIN_VIEWER_WIDTH = 448;
 /** Reserva para los tiradores de los dos paneles (px). */
 const HANDLES_WIDTH = 12;
 
@@ -88,11 +94,11 @@ export type FittedPanels = {
  * Reparte el ancho disponible: el visor conserva `MIN_VIEWER_WIDTH`. Primero se estrecha el panel contextual
  * hasta su minimo, luego las miniaturas; si aun asi no cabe se pliega el contextual y, por ultimo, las miniaturas.
  */
-export function fitPanels(containerWidth: number, prefs: ProLayoutPrefs): FittedPanels {
+export function fitPanels(containerWidth: number, prefs: ProLayoutPrefs, minViewerWidth: number = MIN_VIEWER_WIDTH): FittedPanels {
   let thumbs = prefs.thumbsOpen ? prefs.thumbsWidth : 0;
   let context = prefs.contextOpen ? prefs.contextWidth : 0;
   const handles = (prefs.thumbsOpen ? HANDLES_WIDTH / 2 : 0) + (prefs.contextOpen ? HANDLES_WIDTH / 2 : 0);
-  const budget = Math.max(0, containerWidth - MIN_VIEWER_WIDTH - handles);
+  const budget = Math.max(0, containerWidth - minViewerWidth - handles);
   let contextAutoHidden = false;
   let thumbsAutoHidden = false;
   if (containerWidth > 0) {
