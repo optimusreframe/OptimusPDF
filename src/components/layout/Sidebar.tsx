@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { springs, withCrossFadeOpacity } from "@/lib/motion";
+import { useViewportTier } from "@/lib/touch/viewportTier";
 import {
   ACCENT_TEXT,
   CATEGORY_ICON,
@@ -100,11 +101,23 @@ function fold(text: string): string {
 export function Sidebar() {
   const t = useT();
   const pathname = usePathname();
-  const collapsed = useSyncExternalStore(
+  const storedCollapsed = useSyncExternalStore(
     subscribeCollapsed,
     getCollapsedSnapshot,
     getCollapsedServerSnapshot,
   );
+  /*
+   * GE-04 · en un iPad HORIZONTAL (1194 px, dedo) la barra lateral de 17 rem se comia el 23 % del ancho justo donde se
+   * firma o se edita (la hoja de Firmar quedaba en ~460 px de 1194). Dentro de Firmar y PDF Pro, con puntero grueso y
+   * menos de 1280 px, arranca plegada al riel de iconos (4.5 rem); la persona puede desplegarla (solo esa pantalla:
+   * no se guarda) y su preferencia guardada manda en el resto de la aplicacion.
+   */
+  const viewport = useViewportTier();
+  const documentRoute = pathname.startsWith("/sign-pdf") || pathname.startsWith("/pdf-pro");
+  const autoCompact = documentRoute && viewport.compact;
+  const [override, setOverride] = useState<{ path: string; value: boolean } | null>(null);
+  const overridden = override && override.path === pathname ? override.value : null;
+  const collapsed = autoCompact ? (overridden ?? true) : storedCollapsed;
   const activeSection = useActiveSection();
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLDivElement>(null);
@@ -127,7 +140,8 @@ export function Sidebar() {
   }, [query]);
 
   function toggleCollapsed() {
-    writeCollapsed(!collapsed);
+    if (autoCompact) setOverride({ path: pathname, value: !collapsed });
+    else writeCollapsed(!storedCollapsed);
   }
 
   const trimmed = fold(query.trim());
@@ -207,7 +221,7 @@ export function Sidebar() {
               aria-label={t.nav.searchPlaceholder}
               aria-controls={trimmed.length > 0 ? resultsId : undefined}
               autoComplete="off"
-              className="h-10 w-full rounded-ios-sm border border-hairline bg-white/5 pr-3 pl-9 text-subheadline text-foreground placeholder:text-muted-foreground focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+              className="h-10 w-full rounded-ios-sm border border-hairline pointer-coarse:h-11 bg-white/5 pr-3 pl-9 text-subheadline text-foreground placeholder:text-muted-foreground focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
             />
           </div>
 
@@ -234,7 +248,7 @@ export function Sidebar() {
                           <Link
                             href={toolHref(tool.slug)}
                             onClick={() => setQuery("")}
-                            className="flex h-10 items-center gap-2.5 rounded-ios-sm px-2.5 text-subheadline text-foreground transition-colors hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+                            className="flex h-10 items-center gap-2.5 rounded-ios-sm px-2.5 text-subheadline pointer-coarse:h-11 text-foreground transition-colors hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
                           >
                             <Icon
                               aria-hidden="true"
@@ -333,7 +347,7 @@ export function Sidebar() {
             <li>
               <Link
                 href="/pricing"
-                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
+                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote pointer-coarse:h-11 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
               >
                 {t.nav.pricing}
               </Link>
@@ -341,7 +355,7 @@ export function Sidebar() {
             <li>
               <Link
                 href="/about"
-                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
+                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote pointer-coarse:h-11 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
               >
                 {t.nav.about}
               </Link>
@@ -402,7 +416,7 @@ function SidebarLink({
         title={collapsed ? label : undefined}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "relative isolate flex h-10 items-center gap-2.5 rounded-ios-sm px-2.5 text-subheadline font-medium",
+          "relative isolate flex h-10 items-center gap-2.5 rounded-ios-sm px-2.5 text-subheadline font-medium pointer-coarse:h-11",
           "transition-[color,background-color] duration-[var(--duration-fast)]",
           "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal",
           collapsed && "justify-center px-0",

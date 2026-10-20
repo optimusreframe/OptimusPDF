@@ -23,7 +23,7 @@ export function Footer() {
 
   return (
     <footer data-chrome="footer" className="mt-24 border-t border-hairline">
-      <div className="mx-auto flex max-w-[1200px] flex-col items-center gap-5 px-4 py-10 text-center md:flex-row md:justify-between md:gap-6 md:px-6 md:text-left">
+      <div className="mx-auto flex max-w-[1200px] flex-col items-center gap-5 py-10 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))] text-center md:flex-row md:justify-between md:gap-6 md:pl-[max(1.5rem,env(safe-area-inset-left,0px))] md:pr-[max(1.5rem,env(safe-area-inset-right,0px))] md:text-left">
         <div className="flex flex-col items-center gap-3 md:flex-row md:gap-4">
           <Logo />
           <Badge variant="live" dot>

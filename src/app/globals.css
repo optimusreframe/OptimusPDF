@@ -522,6 +522,34 @@
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/*
+ * Zonas de seguridad del aparato (SC-03 · M3). `viewport-fit=cover` (layout.tsx) pinta bajo la muesca, la isla y las
+ * esquinas: con el telefono en APAISADO la muesca queda a un lado y los controles pegados al borde (12-29 px) la tocan.
+ * Utilidades para las barras fijas y pegajosas y los contenedores de pantalla completa; en vertical y en el iPad los
+ * valores son 0 y no cambian nada. Con `-min-*` se garantiza al menos esa separacion aunque no haya zona de seguridad:
+ *   pad-safe-x            padding-inline = zona de seguridad
+ *   pl-safe / pr-safe     un solo lado
+ *   safe-inset-x          left/right (barras `fixed` que ocupan todo el ancho: se quedan dentro de la zona segura)
+ * Para un padding con minimo: `ps-[max(1rem,env(safe-area-inset-left,0px))]`.
+ */
+@utility pad-safe-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility safe-inset-x {
+  left: env(safe-area-inset-left, 0px);
+  right: env(safe-area-inset-right, 0px);
+}
+
 /* ------------------------------------------------------------------ *
  * Componentes base (W1-B). Solo lo que no se expresa bien con utilidades
  * sueltas: el scrim modal por tema y el input range al estilo UISlider.
@@ -721,6 +749,15 @@
   }
 
   /*
+   * SC-03: el contenido de TODAS las pantallas (Firmar, PDF Pro, herramientas...) respeta las zonas de seguridad
+   * laterales sin tocar cada pagina: PDF Pro y Firmar lo heredan de aqui. 0 en vertical y en el iPad.
+   */
+  main#content {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  /*
    * PDF Pro (Wave 7): la suite ocupa la altura completa de la ventana. Mientras esta montada
    * (`ProToolClient` escribe data-pro-suite en <html>) el pie y la reserva de la barra de pestañas
    * movil no se pintan (los marca `data-chrome` en el layout y en Footer/MobileTabBar).
@@ -901,5 +938,93 @@
   .slider-ios:disabled::-moz-range-track,
   .slider-ios:disabled::-moz-range-thumb {
     border-color: GrayText;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Boton primario deshabilitado (VI-06 · M3).
+ *
+ * Un primario deshabilitado al 50 % de opacidad daba 2,0-2,6:1 (texto blanco
+ * sobre azul lavado): ilegible y, a la vez, parecido a uno activo. Ahora es una
+ * pastilla GRIS (`foreground/10`) con texto `muted-foreground` (>= 4,5:1 en claro y
+ * oscuro). Las clases `disabled:` de `Button` cubren el atributo `disabled`; esta
+ * regla (sin capa: gana a las utilidades del consumidor, p. ej. un
+ * `aria-disabled:opacity-50` propio) cubre `aria-disabled="true"`, que PDF Pro usa
+ * para no perder el foco al deshabilitar. Con colores forzados manda el sistema.
+ * ------------------------------------------------------------------ */
+@media not (forced-colors: active) {
+  button[data-variant="primary"][aria-disabled="true"],
+  button[data-variant="primary"]:disabled {
+    background-color: color-mix(in oklab, var(--color-foreground) 10%, transparent);
+    color: var(--color-muted-foreground);
+    box-shadow: none;
+    opacity: 1;
+  }
+  /* `aria-disabled` (PDF Pro «Aplicar»): un 10 % mas tenue que el activo, como esperan sus pruebas, y aun >= 4,5:1. */
+  button[data-variant="primary"][aria-disabled="true"]:not(:disabled) {
+    opacity: 0.9;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Barras fijas a todo el ancho y zonas de seguridad laterales (SC-03 · M3).
+ *
+ * Una barra `fixed inset-x-0` (la de accion de las herramientas, la del escaner...) con el telefono en apaisado
+ * quedaba bajo la muesca. Se recoloca dentro de la zona segura: en vertical y en el iPad el valor es 0. Sin capa:
+ * gana a la utilidad `inset-x-0`. (La tab bar, las hojas y la cabecera lo resuelven por dentro, con su propio relleno,
+ * para que su fondo siga llegando al borde.)
+ * ------------------------------------------------------------------ */
+.fixed.inset-x-0 {
+  left: env(safe-area-inset-left, 0px);
+  right: env(safe-area-inset-right, 0px);
+}
+/* La tab bar rellena por dentro: su fondo llega al borde de la pantalla. */
+[data-chrome="tabbar"].fixed.inset-x-0 {
+  left: 0;
+  right: 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Entradas de texto >= 16 px con puntero grueso (SC-04 · M3).
+ *
+ * Safari de iPhone (y de iPad con "sitio movil") acerca la pagina al enfocar un campo de menos de 16 px y no la
+ * devuelve: en pleno flujo de firma rompe el encuadre. Con puntero grueso TODOS los campos de texto, selectores y
+ * areas miden al menos 16 px; con raton nada cambia. Sin capa para ganar a `text-xs`/`text-sm`. (El campo que se
+ * escribe SOBRE la hoja de Firmar mantiene el tamano del PDF con una escala: ver `TextFieldBox` en `DocumentCanvas`.)
+ * ------------------------------------------------------------------ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not(
+      [type="button"]
+    ):not([type="submit"]):not([type="reset"]):not([type="image"]):not([type="hidden"]),
+  select,
+  textarea {
+    font-size: max(1rem, 16px);
+  }
+  /* Excepcion: el campo de la hoja ya trae su 16 px escalado (ver arriba). */
+  input[data-canvas-input] {
+    font-size: 16px;
+  }
+}
+
+/* Resalte breve de un hueco o campo al llevarlo a la vista (`DocumentCanvasApi.scrollIntoViewRect`). */
+@keyframes canvas-flash {
+  0%,
+  100% {
+    outline-color: transparent;
+  }
+  30%,
+  70% {
+    outline-color: var(--color-signal);
+  }
+}
+[data-flash] {
+  outline: 3px solid transparent;
+  outline-offset: 3px;
+  animation: canvas-flash 1.2s ease-in-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-flash] {
+    animation: none;
+    outline-color: var(--color-signal);
   }
 }

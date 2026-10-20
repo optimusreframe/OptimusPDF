@@ -91,13 +91,27 @@ describe("Button sm y SegmentedControl sm", () => {
     }
   });
 
-  it("«Crear mi firma» sigue sin llevar `pointer-coarse:h-11` (aserción de W3: el vecino es el que crece)", () => {
+  it("VI-05 (M3): Button sm mide 44 px DE VERDAD con puntero grueso (`pointer-coarse:h-11`), no solo su zona de toque", () => {
+    // Antes (aserción de W3) el `sm` seguia en 36 px visibles + un pseudo-elemento de 44 px y los barridos de objetivos
+    // (y axe `target-size` en la fuente ancha del CI) veian 36 px: «Abrir en PDF Pro», «Importar configuracion»,
+    // «Plantillas»... Ahora crece el propio boton; el pseudo-elemento se queda para el ancho de los botones estrechos.
     render(
       <Button size="sm" variant="primary">
         Crear mi firma
       </Button>,
     );
-    expect(has(screen.getByRole("button"), "pointer-coarse:h-11")).toBe(false);
+    const button = screen.getByRole("button");
+    expect(has(button, "h-9")).toBe(true);
+    expect(has(button, "pointer-coarse:h-11")).toBe(true);
+  });
+
+  it("VI-05 (M3): Button sm con `wrap` conserva 44 px con puntero grueso (`pointer-coarse:min-h-11`)", () => {
+    render(
+      <Button size="sm" wrap>
+        Quitar todo de esta pagina
+      </Button>,
+    );
+    expect(has(screen.getByRole("button"), "pointer-coarse:min-h-11")).toBe(true);
   });
 
   it("SegmentedControl sm: las pestañas amplían su zona a 44 px con puntero grueso", () => {

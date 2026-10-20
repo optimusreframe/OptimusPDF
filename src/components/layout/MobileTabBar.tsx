@@ -41,7 +41,11 @@ export function MobileTabBar() {
       className="material-thick scroll-edge-top fixed inset-x-0 bottom-0 z-40 md:hidden"
       style={{
         borderWidth: 0,
+        // SC-03: con el telefono en apaisado el borde de la barra queda bajo la muesca; el fondo llega al borde y los
+        // iconos se quedan dentro de la zona segura.
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        paddingLeft: "env(safe-area-inset-left, 0px)",
+        paddingRight: "env(safe-area-inset-right, 0px)",
       }}
     >
       <ul className="flex h-[4.5rem] items-stretch">

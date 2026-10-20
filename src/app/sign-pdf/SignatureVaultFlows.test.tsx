@@ -481,10 +481,11 @@ describe("«Varios firmantes» con firmas guardadas — SigningCeremony", () => 
       expect(button.className).toContain("pointer-coarse:h-11");
       expect(button.className).toContain("pointer-coarse:before:hidden");
     }
-    // El boton pre-existente de la misma fila queda como estaba.
+    // VI-05 (M3): el `Button sm` base ya mide 44 px con puntero grueso, tambien el pre-existente de la misma fila
+    // (antes quedaba en 36 px visibles y solo el vecino crecia; ahora los dos miden 44 y no se solapan).
     expect(
       screen.getByRole("button", { name: strings.captureSignature }).className,
-    ).not.toContain("pointer-coarse:h-11");
+    ).toContain("pointer-coarse:h-11");
   });
 
   it("las entradas del firmante salen primero", async () => {

@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { listAllDrafts, listDrafts, listSessionDrafts, loadSessionDraft } from "@/app/sign-pdf/signDrafts";
 import { listEditDrafts, loadEditDraft } from "@/app/edit-pdf/editDrafts";
 import { listProDrafts, loadProDraft } from "@/app/pdf-pro/proDrafts";
-import { sha256Hex } from "@/lib/crypto/sha256";
 import { readPackage } from "@/lib/backup/package";
 import { applyDraftsImport, defaultDraftDecisions, planDraftsImport } from "@/lib/backup/modules/drafts";
 import { pngBytesFromDataUrl } from "@/lib/backup/modules/draftsPng";

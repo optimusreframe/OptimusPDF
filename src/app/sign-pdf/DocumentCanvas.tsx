@@ -3,12 +3,14 @@
 import {
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type Ref,
 } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
@@ -36,6 +38,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ButtonGroup } from "@/components/ui/ButtonGroup";
 import { StatusRegion } from "@/components/tool/liveRouting";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { Spinner } from "@/components/ui/Spinner";
@@ -106,6 +109,16 @@ import {
   suggestValues,
   useValueHistoryVersion,
 } from "@/lib/valueHistory";
+import { createEdgeAutoScroller, type EdgeAutoScroller } from "@/lib/touch/edgeAutoScroll";
+import { clampPan, panForPinch, panToCenterPoint, panWithOverflow } from "@/lib/touch/panZoom";
+import {
+  findScrollParent,
+  freeRegion,
+  revealDelta,
+  scrollVerticallyBy,
+  type Box,
+} from "@/lib/touch/scrollRegion";
+import { useTouchStrings } from "@/lib/touch/strings";
 
 /*
  * W2-C: el mismo lienzo sirve al modo "Solo yo" (`solo`): la firma propia es el
@@ -185,17 +198,6 @@ const MAX_ZOOM = 3;
 /** Niveles de los botones de zoom (el pellizco admite cualquier valor entre 1 y `MAX_ZOOM`). */
 const ZOOM_STEPS = [1, 1.5, 2, 3] as const;
 
-/** Limita el desplazamiento para que la hoja ampliada nunca deje de cubrir la tarjeta. */
-function clampPan(
-  pan: { x: number; y: number },
-  zoom: number,
-  size: { width: number; height: number },
-): { x: number; y: number } {
-  const maxX = Math.max(0, (size.width * (zoom - 1)) / 2);
-  const maxY = Math.max(0, (size.height * (zoom - 1)) / 2);
-  return { x: clamp(pan.x, -maxX, maxX), y: clamp(pan.y, -maxY, maxY) };
-}
-
 /** Tipos de campo de texto en el selector de la barra (icono por tipo). */
 const TEXT_TYPE_OPTIONS = [
   ["text", Type],
@@ -211,8 +213,13 @@ const CHECKBOX_DRAWN_MIN_PX = 16;
 
 /** Un elemento cuyos DOS lados miden menos que esto (px de pantalla) lleva el tirador fuera de la caja. */
 const TINY_ELEMENT_PX = 40;
-/** Cota generosa del desplazamiento por pellizco: solo evita valores disparatados. */
-const PAN_LIMIT_PX = 400;
+
+/**
+ * Tiempo (ms) que el dedo debe estar QUIETO sobre la hoja, con una herramienta de creacion armada, para que el
+ * arrastre siguiente DIBUJE el recuadro en vez de desplazar la pagina (GE-01). Un toque corto coloca el elemento por
+ * defecto; deslizar de inmediato desplaza.
+ */
+const HOLD_TO_DRAW_MS = 260;
 
 /** Ancho inicial y proporcion (alto/ancho en pixeles) de cada tipo de hueco. */
 const DEFAULT_SLOT: Record<SignatureFieldType, { width: number; ratio: number }> =
@@ -347,6 +354,50 @@ export type CanvasSequence = {
   othersPending: boolean;
 };
 
+/**
+ * Que hace UN dedo sobre la hoja cuando hay una herramienta de creacion armada (GE-01):
+ *  - `auto`   (por defecto): un toque coloca el elemento por defecto, deslizar DESPLAZA la pagina y mantener pulsado
+ *    ~260 ms antes de arrastrar dibuja el recuadro. La persona puede activar «Dibujar con el dedo» (interruptor visible).
+ *  - `scroll`: igual que `auto` y sin interruptor (el dedo nunca dibuja por arrastre inmediato).
+ *  - `draw`  : arrastrar dibuja de inmediato (la hoja deja de desplazarse con un dedo mientras la herramienta esta armada).
+ * Sin herramienta (Seleccionar) el dedo siempre desplaza la pagina (a 1x) o mueve la hoja ampliada y, al llegar a su borde,
+ * sigue con la pagina. Con raton o lapiz el arrastre siempre dibuja de inmediato.
+ */
+export type GestureMode = "auto" | "scroll" | "draw";
+
+export type RevealOptions = {
+  /** Pagina del hueco (0-based); por defecto la visible. Si es otra, el lienzo cambia de pagina primero. */
+  pageIndex?: number;
+  /** `center` (por defecto) lo deja en medio de la zona libre; `nearest` solo desplaza lo justo. */
+  block?: "center" | "nearest";
+  /** Margen (px) respecto a las barras que tapan. 12 por defecto. */
+  margin?: number;
+  /** `smooth` anima el desplazamiento (se ignora con «reducir movimiento»). */
+  behavior?: "auto" | "smooth";
+  /** Resalta el elemento ~1 s (`id` de un hueco o campo de la pagina). */
+  highlightId?: string;
+};
+
+/**
+ * API imperativa del lienzo para quien lo monta (Firmar, PDF Pro): se pide con `apiRef`. Es ADITIVA: el resto del
+ * contrato (`DocumentCanvasProps`) no cambia.
+ */
+export type DocumentCanvasApi = {
+  /**
+   * «Ver este hueco»: desplaza la pagina (y, con zoom, la hoja) para que `rect` (fracciones de la pagina, como los huecos
+   * y campos) quede visible en la zona LIBRE: entre la cabecera, la barra de zoom y las barras o la paleta fijas de abajo.
+   * Devuelve `false` si aun no hay hoja que medir (el lienzo reintenta al pintar la hoja).
+   */
+  scrollIntoViewRect: (rect: NormalizedRect, options?: RevealOptions) => boolean;
+  /** Caja libre (px de pantalla) que ve la persona: lo que no tapan las barras fijas. Util para colocar avisos o centrar. */
+  getFreeRegion: () => { top: number; bottom: number; left: number; right: number };
+  /** Modo de gesto vigente (el de la prop, o el del interruptor visible). */
+  getGestureMode: () => GestureMode;
+};
+
+/** Evento de `window` equivalente a `apiRef.scrollIntoViewRect` (`detail: { rect, options? }`). */
+export const CANVAS_REVEAL_EVENT = "optimus:canvas:reveal";
+
 export type DocumentCanvasProps = {
   file: File | null;
   signers: Signer[];
@@ -383,6 +434,10 @@ export type DocumentCanvasProps = {
   solo?: SoloConfig;
   /** Presente = parte de una vista continua de varios documentos (ver `CanvasSequence`). */
   sequence?: CanvasSequence;
+  /** Acceso imperativo (`scrollIntoViewRect`...): ver `DocumentCanvasApi`. */
+  apiRef?: Ref<DocumentCanvasApi>;
+  /** Que hace un dedo sobre la hoja con una herramienta armada: ver `GestureMode`. Ausente = `auto` con interruptor visible. */
+  gestureMode?: GestureMode;
   /**
    * Presente = la herramienta «Editar texto» existe en la paleta: las ediciones del texto
    * original de ESTE documento y sus textos (W6-A, ver `useSignTextEditing`).
@@ -404,6 +459,8 @@ type DragState = {
   id: string;
   startX: number;
   startY: number;
+  /** Posicion inicial del dedo en fracciones de la hoja: sigue valiendo si la pagina se desplaza o la hoja se mueve. */
+  startNorm: { x: number; y: number };
   snapshot: NormalizedRect;
   /** Puntero que inicio el gesto: un segundo dedo no debe poder finalizarlo ni moverlo. */
   pointerId: number;
@@ -507,7 +564,10 @@ function DocumentCanvasInner({
   solo,
   sequence,
   textEdit,
+  apiRef,
+  gestureMode,
 }: DocumentCanvasProps) {
+  const touchStrings = useTouchStrings();
   const compact = useCanvasCompact();
   const isDesktop = useIsDesktop();
   /** Recuento de paginas que da la pasada de miniaturas (la vista grande trae el suyo). */
@@ -553,20 +613,43 @@ function DocumentCanvasInner({
   const tapCandidateRef = useRef<{ pointerId: number; x: number; y: number } | null>(
     null,
   );
-  /** Con zoom > 1 y Seleccionar, un dedo sobre lo vacio desplaza la hoja (mover el lienzo). */
-  const panDragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    startPan: { x: number; y: number };
-  } | null>(null);
+  /**
+   * Con zoom > 1 un dedo sobre lo vacio desplaza la hoja (mover el lienzo) y, cuando la hoja llega a su borde, el resto del
+   * movimiento sigue con la pagina («encadenado»: sin esto el zoom era una trampa de scroll, GE-01).
+   */
+  const panDragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
   const pinchRef = useRef<{
     pointerIds: [number, number];
     startDistance: number;
     startZoom: number;
     startPan: { x: number; y: number };
     startMid: { x: number; y: number };
+    /** Centro (px de pantalla) de la hoja al empezar: con `transform-origin: center` es `centro de layout + pan`. */
+    startCenter: { x: number; y: number };
   } | null>(null);
+  /** Valores vivos de zoom y pan para los gestos (los manejadores de puntero no deben leer un cierre viejo). */
+  const zoomRef = useRef(1);
+  const panRef = useRef({ x: 0, y: 0 });
+  /**
+   * Con una herramienta de creacion armada y un dedo: toque corto = colocar, quieto `HOLD_TO_DRAW_MS` = dibujar, deslizar
+   * antes = desplazar. `holdRef` guarda el candidato mientras decide.
+   */
+  const holdRef = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    point: { x: number; y: number };
+    timer: number | null;
+  } | null>(null);
+  /** El dedo esta dibujando o moviendo algo: el `touchmove` nativo debe impedir que el navegador desplace la pagina. */
+  const blockNativeScrollRef = useRef(false);
+  /** Ultimo punto del dedo (px de pantalla) mientras se arrastra: el auto-desplazamiento reaplica el arrastre en el. */
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const autoScrollRef = useRef<EdgeAutoScroller | null>(null);
+  /** Donde (px de pantalla) empezo el recuadro: el auto-desplazamiento espera a que el dedo se mueva de verdad. */
+  const draftStartClientRef = useRef<{ x: number; y: number } | null>(null);
+  /** Interruptor visible «Dibujar con el dedo» (GE-01): con una herramienta armada, arrastrar dibuja en vez de desplazar. */
+  const [fingerDraw, setFingerDraw] = useState(false);
 
   /*
    * Sugerencias de la heuristica: una capa OPCIONAL, no campos del documento. Una
@@ -685,6 +768,12 @@ function DocumentCanvasInner({
   const dragRef = useRef<DragState | null>(null);
   /** Pagina en la que empezo el borrador en curso: si al soltar es otra, el gesto se descarta. */
   const gesturePageRef = useRef(pageIndex);
+  /** Pagina visible y `goToPage` vivos para la API imperativa (`apiRef`): que la API no lea un cierre viejo. */
+  const pageIndexRef = useRef(pageIndex);
+  const goToPageForRevealRef = useRef<(index: number) => void>(() => {});
+  useEffect(() => {
+    pageIndexRef.current = pageIndex;
+  });
   const draftOriginRef = useRef<{ x: number; y: number } | null>(null);
   const errorRef = useRef(onError);
 
@@ -814,6 +903,8 @@ function DocumentCanvasInner({
       ? null
       : TOOL_CREATES[effectiveTool];
   const editingText = effectiveTool === "editText";
+  /** Un dedo con una herramienta armada dibuja de inmediato (la prop manda; sin ella, el interruptor visible). */
+  const fingerDrawOn = gestureMode === "draw" || (gestureMode === undefined && fingerDraw);
 
   /* «Editar texto»: la capa de bloques de Editar PDF sobre la MISMA imagen (ver `useSignTextEditing`). */
   const imageRef = useRef<HTMLImageElement>(null);
@@ -1228,6 +1319,13 @@ function DocumentCanvasInner({
   const cancelGesture = useCallback(() => {
     dragRef.current = null;
     draftOriginRef.current = null;
+    // Y el seguimiento del dedo: sin esto el auto-desplazamiento seguiria con el arrastre ya abortado.
+    blockNativeScrollRef.current = false;
+    lastPointerRef.current = null;
+    autoScrollRef.current?.stop();
+    const hold = holdRef.current;
+    if (hold?.timer != null) window.clearTimeout(hold.timer);
+    holdRef.current = null;
     setDraft(null);
   }, []);
 
@@ -1241,6 +1339,7 @@ function DocumentCanvasInner({
   const goToPageRef = useRef(goToPage);
   useEffect(() => {
     goToPageRef.current = goToPage;
+    goToPageForRevealRef.current = goToPage;
   });
   useEffect(() => {
     if (!registerSequence) return;
@@ -1356,10 +1455,7 @@ function DocumentCanvasInner({
 
   /** Botones de zoom: la alternativa fiable al pellizco (que en Seleccionar compite con el scroll). */
   const setZoomLevel = (next: number) => {
-    setZoom(next);
-    setPan((current) =>
-      next === 1 ? { x: 0, y: 0 } : clampPan(current, next, layoutSize),
-    );
+    applyView(next, next === 1 ? { x: 0, y: 0 } : clampPan(panRef.current, next, layoutSize));
   };
   const zoomIn = () =>
     setZoomLevel(ZOOM_STEPS.find((step) => step > zoom + 0.01) ?? zoom);
@@ -1616,7 +1712,65 @@ function DocumentCanvasInner({
     };
   };
 
+  /** Posicion del dedo en fracciones de la hoja SIN recortar a [0, 1] (un arrastre puede salirse de la hoja). */
+  const toRawNormalized = (
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } | null => {
+    const host = hostRef.current;
+    if (!host) return null;
+    const bounds = host.getBoundingClientRect();
+    if (bounds.width === 0 || bounds.height === 0) return null;
+    return { x: (clientX - bounds.left) / bounds.width, y: (clientY - bounds.top) / bounds.height };
+  };
+
+  /** Fija zoom y desplazamiento a la vez (estado y refs vivos para los gestos). */
+  const applyView = (nextZoom: number, nextPan: { x: number; y: number }) => {
+    zoomRef.current = nextZoom;
+    panRef.current = nextPan;
+    setZoom(nextZoom);
+    setPan(nextPan);
+  };
+
+  /** Quita el candidato de «mantener para dibujar» (y su temporizador). */
+  const clearHold = () => {
+    const hold = holdRef.current;
+    if (hold?.timer != null) window.clearTimeout(hold.timer);
+    holdRef.current = null;
+  };
+
+  /** Empieza el recuadro de creacion en `point` (fracciones de la hoja). */
+  const beginDraft = (
+    pointerId: number,
+    point: { x: number; y: number },
+    client: { x: number; y: number },
+    target: HTMLElement,
+    fromTouch: boolean,
+  ) => {
+    draftStartClientRef.current = client;
+    try {
+      target.setPointerCapture(pointerId);
+    } catch {
+      /* el puntero ya termino */
+    }
+    // Tocar el lienzo vacio siempre cierra el editor que estuviera abierto.
+    onEditingIdChange(null);
+    gesturePageRef.current = pageIndex;
+    draftOriginRef.current = point;
+    if (fromTouch) blockNativeScrollRef.current = true;
+    setDraft({ x: point.x, y: point.y, toX: point.x, toY: point.y });
+  };
+
+  /** Termina el seguimiento del dedo que arrastra: para el auto-desplazamiento y suelta el bloqueo del scroll nativo. */
+  const endDragTracking = () => {
+    blockNativeScrollRef.current = false;
+    lastPointerRef.current = null;
+    autoScrollRef.current?.stop();
+  };
+
   const startCreate = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // Dedo y lapiz (Apple Pencil desplaza la pagina como un dedo): solo el raton dibuja de inmediato.
+    const fromTouch = event.pointerType === "touch" || event.pointerType === "pen";
     if (pinchZoomEnabled) {
       event.currentTarget.setPointerCapture(event.pointerId);
       activePointersRef.current.set(event.pointerId, {
@@ -1631,13 +1785,19 @@ function DocumentCanvasInner({
         draftOriginRef.current = null;
         tapCandidateRef.current = null;
         panDragRef.current = null;
+        clearHold();
+        endDragTracking();
         setDraft(null);
+        const bounds = hostRef.current?.getBoundingClientRect();
         pinchRef.current = {
           pointerIds: [idA, idB],
           startDistance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
-          startZoom: zoom,
-          startPan: pan,
+          startZoom: zoomRef.current,
+          startPan: panRef.current,
           startMid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+          startCenter: bounds
+            ? { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }
+            : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
         };
         return;
       }
@@ -1651,12 +1811,11 @@ function DocumentCanvasInner({
         x: event.clientX,
         y: event.clientY,
       };
-      if (pinchZoomEnabled && zoom > 1) {
+      if (pinchZoomEnabled && zoomRef.current > 1) {
         panDragRef.current = {
           pointerId: event.pointerId,
-          startX: event.clientX,
-          startY: event.clientY,
-          startPan: pan,
+          lastX: event.clientX,
+          lastY: event.clientY,
         };
       }
       return;
@@ -1665,13 +1824,37 @@ function DocumentCanvasInner({
     if (creates.kind === "slot" && !canPlaceSlot) return;
     const point = toNormalized(event.clientX, event.clientY);
     if (!point) return;
+
+    // Un dedo con la herramienta armada: toque = colocar, quieto = dibujar, deslizar = desplazar (GE-01).
+    if (fromTouch && !fingerDrawOn) {
+      // Sin los eventos de raton que el navegador sintetiza tras el toque (sacarian el foco del campo recien creado).
+      event.preventDefault();
+      clearHold();
+      const hold = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        point,
+        timer: null as number | null,
+      };
+      holdRef.current = hold;
+      const target = event.currentTarget;
+      hold.timer = window.setTimeout(() => {
+        hold.timer = null;
+        if (holdRef.current !== hold) return;
+        // Quieto el tiempo suficiente: a partir de aqui el dedo dibuja (el `touchmove` nativo impide el scroll).
+        beginDraft(hold.pointerId, hold.point, { x: hold.x, y: hold.y }, target, true);
+        try {
+          navigator.vibrate?.(8);
+        } catch {
+          /* sin vibracion */
+        }
+      }, HOLD_TO_DRAW_MS);
+      return;
+    }
+
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    // Tocar el lienzo vacio siempre cierra el editor que estuviera abierto.
-    onEditingIdChange(null);
-    gesturePageRef.current = pageIndex;
-    draftOriginRef.current = point;
-    setDraft({ x: point.x, y: point.y, toX: point.x, toY: point.y });
+    beginDraft(event.pointerId, point, { x: event.clientX, y: event.clientY }, event.currentTarget, fromTouch);
   };
 
   const startDrag = (event: ReactPointerEvent<Element>) => {
@@ -1694,18 +1877,68 @@ function DocumentCanvasInner({
     // el input recien enfocado) quedaria bloqueado en iOS; se previene en
     // el primer pointermove que supera el umbral de temblor.
     if (mode === "resize") event.preventDefault();
+    clearHold();
     dragRef.current = {
       kind,
       mode,
       id,
       startX: event.clientX,
       startY: event.clientY,
+      startNorm: toRawNormalized(event.clientX, event.clientY) ?? { x: 0, y: 0 },
       snapshot,
       pointerId: event.pointerId,
       moved: false,
     };
     select({ kind, id });
   };
+
+  /**
+   * Reaplica el arrastre (mover, redimensionar, recuadro de creacion) con el dedo en `(clientX, clientY)`. Lo llaman el
+   * movimiento del puntero y el auto-desplazamiento, que mueve la pagina bajo un dedo quieto. Devuelve `true` si habia
+   * algo que arrastrar.
+   */
+  const applyDragAt = (clientX: number, clientY: number): boolean => {
+    const host = hostRef.current;
+    const drag = dragRef.current;
+    if (drag && host) {
+      const raw = toRawNormalized(clientX, clientY);
+      if (!raw) return true;
+      const start = drag.snapshot;
+      // En fracciones de la hoja: sigue valiendo aunque la pagina se haya desplazado o la hoja movido desde el inicio.
+      const dx = raw.x - drag.startNorm.x;
+      const dy = raw.y - drag.startNorm.y;
+
+      if (drag.mode === "move") {
+        patchRect(drag.kind, drag.id, {
+          x: clamp(start.x + dx, 0, Math.max(0, 1 - start.width)),
+          y: clamp(start.y + dy, 0, Math.max(0, 1 - start.height)),
+          width: start.width,
+          height: start.height,
+        });
+        return true;
+      }
+
+      patchRect(drag.kind, drag.id, {
+        x: start.x,
+        y: start.y,
+        width: clamp(start.width + dx, MIN_FIELD_SIDE, 1 - start.x),
+        height: clamp(start.height + dy, MIN_FIELD_SIDE, 1 - start.y),
+      });
+      return true;
+    }
+
+    if (!draftOriginRef.current) return false;
+    const point = toNormalized(clientX, clientY);
+    if (!point) return true;
+    setDraft((current) =>
+      current ? { ...current, toX: point.x, toY: point.y } : current,
+    );
+    return true;
+  };
+  const applyDragAtRef = useRef(applyDragAt);
+  useEffect(() => {
+    applyDragAtRef.current = applyDragAt;
+  });
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (pinchZoomEnabled) {
@@ -1727,15 +1960,44 @@ function DocumentCanvasInner({
             1,
             MAX_ZOOM,
           );
-          const midX = (a.x + b.x) / 2;
-          const midY = (a.y + b.y) / 2;
-          setZoom(nextZoom);
-          setPan({
-            x: clamp(pinch.startPan.x + (midX - pinch.startMid.x), -PAN_LIMIT_PX, PAN_LIMIT_PX),
-            y: clamp(pinch.startPan.y + (midY - pinch.startMid.y), -PAN_LIMIT_PX, PAN_LIMIT_PX),
-          });
+          const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          // Los dedos mandan: el punto de la hoja que estaba entre ellos sigue entre ellos (zoom con foco en el centro).
+          applyView(
+            nextZoom,
+            nextZoom === 1
+              ? { x: 0, y: 0 }
+              : clampPan(
+                  panForPinch({
+                    pan0: pinch.startPan,
+                    zoom0: pinch.startZoom,
+                    zoom1: nextZoom,
+                    mid0: pinch.startMid,
+                    mid1: mid,
+                    rectCenter0: pinch.startCenter,
+                  }),
+                  nextZoom,
+                  layoutSize,
+                ),
+          );
         }
         return;
+      }
+    }
+
+    // Candidato de «mantener para dibujar»: si el dedo se mueve antes de tiempo, es un gesto de desplazamiento.
+    const hold = holdRef.current;
+    if (hold && event.pointerId === hold.pointerId && hold.timer !== null) {
+      if (Math.hypot(event.clientX - hold.x, event.clientY - hold.y) > TAP_MOVE_THRESHOLD_PX) {
+        clearHold();
+        // Con zoom el lienzo se queda el gesto (`touch-action: none`): mover la hoja y, en el borde, la pagina.
+        // A 1x el navegador ya desplaza la pagina por su cuenta (y mandara `pointercancel`).
+        if (pinchZoomEnabled && zoomRef.current > 1) {
+          panDragRef.current = {
+            pointerId: event.pointerId,
+            lastX: hold.x,
+            lastY: hold.y,
+          };
+        }
       }
     }
 
@@ -1746,67 +2008,51 @@ function DocumentCanvasInner({
       }
     }
     const panning = panDragRef.current;
-    if (panning && event.pointerId === panning.pointerId && !tapCandidateRef.current) {
+    if (panning && event.pointerId === panning.pointerId && !tapCandidateRef.current && !holdRef.current) {
       event.preventDefault();
-      setPan(
-        clampPan(
-          {
-            x: panning.startPan.x + (event.clientX - panning.startX),
-            y: panning.startPan.y + (event.clientY - panning.startY),
-          },
-          zoom,
-          layoutSize,
-        ),
+      const moved = panWithOverflow(
+        panRef.current,
+        { x: event.clientX - panning.lastX, y: event.clientY - panning.lastY },
+        zoomRef.current,
+        layoutSize,
       );
+      panning.lastX = event.clientX;
+      panning.lastY = event.clientY;
+      applyView(zoomRef.current, moved.pan);
+      // Lo que la hoja no absorbio sigue con la pagina (el dedo sube, la pagina baja): se encadena el scroll.
+      if (moved.overflow.y !== 0 && hostRef.current) {
+        scrollVerticallyBy(findScrollParent(hostRef.current), -moved.overflow.y);
+      }
       return;
     }
 
-    const host = hostRef.current;
     const drag = dragRef.current;
-    if (drag && host) {
+    if (drag) {
       if (event.pointerId !== drag.pointerId) return;
 
-      if (drag.mode === "move" && !drag.moved) {
+      if (!drag.moved) {
         const distance = Math.hypot(
           event.clientX - drag.startX,
           event.clientY - drag.startY,
         );
-        if (distance <= TAP_MOVE_THRESHOLD_PX) return;
-        drag.moved = true;
+        if (distance <= TAP_MOVE_THRESHOLD_PX && drag.mode === "move") return;
+        if (distance > TAP_MOVE_THRESHOLD_PX) drag.moved = true;
       }
       event.preventDefault();
-
-      const bounds = host.getBoundingClientRect();
-      const dx = (event.clientX - drag.startX) / (bounds.width || 1);
-      const dy = (event.clientY - drag.startY) / (bounds.height || 1);
-      const start = drag.snapshot;
-
-      if (drag.mode === "move") {
-        patchRect(drag.kind, drag.id, {
-          x: clamp(start.x + dx, 0, Math.max(0, 1 - start.width)),
-          y: clamp(start.y + dy, 0, Math.max(0, 1 - start.height)),
-          width: start.width,
-          height: start.height,
-        });
-        return;
-      }
-
-      patchRect(drag.kind, drag.id, {
-        x: start.x,
-        y: start.y,
-        width: clamp(start.width + dx, MIN_FIELD_SIDE, 1 - start.x),
-        height: clamp(start.height + dy, MIN_FIELD_SIDE, 1 - start.y),
-      });
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      if (drag.moved) autoScrollRef.current?.start();
+      applyDragAt(event.clientX, event.clientY);
       return;
     }
 
     if (!draftOriginRef.current) return;
-    const point = toNormalized(event.clientX, event.clientY);
-    if (!point) return;
     event.preventDefault();
-    setDraft((current) =>
-      current ? { ...current, toX: point.x, toY: point.y } : current,
-    );
+    lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    const origin = draftStartClientRef.current;
+    if (!origin || Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > TAP_MOVE_THRESHOLD_PX) {
+      autoScrollRef.current?.start();
+    }
+    applyDragAt(event.clientX, event.clientY);
   };
 
   /**
@@ -1821,27 +2067,38 @@ function DocumentCanvasInner({
     const pinch = pinchRef.current;
     if (pinch && pinch.pointerIds.includes(pointerId)) {
       pinchRef.current = null;
-      setZoom((current) => {
-        if (current > 1.02) return current;
-        setPan({ x: 0, y: 0 });
-        return 1;
-      });
+      if (zoomRef.current <= 1.02) applyView(1, { x: 0, y: 0 });
     }
   };
 
-  /** Puntero perdido a medio gesto (interrupcion del sistema): se aborta sin decidir toque ni arrastre. */
+  /** Puntero perdido a medio gesto (interrupcion del sistema o el navegador tomo el desplazamiento): se aborta. */
   const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
     endPinchPointer(event.pointerId);
     tapCandidateRef.current = null;
     panDragRef.current = null;
     dragRef.current = null;
     draftOriginRef.current = null;
+    clearHold();
+    endDragTracking();
     setDraft(null);
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     endPinchPointer(event.pointerId);
     if (panDragRef.current?.pointerId === event.pointerId) panDragRef.current = null;
+    endDragTracking();
+    // Toque corto con la herramienta armada (un dedo): coloca el elemento por defecto donde se toco.
+    const hold = holdRef.current;
+    if (hold && hold.pointerId === event.pointerId) {
+      const wasPending = hold.timer !== null;
+      clearHold();
+      if (wasPending) {
+        gesturePageRef.current = pageIndex;
+        onEditingIdChange(null);
+        addCentered(hold.point.x, hold.point.y);
+        return;
+      }
+    }
     const tap = tapCandidateRef.current;
     if (tap && tap.pointerId === event.pointerId) {
       tapCandidateRef.current = null;
@@ -2001,6 +2258,218 @@ function DocumentCanvasInner({
     // Solo cuando llega una firma nueva o la vista previa: el resto se lee con los valores de ese instante.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [solo?.signaturePng, solo?.ratio, preview, previewAspect, hostSize.width, hostSize.height]);
+
+  /* ---------------------------------------------------------------- *
+   * Gestos con el dedo (GE-01, GE-06): auto-desplazamiento por tiempo, bloqueo del scroll nativo mientras se dibuja
+   * o se pellizca, y la API imperativa «ver este hueco».
+   * ---------------------------------------------------------------- */
+
+  const pinchEnabledRef = useRef(pinchZoomEnabled);
+  const layoutSizeRef = useRef(layoutSize);
+  const gestureModeRef = useRef<GestureMode>("auto");
+  useEffect(() => {
+    pinchEnabledRef.current = pinchZoomEnabled;
+    layoutSizeRef.current = layoutSize;
+    gestureModeRef.current = gestureMode ?? (fingerDraw ? "draw" : "auto");
+  });
+
+  /** Zona visible en la que el dedo NO desplaza: la libre del scroller (sin barras fijas) y, con zoom, la de la tarjeta. */
+  const dragRegionRef = useRef<{ at: number; box: Box } | null>(null);
+  const hasFile = Boolean(file);
+  useEffect(() => {
+    const regionOf = (): Box => {
+      const host = hostRef.current;
+      if (!host) return { top: 0, bottom: 0, left: 0, right: 0 };
+      const cached = dragRegionRef.current;
+      const nowMs = performance.now();
+      if (!cached || nowMs - cached.at > 200) {
+        dragRegionRef.current = { at: nowMs, box: freeRegion(findScrollParent(host)) };
+      }
+      const free = dragRegionRef.current!.box;
+      const clip = clipRef.current?.getBoundingClientRect();
+      if (zoomRef.current > 1.001 && clip) {
+        return {
+          top: Math.max(free.top, clip.top),
+          bottom: Math.min(free.bottom, clip.bottom),
+          left: Math.max(free.left, clip.left),
+          right: Math.min(free.right, clip.right),
+        };
+      }
+      // Sin zoom solo hay desplazamiento vertical: los bordes laterales no cuentan.
+      return { top: free.top, bottom: free.bottom, left: -Infinity, right: Infinity };
+    };
+    const scroller = createEdgeAutoScroller({
+      pointer: () => lastPointerRef.current,
+      region: regionOf,
+      scroll: (dx, dy) => {
+        const host = hostRef.current;
+        if (!host) return { dx: 0, dy: 0 };
+        let appliedX = 0;
+        let appliedY = 0;
+        let restY = dy;
+        if (zoomRef.current > 1.001) {
+          // Con la hoja ampliada, el dedo en el borde de la tarjeta primero la mueve y, agotada, sigue con la pagina.
+          const result = panWithOverflow(panRef.current, { x: -dx, y: -dy }, zoomRef.current, layoutSizeRef.current);
+          appliedX = -(result.pan.x - panRef.current.x);
+          appliedY = -(result.pan.y - panRef.current.y);
+          if (appliedX !== 0 || appliedY !== 0) applyView(zoomRef.current, result.pan);
+          restY = dy - appliedY;
+        }
+        if (restY !== 0) appliedY += scrollVerticallyBy(findScrollParent(host), restY);
+        dragRegionRef.current = null;
+        return { dx: appliedX, dy: appliedY };
+      },
+      onTick: () => {
+        const point = lastPointerRef.current;
+        if (point) applyDragAtRef.current(point.x, point.y);
+      },
+    });
+    autoScrollRef.current = scroller;
+    return () => {
+      scroller.stop();
+      autoScrollRef.current = null;
+    };
+    // `applyView` solo escribe refs y estados estables: no hace falta recrear el bucle.
+  }, []);
+
+  /*
+   * `touchmove` NATIVO y no pasivo: React registra los toques como pasivos, asi que no puede impedir el desplazamiento
+   * del navegador. Se impide solo mientras el dedo dibuja un recuadro, y con DOS dedos (pellizco propio: si el navegador
+   * los tomara como desplazamiento mandaria `pointercancel` y el zoom se perderia).
+   */
+  useEffect(() => {
+    const element = hostRef.current;
+    if (!element) return;
+    const onTouchMove = (event: TouchEvent) => {
+      if (!event.cancelable) return;
+      if (blockNativeScrollRef.current || (pinchEnabledRef.current && event.touches.length >= 2)) {
+        event.preventDefault();
+      }
+    };
+    element.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => element.removeEventListener("touchmove", onTouchMove);
+  }, [hasFile]);
+
+  /** Lleva `rect` (fracciones de la hoja) a la zona libre; con zoom, centra tambien la hoja bajo el hueco. */
+  const revealRect = (rect: NormalizedRect, options: RevealOptions = {}): boolean => {
+    const host = hostRef.current;
+    if (!host) return false;
+    const bounds = host.getBoundingClientRect();
+    if (bounds.width === 0 || bounds.height === 0) return false;
+    const scroller = findScrollParent(host);
+    const region = freeRegion(scroller);
+    let target = {
+      left: bounds.left + rect.x * bounds.width,
+      right: bounds.left + (rect.x + rect.width) * bounds.width,
+      top: bounds.top + rect.y * bounds.height,
+      bottom: bounds.top + (rect.y + rect.height) * bounds.height,
+    };
+    const clip = clipRef.current?.getBoundingClientRect();
+    if (zoomRef.current > 1.001 && clip) {
+      // La hoja ampliada se ve a trozos: se mueve para dejar el hueco en el centro de lo que la tarjeta ensena.
+      const seen = {
+        left: Math.max(clip.left, region.left),
+        right: Math.min(clip.right, region.right),
+        top: Math.max(clip.top, region.top),
+        bottom: Math.min(clip.bottom, region.bottom),
+      };
+      const next = panToCenterPoint({
+        pan: panRef.current,
+        zoom: zoomRef.current,
+        size: layoutSizeRef.current,
+        point: { x: (target.left + target.right) / 2, y: (target.top + target.bottom) / 2 },
+        target: { x: (seen.left + seen.right) / 2, y: (seen.top + seen.bottom) / 2 },
+      });
+      const shiftX = next.x - panRef.current.x;
+      const shiftY = next.y - panRef.current.y;
+      applyView(zoomRef.current, next);
+      target = {
+        left: target.left + shiftX,
+        right: target.right + shiftX,
+        top: target.top + shiftY,
+        bottom: target.bottom + shiftY,
+      };
+    }
+    const delta = revealDelta(target, region, { block: options.block, margin: options.margin });
+    if (delta !== 0) {
+      const reduced =
+        typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scrollVerticallyBy(scroller, delta, options.behavior === "smooth" && !reduced ? "smooth" : "auto");
+    }
+    if (options.highlightId) {
+      const mark = host.querySelector<HTMLElement>(`[data-element-id="${CSS.escape(options.highlightId)}"][data-drag-mode="move"]`);
+      if (mark) {
+        mark.setAttribute("data-flash", "");
+        window.setTimeout(() => mark.removeAttribute("data-flash"), 1200);
+      }
+    }
+    return true;
+  };
+
+  /** «Ver este hueco» pedido antes de que la hoja (o su pagina) este pintada: se atiende en cuanto se pueda. */
+  const pendingRevealRef = useRef<{ rect: NormalizedRect; options: RevealOptions; pageIndex: number } | null>(null);
+  const revealRectRef = useRef(revealRect);
+  useEffect(() => {
+    revealRectRef.current = revealRect;
+  });
+  useEffect(() => {
+    const pending = pendingRevealRef.current;
+    if (!pending || pending.pageIndex !== pageIndex || !preview || hostSize.width === 0) return;
+    pendingRevealRef.current = null;
+    // Tras pintar la pagina nueva (la hoja puede cambiar de alto al cargar la imagen).
+    const frame = requestAnimationFrame(() => {
+      if (!revealRectRef.current(pending.rect, pending.options)) pendingRevealRef.current = pending;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pageIndex, preview, hostSize.width, hostSize.height]);
+
+  /*
+   * Alternativa sin `ref` a `apiRef.scrollIntoViewRect`: un evento de `window` (`CANVAS_REVEAL_EVENT`, `detail` =
+   * `{ rect, options? }`). Lo atiende el lienzo montado; sirve a quien no tiene el `ref` a mano (y a los E2E).
+   */
+  useEffect(() => {
+    const onReveal = (event: Event) => {
+      const detail = (event as CustomEvent<{ rect?: NormalizedRect; options?: RevealOptions }>).detail;
+      if (!detail?.rect) return;
+      const options = detail.options ?? {};
+      const page = options.pageIndex ?? pageIndexRef.current;
+      if (page !== pageIndexRef.current) {
+        pendingRevealRef.current = { rect: detail.rect, options, pageIndex: page };
+        goToPageForRevealRef.current(page);
+        return;
+      }
+      if (!revealRectRef.current(detail.rect, options)) {
+        pendingRevealRef.current = { rect: detail.rect, options, pageIndex: page };
+      }
+    };
+    window.addEventListener(CANVAS_REVEAL_EVENT, onReveal);
+    return () => window.removeEventListener(CANVAS_REVEAL_EVENT, onReveal);
+  }, []);
+
+  useImperativeHandle(
+    apiRef,
+    (): DocumentCanvasApi => ({
+      scrollIntoViewRect: (rect, options = {}) => {
+        const page = options.pageIndex ?? pageIndexRef.current;
+        if (page !== pageIndexRef.current) {
+          pendingRevealRef.current = { rect, options, pageIndex: page };
+          goToPageForRevealRef.current(page);
+          return true;
+        }
+        const done = revealRectRef.current(rect, options);
+        if (!done) pendingRevealRef.current = { rect, options, pageIndex: page };
+        return done;
+      },
+      getFreeRegion: () => {
+        const host = hostRef.current;
+        return host
+          ? freeRegion(findScrollParent(host))
+          : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
+      },
+      getGestureMode: () => gestureModeRef.current,
+    }),
+    [],
+  );
 
   /*
    * La paleta movil es FIJA (sobre la barra de accion de ToolShell): mientras
@@ -2188,12 +2657,9 @@ function DocumentCanvasInner({
   };
 
   /** Botones de zoom (en la vista continua van a la barra pegajosa del envoltorio). */
+  /* VI-07: `ButtonGroup` separa 4 px con raton y 8 px con dedo (antes 2 px): un dedo gordo no acierta el vecino. */
   const zoomGroup = (
-    <div
-      role="group"
-      aria-label={strings.zoomGroupLabel}
-      className="flex items-center gap-0.5"
-    >
+    <ButtonGroup role="group" aria-label={strings.zoomGroupLabel}>
       <Button
         variant="ghost"
         size="sm"
@@ -2227,7 +2693,7 @@ function DocumentCanvasInner({
       >
         <ZoomIn aria-hidden="true" className="size-4" />
       </Button>
-    </div>
+    </ButtonGroup>
   );
 
   const pendingNote =
@@ -2281,13 +2747,15 @@ function DocumentCanvasInner({
               className={
                 merged
                   ? "sr-only"
-                  : "min-w-0 flex-1 text-footnote leading-relaxed text-muted-foreground"
+                  : // VI-01: `flex-1` (base 0) nunca pasaba a otra linea y se comprimia a una palabra por linea bajo
+                    // los botones. Con base de 14 rem crece si hay sitio y, si no, ocupa su propia linea.
+                    "min-w-0 grow basis-56 text-footnote leading-relaxed text-muted-foreground"
               }
             >
               {strings.noSignature}
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 max-[480px]:w-full">
             <Button
               variant={solo.signaturePng ? "secondary" : "primary"}
               size="sm"
@@ -2450,6 +2918,33 @@ function DocumentCanvasInner({
             {strings.suggestedFieldsToggle(suggestionCount)}
           </button>
         ) : null}
+        {coarse && creates && gestureMode === undefined ? (
+          /* GE-01: con una herramienta armada el dedo desplaza la pagina; este interruptor lo convierte en lapiz. */
+          <button
+            type="button"
+            role="switch"
+            aria-checked={fingerDraw}
+            data-finger-draw-toggle=""
+            title={touchStrings.drawWithFingerHint}
+            onClick={() => {
+              const next = !fingerDraw;
+              setFingerDraw(next);
+              setAnnouncement(
+                next ? touchStrings.drawWithFingerOnStatus : touchStrings.drawWithFingerOffStatus,
+              );
+            }}
+            className={cn(
+              "inline-flex min-h-11 items-center gap-2 rounded-ios-sm border px-2.5 text-footnote font-medium transition-colors duration-200 ease-spring motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
+              "forced-colors:border-[ButtonText] forced-colors:text-[ButtonText]",
+              fingerDraw
+                ? "border-signal/60 bg-signal/15 text-foreground forced-colors:border-[Highlight] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
+                : "border-hairline bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground forced-colors:bg-[ButtonFace]",
+            )}
+          >
+            <PenLine aria-hidden="true" className="size-4 shrink-0" />
+            {touchStrings.drawWithFingerLabel}
+          </button>
+        ) : null}
         {image.hasText === false ? (
           <Button
             variant="secondary"
@@ -2532,6 +3027,9 @@ function DocumentCanvasInner({
           data-canvas-sticky=""
           className={cn(
             "material-thick shadow-elevation-2 rounded-ios sticky z-30 flex flex-wrap items-center justify-between gap-x-1 gap-y-1 p-1",
+            // VI-04: con la paleta vertical a la izquierda (md+) la barra empieza donde empieza la hoja (3rem de la
+            // paleta + 0.75rem de separacion): al salir la paleta por arriba ya no pasa por debajo de los botones de zoom.
+            !merged && "md:ml-[3.75rem]",
             merged ? "mb-1.5" : "mb-3",
             compact
               ? "top-1"
@@ -2548,7 +3046,7 @@ function DocumentCanvasInner({
               {placeControl}
             </div>
           ) : null}
-          <div className="flex items-center gap-1">
+          <ButtonGroup>
             <Button
               variant="ghost"
               size="sm"
@@ -2576,7 +3074,7 @@ function DocumentCanvasInner({
             >
               <ChevronRight aria-hidden="true" className="size-4" />
             </Button>
-          </div>
+          </ButtonGroup>
         </div>
       )}
 
@@ -2669,7 +3167,7 @@ function DocumentCanvasInner({
           canPrevField={hasOtherPendingField}
           canNextField={hasOtherPendingField}
           strings={strings}
-          className="z-20 max-md:fixed max-md:inset-x-0 max-md:bottom-[calc(9.25rem+env(safe-area-inset-bottom,0px))] max-md:flex-wrap max-md:justify-center max-md:rounded-none max-md:px-1 md:sticky md:top-24 md:w-12 md:shrink-0"
+          className="z-[35] max-md:fixed max-md:inset-x-0 max-md:bottom-[var(--canvas-palette-bottom,calc(9.25rem+env(safe-area-inset-bottom,0px)))] max-md:flex-wrap max-md:justify-center max-md:rounded-none max-md:pl-[max(0.25rem,env(safe-area-inset-left,0px))] max-md:pr-[max(0.25rem,env(safe-area-inset-right,0px))] md:sticky md:top-24 md:w-12 md:shrink-0"
         />
 
         <div ref={stageRef} className="relative min-w-0 flex-1">
@@ -2692,10 +3190,11 @@ function DocumentCanvasInner({
               onPointerCancel={onPointerCancel}
               className={cn(
                 "relative w-full max-w-[640px] select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
-                // Seleccionar a 1x: un dedo sobre lo vacio desplaza la pagina (`pan-y`); los
-                // elementos llevan `touch-none` propio. Con una herramienta armada o con
-                // zoom, el lienzo se queda con el gesto (dibujar, pellizcar, mover la hoja).
-                effectiveTool === "select" && zoom === 1 ? "touch-pan-y" : "touch-none",
+                // GE-01: por defecto un dedo sobre la hoja DESPLAZA la pagina (`pan-x pan-y`, tambien con una
+                // herramienta armada: un toque coloca y mantener pulsado dibuja); los elementos y tiradores llevan
+                // `touch-none` propio (solo mientras se arrastran). El lienzo se queda con el gesto solo con zoom
+                // (mover la hoja y, en su borde, la pagina) o con «Dibujar con el dedo» activado.
+                zoom > 1.001 || (creates && fingerDrawOn) ? "touch-none" : "touch-pan-x touch-pan-y",
                 creates ? "cursor-crosshair" : "cursor-default",
                 // «Editar texto»: los huecos y campos se ven pero no reciben puntero (el texto manda).
                 editingText && "[&_.sign-field-box]:pointer-events-none",
@@ -3112,12 +3611,13 @@ function hitStyle(hit: Insets | undefined): CSSProperties {
 const COARSE_HIT_HANDLE =
   "pointer-coarse:before:absolute pointer-coarse:before:-inset-3 pointer-coarse:before:content-['']";
 /**
- * Tirador de un elemento diminuto (fuera de la caja): su zona ampliada solo
- * crece hacia fuera (derecha y abajo). Con `-inset-3` entraba ~4 px en la
- * caja de una casilla de ~11 px y los toques sobre ella iban al tirador.
+ * Tirador de un elemento diminuto (fuera de la caja): el tirador (24 px) se pinta a 44 px de la esquina, asi que su zona
+ * ampliada puede crecer 10 px por arriba/izquierda y 14 por derecha/abajo (medidos desde la caja de relleno, que descuenta
+ * el borde de 2 px) sin entrar en la caja del elemento (con `-inset-3` entraba ~4 px en la caja de una casilla de ~11 px y
+ * los toques sobre ella iban al tirador). 10 + 20 + 14 = 44 px de zona de agarre en cada eje (VI-05: antes eran 38).
  */
 const COARSE_HIT_HANDLE_OUTSIDE =
-  "pointer-coarse:before:absolute pointer-coarse:before:-top-0.5 pointer-coarse:before:-left-0.5 pointer-coarse:before:-right-3 pointer-coarse:before:-bottom-3 pointer-coarse:before:content-['']";
+  "pointer-coarse:before:absolute pointer-coarse:before:-top-2.5 pointer-coarse:before:-left-2.5 pointer-coarse:before:-right-3.5 pointer-coarse:before:-bottom-3.5 pointer-coarse:before:content-['']";
 
 type ElementLabelProps = { label: string; color: string; className?: string };
 
@@ -3610,8 +4110,11 @@ function TextFieldBox({
                 onAdvance(event.key === "Tab" && event.shiftKey ? -1 : 1);
               }
             }}
-            /* Fondo y tinta fijos: el input va sobre la pagina (siempre clara), y en el tema claro `bg-white/95` resuelve a un gris casi negro (token invertido) con texto negro encima. */
-            className="absolute inset-0 h-full w-full rounded-[3px] border-0 bg-[#fffffff2] px-1.5 text-xs text-[#111827] outline-2 -outline-offset-2 outline-signal placeholder:text-[#6b7280]"
+            data-canvas-input=""
+            /* Fondo y tinta fijos: el input va sobre la pagina (siempre clara), y en el tema claro `bg-white/95` resuelve a un gris casi negro (token invertido) con texto negro encima.
+               SC-04: el campo mide 16 px de verdad (Safari de iPhone acerca la pagina al enfocar uno de 12) y se REDUCE al
+               75 % (`scale-75`, con 133,33 % de caja) para que el texto se vea a los 12 px de siempre y llene exactamente el hueco. */
+            className="absolute top-0 left-0 h-[133.3333%] w-[133.3333%] origin-top-left scale-75 rounded-[3px] border-0 bg-[#fffffff2] px-2 text-base text-[#111827] outline-2 -outline-offset-2 outline-signal placeholder:text-[#6b7280]"
           />
           {/* Fecha/inicial no tienen historial (`historyKey` llega null): la lista queda vacia y no se pinta nada. */}
           <ValueSuggestions

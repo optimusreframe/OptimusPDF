@@ -85,7 +85,7 @@ export function Header() {
          frente al shorthand del material. */
       style={{ borderWidth: 0 }}
     >
-      <div className="mx-auto flex h-14 max-w-[1200px] items-center gap-4 px-4 md:h-16 md:px-6">
+      <div className="mx-auto flex h-14 max-w-[1200px] items-center gap-4 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))] md:h-16 md:pl-[max(1.5rem,env(safe-area-inset-left,0px))] md:pr-[max(1.5rem,env(safe-area-inset-right,0px))]">
         <Logo />
 
         <div ref={navRef} className="relative hidden flex-1 md:block">
@@ -97,7 +97,7 @@ export function Header() {
               aria-controls={open ? menuId : undefined}
               onClick={() => setOpen((value) => !value)}
               className={cn(
-                "flex h-9 items-center gap-1 rounded-full px-3 text-subheadline font-medium whitespace-nowrap select-none",
+                "flex h-9 items-center gap-1 rounded-full px-3 text-subheadline font-medium whitespace-nowrap select-none pointer-coarse:h-11",
                 "transition-[color,background-color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
                 "active:scale-[0.97] active:duration-[80ms]",
                 "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal",
@@ -177,7 +177,7 @@ export function Header() {
                               <Link
                                 href={toolHref(tool.slug)}
                                 onClick={() => setOpen(false)}
-                                className="flex h-10 items-center gap-2.5 rounded-ios-sm px-3 transition-colors duration-[var(--duration-fast)] hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+                                className="flex h-10 items-center gap-2.5 rounded-ios-sm px-3 transition-colors duration-[var(--duration-fast)] pointer-coarse:h-11 hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
                               >
                                 <Icon
                                   aria-hidden="true"
@@ -203,7 +203,7 @@ export function Header() {
                   <Link
                     href="/"
                     onClick={() => setOpen(false)}
-                    className="inline-flex h-9 items-center text-footnote font-semibold text-signal-text hover:text-glow"
+                    className="inline-flex h-9 items-center text-footnote font-semibold text-signal-text pointer-coarse:h-11 hover:text-glow"
                   >
                     {t.nav.allTools}
                   </Link>
@@ -216,19 +216,19 @@ export function Header() {
         <div className="ml-auto flex items-center gap-1 md:ml-0">
           <Link
             href="/documents"
-            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors hover:text-foreground md:flex"
+            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:flex"
           >
             {t.nav.documents}
           </Link>
           <Link
             href="/pricing"
-            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors hover:text-foreground md:flex"
+            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:flex"
           >
             {t.nav.pricing}
           </Link>
           <Link
             href="/about"
-            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors hover:text-foreground md:flex"
+            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:flex"
           >
             {t.nav.about}
           </Link>

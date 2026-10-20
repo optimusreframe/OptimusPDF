@@ -1587,3 +1587,46 @@ La verificación independiente de U4.4-U4.8 (V4) encontró nueve hallazgos. Esta
 - E2E headless (build de producción con `CSP_SKIP_UPGRADE_INSECURE=1`, puerto 3970; `e2e/specs/settings-package-fix.spec.ts`, 18 pruebas): **Chromium 18/18 y `webkit-ipad` 18/18** — H2 (solo Ajustes → «Último respaldo parcial (Ajustes)…», contador intacto, el aviso sigue; luego las firmas lo completan), H4 (ES y EN), H5 (Ajustes y «Mis documentos», antes y después), H8 (ES y EN: filas con nombres legibles, lo sensible en «Omitir», «Reemplazar todos»/«Omitir todos», por ajuste, y las sugeridas no escriben lo sensible), Escape, clic fuera y X durante la importación (retiene el resultado, con un SHA-256 frenado 9 s), **axe-core 0 violaciones** en claro/oscuro × ES/EN × 1280/375 sobre exportar con aviso, resultado con nota, sección con respaldo parcial, vista previa de Ajustes con filas y resultado con «no incluye» (objetivos ≥ 44 px y ≥ 24 px), y fuente ancha (DejaVu Sans + espaciado) sin desbordes a 375 y 320 px en ES/EN. Regresión con la misma build (`documents-backup`, `backup-drafts-settings`, `settings-package`, `my-documents`, `settings*`, `a11y-sweep`, `sign-recovery`, `sign-privacy`, `recent-continue` + el spec nuevo): Chromium **278 pasan, 1 omitida** (la de los dos motores corre solo con `PW_BROWSERS=webkit*`); `webkit-ipad` **270 pasan, 5 omitidas, 1 intermitente** (`my-documents` «añadir 3 contratos…»: errores «access control checks» de WebKit al pasar a Firmar; falla 1 de 3 y 3 de 8 veces TAMBIÉN sobre una build del código anterior, así que no es de esta unidad). Cinco pruebas existentes de E2E se ajustaron (explicado arriba): dos en `backup-drafts-settings`, tres en `settings-package` (8 ajustes aplicados en vez de 9 en el dorado; `by` en el contador).
 
 **Decisiones y límites.** (a) Los borradores NO suman al contador del recordatorio (ni al crearse, ni al editarse, ni al borrarse): se guardan solos y cada pulsación dispararía el aviso; solo cuentan firmas, documentos y plantillas. (b) Lo «completo» no exige Ajustes (ver arriba). (c) Dos respaldos parciales seguidos que juntos cubren todo calman el aviso (el ancla es la parte más antigua) pero «Último respaldo» sigue diciendo «parcial» hasta que haya uno completo. (d) El tope de exportación sigue calculando con un margen de 8 MiB para los JSON; lo exacto lo decide `buildPackage`. (e) El presupuesto de inflado de cada capa es de 250 MiB (antes el interior solo disponía de lo que dejara el `payload.bin`): la memoria punta de abrir un paquete cifrado de ~250 MiB (archivo + `payload.bin` + descifrado, antes de inflar el interior) es de unos 750 MB y no se midió en un iPad real.
+## Correcciones móvil/iPad: lienzo compartido, safe-area y UI base (M3)
+
+Hallazgos de `docs/AUDITORIA-MOVIL-IPAD.md` que comparten Firmar y PDF Pro. Código en `src/app/sign-pdf/DocumentCanvas*.tsx`,
+`src/components/ui/**`, `src/components/layout/**`, `src/app/globals.css` y la carpeta nueva `src/lib/touch/**` (con su `README.md`).
+
+### Qué cambia para la persona (por hallazgo)
+
+| ID | Antes | Ahora |
+|---|---|---|
+| GE-01 | Con una herramienta armada o con zoom, un dedo sobre la hoja no desplazaba nada (`touch-action: none`). | `touch-action: pan-x pan-y` por defecto. Con herramienta armada: un toque coloca, deslizar desplaza la página, mantener ~260 ms y arrastrar dibuja; interruptor visible «Dibujar con el dedo» (dedo = lápiz, sin retardo). Con zoom: el dedo mueve la hoja y, al llegar a su borde, sigue con la página. Pellizco propio con foco en el punto central de los dedos, sin zoom de página (`touchmove` nativo no pasivo con dos dedos). |
+| GE-06 | Sin auto-scroll al arrastrar; pan por pellizco limitado a ±400 px. | Auto-desplazamiento por **tiempo** (rampa 0 → 640 px/s en 56 px de borde, igual a 60 y 120 Hz) al arrastrar/redimensionar/dibujar; el pan llega a toda la hoja (`ancho·(zoom−1)/2`). |
+| VI-01 | «Crea tu firma…» a una palabra por línea bajo los botones. | `grow basis-56` en el párrafo: ocupa su propia línea si no cabe. |
+| VI-04 | La paleta quedaba bajo la barra de zoom (y la firma seleccionada pisaba la paleta). | Paleta `z-[35]`; la barra de zoom empieza donde la hoja (`md:ml-[3.75rem]`) y la paleta que sale por arriba ya no pasa bajo sus botones. |
+| VI-05 | Botones `sm` de 36 px (+ pseudo-elemento de 44), enlaces de cabecera/barra lateral de 36-40 px, tirador fuera de caja de 38 px. | `Button sm` mide 44 px con puntero grueso (`pointer-coarse:h-11`, también con `wrap`); cabecera, menú «Herramientas» y barra lateral `pointer-coarse:h-11`; tirador fuera de caja con zona de 44 px. |
+| VI-06 | Primario deshabilitado a 2,0-2,6:1. | Pastilla gris `foreground/10` + texto `muted-foreground` (≥ 4,5:1 claro y oscuro), también con `aria-disabled` (regla en `globals.css` por `data-variant`); resto de variantes al 60 %. |
+| VI-07 | Botones de 44 px a 0-4 px. | Nuevo `ButtonGroup` (4 px ratón / 8 px dedo); barra de zoom y de páginas del lienzo ya lo usan. |
+| SC-03 | Sin safe-area lateral con `viewport-fit=cover`. | `main#content`, cabecera, pie, tab bar, hojas (`Sheet`), paleta y barras `fixed inset-x-0` respetan `env(safe-area-inset-*)`; utilidades `pad-safe-x`, `pl-safe`, `pr-safe`, `pb-safe`, `safe-inset-x`. |
+| SC-04 | Entradas de 12-14 px (zoom de Safari). | `@media (pointer: coarse)` ⇒ inputs/selects/textareas ≥ 16 px; el campo sobre la hoja mide 16 px y se escala al 75 % para verse a 12 px. Con ratón no cambia nada. |
+| SC-06 | La hoja no se cerraba arrastrando desde el contenido. | `touchmove` nativo: con el contenido arriba del todo, un dedo que baja cierra; uno que sube sigue desplazando. |
+| GE-02/04 | Sin contrato de anchos; barra lateral de 17 rem en el iPad horizontal. | `useViewportTier()` (`phone` < 768, `tablet` 768-1023, `desktop` ≥ 1024; `compact` = dedo y < 1280). Barra lateral global plegada por defecto dentro de Firmar y Pro con dedo (la hoja de Firmar pasa de ~460 a ≥ 560 px a 1194). |
+
+### Contrato para M1 (Firmar) y M2 (PDF Pro)
+
+- **Aditivo**: `DocumentCanvasProps` no cambia. Nuevos opcionales: `apiRef?: Ref<DocumentCanvasApi>` y `gestureMode?: "auto" | "scroll" | "draw"`.
+- `DocumentCanvasApi.scrollIntoViewRect(rect, { pageIndex?, block?, margin?, behavior?, highlightId? })`: «ver este hueco» en la zona libre (entre barra de zoom y barras fijas), con zoom también mueve la hoja; cambia de página si hace falta. Sin `ref`: `window.dispatchEvent(new CustomEvent(CANVAS_REVEAL_EVENT, { detail: { rect, options } }))`. `getFreeRegion()` y `getGestureMode()`.
+- Variable CSS `--canvas-palette-bottom` (paleta fija de móvil, por defecto `calc(9.25rem + safe-bottom)`).
+- `@/lib/touch/edgeAutoScroll` (`createEdgeAutoScroller`) sirve al reordenar de Pro (GE-03); `@/lib/touch/viewportTier` (`useViewportTier`) para pasar a layout «tablet» a 834 px; `@/lib/touch/scrollRegion` (`freeRegion`) para «ver este hueco» en regiones propias.
+
+### Pruebas
+
+- E2E: `e2e/specs/mobile-canvas-gestures.spec.ts`, `mobile-shared-ui.spec.ts`, `mobile-safe-area-sheet.spec.ts` (helpers `e2e/helpers/touch-gestures.ts`, `touch-measure.ts`). Gestos reales por CDP `Input.dispatchTouchEvent` en Chromium con perfil iOS; WebKit corre los de layout.
+- Vitest: `src/lib/touch/*.test.ts(x)`, `DocumentCanvasApi.test.tsx`, ampliaciones de `Controls.test.tsx`; ajustados (comportamiento erróneo anterior) `DocumentCanvas.test.tsx` (touch-action) y `touchTargets.test.tsx` (`sm` ahora 44 px).
+
+### Límites
+
+Safe-area emulada por CDP, no un iPhone real. Safari/iPad reales sin verificar (rebote, barra de direcciones, auto-zoom real de inputs, Apple Pencil, `touchmove` no pasivo en iOS).
+
+### Cifras de verificación (copia aislada, build de producción, PW_PORT=3979)
+
+- `npx tsc --noEmit` 0; `npx eslint src e2e` 0 errores (2 avisos previos, no míos); vitest completo con `F2_REAL_PDFS=1`: 549 archivos + 4 omitidos, 12 592 tests, 0 fallos.
+- E2E nuevos (Chromium): 48 (gestos 14, UI base 20, safe-area/hoja/barra lateral 8, axe 4 × 6 anchos × claro/oscuro × ES/EN); WebKit-iPad: 24 pasan y 23 se omiten (los de tacto CDP).
+- Regresión: E2E completo en Chromium 1 246 pasan; los 2 únicos fallos (`pdf-pro-modes-sign` «Aplicar» apagado, opacidad < 1) se corrigieron (`aria-disabled` al 90 %) y pasan; WebKit-iPad (Firmar, Pro, paleta, a11y) 96 pasan.
+- Los E2E nuevos fallan sobre el código base (20 + 4 de 52 en una pasada con `git stash` de `src`) y pasan con el arreglo.

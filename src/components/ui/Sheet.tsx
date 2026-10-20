@@ -535,6 +535,59 @@ function SheetPanel({
     return y.on("change", apply);
   }, [y, scrollable]);
 
+  /*
+   * SC-06 · cerrar deslizando DESDE EL CONTENIDO con desborde. Con el contenido arriba del todo, un dedo que baja era
+   * reclamado por el desplazamiento del navegador (`touch-action: pan-y`): llegaba `pointercancel` y la hoja no se
+   * movia. `touch-action` se decide al empezar el toque y no puede ser a la vez «sube = desplazar» y «baja = cerrar»,
+   * asi que se decide en el primer movimiento con un `touchmove` NATIVO no pasivo: si el contenido esta arriba del todo
+   * y el dedo BAJA, se cancela el desplazamiento nativo y el arrastre de la hoja (pointer events) toma el gesto; si el
+   * dedo SUBE (o el contenido ya esta desplazado) no se toca nada y el contenido hace su scroll.
+   */
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    let touch: { startY: number; decided: boolean; intercept: boolean } | null = null;
+    const hasScrolledAncestor = (from: EventTarget | null): boolean => {
+      let node = from instanceof Element ? from : null;
+      while (node) {
+        if (node.scrollTop > 0) return true;
+        if (node === scroller) break;
+        node = node.parentElement;
+      }
+      return false;
+    };
+    const onStart = (event: TouchEvent) => {
+      touch =
+        event.touches.length === 1
+          ? { startY: event.touches[0].clientY, decided: false, intercept: false }
+          : null;
+    };
+    const onMove = (event: TouchEvent) => {
+      if (!touch || event.touches.length !== 1) return;
+      if (!touch.decided) {
+        const delta = event.touches[0].clientY - touch.startY;
+        if (Math.abs(delta) < 4) return;
+        touch.decided = true;
+        const noDrag = event.target instanceof Element && event.target.closest("[data-sheet-no-drag]");
+        touch.intercept = delta > 0 && !noDrag && !hasScrolledAncestor(event.target);
+      }
+      if (touch.intercept && event.cancelable) event.preventDefault();
+    };
+    const onEnd = () => {
+      touch = null;
+    };
+    scroller.addEventListener("touchstart", onStart, { passive: true });
+    scroller.addEventListener("touchmove", onMove, { passive: false });
+    scroller.addEventListener("touchend", onEnd, { passive: true });
+    scroller.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      scroller.removeEventListener("touchstart", onStart);
+      scroller.removeEventListener("touchmove", onMove);
+      scroller.removeEventListener("touchend", onEnd);
+      scroller.removeEventListener("touchcancel", onEnd);
+    };
+  }, []);
+
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     if (!isPresent || dragRef.current) return;
@@ -725,7 +778,14 @@ function SheetPanel({
                 />
               </div>
             )}
-            <div className="flex items-center justify-between gap-3 pr-2.5 pb-1 pl-5 md:pt-2">
+            <div
+              className="flex items-center justify-between gap-3 pb-1 md:pt-2"
+              /* SC-03: con el telefono en apaisado la hoja a pantalla completa llega bajo la muesca. */
+              style={{
+                paddingLeft: "max(1.25rem, env(safe-area-inset-left, 0px))",
+                paddingRight: "max(0.625rem, env(safe-area-inset-right, 0px))",
+              }}
+            >
               {title ? (
                 <h2 className="min-w-0 truncate text-headline text-foreground">
                   {title}
@@ -753,13 +813,15 @@ function SheetPanel({
           </div>
           <div
             ref={scrollerRef}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
             /* Si el contenido cabe, el dedo arrastra el sheet desde cualquier
                punto (touch-action none: el navegador no reclama el gesto).
                Si desborda, el contenido hace scroll nativo (pan-y) y el
                sheet se arrastra desde el asa/cabecera. */
             style={{
               paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))",
+              paddingLeft: "max(1.25rem, env(safe-area-inset-left, 0px))",
+              paddingRight: "max(1.25rem, env(safe-area-inset-right, 0px))",
             }}
           >
             {/* Una region fuera del dialogo no llega a un lector de pantalla con `aria-modal`: aqui dentro cada

@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Badge } from "./Badge";
 import { Button, buttonClasses } from "./Button";
+import { ButtonGroup } from "./ButtonGroup";
 import { Checkbox } from "./Checkbox";
 import { GlassCard } from "./GlassCard";
 import { ProgressBar } from "./ProgressBar";
@@ -31,7 +32,8 @@ describe("Button", () => {
     expect(button.className).not.toMatch(HUD);
     expect(button.className).toMatch(/active:scale-\[0\.97\]/);
     expect(button.className).toMatch(/material-thin/);
-    expect(button.className).toMatch(/disabled:opacity-50/);
+    // VI-06: el secundario baja al 60 % (antes 50 %, ~3,4:1); el primario pasa a una pastilla gris sin opacidad.
+    expect(button.className).toMatch(/disabled:opacity-60/);
   });
 
   it("buttonClasses sigue siendo una cadena para enlaces y acepta extras", () => {
@@ -186,5 +188,53 @@ describe("transiciones: scale/translate en las listas arbitrarias", () => {
     expect(transitionsOf(input.className).join(" ")).toMatch(/scale/);
     const icon = input.nextElementSibling as SVGElement;
     expect(transitionsOf(icon.getAttribute("class") ?? "").join(" ")).toMatch(/scale/);
+  });
+});
+
+describe("ButtonGroup · VI-07 (M3)", () => {
+  it("separa los botones 4 px con raton y 8 px con puntero grueso, y deja pasar role/aria-label", () => {
+    render(
+      <ButtonGroup role="group" aria-label="Zoom" data-testid="group">
+        <Button size="sm">Menos</Button>
+        <Button size="sm">Mas</Button>
+      </ButtonGroup>,
+    );
+    const group = screen.getByRole("group", { name: "Zoom" });
+    const classes = (group.getAttribute("class") ?? "").split(/\s+/);
+    expect(classes).toContain("gap-1");
+    expect(classes).toContain("pointer-coarse:gap-2");
+    expect(classes).not.toContain("flex-wrap");
+  });
+
+  it("`wrap` deja que los botones pasen a otra linea", () => {
+    render(
+      <ButtonGroup wrap data-testid="wrap">
+        <Button size="sm">Uno</Button>
+      </ButtonGroup>,
+    );
+    expect((screen.getByTestId("wrap").getAttribute("class") ?? "").split(/\s+/)).toContain("flex-wrap");
+  });
+});
+
+describe("Button · estado deshabilitado (VI-06, M3)", () => {
+  it("el primario deshabilitado es una pastilla gris legible, no el azul al 50 %", () => {
+    render(<Button disabled>Procesar</Button>);
+    const classes = (screen.getByRole("button").getAttribute("class") ?? "").split(/\s+/);
+    expect(classes).toContain("disabled:bg-foreground/10");
+    expect(classes).toContain("disabled:text-muted-foreground");
+    expect(classes).not.toContain("disabled:opacity-50");
+    expect(screen.getByRole("button").getAttribute("data-variant")).toBe("primary");
+  });
+
+  it("secundario, ghost y destructivo bajan al 60 % (antes 50 %: ~3,4:1)", () => {
+    for (const variant of ["secondary", "ghost", "destructive"] as const) {
+      const { unmount } = render(
+        <Button variant={variant} disabled>
+          {variant}
+        </Button>,
+      );
+      expect(screen.getByRole("button").getAttribute("class")).toMatch(/disabled:opacity-60/);
+      unmount();
+    }
   });
 });

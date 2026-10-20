@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import {
   DocumentCanvas,
   type CanvasSelection,
+  type GestureMode,
   type PlacementTool,
   type SoloConfig,
 } from "@/app/sign-pdf/DocumentCanvas";
@@ -91,6 +92,8 @@ type HarnessProps = {
   undoDeleteEnabled?: boolean;
   richFieldTypesEnabled?: boolean;
   pinchZoomEnabled?: boolean;
+  /** GE-01 (M3): que hace un dedo con una herramienta armada. */
+  gestureMode?: GestureMode;
   /** Modo "Solo yo" (W2-C). */
   solo?: SoloConfig;
   /** Entrega el setter de la pagina visible: simula un cambio de pagina que NO pasa por el lienzo. */
@@ -113,6 +116,7 @@ function Harness({
   undoDeleteEnabled,
   richFieldTypesEnabled,
   pinchZoomEnabled,
+  gestureMode,
   solo,
   exposePageSetter,
 }: HarnessProps) {
@@ -173,6 +177,7 @@ function Harness({
       undoDeleteEnabled={undoDeleteEnabled}
       richFieldTypesEnabled={richFieldTypesEnabled}
       pinchZoomEnabled={pinchZoomEnabled}
+      gestureMode={gestureMode}
       solo={solo}
     />
   );
@@ -2886,9 +2891,9 @@ describe("DocumentCanvas — zonas de toque con puntero grueso (W2-B)", () => {
       screen.getByRole("button", { name: strings.resizeTextField, hidden: true });
     expect(handle().className).toContain("-right-11");
     // Su zona ampliada solo crece hacia fuera: con `-inset-3` entraba ~4 px en la caja y los
-    // toques sobre la casilla seleccionada iban al tirador (no se podia marcar).
-    expect(handle().className).toContain("pointer-coarse:before:-right-3");
-    expect(handle().className).toContain("pointer-coarse:before:-top-0.5");
+    // toques sobre la casilla seleccionada iban al tirador (no se podia marcar). VI-05 (M3): 10 + 20 + 14 = 44 px.
+    expect(handle().className).toContain("pointer-coarse:before:-right-3.5");
+    expect(handle().className).toContain("pointer-coarse:before:-top-2.5");
     expect(handle().className).not.toContain("-inset-3");
     fireEvent.focus(textGroup("Campo 1"));
     expect(handle().className).toContain("-right-2.5");
@@ -2919,16 +2924,30 @@ describe("DocumentCanvas — correcciones de la ronda 2 de W2-B", () => {
     fireEvent.click(within(palette()).getByRole("button", { name }));
 
   describe("scroll con un dedo y toque corto en vacio", () => {
-    it("Seleccionar a 1x deja el scroll nativo (pan-y); con una herramienta armada o con zoom, el lienzo se queda el gesto (none)", async () => {
+    it("GE-01: un dedo desplaza la pagina (pan-x pan-y) con Seleccionar Y con una herramienta armada; el lienzo solo se queda el gesto con zoom o con «Dibujar con el dedo»", async () => {
+      // Antes (W2-B) una herramienta armada dejaba `touch-none` en TODA la hoja: trampa de scroll (GE-01 de la auditoria).
       render(<Harness tool="select" pinchZoomEnabled />);
       await waitForPreview();
+      expect(hostOf().className).toContain("touch-pan-x");
       expect(hostOf().className).toContain("touch-pan-y");
       expect(hostOf().className).not.toContain("touch-none");
       pickTool(strings.fieldSignature);
-      expect(hostOf().className).toContain("touch-none");
+      // Herramienta armada: sigue desplazando (un toque coloca, mantener pulsado dibuja).
+      expect(hostOf().className).toContain("touch-pan-y");
+      expect(hostOf().className).not.toContain("touch-none");
       fireEvent.keyDown(window, { key: "Escape" });
       expect(hostOf().className).toContain("touch-pan-y");
+      // Con zoom el lienzo mueve la hoja y, en su borde, la pagina (encadenado): `none`.
       fireEvent.click(screen.getByRole("button", { name: strings.zoomIn }));
+      expect(hostOf().className).toContain("touch-none");
+      expect(hostOf().className).not.toContain("touch-pan-y");
+    });
+
+    it("gestureMode=draw: con una herramienta armada el dedo dibuja de inmediato (touch-none)", async () => {
+      render(<Harness tool="select" pinchZoomEnabled gestureMode="draw" />);
+      await waitForPreview();
+      expect(hostOf().className).toContain("touch-pan-y");
+      pickTool(strings.fieldSignature);
       expect(hostOf().className).toContain("touch-none");
     });
 
