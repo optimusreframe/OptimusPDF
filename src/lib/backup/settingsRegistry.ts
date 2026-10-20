@@ -253,6 +253,8 @@ export const SETTINGS_WRITABLE_KEYS: readonly string[] = Array.from(
 /** Claves de `localStorage` que existen en la app y que A PROPOSITO no viajan en «Ajustes» (documentado arriba). */
 export const SETTINGS_NEVER_EXPORTED_KEYS: readonly string[] = [
   "optimuspdf.lastBackup",
+  // U4.7: contador de cambios y «Recordármelo luego» del recordatorio de respaldo (de cada dispositivo).
+  "optimuspdf.backupReminder",
   "optimuspdf.recent",
   "optimuspdf.valueHistory",
   "optimuspdf.signTemplates",

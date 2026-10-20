@@ -10,6 +10,7 @@ import { localeTag, useI18n } from "@/lib/i18n";
 import {
   checkLibraryLimits,
   defaultLibraryDecisions,
+  type LibraryLimitCheck,
   type LibraryDecision,
   type LibraryImportItem,
   type LibraryPlan,
@@ -285,29 +286,7 @@ function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
               </li>
             ))}
           </ul>
-          <p className={cn("text-footnote leading-relaxed", check.ok ? "text-muted-foreground" : "text-destructive-text")} data-backup-limits="">
-            {check.ok
-              ? fillText(copy.limitOk, {
-                  docs: check.documentsAfter,
-                  maxDocs: plan.limits.maxDocuments,
-                  templates: check.templatesAfter,
-                  maxTemplates: plan.limits.maxTemplates,
-                })
-              : fillText(copy.limitExceeded, {
-                  fits: check.fits,
-                  wanted: check.wanted,
-                  reason: fillText(copy.limitReasons[check.blockedBy ?? "documents"], {
-                    max:
-                      check.blockedBy === "bytes"
-                        ? formatBytes(plan.limits.maxTotalBytes, locale)
-                        : check.blockedBy === "templates"
-                          ? plan.limits.maxTemplates
-                          : check.blockedBy === "perDocument"
-                            ? plan.limits.maxTemplatesPerDocument
-                            : plan.limits.maxDocuments,
-                  }),
-                })}
-          </p>
+          <LibraryLimitLine plan={plan} check={check} locale={locale} />
           <Button size="md" fullWidth wrap disabled={phase === "importing" || check.wanted === 0 || !check.ok} onClick={() => void apply()} data-backup-first data-backup-confirm="">
             {check.wanted === 0 ? copy.importNothing : countText(check.wanted, copy.importConfirmOne, copy.importConfirmMany)}
           </Button>
@@ -354,7 +333,39 @@ function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   );
 }
 
-function ItemCard({
+/** Línea de límites de la biblioteca de la vista previa («Después de importar tendrás N de 50 documentos…»); la reutiliza el paquete global (U4.7). */
+export function LibraryLimitLine({ plan, check, locale }: { plan: LibraryPlan; check: LibraryLimitCheck; locale: string }) {
+  const { t } = useI18n();
+  const copy = t.documents.backup;
+  return (
+    <p className={cn("text-footnote leading-relaxed", check.ok ? "text-muted-foreground" : "text-destructive-text")} data-backup-limits="">
+      {check.ok
+        ? fillText(copy.limitOk, {
+            docs: check.documentsAfter,
+            maxDocs: plan.limits.maxDocuments,
+            templates: check.templatesAfter,
+            maxTemplates: plan.limits.maxTemplates,
+          })
+        : fillText(copy.limitExceeded, {
+            fits: check.fits,
+            wanted: check.wanted,
+            reason: fillText(copy.limitReasons[check.blockedBy ?? "documents"], {
+              max:
+                check.blockedBy === "bytes"
+                  ? formatBytes(plan.limits.maxTotalBytes, locale)
+                  : check.blockedBy === "templates"
+                    ? plan.limits.maxTemplates
+                    : check.blockedBy === "perDocument"
+                      ? plan.limits.maxTemplatesPerDocument
+                      : plan.limits.maxDocuments,
+            }),
+          })}
+    </p>
+  );
+}
+
+/** Tarjeta de un elemento de la vista previa; la reutiliza la hoja del paquete global (U4.7). */
+export function ItemCard({
   item,
   locale,
   decision,

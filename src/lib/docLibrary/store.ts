@@ -1,3 +1,4 @@
+import { noteBackupRelevantChange } from "@/lib/backup/backupReminder";
 import { ID_PATTERN, cleanText, isIsoDate, parseDocumentEntry } from "./schema";
 import { staleVerdict } from "./templateStale";
 import {
@@ -271,6 +272,8 @@ function notify(): void {
 }
 
 export function announceChange(): void {
+  // U4.7: todo cambio de la biblioteca (documento o plantilla, alta, edicion o borrado) cuenta para el recordatorio de respaldo.
+  noteBackupRelevantChange();
   ensureSignals();
   if (channel) {
     try {

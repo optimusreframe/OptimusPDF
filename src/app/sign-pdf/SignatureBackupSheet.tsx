@@ -612,7 +612,8 @@ function RestoreBody({
   );
 }
 
-function ItemCard({
+/** Tarjeta de un elemento de la vista previa; la reutiliza la hoja del paquete global (U4.7). */
+export function ItemCard({
   item,
   copy,
   decision,

@@ -546,7 +546,9 @@ describe("avisos entre pestañas", () => {
     let calls = 0;
     subscribeToLibrary(() => (calls += 1));
     await putDocument(sampleInput("st"), sampleBytes(4));
-    expect([...store.keys()]).toEqual(["optimuspdf.doc-library.signal"]);
+    // U4.7: ademas de la senal, el cambio suma al contador del recordatorio de respaldo (una clave propia, sin datos personales).
+    expect([...store.keys()].filter((key) => key !== "optimuspdf.backupReminder")).toEqual(["optimuspdf.doc-library.signal"]);
+    expect(JSON.parse(store.get("optimuspdf.backupReminder") as string).changes).toBe(1);
     const before = calls;
     const event = new Event("storage") as Event & { key: string; newValue: string };
     event.key = "optimuspdf.doc-library.signal";

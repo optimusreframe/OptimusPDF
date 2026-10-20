@@ -21,6 +21,8 @@
  * motivo, nunca como excepcion.
  */
 
+import { noteBackupRelevantChange } from "@/lib/backup/backupReminder";
+
 /** Imagen guardada: bytes PNG crudos (no data URL), mas el tamaño leido. */
 export type VaultImage = {
   png: Uint8Array;
@@ -636,7 +638,11 @@ export async function saveVaultEntry(
         },
       ),
     );
-    if (result.ok) announceChange();
+    if (result.ok) {
+      announceChange();
+      // U4.7: una firma NUEVA (no repetir una que ya estaba) cuenta para el recordatorio de respaldo.
+      if (!result.duplicate) noteBackupRelevantChange();
+    }
     return result;
   } catch (error) {
     return { ok: false, reason: isQuotaError(error) ? "limit" : "unavailable" };
@@ -726,7 +732,10 @@ export async function updateVaultEntry(
         },
       ),
     );
-    if (result.ok) announceChange();
+    if (result.ok) {
+      announceChange();
+      noteBackupRelevantChange();
+    }
     return result;
   } catch {
     return { ok: false, reason: "unavailable" };
@@ -912,7 +921,10 @@ export async function commitVaultImport(
           });
         }),
     );
-    if (result.ok) announceChange();
+    if (result.ok) {
+      announceChange();
+      if (result.written > 0) noteBackupRelevantChange();
+    }
     return result;
   } catch (error) {
     return { ok: false, reason: isQuotaError(error) ? "limit" : "unavailable" };

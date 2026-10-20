@@ -15,6 +15,7 @@ import {
   type ClearFailure,
 } from "@/app/sign-pdf/clearLocalSignData";
 import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
+import { BackupSection } from "@/app/settings/BackupSection";
 import { StripSavedSignatures } from "@/app/sign-pdf/StripSavedSignatures";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { clearAllEditDrafts } from "@/app/edit-pdf/editDrafts";
@@ -90,6 +91,8 @@ export function SettingsView() {
             ]}
           />
         </GlassCard>
+
+        <BackupSection />
 
         <GlassCard className="p-6">
           <h2 className="text-headline text-foreground">

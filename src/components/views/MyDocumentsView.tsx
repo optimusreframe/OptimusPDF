@@ -6,6 +6,9 @@ import { addDocument, deleteDoc, keepTemplate, renameDoc, replaceDoc } from "@/a
 import { DocumentCard } from "@/app/documents/DocumentCard";
 import { ExportBackupSheet } from "@/app/documents/ExportBackupSheet";
 import { ImportBackupSheet } from "@/app/documents/ImportBackupSheet";
+import { focusFallbackWhenIdle } from "@/app/settings/focusFallback";
+import { BackupReminder } from "@/app/settings/BackupReminder";
+import { ExportPackageSheet } from "@/app/settings/ExportPackageSheet";
 import { AddDocumentSheet, DocumentMenuSheet, RenameSheet } from "@/app/documents/DocumentSheets";
 import { MAX_SELECTION, pruneSelection, toggleSelection, type ErrorKey } from "@/app/documents/documentsModel";
 import { StoragePanel } from "@/app/documents/StoragePanel";
@@ -47,6 +50,8 @@ export function MyDocumentsView() {
   const [warning, setWarning] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [backupSheet, setBackupSheet] = useState<"export" | "import" | null>(null);
+  /** «Respaldar ahora» del recordatorio (U4.7): abre «Exportar mi paquete» (todo, no solo plantillas y documentos). */
+  const [packageOpen, setPackageOpen] = useState(false);
   // El panel de almacenamiento solo se pinta cuando la biblioteca ya cargó (en el navegador): leer aquí no desajusta la hidratación.
   const [lastBackup, setLastBackup] = useState<Date | null>(() => (typeof window === "undefined" ? null : readLastBackup()));
 
@@ -183,6 +188,8 @@ export function MyDocumentsView() {
         </p>
       ) : null}
 
+      {loaded && available ? <BackupReminder className="mb-4" announce={say} onBackup={() => setPackageOpen(true)} /> : null}
+
       {!loaded ? (
         <p className="text-subheadline text-muted-foreground" data-documents-loading="">
           {t.documents.loading}
@@ -297,6 +304,18 @@ export function MyDocumentsView() {
         onClose={() => {
           setLastBackup(readLastBackup());
           setBackupSheet(null);
+        }}
+        onDone={(message) => {
+          setLastBackup(readLastBackup());
+          say(message);
+        }}
+      />
+      <ExportPackageSheet
+        open={packageOpen}
+        onClose={() => {
+          setLastBackup(readLastBackup());
+          setPackageOpen(false);
+          focusFallbackWhenIdle(() => headingRef.current);
         }}
         onDone={(message) => {
           setLastBackup(readLastBackup());

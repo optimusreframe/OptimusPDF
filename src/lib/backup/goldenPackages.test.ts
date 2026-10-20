@@ -25,6 +25,8 @@ const PASSWORD = "dorada-2026";
 const goldens = readdirSync(DIR).filter((f) => f.endsWith(".optimuspdf.zip")).sort();
 /** Los dorados de cada modulo se nombran `<modulo>-v<N>[-encrypted]…`; el contenido de cada familia lo comprueba su propia prueba. */
 const signatureGoldens = goldens.filter((f) => f.startsWith("signatures-"));
+/** Familia del «OptimusPDF Package» global (U4.8): los CUATRO módulos en un solo archivo; su contenido lo comprueba `goldenPackages.packageAll.test.tsx`. */
+const packageAllGoldens = goldens.filter((f) => f.startsWith("package-all-"));
 
 beforeEach(async () => {
   await clearVault();
@@ -37,6 +39,19 @@ function open(name: string): Blob {
 describe("paquetes dorados — src/lib/backup/__fixtures__/packages", () => {
   it("hay al menos el dorado de firmas v1 (en claro y cifrado)", () => {
     expect(signatureGoldens).toEqual(["signatures-v1-encrypted.optimuspdf.zip", "signatures-v1.optimuspdf.zip"]);
+  });
+
+  it("hay el dorado del paquete global v1 (en claro y cifrado) con los cuatro módulos", async () => {
+    expect(packageAllGoldens).toEqual(["package-all-v1-encrypted.optimuspdf.zip", "package-all-v1.optimuspdf.zip"]);
+    for (const name of packageAllGoldens) {
+      const read = await readPackage(open(name), name.includes("-encrypted") ? PASSWORD : undefined);
+      expect(read.modules.map((m) => [m.name, m.declaredSchemaVersion, m.status])).toEqual([
+        ["signatures", 1, "ok"],
+        ["library", 1, "ok"],
+        ["drafts", 1, "ok"],
+        ["settings", 1, "ok"],
+      ]);
+    }
   });
 
   // Cualquier familia (firmas, ajustes, borradores, biblioteca...): el paquete se abre con su contrasena, todos sus modulos se
