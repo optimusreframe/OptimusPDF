@@ -3,10 +3,19 @@
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import type { DraftDecision, DraftImportItem } from "@/lib/backup/modules/drafts";
-import type { SettingsImportPlan } from "@/lib/backup/modules/settings";
+import { settingsRows, type SettingsDecisions, type SettingsImportPlan, type SettingsRow } from "@/lib/backup/modules/settings";
+import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { countText, fillText } from "@/app/documents/backupModel";
 import { formatBytes } from "@/app/documents/documentsModel";
-import { draftDecisionOptions, draftKindLabel } from "@/app/settings/packageModel";
+import {
+  commonRowDecision,
+  draftDecisionOptions,
+  draftKindLabel,
+  rowDecision,
+  settingChangeText,
+  withAllRows,
+  withRowDecision,
+} from "@/app/settings/packageModel";
 
 /**
  * Tarjetas de la vista previa del paquete global que NO existían (U4.7): borradores y ajustes. Las de firmas y de
@@ -117,24 +126,41 @@ export function DraftItemCard({
 
 type SettingsDecision = "replace" | "omit";
 
-/** Los ajustes del paquete (una sola tarjeta: «Reemplazar / Omitir») y, si el paquete lo trae, el historial de valores aparte. */
+const REMEMBERED_SIGNERS_KEY = "optimuspdf.sign.templateSigners";
+const NOTICE_NAMES: Record<string, "signNotice" | "editNotice"> = {
+  "optimuspdf.sign-pdf.privacyNoticeSeen": "signNotice",
+  "optimuspdf.edit-pdf.privacyNoticeSeen": "editNotice",
+};
+const APPEARANCE_NAMES: Record<string, "theme" | "language" | "sidebarCollapsed"> = {
+  "optimuspdf.theme": "theme",
+  "optimuspdf.language": "language",
+  "optimuspdf.sidebarCollapsed": "sidebarCollapsed",
+};
+
+/**
+ * Los ajustes del paquete: un resumen con los recuentos y, debajo, QUÉ cambiaría ajuste a ajuste («Ahora: … → Paquete: …»),
+ * con los que afectan a la privacidad marcados y en «Omitir» por defecto. Se decide por ajuste o para todos; el historial de
+ * valores (datos de clientes) va aparte, también omitido por defecto.
+ */
 export function SettingsCards({
   plan,
-  settingsDecision,
+  decisions,
   historyDecision,
   disabled,
   onSettings,
   onHistory,
 }: {
   plan: SettingsImportPlan;
-  settingsDecision: SettingsDecision | undefined;
+  decisions: SettingsDecisions;
   historyDecision: SettingsDecision | undefined;
   disabled: boolean;
-  onSettings: (decision: SettingsDecision) => void;
+  onSettings: (decisions: SettingsDecisions) => void;
   onHistory: (decision: SettingsDecision) => void;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const copy = t.settings.backup;
+  const templateFlags = SIGN_STRINGS[language].template.flags;
+  const rows = settingsRows(plan);
   const changes = plan.counts.new + plan.counts.different;
   const status: keyof typeof STATUS_STYLE = plan.counts.different > 0 ? "different" : plan.counts.new > 0 ? "new" : plan.counts.invalid > 0 && plan.items.length === plan.counts.invalid ? "invalid" : "identical";
   const statusText = status === "new" ? copy.statusNew : status === "different" ? copy.statusDifferent : status === "invalid" ? copy.statusInvalid : copy.statusIdentical;
@@ -148,7 +174,12 @@ export function SettingsCards({
     { value: "replace", label: copy.decisionReplace },
     { value: "omit", label: copy.decisionOmit },
   ];
-  const radio = (name: string, value: SettingsDecision | undefined, onChange: (decision: SettingsDecision) => void) => (
+  const radio = (
+    name: string,
+    value: SettingsDecision | null | undefined,
+    onChange: (decision: SettingsDecision) => void,
+    labels: { replace: string; omit: string } = { replace: copy.decisionReplace, omit: copy.decisionOmit },
+  ) => (
     <div role="radiogroup" aria-label={fillText(copy.decisionGroup, { name })} className="flex flex-wrap gap-1.5">
       {choices.map((choice) => (
         <button
@@ -161,11 +192,32 @@ export function SettingsCards({
           onClick={() => onChange(choice.value)}
           className={optionClass(value === choice.value)}
         >
-          {choice.label}
+          {labels[choice.value]}
         </button>
       ))}
     </div>
   );
+
+  /** «Firmar PDF · Firmas guardadas»: el grupo y el nombre legible del ajuste (nunca la clave técnica). */
+  const rowName = (row: SettingsRow): string => {
+    const group = copy.settingGroups[row.group];
+    let name: string = row.flag ?? row.key;
+    if (row.flag !== undefined) {
+      const sign = t.settings.signPdfFeatures as Record<string, { label: string } | undefined>;
+      const edit = t.settings.editPdfFeatures as Record<string, { label: string } | undefined>;
+      const pro = t.settings.proFeatures as Record<string, { label: string } | undefined>;
+      const template = templateFlags as unknown as Record<string, { label: string } | undefined>;
+      const entry = row.group === "sign" ? (Object.hasOwn(sign, row.flag) ? sign[row.flag] : template[row.flag]) : row.group === "edit" ? edit[row.flag] : row.group === "pro" ? pro[row.flag] : undefined;
+      if (entry && Object.hasOwn(entry, "label")) name = entry.label;
+    } else if (Object.hasOwn(APPEARANCE_NAMES, row.key)) name = copy.settingNames[APPEARANCE_NAMES[row.key]];
+    else if (Object.hasOwn(NOTICE_NAMES, row.key)) name = copy.settingNames[NOTICE_NAMES[row.key]];
+    else if (row.key === REMEMBERED_SIGNERS_KEY) name = copy.settingNames.templateSigners;
+    else if (row.group === "pro") name = copy.settingNames.proLayout;
+    return fillText(copy.settingRowName, { group, name });
+  };
+
+  const common = commonRowDecision(decisions, rows);
+  const anySensitive = rows.some((row) => row.sensitive);
   return (
     <>
       <div className="surface-card rounded-ios-sm space-y-2 p-3" data-backup-item="settings" data-status={status}>
@@ -177,7 +229,45 @@ export function SettingsCards({
         {plan.counts.invalid > 0 ? <p className="text-footnote text-destructive-text">{fillText(copy.settingsInvalidLine, { n: plan.counts.invalid })}</p> : null}
         {plan.ignoredKeys > 0 ? <p className="text-footnote text-muted-foreground">{fillText(copy.settingsIgnored, { n: plan.ignoredKeys })}</p> : null}
         {changes > 0 ? <p className="text-footnote text-muted-foreground">{copy.settingsReloadHint}</p> : null}
-        {changes > 0 ? radio(copy.settingsCardTitle, settingsDecision, onSettings) : null}
+        {rows.length > 0 ? (
+          <>
+            <h5 className="pt-1 text-subheadline font-semibold text-foreground">{copy.settingsRowsTitle}</h5>
+            {anySensitive ? (
+              <p className="text-footnote text-muted-foreground" data-backup-sensitive-note="">
+                {copy.settingsSensitiveNote}
+              </p>
+            ) : null}
+            {radio(copy.settingsAllGroup, common, (decision) => onSettings(withAllRows(decisions, decision)), { replace: copy.decisionReplaceAll, omit: copy.decisionOmitAll })}
+            <ul className="space-y-2" aria-label={copy.settingsRowsTitle} data-backup-setting-rows="">
+              {rows.map((row) => {
+                const name = rowName(row);
+                return (
+                  <li
+                    key={row.id}
+                    className="space-y-1.5 rounded-ios-sm border border-white/10 bg-white/5 p-2.5"
+                    data-backup-setting-row={row.id}
+                    data-sensitive={row.sensitive ? "true" : "false"}
+                  >
+                    <p className="text-footnote font-medium text-foreground [overflow-wrap:anywhere]">{name}</p>
+                    {row.sensitive ? (
+                      <p className="text-footnote font-medium text-signal-text" data-backup-setting-sensitive="">
+                        {copy.settingSensitiveBadge}
+                      </p>
+                    ) : null}
+                    <p className="text-caption text-muted-foreground [overflow-wrap:anywhere]">{settingChangeText(row, copy)}</p>
+                    {radio(name, rowDecision(decisions, row.id), (decision) => onSettings(withRowDecision(decisions, rows, row.id, decision)))}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        ) : changes > 0 ? (
+          // Nada visible cambia (lo que trae el paquete ya es lo que tienes o el valor por defecto): solo la decisión general.
+          <>
+            <p className="text-footnote text-muted-foreground">{copy.settingsNoChanges}</p>
+            {radio(copy.settingsCardTitle, decisions.settings, (decision) => onSettings(withAllRows(decisions, decision)))}
+          </>
+        ) : null}
       </div>
       {historyStatus ? (
         <div className="surface-card rounded-ios-sm space-y-2 p-3" data-backup-item="valueHistory" data-status={historyStatus}>

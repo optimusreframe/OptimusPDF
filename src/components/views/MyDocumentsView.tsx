@@ -16,7 +16,7 @@ import { useDocumentLibrary } from "@/app/documents/useDocumentLibrary";
 import { useOpenInSign } from "@/app/documents/useOpenInSign";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
-import { readLastBackup } from "@/lib/backup/lastBackup";
+import { readLastBackup, readLastBackupParts, type BackupParts } from "@/lib/backup/lastBackup";
 import { requestPersistence } from "@/lib/docLibrary/store";
 import type { DocumentEntry } from "@/lib/docLibrary/types";
 import { useT } from "@/lib/i18n";
@@ -54,6 +54,12 @@ export function MyDocumentsView() {
   const [packageOpen, setPackageOpen] = useState(false);
   // El panel de almacenamiento solo se pinta cuando la biblioteca ya cargó (en el navegador): leer aquí no desajusta la hidratación.
   const [lastBackup, setLastBackup] = useState<Date | null>(() => (typeof window === "undefined" ? null : readLastBackup()));
+  const [lastParts, setLastParts] = useState<BackupParts>(() => (typeof window === "undefined" ? {} : readLastBackupParts()));
+  /** Relee el último respaldo (completo y por partes) tras exportar. */
+  const refreshBackup = () => {
+    setLastBackup(readLastBackup());
+    setLastParts(readLastBackupParts());
+  };
 
   const { documents, statuses, loaded, available, usage, meta, refresh } = library;
   const byId = useMemo(() => new Map(documents.map((doc) => [doc.id, doc])), [documents]);
@@ -278,6 +284,7 @@ export function MyDocumentsView() {
           onRequestPersistence={() => void handlePersistence()}
           requesting={requesting}
           lastBackup={lastBackup}
+          lastParts={lastParts}
           onExport={() => setBackupSheet("export")}
           onImport={() => setBackupSheet("import")}
         />
@@ -302,23 +309,23 @@ export function MyDocumentsView() {
       <ExportBackupSheet
         open={backupSheet === "export"}
         onClose={() => {
-          setLastBackup(readLastBackup());
+          refreshBackup();
           setBackupSheet(null);
         }}
         onDone={(message) => {
-          setLastBackup(readLastBackup());
+          refreshBackup();
           say(message);
         }}
       />
       <ExportPackageSheet
         open={packageOpen}
         onClose={() => {
-          setLastBackup(readLastBackup());
+          refreshBackup();
           setPackageOpen(false);
           focusFallbackWhenIdle(() => headingRef.current);
         }}
         onDone={(message) => {
-          setLastBackup(readLastBackup());
+          refreshBackup();
           say(message);
         }}
       />

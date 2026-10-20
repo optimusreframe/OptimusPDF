@@ -41,14 +41,36 @@ type Phase = "pick" | "reading" | "password" | "preview" | "importing" | "done";
 
 export function ImportPackageSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone?: (message: string) => void }) {
   const { t } = useI18n();
+  // Mientras se está aplicando la importación la hoja NO se cierra (Escape, clic fuera, X o arrastre): cerrarla a medias
+  // perdía el resultado y dejaba la interfaz inconsistente. Cada intento se dice en la región de estado.
+  const [applying, setApplying] = useState(false);
+  const [blockedAttempts, setBlockedAttempts] = useState(0);
   return (
-    <Sheet open={open} onClose={onClose} title={t.settings.backup.importTitle} closeLabel={t.common.close} initialFocus="[data-backup-first]">
-      <ImportBody onClose={onClose} onDone={onDone} />
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={t.settings.backup.importTitle}
+      closeLabel={t.common.close}
+      initialFocus="[data-backup-first]"
+      closeLocked={applying}
+      onCloseBlocked={() => setBlockedAttempts((count) => count + 1)}
+    >
+      <ImportBody onClose={onClose} onDone={onDone} onApplyingChange={setApplying} blockedAttempts={blockedAttempts} />
     </Sheet>
   );
 }
 
-function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (message: string) => void }) {
+function ImportBody({
+  onClose,
+  onDone,
+  onApplyingChange,
+  blockedAttempts,
+}: {
+  onClose: () => void;
+  onDone?: (message: string) => void;
+  onApplyingChange?: (applying: boolean) => void;
+  blockedAttempts: number;
+}) {
   const { t, language } = useI18n();
   const copy = t.settings.backup;
   const locale = localeTag(language);
@@ -85,6 +107,10 @@ function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     if (phase === "password") passwordRef.current?.focus();
     else headingRef.current?.focus();
   }, [phase]);
+  useEffect(() => {
+    onApplyingChange?.(phase === "importing");
+    return () => onApplyingChange?.(false);
+  }, [phase, onApplyingChange]);
 
   const openFile = async (target: File, pass?: string) => {
     setFile(target);
@@ -156,9 +182,7 @@ function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
         ? fillText(copy.checkingPdf, { done: progress.done, total: progress.total })
         : copy.reading
       : phase === "importing"
-        ? working
-          ? fillText(copy.importingModule, { module: copy.moduleNames[working] })
-          : copy.importing
+        ? [working ? fillText(copy.importingModule, { module: copy.moduleNames[working] }) : copy.importing, blockedAttempts > 0 ? copy.closeBusy : ""].filter(Boolean).join(" ")
         : phase === "done"
           ? (result?.lines.map((line) => line.text).join(" ") ?? "")
           : "";
@@ -340,10 +364,10 @@ function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
                 {summary.module === "settings" && plans.settings && summary.importable ? (
                   <SettingsCards
                     plan={plans.settings}
-                    settingsDecision={decisions.settings.settings}
+                    decisions={decisions.settings}
                     historyDecision={decisions.settings.valueHistory}
                     disabled={phase === "importing"}
-                    onSettings={(decision) => setDecisions((current) => current && { ...current, settings: { ...current.settings, settings: decision } })}
+                    onSettings={(next) => setDecisions((current) => current && { ...current, settings: { ...next, valueHistory: current.settings.valueHistory } })}
                     onHistory={(decision) => setDecisions((current) => current && { ...current, settings: { ...current.settings, valueHistory: decision } })}
                   />
                 ) : null}
@@ -403,7 +427,7 @@ function previewTotals(plans: EverythingPlans): { signatures: number; documents:
   if (plans.library?.state === "ok") {
     for (const item of plans.library.items) {
       if (item.status === "invalid") continue;
-      if (item.kind === "document") documents += 1;
+      if (item.kind === "document" && item.duplicateOf === undefined) documents += 1;
       templates += item.templates.filter((row) => row.status !== "invalid").length;
     }
   }

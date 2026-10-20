@@ -35,9 +35,11 @@ export function statusLabelKey(status: LibraryImportItem["status"]): StatusLabel
 }
 
 /** Qué explicación acompaña a un elemento «Distinto». */
-export type HintKey = "hintPdf" | "hintTemplatesNew" | "hintTemplatesChanged" | "hintTemplateSolo";
+export type HintKey = "hintPdf" | "hintTemplatesNew" | "hintTemplatesChanged" | "hintTemplateSolo" | "hintDuplicate";
 
-export function hintKeyFor(item: Pick<LibraryImportItem, "status" | "kind" | "difference" | "changesTemplates">): HintKey | null {
+export function hintKeyFor(item: Pick<LibraryImportItem, "status" | "kind" | "difference" | "changesTemplates" | "duplicateOf">): HintKey | null {
+  // El mismo PDF que otro del propio paquete (F4-fix, H6): se importa una vez; esto lo explica.
+  if (item.duplicateOf !== undefined) return "hintDuplicate";
   if (item.status !== "different") return null;
   if (item.kind === "template") return "hintTemplateSolo";
   if (item.difference === "pdf") return "hintPdf";
@@ -63,7 +65,8 @@ export function planTotals(plan: Pick<LibraryPlan, "items">): { documents: numbe
       invalid += 1;
       continue;
     }
-    if (item.kind === "document") documents += 1;
+    // Un PDF repetido dentro del paquete no es otro documento: se importa una vez (con las plantillas de ambos).
+    if (item.kind === "document" && item.duplicateOf === undefined) documents += 1;
     templates += item.templates.filter((row) => row.status !== "invalid").length;
   }
   return { documents, templates, invalid };

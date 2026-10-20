@@ -71,6 +71,13 @@ export type SheetProps = {
    * demas hojas de la aplicacion.
    */
   inertBackground?: boolean;
+  /**
+   * Mientras es `true`, la hoja NO se cierra (ni con Escape, ni con el fondo, ni con la X, ni arrastrando): cerrarla en
+   * mitad de una escritura (p. ej. una importación) perdería su resultado y dejaría la interfaz a medias. Cada intento
+   * llama a `onCloseBlocked` para que la hoja lo diga. Opt-in: las demás hojas no cambian.
+   */
+  closeLocked?: boolean;
+  onCloseBlocked?: () => void;
 };
 
 /**
@@ -199,6 +206,8 @@ function SheetPanel({
   restoreFocusOnClose,
   initialFocus,
   inertBackground = false,
+  closeLocked = false,
+  onCloseBlocked,
 }: Omit<SheetProps, "open">) {
   const [isPresent, safeToRemove] = usePresence();
   const reduced = useReducedMotionPref();
@@ -239,6 +248,13 @@ function SheetPanel({
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+  const closeLockedRef = useRef(closeLocked);
+  const onCloseBlockedRef = useRef(onCloseBlocked);
+  // En el commit (no en un efecto pasivo): un Escape justo despues de terminar la importacion ya ve la hoja desbloqueada.
+  useLayoutEffect(() => {
+    closeLockedRef.current = closeLocked;
+    onCloseBlockedRef.current = onCloseBlocked;
+  }, [closeLocked, onCloseBlocked]);
 
   const measure = useCallback(() => {
     const panel = panelRef.current;
@@ -370,6 +386,13 @@ function SheetPanel({
   const requestClose = useCallback(
     (velocity = 0) => {
       if (!isPresent || dismissedRef.current) return;
+      if (closeLockedRef.current) {
+        // Bloqueada (p. ej. importando): el panel vuelve a su sitio si se estaba arrastrando y se avisa del intento.
+        stopAnimation();
+        if (y.get() !== 0) animationRef.current = animate(y, 0, reduced ? { type: false } : springs.default);
+        onCloseBlockedRef.current?.();
+        return;
+      }
       stopAnimation();
       entryRef.current.closing = true;
       panelRef.current?.setAttribute("data-sheet-closing", "");
@@ -714,6 +737,7 @@ function SheetPanel({
                 type="button"
                 onClick={() => requestClose()}
                 aria-label={closeLabel}
+                aria-disabled={closeLocked || undefined}
                 /* Sin `outline-none`: en Tailwind v4 fija --tw-outline-style en `none` y el
                    `focus-visible:outline-2` hereda ese `none` (anillo invisible, W1-C). */
                 className="group flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-6px] focus-visible:outline-signal"

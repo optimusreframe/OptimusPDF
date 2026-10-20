@@ -41,14 +41,35 @@ type Phase = "pick" | "reading" | "password" | "preview" | "importing" | "done";
 
 export function ImportBackupSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone?: (message: string) => void }) {
   const { t } = useI18n();
+  // Mientras se escribe la importación la hoja no se cierra (Escape, clic fuera, X): se perdería su resultado.
+  const [applying, setApplying] = useState(false);
+  const [blockedAttempts, setBlockedAttempts] = useState(0);
   return (
-    <Sheet open={open} onClose={onClose} title={t.documents.backup.importTitle} closeLabel={t.common.close} initialFocus="[data-backup-first]">
-      <ImportBody onClose={onClose} onDone={onDone} />
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={t.documents.backup.importTitle}
+      closeLabel={t.common.close}
+      initialFocus="[data-backup-first]"
+      closeLocked={applying}
+      onCloseBlocked={() => setBlockedAttempts((count) => count + 1)}
+    >
+      <ImportBody onClose={onClose} onDone={onDone} onApplyingChange={setApplying} blockedAttempts={blockedAttempts} />
     </Sheet>
   );
 }
 
-function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (message: string) => void }) {
+function ImportBody({
+  onClose,
+  onDone,
+  onApplyingChange,
+  blockedAttempts = 0,
+}: {
+  onClose: () => void;
+  onDone?: (message: string) => void;
+  onApplyingChange?: (applying: boolean) => void;
+  blockedAttempts?: number;
+}) {
   const { t, language } = useI18n();
   const copy = t.documents.backup;
   const locale = localeTag(language);
@@ -173,6 +194,11 @@ function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     );
   };
 
+  useEffect(() => {
+    onApplyingChange?.(phase === "importing");
+    return () => onApplyingChange?.(false);
+  }, [phase, onApplyingChange]);
+
   const working = phase === "reading" || phase === "importing";
   const statusText = error
     ? error
@@ -181,7 +207,9 @@ function ImportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
         ? fillText(copy.checkingPdf, { done: progress.done, total: progress.total })
         : copy.reading
       : phase === "importing"
-        ? copy.importing
+        ? blockedAttempts > 0
+          ? `${copy.importing} ${copy.closeBusy}`
+          : copy.importing
         : phase === "done"
           ? (result?.lines.join(" ") ?? "")
           : "";
@@ -397,7 +425,7 @@ export function ItemCard({
             item.status === "invalid" && "border-destructive/40 text-destructive-text",
           )}
         >
-          {copy[statusLabelKey(item.status)]}
+          {item.duplicateOf ? copy.statusDuplicate : copy[statusLabelKey(item.status)]}
         </span>
       </div>
       {item.kind === "template" ? (
@@ -430,7 +458,7 @@ export function ItemCard({
       ) : null}
       {hint ? (
         <p className="text-footnote text-muted-foreground" data-backup-hint="">
-          {fillText(copy[hint], { name: item.conflictWith?.name ?? item.name })}
+          {fillText(copy[hint], { name: item.duplicateOf?.name ?? item.conflictWith?.name ?? item.name })}
         </p>
       ) : null}
       {options.length > 0 ? (

@@ -283,6 +283,10 @@ describe("ida y vuelta: exportar → borrar todo → importar", () => {
     ]);
 
     const decisions = defaultEverythingDecisions(read.plans);
+    // H8: el aviso de privacidad «ya visto» afecta a la privacidad: con las decisiones SUGERIDAS se omite (3 de 4 ajustes).
+    expect(checkEverythingLimits(read.plans, decisions).wantedBy.settings).toBe(3);
+    // La persona pide «Reemplazar todos» en Ajustes: entran los 4.
+    decisions.settings = { settings: "replace", valueHistory: "omit" };
     const limits = checkEverythingLimits(read.plans, decisions);
     expect(limits).toMatchObject({ ok: true, blocked: [], wantedBy: { signatures: 2, library: 2, drafts: 4, settings: 4 }, wanted: 12 });
 

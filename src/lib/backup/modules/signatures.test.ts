@@ -469,7 +469,8 @@ describe("atomicidad: todo o nada ante un fallo de cuota", () => {
       return realPut.apply(this, args as never);
     });
     const result = await applySignaturesImport(plan, defaultSignatureDecisions(plan));
-    expect(result).toMatchObject({ ok: false, reason: "limit" });
+    // H7: la cuota del navegador llena es `quota` («No hay espacio suficiente…»), no `limit` («No caben…» = los 30 firmas de la app).
+    expect(result).toMatchObject({ ok: false, reason: "quota" });
     expect(calls).toBe(2);
     vi.restoreAllMocks();
     expect(await vaultList()).toEqual(before);

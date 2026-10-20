@@ -1842,6 +1842,13 @@ export type CommitDraftImportInput = {
   replace: readonly DraftImportExpectation[];
 };
 
+/** Cuota de almacenamiento agotada (`QuotaExceededError`): distinta de «no caben» (los limites de borradores de la app). */
+function isDraftQuotaError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { name, code } = error as { name?: unknown; code?: unknown };
+  return name === "QuotaExceededError" || code === 22;
+}
+
 export type CommitDraftImportResult =
   | {
       ok: true;
@@ -1850,7 +1857,7 @@ export type CommitDraftImportResult =
       /** Deshace TODO lo escrito (restaura lo sustituido y borra lo creado). Nunca lanza. */
       undo: () => Promise<void>;
     }
-  | { ok: false; reason: "invalid" | "changed" | "limit" | "unavailable" };
+  | { ok: false; reason: "invalid" | "changed" | "limit" | "quota" | "unavailable" };
 
 type StoredRows = {
   metas: Map<string, DraftMeta>;
@@ -2124,7 +2131,7 @@ export async function commitDraftImport(input: CommitDraftImportInput): Promise<
       }
     };
     return { ok: true, written: outcome.written, replaced: outcome.replaced, undo };
-  } catch {
-    return { ok: false, reason: "unavailable" };
+  } catch (error) {
+    return { ok: false, reason: isDraftQuotaError(error) ? "quota" : "unavailable" };
   }
 }

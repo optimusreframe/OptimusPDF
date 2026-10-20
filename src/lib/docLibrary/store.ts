@@ -273,7 +273,7 @@ function notify(): void {
 
 export function announceChange(): void {
   // U4.7: todo cambio de la biblioteca (documento o plantilla, alta, edicion o borrado) cuenta para el recordatorio de respaldo.
-  noteBackupRelevantChange();
+  noteBackupRelevantChange(undefined, "library");
   ensureSignals();
   if (channel) {
     try {
@@ -364,6 +364,19 @@ export async function getDocumentBytes(id: string): Promise<Uint8Array | null> {
     if (!bytes || typeof record?.byteLength !== "number" || bytes.length !== record.byteLength) return null;
     // IndexedDB entrega una copia nueva en cada lectura: no hace falta duplicar (hasta 100 MiB).
     return bytes;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ids de los documentos que tienen una copia del PDF guardada (solo las CLAVES: no lee ningun PDF). `null` si el navegador
+ * no deja leer. Lo usa el respaldo para contar, antes de exportar, los documentos cuya copia falta.
+ */
+export async function listBlobIds(): Promise<Set<string> | null> {
+  try {
+    const keys = await run([BLOBS], "readonly", (tx) => req(tx.objectStore(BLOBS).getAllKeys() as IDBRequest<IDBValidKey[]>));
+    return new Set(keys.filter((key): key is string => typeof key === "string"));
   } catch {
     return null;
   }

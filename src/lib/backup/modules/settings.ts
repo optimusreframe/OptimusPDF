@@ -426,18 +426,145 @@ export function planSettingsImport(read: PackageReadResult, options: SettingsSto
   return plan;
 }
 
+/** `QuotaExceededError` de `localStorage` (con los nombres y codigos que usan los navegadores). */
+function isStorageQuotaError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { name, code } = error as { name?: unknown; code?: unknown };
+  return name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED" || code === 22 || code === 1014;
+}
+
 export type SettingsDecisions = {
+  /** Decisión de TODOS los ajustes que cambiarían (salvo los que `rows` decida aparte). */
   settings: "replace" | "omit";
   valueHistory?: "replace" | "omit";
+  /** Decisión por ajuste (`SettingsRow.id`); lo que no esté aquí sigue a `settings`. */
+  rows?: Record<string, "replace" | "omit">;
 };
 
 /**
- * Decision sugerida: los ajustes se reemplazan si hay algo nuevo o distinto (si no, nada que hacer) y el historial de
- * valores se OMITE siempre (PII: hay que pedirlo a proposito).
+ * Una fila de la vista previa: UN ajuste que cambiaría (la clave entera, o un interruptor suelto de un ajuste de objeto
+ * como los de Firmar). Se deriva siempre de los `items` del plan (nunca se confía en una lista aparte que pudiera venir
+ * manipulada de la interfaz).
+ */
+export type SettingsRow = {
+  /** `clave` o `clave#interruptor`: es lo que se usa en `SettingsDecisions.rows`. */
+  id: string;
+  key: string;
+  flag?: string;
+  group: SettingGroup;
+  /** `new`: hoy no está guardado; `different`: está guardado con otro valor. */
+  status: "new" | "different";
+  /** Valor de ahora (el guardado o, si no hay, el de por defecto) y si de verdad está guardado. */
+  local: SettingValue;
+  localStored: boolean;
+  /** Lo que traería el paquete. */
+  value: SettingValue;
+  /** Afecta a la privacidad (guardar firmas, avisos de privacidad…): por defecto se OMITE. */
+  sensitive: boolean;
+};
+
+function isObjectValue(value: SettingValue | undefined): value is { [name: string]: boolean | number } {
+  return typeof value === "object" && value !== null;
+}
+
+/** Las filas de UN ajuste del plan que cambiarían (vacío si no cambia nada visible, p. ej. valores ya iguales al de por defecto). */
+function rowsOfItem(item: SettingsImportItem): SettingsRow[] {
+  if (item.status !== "new" && item.status !== "different") return [];
+  const def = typeof item.key === "string" ? settingDef(item.key) : undefined;
+  if (!def || item.value === undefined) return [];
+  const sensitiveWhole = def.sensitive === true;
+  if (def.flags && isObjectValue(item.value)) {
+    const rows: SettingsRow[] = [];
+    const localObject = isObjectValue(item.local) ? item.local : undefined;
+    const defaults = isObjectValue(def.defaultValue) ? def.defaultValue : {};
+    for (const flag of def.flags) {
+      if (!hasOwn(item.value, flag)) continue;
+      const wanted = item.value[flag];
+      const stored = localObject !== undefined && hasOwn(localObject, flag);
+      const current = stored ? (localObject as Record<string, boolean | number>)[flag] : defaults[flag];
+      if (current === wanted) continue;
+      rows.push({
+        id: `${item.key}#${flag}`,
+        key: item.key,
+        flag,
+        group: item.group,
+        status: stored ? "different" : "new",
+        local: current ?? false,
+        localStored: stored,
+        value: wanted,
+        sensitive: sensitiveWhole || (def.sensitiveFlags?.includes(flag) ?? false),
+      });
+    }
+    return rows;
+  }
+  return [
+    {
+      id: item.key,
+      key: item.key,
+      group: item.group,
+      status: item.status,
+      local: item.local ?? def.defaultValue,
+      localStored: item.local !== undefined,
+      value: item.value,
+      sensitive: sensitiveWhole,
+    },
+  ];
+}
+
+/** Todos los ajustes que cambiarían, uno por fila (para la vista previa «clave legible → valor actual → valor del paquete»). */
+export function settingsRows(plan: Pick<SettingsImportPlan, "items">): SettingsRow[] {
+  return plan.items.flatMap(rowsOfItem);
+}
+
+/**
+ * Decisión sugerida: los ajustes se reemplazan si hay algo nuevo o distinto (si no, nada que hacer), SALVO los que afectan
+ * a la privacidad (guardar firmas, avisos de privacidad «ya vistos»), que se OMITEN hasta que la persona los pida; y el
+ * historial de valores se OMITE siempre (PII: hay que pedirlo a propósito).
  */
 export function defaultSettingsDecisions(plan: SettingsImportPlan): SettingsDecisions {
   const changes = plan.items.some((item) => item.status === "new" || item.status === "different");
-  return { settings: changes ? "replace" : "omit", valueHistory: "omit" };
+  const sensitive = settingsRows(plan).filter((row) => row.sensitive);
+  return {
+    settings: changes ? "replace" : "omit",
+    valueHistory: "omit",
+    ...(sensitive.length > 0 ? { rows: Object.fromEntries(sensitive.map((row) => [row.id, "omit" as const])) } : {}),
+  };
+}
+
+/** Lo que se escribiría de cada ajuste con estas decisiones (por fila; `replace` de todas las filas = el valor del paquete tal cual). */
+function resolveSettingWrites(plan: Pick<SettingsImportPlan, "items">, decisions: SettingsDecisions | undefined): Array<{ item: SettingsImportItem; value: unknown }> {
+  const out: Array<{ item: SettingsImportItem; value: unknown }> = [];
+  if (!decisions) return out;
+  const rowDecisions = decisions.rows !== undefined && typeof decisions.rows === "object" && decisions.rows !== null ? decisions.rows : {};
+  const decide = (id: string): "replace" | "omit" => {
+    const own = hasOwn(rowDecisions, id) ? rowDecisions[id] : undefined;
+    return own === "replace" || own === "omit" ? own : decisions.settings;
+  };
+  for (const item of plan.items) {
+    if (item.status !== "new" && item.status !== "different") continue;
+    const rows = rowsOfItem(item);
+    if (rows.length === 0) {
+      // Sin filas visibles (todo igual al valor de ahora o al de por defecto): sigue la decisión general.
+      if (decisions.settings === "replace") out.push({ item, value: item.value });
+      continue;
+    }
+    const chosen = rows.filter((row) => decide(row.id) === "replace");
+    if (chosen.length === 0) continue;
+    if (chosen.length === rows.length || rows[0].flag === undefined) {
+      out.push({ item, value: item.value });
+      continue;
+    }
+    // Ajuste de interruptores con solo ALGUNOS elegidos: lo de ahora más los elegidos (nunca se pisan los demás).
+    const base = isObjectValue(item.local) ? { ...item.local } : {};
+    for (const row of chosen) (base as Record<string, boolean | number>)[row.flag as string] = (item.value as Record<string, boolean | number>)[row.flag as string];
+    out.push({ item, value: base });
+  }
+  return out;
+}
+
+/** Cuántos ajustes (claves) se escribirían con estas decisiones: lo que cuenta el botón «Importar N elementos». */
+export function countSettingWrites(plan: Pick<SettingsImportPlan, "items">, decisions: SettingsDecisions): number {
+  return resolveSettingWrites(plan, decisions).length;
 }
 
 /* ------------------------------------------------------------------ *
@@ -456,7 +583,7 @@ export type ApplySettingsResult =
       /** Los almacenes en memoria (tema, idioma, interruptores) no se enteran: hay que recargar la pagina. */
       reloadRequired: boolean;
     }
-  | { ok: false; reason: "blocked" | "invalid" | "changed" | "unavailable" };
+  | { ok: false; reason: "blocked" | "invalid" | "changed" | "quota" | "unavailable" };
 
 type Write = { key: string; text: string; /** Texto que debe tener ahora `localStorage` (el de la vista previa); `undefined` = no se comprueba. */ expectRaw?: { raw: string | null } };
 
@@ -488,12 +615,11 @@ export async function applySettingsImport(
   const writes: Write[] = [];
   const settingKeys = new Set<string>();
   let settingsWritten = 0;
-  if (decisions?.settings === "replace") {
-    for (const item of plan.items) {
-      if (item.status !== "new" && item.status !== "different") continue;
+  {
+    for (const { item, value: wanted } of resolveSettingWrites(plan, decisions)) {
       const def = typeof item.key === "string" ? settingDef(item.key) : undefined;
       if (!def || settingKeys.has(item.key)) return { ok: false, reason: "invalid" };
-      const value = def.validate(item.value);
+      const value = def.validate(wanted);
       if (value === undefined) return { ok: false, reason: "invalid" };
       settingKeys.add(item.key);
       settingsWritten += 1;
@@ -538,7 +664,7 @@ export async function applySettingsImport(
       touched.push(write.key);
       storage.setItem(write.key, write.text);
     }
-  } catch {
+  } catch (error) {
     // Cuota llena o almacenamiento bloqueado: se deja todo como estaba.
     for (const key of touched) {
       const before = previous.get(key) ?? null;
@@ -549,7 +675,7 @@ export async function applySettingsImport(
         // Nada mas que hacer con esta clave.
       }
     }
-    return { ok: false, reason: "unavailable" };
+    return { ok: false, reason: isStorageQuotaError(error) ? "quota" : "unavailable" };
   }
   if (writesHistory) announceValueHistoryChange();
   return { ok: true, written: settingsWritten, skipped, valueHistory: writesHistory, reloadRequired: true };

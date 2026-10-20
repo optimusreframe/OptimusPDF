@@ -837,9 +837,13 @@ export type VaultBackupStrings = {
   importConfirm: (count: number) => string;
   importNothing: string;
   importing: string;
+  /** Se intentó cerrar la hoja mientras se escribía la importación. */
+  closeBusy: string;
   result: (imported: number, skipped: number, replaced: number) => string;
   applyFailed: {
     limit: string;
+    /** El navegador no tiene espacio libre (cuota agotada): distinto de «no caben» (los límites de la app). */
+    quota: string;
     unavailable: string;
     invalid: string;
     /** Otra pestaña cambio la firma que se iba a reemplazar. */
@@ -2252,10 +2256,12 @@ const es: SignStrings = {
     importConfirm: (count) => `Importar ${count} ${count === 1 ? "firma" : "firmas"}`,
     importNothing: "No hay nada que importar",
     importing: "Importando las firmas",
+    closeBusy: "Se está importando: espera a que termine antes de cerrar.",
     result: (imported, skipped, replaced) =>
       `${imported} ${imported === 1 ? "importada" : "importadas"}, ${skipped} ${skipped === 1 ? "omitida" : "omitidas"}${replaced > 0 ? ` (${replaced} ${replaced === 1 ? "reemplazada" : "reemplazadas"})` : ""}.`,
     applyFailed: {
       limit: "No cabe todo en Firmas guardadas. No se ha importado nada.",
+      quota: "No hay espacio suficiente en este navegador; libera espacio o exporta y borra algo. No se ha importado nada.",
       unavailable: "Este navegador no permite guardar firmas ahora mismo. No se ha importado nada.",
       invalid: "Alguna firma del archivo no es válida. No se ha importado nada.",
       changed: "Esta firma cambió mientras decidías; revisa de nuevo. No se ha importado nada.",
@@ -3115,10 +3121,12 @@ const en: SignStrings = {
     importConfirm: (count) => `Import ${count} ${count === 1 ? "signature" : "signatures"}`,
     importNothing: "Nothing to import",
     importing: "Importing the signatures",
+    closeBusy: "An import is in progress: wait for it to finish before closing.",
     result: (imported, skipped, replaced) =>
       `${imported} imported, ${skipped} skipped${replaced > 0 ? ` (${replaced} replaced)` : ""}.`,
     applyFailed: {
       limit: "Not everything fits in Saved signatures. Nothing was imported.",
+      quota: "There isn't enough space in this browser; free some up, or export and delete something. Nothing was imported.",
       unavailable: "This browser does not allow saving signatures right now. Nothing was imported.",
       invalid: "Some signature in the file is not valid. Nothing was imported.",
       changed: "This signature changed while you were deciding; review it again. Nothing was imported.",

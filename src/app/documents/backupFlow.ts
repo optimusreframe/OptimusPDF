@@ -34,8 +34,23 @@ export const LIBRARY_BACKUP_FILENAME = "OptimusPDF-documentos.optimuspdf.zip";
 export type ExportFailure = "empty" | "unavailable" | "encryptionUnavailable" | "tooLarge" | "failed";
 
 export type LibraryExportBuild =
-  | { ok: true; blob: Blob; filename: string; documents: number; templates: number; bytes: number; encrypted: boolean }
-  | { ok: false; reason: ExportFailure };
+  | {
+      ok: true;
+      blob: Blob;
+      filename: string;
+      documents: number;
+      templates: number;
+      bytes: number;
+      encrypted: boolean;
+      /** Documentos que NO viajan porque falta (o está dañada) la copia de su PDF. */
+      skippedDocuments: number;
+    }
+  | {
+      ok: false;
+      reason: ExportFailure;
+      /** `tooLarge`: cuánto se pasa de lo que cabe en un paquete (0 si no se sabe). */
+      overBy?: number;
+    };
 
 /** Margen del índice y los JSON dentro del tope de bytes del paquete. */
 const PACKAGE_SLACK_BYTES = 8 * 1024 * 1024;
@@ -49,7 +64,8 @@ export async function buildLibraryExport(options: { password?: string } = {}): P
     if (!summary.available) return { ok: false, reason: "unavailable" };
     if (summary.documents === 0 && summary.templates === 0) return { ok: false, reason: "empty" };
     // Antes de leer los PDF: un paquete que pasara del tope no se podría importar.
-    if (summary.bytes > PACKAGE_LIMITS.maxUncompressedBytes - PACKAGE_SLACK_BYTES) return { ok: false, reason: "tooLarge" };
+    const limit = PACKAGE_LIMITS.maxUncompressedBytes - PACKAGE_SLACK_BYTES;
+    if (summary.bytes > limit) return { ok: false, reason: "tooLarge", overBy: summary.bytes - limit };
     const { module, report } = await exportLibraryWithReport();
     if (report.documents === 0 && report.templates === 0) return { ok: false, reason: "empty" };
     const blob = await buildPackage({ modules: [module], password });
@@ -61,6 +77,7 @@ export async function buildLibraryExport(options: { password?: string } = {}): P
       templates: report.templates,
       bytes: report.bytes,
       encrypted: password !== undefined,
+      skippedDocuments: report.skippedDocuments,
     };
   } catch (error) {
     if (error instanceof LibraryError && error.code === "unavailable") return { ok: false, reason: "unavailable" };

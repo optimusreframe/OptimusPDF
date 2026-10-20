@@ -54,7 +54,10 @@ describe("buildLibraryExport", () => {
       tx.onerror = () => reject(tx.error);
     });
     idb.close();
-    expect(await buildLibraryExport()).toEqual({ ok: false, reason: "tooLarge" });
+    const refused = await buildLibraryExport();
+    expect(refused).toMatchObject({ ok: false, reason: "tooLarge" });
+    // H1: también se dice cuánto sobra (2 documentos de 99 MiB = 198 MiB caben; con 3 o más no): aquí el tope es 242 MiB.
+    expect((refused as { overBy?: number }).overBy).toBeGreaterThan(0);
     expect(PACKAGE_LIMITS.maxUncompressedBytes).toBe(250 * 1024 * 1024);
   });
   it("solo documentos sin copia → empty", async () => {

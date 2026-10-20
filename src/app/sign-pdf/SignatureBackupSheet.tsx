@@ -342,9 +342,20 @@ export type SignatureRestoreSheetProps = {
 export function SignatureRestoreSheet({ open, onClose, strings, onLegacyFile, onDone }: SignatureRestoreSheetProps) {
   const { t } = useI18n();
   const copy = strings.vaultBackup;
+  // Mientras se escribe la importación la hoja no se cierra (Escape, clic fuera, X): se perdería su resultado.
+  const [applying, setApplying] = useState(false);
+  const [blockedAttempts, setBlockedAttempts] = useState(0);
   return (
-    <Sheet open={open} onClose={onClose} title={copy.importTitle} closeLabel={t.common.close} initialFocus="[data-backup-first]">
-      <RestoreBody copy={copy} onClose={onClose} onLegacyFile={onLegacyFile} onDone={onDone} />
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={copy.importTitle}
+      closeLabel={t.common.close}
+      initialFocus="[data-backup-first]"
+      closeLocked={applying}
+      onCloseBlocked={() => setBlockedAttempts((count) => count + 1)}
+    >
+      <RestoreBody copy={copy} onClose={onClose} onLegacyFile={onLegacyFile} onDone={onDone} onApplyingChange={setApplying} blockedAttempts={blockedAttempts} />
     </Sheet>
   );
 }
@@ -356,11 +367,15 @@ function RestoreBody({
   onClose,
   onLegacyFile,
   onDone,
+  onApplyingChange,
+  blockedAttempts = 0,
 }: {
   copy: VaultBackupStrings;
   onClose: () => void;
   onLegacyFile?: (file: File) => void;
   onDone?: (message: string) => void;
+  onApplyingChange?: (applying: boolean) => void;
+  blockedAttempts?: number;
 }) {
   const [phase, setPhase] = useState<RestorePhase>("pick");
   const [file, setFile] = useState<File | null>(null);
@@ -465,6 +480,11 @@ function RestoreBody({
     setPhase("done");
     onDone?.(message);
   };
+
+  useEffect(() => {
+    onApplyingChange?.(phase === "importing");
+    return () => onApplyingChange?.(false);
+  }, [phase, onApplyingChange]);
 
   const working = phase === "reading" || phase === "importing";
 
@@ -606,7 +626,7 @@ function RestoreBody({
         )}
       >
         {working && !error ? <Spinner className="size-4" /> : null}
-        {error || (phase === "reading" ? copy.reading : phase === "importing" ? copy.importing : phase === "done" ? result : "")}
+        {error || (phase === "reading" ? copy.reading : phase === "importing" ? (blockedAttempts > 0 ? `${copy.importing} ${copy.closeBusy}` : copy.importing) : phase === "done" ? result : "")}
       </p>
     </div>
   );

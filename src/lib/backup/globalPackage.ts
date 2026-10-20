@@ -3,6 +3,7 @@ import { passwordBoxAvailable } from "@/lib/crypto/passwordBox";
 import { validatePngForImport } from "@/lib/image/pngImportGuard";
 import { buildPackage, readPackage } from "@/lib/backup/package";
 import { PACKAGE_LIMITS, PackageError, type PackageModuleInput, type PackageReadResult } from "@/lib/backup/types";
+import { markLastBackup } from "@/lib/backup/lastBackup";
 import {
   applySignaturesImport,
   checkSignaturesLimits,
@@ -41,6 +42,7 @@ import {
 } from "@/lib/backup/modules/drafts";
 import {
   applySettingsImport,
+  countSettingWrites,
   defaultSettingsDecisions,
   exportSettings,
   planSettingsImport,
@@ -77,6 +79,12 @@ const isChosen = (modules: ModuleChoice, name: PackageModuleName): boolean => mo
 
 /** Margen del índice y los JSON dentro del tope de bytes del paquete. */
 const PACKAGE_SLACK_BYTES = 8 * 1024 * 1024;
+/**
+ * Lo que puede pesar lo que viaja para que el paquete SE PUEDA REIMPORTAR: el tope de la importación (250 MiB descomprimidos,
+ * los mismos con o sin cifrado) menos el margen de los JSON. `buildPackage` aplica el tope exacto y no genera nada que no
+ * cupiera; esto solo avisa antes de leer ningún PDF.
+ */
+const EXPORT_LIMIT_BYTES = PACKAGE_LIMITS.maxUncompressedBytes - PACKAGE_SLACK_BYTES;
 /** Estimación de `settings.json` (pocos KB). */
 const SETTINGS_ESTIMATE_BYTES = 4 * 1024;
 /** Estimación por etiqueta de historial de valores (≤ 5 valores de ≤ 500 caracteres: se queda corta a propósito). */
@@ -130,6 +138,10 @@ export type ExportDescription = {
   encryptionRecommended: boolean;
   /** Lo elegido no cabe en un solo paquete (250 MiB). */
   tooLarge: boolean;
+  /** Lo máximo que puede pesar lo elegido para que el paquete se pueda volver a importar (el tope de 250 MiB menos el margen). */
+  limitBytes: number;
+  /** Cuánto se pasa lo elegido de `limitBytes` (0 si cabe, o si solo los borradores dicen que no caben). Sirve para decir «sobran X MB». */
+  overBy: number;
   /** No hay nada que exportar con la selección actual. */
   nothingToExport: boolean;
 };
@@ -217,7 +229,9 @@ export async function describeExport(options: ExportOptions): Promise<ExportDesc
     containsSignatures,
     containsClientData,
     encryptionRecommended: containsSignatures || containsClientData,
-    tooLarge: estimated > PACKAGE_LIMITS.maxUncompressedBytes - PACKAGE_SLACK_BYTES || (includesDrafts && !draftsInfo.fitsInPackage),
+    tooLarge: estimated > EXPORT_LIMIT_BYTES || (includesDrafts && !draftsInfo.fitsInPackage),
+    limitBytes: EXPORT_LIMIT_BYTES,
+    overBy: Math.max(0, estimated - EXPORT_LIMIT_BYTES),
     nothingToExport: willInclude.length === 0,
   };
 }
@@ -253,8 +267,10 @@ export type ExportEverythingResult =
       included: PackageModuleName[];
       omitted: OmittedModule[];
       counts: { signatures: number; documents: number; templates: number; drafts: number; settings: number; valueHistory: boolean; strokes: boolean };
+      /** Documentos de la biblioteca que NO viajan porque falta (o está dañada) la copia de su PDF. */
+      libraryWithoutCopy: number;
     }
-  | { ok: false; reason: ExportEverythingFailure; omitted?: OmittedModule[] };
+  | { ok: false; reason: ExportEverythingFailure; omitted?: OmittedModule[]; libraryWithoutCopy?: number };
 
 function codeOf(error: unknown): string | null {
   if (error instanceof PackageError) return error.code;
@@ -277,6 +293,7 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
   const omitted: OmittedModule[] = [];
   const inputs: PackageModuleInput[] = [];
   const counts = { signatures: 0, documents: 0, templates: 0, drafts: 0, settings: 0, valueHistory: false, strokes: false };
+  let libraryWithoutCopy = 0;
 
   try {
     // Antes de leer ningún PDF: lo que se puede medir sin leer y no cabría se rechaza ya.
@@ -304,6 +321,7 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
             continue;
           }
           const { module: input, report } = await exportLibraryWithReport();
+          libraryWithoutCopy = report.skippedDocuments;
           if (report.documents === 0 && report.templates === 0) omitted.push({ module: name, reason: "empty" });
           else {
             inputs.push(input);
@@ -340,7 +358,7 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
 
     if (inputs.length === 0) {
       const onlyUnavailable = omitted.length > 0 && omitted.every((item) => item.reason === "unavailable");
-      return { ok: false, reason: onlyUnavailable ? "unavailable" : "empty", omitted };
+      return { ok: false, reason: onlyUnavailable ? "unavailable" : "empty", omitted, ...(libraryWithoutCopy > 0 ? { libraryWithoutCopy } : {}) };
     }
     const blob = await buildPackage({ modules: inputs, password, now: options.now });
     return {
@@ -351,6 +369,7 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
       included: inputs.map((input) => input.name as PackageModuleName),
       omitted,
       counts,
+      libraryWithoutCopy,
     };
   } catch (error) {
     const code = codeOf(error);
@@ -358,6 +377,21 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
     if (code === "unavailable") return { ok: false, reason: password !== undefined ? "encryptionUnavailable" : "unavailable" };
     return { ok: false, reason: "failed" };
   }
+}
+
+/**
+ * Anota un respaldo que acaba de entregarse. Solo viajó `traveled`: las demás partes que NO tienen nada que respaldar
+ * cuentan como respaldadas (no hay nada que perder) y las que tienen datos y no viajaron NO se anotan. Así «Último respaldo»
+ * y el recordatorio no presumen de un respaldo que dejó fuera las firmas o los documentos. Devuelve si se pudo guardar.
+ */
+export async function recordBackup(traveled: readonly PackageModuleName[], at: Date = new Date()): Promise<boolean> {
+  let empty: PackageModuleName[] = [];
+  try {
+    empty = (await describeExport({ modules: { signatures: true, library: true, drafts: true, settings: true } })).willOmitEmpty.filter((name) => !traveled.includes(name));
+  } catch {
+    // Sin poder mirar qué hay, solo se anota lo que viajó.
+  }
+  return markLastBackup(at, { traveled, empty });
 }
 
 /* ------------------------------------------------------------------------------------------------------------ */
@@ -369,6 +403,11 @@ export type EverythingPlans = {
   library: LibraryPlan | null;
   drafts: DraftsImportPlan | null;
   settings: SettingsImportPlan | null;
+  /**
+   * Módulos que el paquete NI TRAÍA. Un plan `null` por sí solo no distingue «el paquete no lo incluye» de «no se pudo
+   * leer»: esto sí (el resultado de importar no debe decir «no se importó» de algo que nunca estuvo).
+   */
+  absent?: readonly PackageModuleName[];
 };
 
 export type ModuleState = "ok" | "absent" | "newerVersion" | "damaged" | "unavailable";
@@ -459,9 +498,9 @@ export async function readAndPlanEverything(file: Blob, password?: string, optio
   const draftsGuard = options.validatePdf ? async (bytes: Uint8Array) => options.validatePdf!(bytes) : inputGuardPdfValidator();
   const imageGuard = options.validateImage ?? (async (png: Uint8Array) => (await validatePngForImport(png)).ok);
 
-  const plans: EverythingPlans = { signatures: null, library: null, drafts: null, settings: null };
   const failed = new Set<PackageModuleName>();
   const has = (name: PackageModuleName) => read.modules.some((module) => module.name === name);
+  const plans: EverythingPlans = { signatures: null, library: null, drafts: null, settings: null, absent: PACKAGE_MODULES.filter((name) => !has(name)) };
 
   if (has("signatures")) {
     try {
@@ -557,7 +596,7 @@ export function checkEverythingLimits(plans: EverythingPlans, decisions: Everyth
   const drafts = plans.drafts && plans.drafts.state === "ok" ? checkDraftsLimits(plans.drafts, decisions.drafts) : null;
   let settingsWanted = 0;
   if (plans.settings && plans.settings.state === "ok") {
-    if (decisions.settings.settings === "replace") settingsWanted += plans.settings.items.filter((item) => item.status === "new" || item.status === "different").length;
+    settingsWanted += countSettingWrites(plans.settings, decisions.settings);
     const history = plans.settings.valueHistory.status;
     if (decisions.settings.valueHistory === "replace" && (history === "new" || history === "different")) settingsWanted += 1;
   }
@@ -626,8 +665,11 @@ export type ApplyEverythingOptions = {
   now?: number;
 };
 
-function skipWhy(state: string | undefined): SkipWhy {
-  return state === "newerVersion" ? "newerVersion" : state === "damaged" ? "damaged" : state === "absent" ? "absent" : "unavailable";
+function skipWhy(plans: EverythingPlans, name: PackageModuleName): SkipWhy {
+  const state = plans[name]?.state;
+  if (state === "newerVersion" || state === "damaged" || state === "absent") return state;
+  // Sin plan: o el paquete no traía el módulo (`absent`) o se intentó leer y no se pudo (`unavailable`).
+  return state === undefined && plans.absent?.includes(name) ? "absent" : "unavailable";
 }
 
 /**
@@ -642,7 +684,7 @@ export async function applyEverything(plans: EverythingPlans, decisions: Everyth
   // Firmas
   {
     const plan = plans.signatures;
-    if (!plan || plan.state !== "ok") outcomes.push({ module: "signatures", status: "skipped", why: skipWhy(plan?.state) });
+    if (!plan || plan.state !== "ok") outcomes.push({ module: "signatures", status: "skipped", why: skipWhy(plans, "signatures") });
     else if (limits.wantedBy.signatures === 0) outcomes.push({ module: "signatures", status: "nothing", written: 0, replaced: 0, skipped: plan.items.length });
     else {
       options.onModule?.("signatures");
@@ -662,7 +704,7 @@ export async function applyEverything(plans: EverythingPlans, decisions: Everyth
   // Plantillas y documentos
   {
     const plan = plans.library;
-    if (!plan || plan.state !== "ok") outcomes.push({ module: "library", status: "skipped", why: skipWhy(plan?.state) });
+    if (!plan || plan.state !== "ok") outcomes.push({ module: "library", status: "skipped", why: skipWhy(plans, "library") });
     else if (limits.wantedBy.library === 0) {
       outcomes.push({ module: "library", status: "nothing", documents: 0, documentsReplaced: 0, templates: 0, templatesReplaced: 0, skipped: plan.items.length, reassigned: 0 });
     } else {
@@ -692,7 +734,7 @@ export async function applyEverything(plans: EverythingPlans, decisions: Everyth
   // Borradores (antes que los ajustes: la política de «guardar las firmas» que se aplica es la de este navegador, la misma que mostró la vista previa)
   {
     const plan = plans.drafts;
-    if (!plan || plan.state !== "ok") outcomes.push({ module: "drafts", status: "skipped", why: skipWhy(plan?.state) });
+    if (!plan || plan.state !== "ok") outcomes.push({ module: "drafts", status: "skipped", why: skipWhy(plans, "drafts") });
     else if (limits.wantedBy.drafts === 0) outcomes.push({ module: "drafts", status: "nothing", written: 0, replaced: 0, keptBoth: 0, skipped: plan.items.length, strokesDropped: 0, saved: [] });
     else {
       options.onModule?.("drafts");
@@ -721,7 +763,7 @@ export async function applyEverything(plans: EverythingPlans, decisions: Everyth
   // Ajustes (el último: aplicarlos pide recargar la página)
   {
     const plan = plans.settings;
-    if (!plan || plan.state !== "ok") outcomes.push({ module: "settings", status: "skipped", why: skipWhy(plan?.state) });
+    if (!plan || plan.state !== "ok") outcomes.push({ module: "settings", status: "skipped", why: skipWhy(plans, "settings") });
     else if (limits.wantedBy.settings === 0) outcomes.push({ module: "settings", status: "nothing", written: 0, skipped: plan.items.length, valueHistory: false, reloadRequired: false });
     else {
       options.onModule?.("settings");

@@ -63,6 +63,15 @@ export type SettingDef = {
   readonly key: string;
   readonly group: SettingGroup;
   readonly defaultValue: SettingValue;
+  /**
+   * Interruptores sueltos de un ajuste que es un OBJETO de interruptores (`featureFlags`): la vista previa de la
+   * importacion los lista (y decide) uno a uno. Ausente en los demas ajustes (una sola fila).
+   */
+  readonly flags?: readonly string[];
+  /** Todo el ajuste afecta a la privacidad (p. ej. un aviso de privacidad «ya visto»): se omite por defecto al importar. */
+  readonly sensitive?: boolean;
+  /** Interruptores de un ajuste de objeto que afectan a la privacidad (guardar firmas, trazos en el borrador…). */
+  readonly sensitiveFlags?: readonly string[];
   /** Valida lo que viene de un PAQUETE: devuelve el valor saneado y canonico, o `undefined` si no vale. */
   readonly validate: (value: unknown) => SettingValue | undefined;
   /** Valor guardado hoy en `localStorage` (texto) o `undefined` si falta o no vale. */
@@ -118,6 +127,7 @@ function flagsDef(
   known: readonly string[],
   defaults: Record<string, boolean>,
   companions: (json: string) => ReadonlyArray<readonly [string, string]> = () => [],
+  sensitiveFlags: readonly string[] = [],
 ): SettingDef {
   const validate = (value: unknown): SettingValue | undefined => {
     if (!isPlainRecord(value)) return undefined;
@@ -137,6 +147,8 @@ function flagsDef(
     key,
     group,
     defaultValue: { ...defaults },
+    flags: known,
+    ...(sensitiveFlags.length > 0 ? { sensitiveFlags } : {}),
     validate,
     fromStorage: (raw) => validate(parseJson(raw)),
     toStorage: (value) => {
@@ -192,6 +204,7 @@ function noticeSeenDef(key: string): SettingDef {
   return {
     key,
     group: "notices",
+    sensitive: true,
     defaultValue: false,
     validate: (value) => (value === true ? true : undefined),
     fromStorage: (raw) => (raw === "1" ? true : undefined),
@@ -200,6 +213,8 @@ function noticeSeenDef(key: string): SettingDef {
 }
 
 const signFlagNames: readonly string[] = [...SIGN_PDF_FEATURE_FLAGS, ...SIGN_TEMPLATE_FLAGS];
+/** Interruptores de Firmar que afectan a la privacidad (la vista previa de importar los marca y los deja en «Omitir»). */
+export const SENSITIVE_SIGN_FLAGS: readonly string[] = ["signaturesInDraft", "signatureVault"];
 
 export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   enumDef(THEME_STORAGE_KEY, "appearance", THEME_CHOICES, DEFAULT_THEME),
@@ -214,6 +229,8 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
     signFlagNames,
     DEFAULT_SIGN_PDF_FEATURE_FLAGS,
     () => [[SIGN_PDF_FEATURE_FLAGS_VERSION_KEY, String(SIGN_PDF_FEATURE_FLAGS_VERSION)]],
+    // Guardar firmas en el navegador y guardar los trazos de las firmas recogidas en el borrador: afectan a la privacidad.
+    SENSITIVE_SIGN_FLAGS,
   ),
   {
     key: REMEMBERED_SIGNERS_KEY,
@@ -253,6 +270,8 @@ export const SETTINGS_WRITABLE_KEYS: readonly string[] = Array.from(
 /** Claves de `localStorage` que existen en la app y que A PROPOSITO no viajan en «Ajustes» (documentado arriba). */
 export const SETTINGS_NEVER_EXPORTED_KEYS: readonly string[] = [
   "optimuspdf.lastBackup",
+  // F4-fix (H2): la última vez que viajó cada parte del paquete (de cada dispositivo, como `lastBackup`).
+  "optimuspdf.lastBackupParts",
   // U4.7: contador de cambios y «Recordármelo luego» del recordatorio de respaldo (de cada dispositivo).
   "optimuspdf.backupReminder",
   "optimuspdf.recent",

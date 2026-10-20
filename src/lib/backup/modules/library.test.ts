@@ -437,27 +437,25 @@ describe("estados «Distinto» y decisiones", () => {
 
 describe("un destino se toca una sola vez y lo que cambió no se pisa", () => {
   it("dos elementos del archivo que reclaman el mismo documento tuyo: solo el primero reemplaza", async () => {
-    // Local: el documento «x» con dos plantillas. Archivo: dos documentos con el MISMO PDF (otros ids) que traen
-    // versiones distintas de esas dos plantillas (mismos ids).
-    await seedDoc("p1", 1);
-    await seedDoc("p2", 1);
-    await seedTemplate("p1", { name: "Nueva 1" }, "t1");
-    await seedTemplate("p2", { name: "Nueva 2" }, "t2");
+    // Local: el documento «x» (PDF 1) con una plantilla. Archivo: «x» con OTRO PDF (reclama a «x» por el id) y «y» con el
+    // PDF 1 (reclama a «x» por el contenido) con una versión distinta de su plantilla. Dos elementos, un mismo destino.
+    await seedDoc("x", 2);
+    await seedDoc("y", 1);
+    await seedTemplate("y", { name: "Nueva 1" }, "t1");
     const blob = await exportBlob();
     await clearLibrary();
     await seedDoc("x", 1);
     await seedTemplate("x", { name: "Vieja 1" }, "t1");
-    await seedTemplate("x", { name: "Vieja 2" }, "t2");
     const plan = await planOf(blob);
-    expect(plan.items.map((i) => [i.key, i.status, i.difference, i.changesTemplates])).toEqual([
-      ["p1", "different", "templates", true],
-      ["p2", "different", "templates", true],
+    expect(plan.items.map((i) => [i.key, i.status, i.difference])).toEqual([
+      ["x", "different", "pdf"],
+      ["y", "different", "templates"],
     ]);
-    const check = checkLibraryLimits(plan, { p1: "replace", p2: "replace" });
+    expect(plan.items.map((i) => i.conflictWith?.id)).toEqual(["x", "x"]);
+    const check = checkLibraryLimits(plan, { x: "replace", y: "replace" });
     expect(check.wanted).toBe(1);
-    expect(await applyLibraryImport(plan, { p1: "replace", p2: "replace" })).toMatchObject({ ok: true, templatesReplaced: 1 });
-    expect((await getTemplate("t1"))?.name).toBe("Nueva 1");
-    expect((await getTemplate("t2"))?.name).toBe("Vieja 2");
+    expect(await applyLibraryImport(plan, { x: "replace", y: "replace" })).toMatchObject({ ok: true, documentsReplaced: 1, templatesReplaced: 0 });
+    expect((await getTemplate("t1"))?.name).toBe("Vieja 1");
   });
 
   it("la plantilla que se iba a reemplazar se editó desde la vista previa: changed y nada escrito", async () => {

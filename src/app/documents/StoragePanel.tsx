@@ -6,6 +6,8 @@ import { formatBytes, persistView } from "@/app/documents/documentsModel";
 import { Button } from "@/components/ui/Button";
 import { localeTag, useI18n } from "@/lib/i18n";
 import type { LibraryMeta, LibraryUsage } from "@/lib/docLibrary/store";
+import type { BackupParts } from "@/lib/backup/lastBackup";
+import { lastBackupLine, partialBackup } from "@/app/settings/packageModel";
 
 function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
@@ -28,6 +30,7 @@ export function StoragePanel({
   onRequestPersistence,
   requesting,
   lastBackup,
+  lastParts,
   onExport,
   onImport,
 }: {
@@ -37,6 +40,8 @@ export function StoragePanel({
   requesting: boolean;
   /** Fecha del último respaldo exportado desde este navegador (`null` = nunca). */
   lastBackup: Date | null;
+  /** Última vez que viajó cada parte del paquete: si el último respaldo fue PARCIAL se dice (no presume de uno completo). */
+  lastParts?: BackupParts;
   onExport: () => void;
   onImport: () => void;
 }) {
@@ -95,7 +100,9 @@ export function StoragePanel({
           </Button>
         </div>
         <p className="mt-3 text-footnote text-muted-foreground" data-backup-last="">
-          {lastBackupText(lastBackupView(lastBackup), t.documents.backup)}
+          {partialBackup(lastBackup, lastParts ?? {})
+            ? lastBackupLine(lastBackup, lastParts ?? {}, t.settings.backup)
+            : lastBackupText(lastBackupView(lastBackup), t.documents.backup)}
         </p>
       </div>
     </section>

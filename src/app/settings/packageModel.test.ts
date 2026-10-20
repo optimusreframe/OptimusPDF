@@ -37,6 +37,8 @@ function description(over: Partial<ExportDescription> = {}): ExportDescription {
     containsClientData: true,
     encryptionRecommended: true,
     tooLarge: false,
+    limitBytes: 242 * 1024 * 1024,
+    overBy: 0,
     nothingToExport: false,
     ...over,
   };
@@ -185,10 +187,15 @@ describe("resultado por módulo", () => {
       ],
       copy,
     );
-    expect(lines.map((line) => line.tone)).toEqual(["ok", "error", "info"]);
-    expect(lines[2].text).toBe(copy.resultKeptOthers);
+    // H4: lo que el paquete NO traía ya no es «no se importó»: va en UNA línea aparte («El paquete no incluye: …»).
+    expect(lines.map((line) => line.tone)).toEqual(["ok", "error", "info", "info"]);
+    expect(lines[2].text).toBe("El paquete no incluye: Plantillas y documentos, Ajustes.");
+    expect(lines[3].text).toBe(copy.resultKeptOthers);
     const none = outcomeLines([{ module: "library", status: "skipped", why: "absent" }], copy);
-    expect(none).toEqual([{ tone: "info", text: copy.resultNothingAtAll }]);
+    expect(none).toEqual([
+      { tone: "info", text: "El paquete no incluye: Plantillas y documentos." },
+      { tone: "info", text: copy.resultNothingAtAll },
+    ]);
     const allFailed = outcomeLines([{ module: "drafts", status: "failed", reason: "failed" }], copy);
     expect(allFailed.map((line) => line.tone)).toEqual(["error"]);
     const idle = outcomeLines([{ module: "settings", status: "nothing", written: 0, skipped: 3, valueHistory: false, reloadRequired: false }], copy);

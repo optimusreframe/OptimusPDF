@@ -1394,7 +1394,7 @@ export type ApplyDraftsResult =
     }
   | {
       ok: false;
-      reason: "blocked" | "invalid" | "limit" | "changed" | "unavailable";
+      reason: "blocked" | "invalid" | "limit" | "quota" | "changed" | "unavailable";
       limits?: DraftsLimitCheck;
       /** Ya se habian escrito otros almacenes y NO se pudieron deshacer del todo. */
       partial?: boolean;
@@ -1552,7 +1552,7 @@ export async function applyDraftsImport(
     }
     return clean;
   };
-  const fail = async (reason: "limit" | "changed" | "unavailable" | "invalid"): Promise<ApplyDraftsResult> => {
+  const fail = async (reason: "limit" | "quota" | "changed" | "unavailable" | "invalid"): Promise<ApplyDraftsResult> => {
     const clean = await rollback();
     return { ok: false, reason, ...(clean ? {} : { partial: true }), ...(reason === "limit" ? { limits } : {}) };
   };

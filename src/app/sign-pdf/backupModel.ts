@@ -24,13 +24,14 @@ export function decisionOptions(
   return [];
 }
 
-export type ApplyFailureKey = "limit" | "unavailable" | "invalid" | "changed";
+export type ApplyFailureKey = "limit" | "quota" | "unavailable" | "invalid" | "changed";
 
 /** `blocked` (el plan no era importable) se cuenta como «no valido»: nada se escribio. */
 export function describeApplyFailure(
-  reason: "limit" | "unavailable" | "invalid" | "blocked" | "changed",
+  reason: "limit" | "quota" | "unavailable" | "invalid" | "blocked" | "changed",
 ): ApplyFailureKey {
   if (reason === "limit") return "limit";
+  if (reason === "quota") return "quota";
   if (reason === "unavailable") return "unavailable";
   if (reason === "changed") return "changed";
   return "invalid";

@@ -43,11 +43,17 @@ beforeEach(async () => {
   window.localStorage.clear();
 });
 
-async function importGolden(name: string, options: { history?: boolean } = {}) {
+/**
+ * Importa un dorado. Por defecto con «Reemplazar todos» en Ajustes (la persona lo pidió expresamente): así se comprueba el
+ * contenido exacto de cada almacén, incluidos los ajustes que afectan a la privacidad (avisos «ya visto»), que con las
+ * decisiones SUGERIDAS se omiten (F4-fix, H8: se prueba aparte). `defaults: true` usa las sugeridas tal cual.
+ */
+async function importGolden(name: string, options: { history?: boolean; defaults?: boolean } = {}) {
   const encrypted = name.includes("-encrypted");
   const read = await readAndPlanEverything(asFile(open(name)), encrypted ? GOLDEN_ALL_PASSWORD : undefined, PASS);
   if (!read.ok) throw new Error(`no se pudo leer ${name}: ${read.reason}`);
   const decisions = defaultEverythingDecisions(read.plans);
+  if (!options.defaults) decisions.settings = { settings: "replace", valueHistory: "omit" };
   if (options.history) decisions.settings = { ...decisions.settings, valueHistory: "replace" };
   const applied = await applyEverything(read.plans, decisions, { now: GOLDEN_ALL_NOW });
   return { read, applied };
@@ -182,6 +188,14 @@ describe("dorados package-all", () => {
     await importGolden("package-all-v1-encrypted.optimuspdf.zip");
     expect(window.localStorage.getItem("optimuspdf.valueHistory")).toBeNull();
   });
+
+  it("H8: con las decisiones SUGERIDAS los ajustes que afectan a la privacidad (avisos «ya visto») se omiten: 8 de 10", async () => {
+    const { applied } = await importGolden("package-all-v1.optimuspdf.zip", { defaults: true });
+    expect(applied.outcomes.find((o) => o.module === "settings")).toMatchObject({ status: "applied", written: 8, skipped: 2 });
+    expect(window.localStorage.getItem("optimuspdf.theme")).toBe("dark");
+    expect(window.localStorage.getItem("optimuspdf.sign-pdf.privacyNoticeSeen")).toBeNull();
+    expect(window.localStorage.getItem("optimuspdf.edit-pdf.privacyNoticeSeen")).toBeNull();
+  });
 });
 
 describe("no regresión: los dorados de módulos sueltos de cada familia siguen entrando por la vía global", () => {
@@ -201,7 +215,10 @@ describe("no regresión: los dorados de módulos sueltos de cada familia siguen 
         expect(read.encrypted).toBe(encrypted);
         expect(read.modules.map((m) => [m.module, m.state])).toEqual([[family.module, "ok"]]);
         expect(read.modules[0].counts).toMatchObject(family.counts);
-        const applied = await applyEverything(read.plans, defaultEverythingDecisions(read.plans), { now: GOLDEN_ALL_NOW });
+        const decisions = defaultEverythingDecisions(read.plans);
+        // «Reemplazar todos» (incluidos los avisos de privacidad, que por defecto se omiten): así «otra vez» es «Ya lo tienes».
+        if (family.module === "settings") decisions.settings = { settings: "replace", valueHistory: "omit" };
+        const applied = await applyEverything(read.plans, decisions, { now: GOLDEN_ALL_NOW });
         expect(applied.failed).toEqual([]);
         expect(applied.applied).toEqual([family.module]);
         expect(applied.outcomes.filter((o) => o.status === "skipped").map((o) => o.module)).toEqual(["signatures", "library", "drafts", "settings"].filter((m) => m !== family.module));

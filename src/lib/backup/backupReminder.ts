@@ -1,9 +1,16 @@
 import {
-  BACKUP_REMINDER_KEY,
   BACKUP_STATE_EVENT,
+  MAX_REMINDER_CHANGES,
+  REMINDER_PARTS,
+  backupCoverageDate,
   daysSince,
-  readLastBackup,
+  readLastBackupParts,
+  readReminderState,
+  writeReminderState,
+  type ReminderState,
 } from "@/lib/backup/lastBackup";
+
+export { readReminderState, type ReminderState };
 
 /**
  * Recordatorio de respaldo (U4.7, `docs/PLAN-FIRMA-AGIL.md` §9.3): avisa, sin insistir, cuando pasaron 30 días o 10 cambios
@@ -17,21 +24,7 @@ import {
 export const REMINDER_AFTER_DAYS = 30;
 export const REMINDER_AFTER_CHANGES = 10;
 export const SNOOZE_DAYS = 7;
-const MAX_CHANGES = 100_000;
 const DAY_MS = 86_400_000;
-
-export type ReminderState = {
-  /** Cambios relevantes desde el último respaldo (0 si no hay). */
-  changes: number;
-  /** Primer cambio contado desde el último respaldo (ISO): ancla de los 30 días cuando nunca se hizo un respaldo. */
-  since?: string;
-  /** «Recordármelo luego»: no avisar antes de esta fecha (ISO). */
-  snoozeUntil?: string;
-};
-
-function isIso(value: unknown): value is string {
-  return typeof value === "string" && value.length <= 40 && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value));
-}
 
 function announce(): void {
   try {
@@ -41,42 +34,17 @@ function announce(): void {
   }
 }
 
-/** El estado guardado, ya validado (un valor roto o ajeno se lee como «sin cambios»). */
-export function readReminderState(): ReminderState {
-  try {
-    const raw = window.localStorage.getItem(BACKUP_REMINDER_KEY);
-    if (!raw || raw.length > 512) return { changes: 0 };
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { changes: 0 };
-    const record = parsed as Record<string, unknown>;
-    const changes = typeof record.changes === "number" && Number.isInteger(record.changes) && record.changes > 0 ? Math.min(record.changes, MAX_CHANGES) : 0;
-    return {
-      changes,
-      ...(isIso(record.since) ? { since: record.since } : {}),
-      ...(isIso(record.snoozeUntil) ? { snoozeUntil: record.snoozeUntil } : {}),
-    };
-  } catch {
-    return { changes: 0 };
-  }
-}
-
-function writeReminderState(state: ReminderState): boolean {
-  try {
-    window.localStorage.setItem(BACKUP_REMINDER_KEY, JSON.stringify(state));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Cuenta UN cambio relevante (alta o edición de una firma, un documento o una plantilla). Barato: una lectura y una
  * escritura de una clave diminuta. Si nunca hubo un respaldo, el primer cambio fija el comienzo de los 30 días.
  */
-export function noteBackupRelevantChange(now: Date = new Date()): void {
+export function noteBackupRelevantChange(now: Date = new Date(), part?: (typeof REMINDER_PARTS)[number]): void {
   const state = readReminderState();
+  const by = { ...(state.by ?? {}) };
+  if (part !== undefined) by[part] = Math.min((by[part] ?? 0) + 1, MAX_REMINDER_CHANGES);
   const next: ReminderState = {
-    changes: Math.min(state.changes + 1, MAX_CHANGES),
+    changes: Math.min(state.changes + 1, MAX_REMINDER_CHANGES),
+    ...(Object.keys(by).length > 0 ? { by } : {}),
     since: state.since ?? now.toISOString(),
     ...(state.snoozeUntil ? { snoozeUntil: state.snoozeUntil } : {}),
   };
@@ -88,7 +56,7 @@ export function noteBackupRelevantChange(now: Date = new Date()): void {
  * se mira el recordatorio se fija «desde hoy». No cuenta cambios ni avisa a nadie.
  */
 export function startReminderClock(now: Date = new Date()): void {
-  if (readLastBackup() !== null) return;
+  if (backupCoverageDate() !== null) return;
   const state = readReminderState();
   if (state.since !== undefined) return;
   writeReminderState({ ...state, since: now.toISOString() });
@@ -113,6 +81,8 @@ export type ReminderStatus = {
   changes: number;
   snoozed: boolean;
   lastBackup: Date | null;
+  /** Nunca hubo un respaldo completo, pero sí alguno parcial (solo de algunas partes): el aviso no dice «ningún respaldo». */
+  partialBackups?: boolean;
 };
 
 /** Función pura sobre el estado: ¿toca avisar ahora? (La interfaz además comprueba que haya algo que respaldar.) */
@@ -126,7 +96,11 @@ export function reminderStatusFrom(state: ReminderState, lastBackup: Date | null
   return { due: reason !== null && !snoozed, reason, days, changes: state.changes, snoozed, lastBackup };
 }
 
-/** El estado de ahora (lee `localStorage`). */
+/**
+ * El estado de ahora (lee `localStorage`). El ancla de los 30 días es hasta cuándo está respaldado lo que se vigila
+ * (`backupCoverageDate`): un respaldo solo de Ajustes no la mueve.
+ */
 export function reminderStatus(now: Date = new Date()): ReminderStatus {
-  return reminderStatusFrom(readReminderState(), readLastBackup(), now);
+  const status = reminderStatusFrom(readReminderState(), backupCoverageDate(), now);
+  return Object.keys(readLastBackupParts()).length > 0 ? { ...status, partialBackups: true } : status;
 }

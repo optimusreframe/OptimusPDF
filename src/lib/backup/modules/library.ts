@@ -1,6 +1,6 @@
 import { sha256Hex } from "@/lib/crypto/sha256";
 import { deserializeLibrary, serializeLibrary, serializeTemplate } from "@/lib/docLibrary/persist";
-import { estimateUsage, getDocumentBytes, listDocuments } from "@/lib/docLibrary/store";
+import { estimateUsage, getDocumentBytes, listBlobIds, listDocuments } from "@/lib/docLibrary/store";
 import { parseTemplate, sameContent } from "@/lib/docLibrary/templateSchema";
 import { listTemplates } from "@/lib/docLibrary/templatesStore";
 import { TEMPLATE_LIMITS, type DocTemplate, type TemplateContent } from "@/lib/docLibrary/templateTypes";
@@ -133,7 +133,10 @@ export async function summarizeLibraryExport(): Promise<LibraryExportSummary> {
   const listed = await listDocuments();
   if (!listed.available) return { available: false, documents: 0, templates: 0, bytes: 0, withoutCopy: 0 };
   const templates = await listTemplates();
-  const withCopy = listed.documents.filter((doc) => doc.byteLength > 0);
+  // «Con copia» = la fila dice que tiene PDF Y la copia existe de verdad: un documento cuyo PDF se perdio no viajaria y no
+  // se cuenta (antes se contaba y el respaldo lo omitia en silencio).
+  const blobIds = await listBlobIds();
+  const withCopy = listed.documents.filter((doc) => doc.byteLength > 0 && (blobIds === null || blobIds.has(doc.id)));
   return {
     available: true,
     documents: withCopy.length,
@@ -268,6 +271,11 @@ export type LibraryImportItem = {
   difference?: "pdf" | "templates";
   /** `difference === "templates"`: alguna plantilla del paquete tiene el id de una tuya con otro contenido. */
   changesTemplates?: boolean;
+  /**
+   * Este documento trae el MISMO PDF (mismo SHA-256) que otro del propio paquete, bajo otro id: se importa una sola vez
+   * (el otro) y las plantillas de este se vinculan a aquel. `status` es `identical` y no se ofrece decisión.
+   */
+  duplicateOf?: { key: string; name: string };
   /** `different`: lo que ya tienes y sería el destino de «Reemplazar». `rev` se comprueba al escribir. */
   conflictWith?: { id: string; name: string; rev: number; bytes: number; templates: number };
   /** Lo que se escribiría (solo documentos no inválidos). */
@@ -613,13 +621,30 @@ export async function planLibraryImport(
     rows.push(row);
     templateRowsOfDoc.set(owner.id, rows);
   }
+  // El mismo PDF bajo dos ids del paquete (p. ej. un contrato respaldado dos veces): se importa UNA vez. Los demas quedan
+  // como «idénticos» (repetidos dentro del paquete) y sus plantillas pasan al primero. Sin esto, la escritura chocaba con
+  // el PDF que acababa de crear (`conflict`) y TODO el modulo fallaba con «tus datos cambiaron».
+  const firstWithPdf = new Map<string, LibraryImportItem>();
+  for (const item of docItems) {
+    if (item.status === "invalid") continue;
+    const sha = (item.document as DocumentEntry).fingerprint.exact;
+    const first = firstWithPdf.get(sha);
+    if (!first) {
+      firstWithPdf.set(sha, item);
+      continue;
+    }
+    templateRowsOfDoc.set(first.id, [...(templateRowsOfDoc.get(first.id) ?? []), ...(templateRowsOfDoc.get(item.id) ?? [])]);
+    templateRowsOfDoc.set(item.id, []);
+    item.status = "identical";
+    item.duplicateOf = { key: first.key, name: first.name };
+  }
   for (const item of docItems) {
     if (item.status !== "invalid") item.templates = templateRowsOfDoc.get(item.id) ?? [];
   }
 
   // --- Clasificar contra la biblioteca actual ---------------------------------------------------------------------
   for (const item of docItems) {
-    if (item.status === "invalid") continue;
+    if (item.status === "invalid" || item.duplicateOf) continue;
     const document = item.document as DocumentEntry;
     const byHash = existingByHash.get(document.fingerprint.exact);
     const byId = existingById.get(document.id);
@@ -690,8 +715,21 @@ export async function planLibraryImport(
       }
     }
   }
+  // Si el PDF que se importaria no pasa la puerta, su copia repetida tampoco.
+  for (const item of docItems) {
+    if (!item.duplicateOf) continue;
+    const first = docItems.find((candidate) => candidate.key === item.duplicateOf?.key);
+    if (first?.status === "invalid") {
+      item.status = "invalid";
+      item.reason = first.reason ?? "invalidPdf";
+      delete item.duplicateOf;
+      delete item.document;
+      delete item.pdf;
+    }
+  }
   plan.items = [...docItems, ...standalone];
-  for (const item of plan.items) plan.counts[item.status] += 1;
+  // Un PDF repetido dentro del paquete no es otro elemento («ya lo tienes» seria falso): no suma a ningun recuento.
+  for (const item of plan.items) if (!item.duplicateOf) plan.counts[item.status] += 1;
   issuedPlans.add(plan);
   return deepFreeze(plan);
 }

@@ -825,7 +825,7 @@ export type CommitEditDraftImportResult =
       /** Deshace TODO lo escrito (restaura lo sustituido, borra lo creado). Nunca lanza. */
       undo: () => Promise<void>;
     }
-  | { ok: false; reason: "invalid" | "changed" | "limit" | "unavailable" };
+  | { ok: false; reason: "invalid" | "changed" | "limit" | "quota" | "unavailable" };
 
 /**
  * Escribe borradores IMPORTADOS del editor en UNA transaccion (todos o ninguno). Dentro comprueba que lo que sustituye
@@ -997,7 +997,7 @@ export async function commitEditDraftImport(input: {
       }
     };
     return { ok: true, written: puts.length, replaced: outcome.replaced, undo };
-  } catch {
-    return { ok: false, reason: "unavailable" };
+  } catch (error) {
+    return { ok: false, reason: isQuotaError(error) ? "quota" : "unavailable" };
   }
 }

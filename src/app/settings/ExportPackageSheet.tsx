@@ -23,7 +23,7 @@ import {
 import { canShareFile, checkNewPassword, passwordStrength, shareFile, toFile } from "@/app/documents/backupFlow";
 import { countText, fillText } from "@/app/documents/backupModel";
 import { BACKUP_INPUT_CLASS } from "@/app/documents/ExportBackupSheet";
-import { chosenModules, defaultExportChoice, moduleAvailability, omissionNotes, summaryLine } from "@/app/settings/packageModel";
+import { chosenModules, defaultExportChoice, moduleAvailability, omissionNotes, summaryLine, tooLargeText, withoutCopyNote } from "@/app/settings/packageModel";
 
 /**
  * «Exportar mi paquete» (U4.7): una hoja con una casilla por módulo (Firmas, Plantillas y documentos, Borradores, Ajustes),
@@ -38,7 +38,7 @@ const LEVEL_COLORS = ["bg-destructive", "bg-accent-edit", "bg-signal", "bg-succe
 
 type Phase = "form" | "building" | "ready" | "done";
 
-type ReadyFile = { file: File; parts: string[]; encrypted: boolean; notes: string[] };
+type ReadyFile = { file: File; parts: string[]; encrypted: boolean; notes: string[]; included: PackageModuleName[] };
 
 export function ExportPackageSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone?: (message: string) => void }) {
   const { t } = useI18n();
@@ -62,6 +62,8 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const [description, setDescription] = useState<ExportDescription | null>(null);
   /** Lo que la persona puede elegir aunque la selección actual lo oculte (se calcula una vez con todo marcado). */
   const [capabilities, setCapabilities] = useState<{ strokes: boolean; history: boolean } | null>(null);
+  /** Partes que no tienen nada que respaldar: cuentan como respaldadas al anotar el último respaldo (no hay nada que perder). */
+  const emptyPartsRef = useRef<PackageModuleName[]>([]);
   const [protectChoice, setProtectChoice] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
@@ -80,6 +82,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     void describeExport({ modules: { signatures: true, library: true, drafts: true, settings: true } }).then((all) => {
       if (!aliveRef.current) return;
       setCapabilities({ strokes: all.drafts.includesStrokes, history: all.settings.valueHistoryLabels > 0 });
+      emptyPartsRef.current = all.willOmitEmpty;
       setChoice(defaultExportChoice(all));
     });
     return () => {
@@ -122,7 +125,9 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   };
 
   const finish = (entry: ReadyFile) => {
-    markLastBackup();
+    // Solo lo que de verdad viajó: un respaldo parcial (p. ej. solo Ajustes) no presume de uno completo ni reinicia el
+    // contador de lo que se quedó fuera.
+    markLastBackup(new Date(), { traveled: entry.included, empty: emptyPartsRef.current.filter((name) => !entry.included.includes(name)) });
     const done = fillText(entry.encrypted ? copy.doneEncrypted : copy.donePlain, { parts: entry.parts.join(", ") });
     setInfo(`${done} ${fillText(copy.doneFile, { name: entry.file.name })}`);
     setNotes(entry.notes);
@@ -175,7 +180,8 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
       file: toFile(result.blob, result.filename),
       parts: partsOf(result),
       encrypted: result.encrypted,
-      notes: omissionNotes(result.omitted, copy),
+      notes: [...omissionNotes(result.omitted, copy), withoutCopyNote(result.libraryWithoutCopy, copy, "after")].filter((note): note is string => note !== null),
+      included: result.included,
     };
     // iPad / móvil: la hoja de compartir pide un toque propio (Safari exige un gesto reciente y el cifrado ya tardó).
     if (coarse && canShareFile(entry.file)) {
@@ -231,6 +237,8 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const showStrokesOption = capabilities?.strokes === true && choice?.drafts === true && (drafts?.withSignatureStrokes ?? 0) > 0;
   const showHistoryOption = capabilities?.history === true && choice?.settings === true;
   const contactsStrokesWarning = description?.containsSignatureStrokes === true;
+  /** Documentos de la biblioteca sin copia del PDF: no viajan; se avisa ANTES de exportar (y después, con el resultado). */
+  const withoutCopyBefore = description && choice?.library === true ? withoutCopyNote(description.library.withoutCopy, copy, "before") : null;
 
   return (
     <div className="space-y-4 pb-2" data-backup-export="">
@@ -302,7 +310,16 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
           <p className="text-subheadline text-foreground [overflow-wrap:anywhere]" data-backup-summary="">
             {summaryLine(description, copy, locale, { includeValueHistory: includeHistory })}
           </p>
-          {description && description.tooLarge ? <p className="text-footnote text-destructive-text">{copy.tooLarge}</p> : null}
+          {withoutCopyBefore ? (
+            <p className="text-footnote text-muted-foreground [overflow-wrap:anywhere]" data-backup-without-copy="">
+              {withoutCopyBefore}
+            </p>
+          ) : null}
+          {description && description.tooLarge ? (
+            <p className="text-footnote text-destructive-text [overflow-wrap:anywhere]" data-backup-too-large="">
+              {tooLargeText(description, copy, locale)}
+            </p>
+          ) : null}
 
           <Checkbox
             label={copy.protect}

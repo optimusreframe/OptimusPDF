@@ -641,7 +641,7 @@ export async function saveVaultEntry(
     if (result.ok) {
       announceChange();
       // U4.7: una firma NUEVA (no repetir una que ya estaba) cuenta para el recordatorio de respaldo.
-      if (!result.duplicate) noteBackupRelevantChange();
+      if (!result.duplicate) noteBackupRelevantChange(undefined, "signatures");
     }
     return result;
   } catch (error) {
@@ -734,7 +734,7 @@ export async function updateVaultEntry(
     );
     if (result.ok) {
       announceChange();
-      noteBackupRelevantChange();
+      noteBackupRelevantChange(undefined, "signatures");
     }
     return result;
   } catch {
@@ -745,12 +745,19 @@ export async function updateVaultEntry(
 /** Idempotente: borrar un id que no existe tambien es `ok`. */
 export async function deleteVaultEntry(id: string): Promise<VaultOpResult> {
   try {
-    await withDb((db) =>
-      runTx<null>(db, "readwrite", null, (store) => {
-        store.delete(id);
+    // Borrar una firma que SÍ existía es un cambio relevante para el recordatorio de respaldo (como el alta o la edición);
+    // borrar un id que no existe no cambia nada y no cuenta.
+    const existed = await withDb((db) =>
+      runTx<boolean>(db, "readwrite", false, (store, setResult) => {
+        const probe = store.count(id);
+        probe.onsuccess = () => {
+          setResult(probe.result > 0);
+          store.delete(id);
+        };
       }),
     );
     announceChange();
+    if (existed) noteBackupRelevantChange(undefined, "signatures");
     return { ok: true };
   } catch {
     return { ok: false, reason: "unavailable" };
@@ -795,7 +802,7 @@ export type CommitVaultImportInput = {
 
 export type CommitVaultImportResult =
   | { ok: true; written: number; skipped: number; deleted: number }
-  | { ok: false; reason: "limit" | "tooLarge" | "invalid" | "unavailable" | "changed" };
+  | { ok: false; reason: "limit" | "quota" | "tooLarge" | "invalid" | "unavailable" | "changed" };
 
 /** Mismo contenido que importa al usuario: firmante, cargo e imagenes (no las fechas de uso). */
 function sameStoredContent(a: VaultEntry, b: VaultEntry): boolean {
@@ -923,10 +930,11 @@ export async function commitVaultImport(
     );
     if (result.ok) {
       announceChange();
-      if (result.written > 0) noteBackupRelevantChange();
+      if (result.written > 0) noteBackupRelevantChange(undefined, "signatures");
     }
     return result;
   } catch (error) {
-    return { ok: false, reason: isQuotaError(error) ? "limit" : "unavailable" };
+    // Cuota llena: es otra cosa que «no caben» (los 30 firmas / 20 MB de la app): el navegador no tiene sitio.
+    return { ok: false, reason: isQuotaError(error) ? "quota" : "unavailable" };
   }
 }

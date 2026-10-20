@@ -136,7 +136,12 @@ describe("planificar", () => {
     const empty = planSettingsImport(read, { storage: new MemoryStorage() });
     expect(empty.state).toBe("ok");
     expect(empty.counts).toEqual({ new: 10, identical: 0, different: 0, invalid: 0 });
-    expect(defaultSettingsDecisions(empty)).toEqual({ settings: "replace", valueHistory: "omit" });
+    // H8: los dos avisos de privacidad «ya visto» afectan a la privacidad: por defecto se OMITEN (el resto se reemplaza).
+    expect(defaultSettingsDecisions(empty)).toEqual({
+      settings: "replace",
+      valueHistory: "omit",
+      rows: { "optimuspdf.sign-pdf.privacyNoticeSeen": "omit", "optimuspdf.edit-pdf.privacyNoticeSeen": "omit" },
+    });
 
     const same = planSettingsImport(read, { storage: fill(new MemoryStorage(), USER_SETTINGS) });
     expect(same.counts).toEqual({ new: 0, identical: 10, different: 0, invalid: 0 });
@@ -171,7 +176,8 @@ describe("aplicar: Reemplazar / Omitir", () => {
     const { read } = await packaged(source);
     const target = new MemoryStorage();
     const plan = planSettingsImport(read, { storage: target });
-    const result = await applySettingsImport(plan, defaultSettingsDecisions(plan), { storage: target });
+    // «Reemplazar todos»: la persona pide TODO, también lo que afecta a la privacidad.
+    const result = await applySettingsImport(plan, { settings: "replace" }, { storage: target });
     expect(result).toEqual({ ok: true, written: 10, skipped: 0, valueHistory: false, reloadRequired: true });
     const written = target.snapshot();
     for (const [key, value] of Object.entries(USER_SETTINGS)) {
@@ -226,7 +232,8 @@ describe("aplicar: Reemplazar / Omitir", () => {
     const plan = planSettingsImport(read, { storage: target });
     target.failOn = "optimuspdf.pro.layout.v1";
     const before = target.snapshot();
-    expect(await applySettingsImport(plan, { settings: "replace" }, { storage: target })).toEqual({ ok: false, reason: "unavailable" });
+    // H7: la cuota llena ya no se llama «unavailable»: es `quota` (No hay espacio suficiente en este navegador…). Sigue siendo atómico.
+    expect(await applySettingsImport(plan, { settings: "replace" }, { storage: target })).toEqual({ ok: false, reason: "quota" });
     expect(target.snapshot()).toEqual(before);
   });
 
@@ -260,7 +267,7 @@ describe("aplicar: Reemplazar / Omitir", () => {
     expect(read.encrypted).toBe(true);
     const target = new MemoryStorage();
     const plan = planSettingsImport(read, { storage: target });
-    expect(await applySettingsImport(plan, defaultSettingsDecisions(plan), { storage: target })).toMatchObject({ ok: true, written: 10 });
+    expect(await applySettingsImport(plan, { settings: "replace" }, { storage: target })).toMatchObject({ ok: true, written: 10 });
   });
 });
 

@@ -862,7 +862,7 @@ export type CommitProDraftImportResult =
       /** Barre los trozos que ya no nombra ningun manifiesto (los de borradores troceados sustituidos). Nunca lanza. */
       finalize: () => Promise<void>;
     }
-  | { ok: false; reason: "invalid" | "changed" | "limit" | "unavailable" };
+  | { ok: false; reason: "invalid" | "changed" | "limit" | "quota" | "unavailable" };
 
 /**
  * Escribe borradores IMPORTADOS de PDF Pro en UNA transaccion (todos o ninguno), con las mismas garantias que
@@ -1040,7 +1040,7 @@ export async function commitProDraftImport(input: {
       }
     };
     return { ok: true, written: puts.length, replaced: outcome.replaced, undo, finalize };
-  } catch {
-    return { ok: false, reason: "unavailable" };
+  } catch (error) {
+    return { ok: false, reason: isQuotaError(error) ? "quota" : "unavailable" };
   }
 }

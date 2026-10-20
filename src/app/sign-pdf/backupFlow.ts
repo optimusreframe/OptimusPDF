@@ -265,7 +265,7 @@ export type ImportSummary = {
 
 export type ApplyBackupResult =
   | { ok: true; summary: ImportSummary }
-  | { ok: false; reason: "limit" | "unavailable" | "invalid" | "blocked" | "changed"; fits?: number; wanted?: number };
+  | { ok: false; reason: "limit" | "quota" | "unavailable" | "invalid" | "blocked" | "changed"; fits?: number; wanted?: number };
 
 /** Aplica lo aprobado (atomico: todo o nada) y resume «N importadas, M omitidas». */
 export async function applyBackupImport(

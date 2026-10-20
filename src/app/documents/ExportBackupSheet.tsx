@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { passwordBoxAvailable } from "@/lib/crypto/passwordBox";
 import { downloadBlob } from "@/lib/pdf/core";
+import { describeExport, recordBackup, type PackageModuleName } from "@/lib/backup/globalPackage";
 import { markLastBackup } from "@/lib/backup/lastBackup";
 import { summarizeLibraryExport, type LibraryExportSummary } from "@/lib/backup/modules/library";
 import { buildLibraryExport, canShareFile, checkNewPassword, passwordStrength, shareFile, toFile } from "@/app/documents/backupFlow";
@@ -52,8 +53,11 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
-  const [ready, setReady] = useState<{ file: File; documents: number; templates: number; encrypted: boolean } | null>(null);
+  const [ready, setReady] = useState<{ file: File; documents: number; templates: number; encrypted: boolean; skipped: number } | null>(null);
+  const [notes, setNotes] = useState<string[]>([]);
   const aliveRef = useRef(true);
+  /** Las demás partes del paquete que no tienen nada que respaldar (se calcula al abrir): cuentan como respaldadas. */
+  const emptyPartsRef = useRef<PackageModuleName[] | null>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const mountedRef = useRef(false);
@@ -63,6 +67,13 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     void summarizeLibraryExport().then((value) => {
       if (aliveRef.current) setSummary(value);
     });
+    void describeExport({ modules: { signatures: true, library: true, drafts: true, settings: true } })
+      .then((all) => {
+        emptyPartsRef.current = all.willOmitEmpty.filter((name) => name !== "library");
+      })
+      .catch(() => {
+        emptyPartsRef.current = null;
+      });
     return () => {
       aliveRef.current = false;
     };
@@ -83,13 +94,20 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const docsText = (n: number) => countText(n, copy.docsOne, copy.docsMany);
   const templatesText = (n: number) => countText(n, copy.templatesOne, copy.templatesMany);
 
-  const finish = (file: File, documents: number, templates: number, encrypted: boolean) => {
-    markLastBackup();
+  const finish = (file: File, documents: number, templates: number, encrypted: boolean, skipped: number) => {
+    // Solo viajaron plantillas y documentos: no es un respaldo completo si hay firmas o borradores sin respaldar.
+    const announce = () => onDone?.(fillText(copy.announceExported, { docs: docsText(documents), templates: templatesText(templates) }));
+    if (emptyPartsRef.current) {
+      markLastBackup(new Date(), { traveled: ["library"], empty: emptyPartsRef.current });
+      announce();
+    } else {
+      void recordBackup(["library"]).then(announce);
+    }
     const done = fillText(encrypted ? copy.doneEncrypted : copy.donePlain, { docs: docsText(documents), templates: templatesText(templates) });
     setInfo(`${done} ${fillText(copy.doneFile, { name: file.name })}`);
+    setNotes(skipped > 0 ? [countText(skipped, copy.withoutCopyDoneOne, copy.withoutCopyDoneMany)] : []);
     setError("");
     setPhase("done");
-    onDone?.(fillText(copy.announceExported, { docs: docsText(documents), templates: templatesText(templates) }));
   };
 
   const submit = async (event: FormEvent) => {
@@ -113,37 +131,41 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     if (!aliveRef.current) return;
     if (!result.ok) {
       setPhase("form");
-      setError(copy.exportErrors[result.reason]);
+      setError(
+        result.reason === "tooLarge" && result.overBy
+          ? `${copy.exportErrors.tooLarge} ${fillText(copy.tooLargeOver, { over: formatBytes(result.overBy, locale) })}`
+          : copy.exportErrors[result.reason],
+      );
       return;
     }
     const file = toFile(result.blob, result.filename);
     // iPad / móvil: la hoja de compartir pide un toque propio (Safari exige un gesto reciente y el cifrado ya tardó).
     if (coarse && canShareFile(file)) {
-      setReady({ file, documents: result.documents, templates: result.templates, encrypted: result.encrypted });
+      setReady({ file, documents: result.documents, templates: result.templates, encrypted: result.encrypted, skipped: result.skippedDocuments });
       setInfo(fillText(copy.readyTitle, { name: file.name }));
       setPhase("ready");
       return;
     }
     downloadBlob(result.blob, result.filename);
-    finish(file, result.documents, result.templates, result.encrypted);
+    finish(file, result.documents, result.templates, result.encrypted, result.skippedDocuments);
   };
 
   const share = async () => {
     if (!ready) return;
     const outcome = await shareFile(ready.file);
     if (!aliveRef.current) return;
-    if (outcome === "shared") finish(ready.file, ready.documents, ready.templates, ready.encrypted);
+    if (outcome === "shared") finish(ready.file, ready.documents, ready.templates, ready.encrypted, ready.skipped);
     else if (outcome === "cancelled") setError(copy.shareCancelled);
     else {
       downloadBlob(ready.file, ready.file.name);
-      finish(ready.file, ready.documents, ready.templates, ready.encrypted);
+      finish(ready.file, ready.documents, ready.templates, ready.encrypted, ready.skipped);
     }
   };
 
   const download = () => {
     if (!ready) return;
     downloadBlob(ready.file, ready.file.name);
-    finish(ready.file, ready.documents, ready.templates, ready.encrypted);
+    finish(ready.file, ready.documents, ready.templates, ready.encrypted, ready.skipped);
   };
 
   const passwordId = "docs-backup-password";
@@ -281,6 +303,11 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
           <p className="text-subheadline text-foreground [overflow-wrap:anywhere]" data-backup-result="">
             {info}
           </p>
+          {notes.map((note) => (
+            <p key={note} className="text-footnote text-destructive-text [overflow-wrap:anywhere]" data-backup-note="">
+              {note}
+            </p>
+          ))}
           <Button size="md" fullWidth wrap onClick={onClose} data-backup-first>
             {copy.doneClose}
           </Button>

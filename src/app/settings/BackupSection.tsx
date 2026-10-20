@@ -5,19 +5,21 @@ import { Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { useI18n } from "@/lib/i18n";
-import { BACKUP_STATE_EVENT, readLastBackup } from "@/lib/backup/lastBackup";
-import { lastBackupView } from "@/app/documents/backupModel";
+import { BACKUP_STATE_EVENT, readLastBackup, readLastBackupParts, type BackupParts } from "@/lib/backup/lastBackup";
 import { focusFallbackWhenIdle } from "@/app/settings/focusFallback";
 import { BackupReminder } from "@/app/settings/BackupReminder";
 import { ExportPackageSheet } from "@/app/settings/ExportPackageSheet";
 import { ImportPackageSheet } from "@/app/settings/ImportPackageSheet";
-import { lastBackupText } from "@/app/settings/packageModel";
+import { lastBackupLine } from "@/app/settings/packageModel";
 
-/** La fecha del último respaldo, leída en el navegador (nunca en el servidor) y al día cuando cambia (esta pestaña o las demás). */
-export function useLastBackup(): Date | null {
-  const [last, setLast] = useState<Date | null>(null);
+/**
+ * El último respaldo COMPLETO y la última vez que viajó cada parte, leídos en el navegador (nunca en el servidor) y al día
+ * cuando cambian (esta pestaña o las demás).
+ */
+export function useLastBackup(): { full: Date | null; parts: BackupParts } {
+  const [state, setState] = useState<{ full: Date | null; parts: BackupParts }>({ full: null, parts: {} });
   useEffect(() => {
-    const read = () => setLast(readLastBackup());
+    const read = () => setState({ full: readLastBackup(), parts: readLastBackupParts() });
     read();
     window.addEventListener(BACKUP_STATE_EVENT, read);
     window.addEventListener("storage", read);
@@ -26,7 +28,7 @@ export function useLastBackup(): Date | null {
       window.removeEventListener("storage", read);
     };
   }, []);
-  return last;
+  return state;
 }
 
 /**
@@ -73,7 +75,7 @@ export function BackupSection() {
           </Button>
         </div>
         <p className="mt-3 text-footnote text-muted-foreground" data-backup-last="">
-          {lastBackupText(lastBackupView(lastBackup), copy)}
+          {lastBackupLine(lastBackup.full, lastBackup.parts, copy)}
         </p>
         <p role="status" aria-live="polite" className="sr-only" data-backup-live="">
           {announcement}

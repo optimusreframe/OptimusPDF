@@ -291,7 +291,8 @@ test("Firmar, Editar y PDF Pro: exportar con contraseña, borrar todo, importar 
   expect(await lab(page, "return await lab.importPackage(arg, { apply: true });", exported.b64)).toEqual({ error: "needsPassword" });
   expect(await lab(page, "return await lab.importPackage(arg.b64, { apply: true, password: 'mala' });", exported)).toEqual({ error: "wrongPassword" });
   expect(await storeCount(page, "optimuspdf-sign-drafts", "sessionMeta")).toBeLessThanOrEqual(0);
-  const imported = await lab(page, "return await lab.importPackage(arg.b64, { apply: true, password: arg.password });", { b64: exported.b64, password: PASSWORD });
+  // «Reemplazar todos» en Ajustes (F4-fix, H8): con las decisiones sugeridas los avisos de privacidad «ya visto» se omiten; aquí se pide TODO.
+  const imported = await lab(page, "return await lab.importPackage(arg.b64, { apply: true, password: arg.password, settings: { settings: 'replace' } });", { b64: exported.b64, password: PASSWORD });
   expect(imported.modules).toEqual([["settings", "ok"], ["drafts", "ok"]]);
   expect(imported.drafts.counts).toEqual({ new: 3, identical: 0, different: 0, invalid: 0 });
   expect(imported.settings.counts.invalid).toBe(0);
@@ -315,7 +316,7 @@ test("Firmar, Editar y PDF Pro: exportar con contraseña, borrar todo, importar 
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe("dark");
 
   // Reimportar lo mismo no duplica nada.
-  const again = await lab(page, "return await lab.importPackage(arg.b64, { apply: true, password: arg.password });", { b64: exported.b64, password: PASSWORD });
+  const again = await lab(page, "return await lab.importPackage(arg.b64, { apply: true, password: arg.password, settings: { settings: 'replace' } });", { b64: exported.b64, password: PASSWORD });
   expect(again.drafts.counts).toEqual({ new: 0, identical: 3, different: 0, invalid: 0 });
   expect(again.appliedDrafts).toMatchObject({ ok: true, written: 0, skipped: 3 });
 
@@ -388,8 +389,13 @@ test("Ajustes: la lista blanca viaja a un navegador limpio; `lastBackup`, claves
   const preview = await lab(to, "return await lab.importPackage(arg.b64, { apply: false, password: arg.password });", { b64: withHistory.b64, password: "otra-clave-1" });
   expect(preview.settings).toMatchObject({ state: "ok", valueHistory: "new" });
   // Por defecto el historial de valores se OMITE; los ajustes entran.
-  const applied = await lab(to, "return await lab.importPackage(arg.b64, { apply: true, password: arg.password });", { b64: withHistory.b64, password: "otra-clave-1" });
-  expect(applied.appliedSettings).toMatchObject({ ok: true, written: 10, valueHistory: false });
+  // Con las decisiones SUGERIDAS los dos avisos de privacidad «ya visto» se omiten (F4-fix, H8): entran 8 de 10.
+  const suggested = await lab(to, "return await lab.importPackage(arg.b64, { apply: true, password: arg.password });", { b64: withHistory.b64, password: "otra-clave-1" });
+  expect(suggested.appliedSettings).toMatchObject({ ok: true, written: 8, valueHistory: false });
+  expect((await readStorage(to))["optimuspdf.sign-pdf.privacyNoticeSeen"]).toBeUndefined();
+  // «Reemplazar todos» (lo pide la persona): entran los 10.
+  const applied = await lab(to, "return await lab.importPackage(arg.b64, { apply: true, password: arg.password, settings: { settings: 'replace' } });", { b64: withHistory.b64, password: "otra-clave-1" });
+  expect(applied.appliedSettings).toMatchObject({ ok: true, written: 2, valueHistory: false });
   const first = await readStorage(to);
   expect(first["optimuspdf.valueHistory"]).toBeUndefined();
   expect(first["optimuspdf.language"]).toBe("en");

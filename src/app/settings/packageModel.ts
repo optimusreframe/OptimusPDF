@@ -1,8 +1,11 @@
 import type { Dictionary } from "@/lib/i18n";
 import type { DraftDecision, DraftImportItem } from "@/lib/backup/modules/drafts";
+import type { SettingsDecisions, SettingsRow } from "@/lib/backup/modules/settings";
+import type { SettingValue } from "@/lib/backup/settingsRegistry";
 import type { ExportDescription, ModuleChoice, ModuleCounts, ModuleOutcome, ModuleSummary, OmittedModule, PackageModuleName } from "@/lib/backup/globalPackage";
 import { PACKAGE_MODULES } from "@/lib/backup/globalPackage";
-import { countText, fillText } from "@/app/documents/backupModel";
+import { countText, fillText, lastBackupView, type LastBackupView as BackupWhen } from "@/app/documents/backupModel";
+import { BACKUP_PARTS, type BackupParts, type BackupPart } from "@/lib/backup/lastBackup";
 import { formatBytes } from "@/app/documents/documentsModel";
 
 /**
@@ -140,7 +143,7 @@ export function draftKindLabel(item: Pick<DraftImportItem, "kind" | "documents">
 
 export type OutcomeLine = { tone: "ok" | "info" | "error"; text: string };
 
-/** Una línea de resultado por módulo, con su tono (verde/neutro/error). Los módulos ausentes del paquete no tienen línea. */
+/** Una línea de resultado por módulo, con su tono (verde/neutro/error). Los módulos ausentes del paquete no tienen línea propia: `outcomeLines` los junta en una. */
 export function outcomeLine(outcome: ModuleOutcome, copy: BackupCopy): OutcomeLine | null {
   const label = moduleName(copy, outcome.module);
   if (outcome.status === "skipped") return outcome.why === "absent" ? null : { tone: "info", text: fillText(copy.resultSkipped, { module: label }) };
@@ -173,6 +176,9 @@ export function outcomeLine(outcome: ModuleOutcome, copy: BackupCopy): OutcomeLi
 /** Todas las líneas de resultado (sin las de módulos que no venían) más la nota de «lo ya importado se conserva» si algo falló. */
 export function outcomeLines(outcomes: readonly ModuleOutcome[], copy: BackupCopy): OutcomeLine[] {
   const lines = outcomes.map((outcome) => outcomeLine(outcome, copy)).filter((line): line is OutcomeLine => line !== null);
+  // Lo que el paquete NI TRAÍA se dice aparte y en una sola línea: no es un fallo ni algo que «no se importó».
+  const absent = outcomes.filter((outcome) => outcome.status === "skipped" && outcome.why === "absent").map((outcome) => moduleName(copy, outcome.module));
+  if (absent.length > 0) lines.push({ tone: "info", text: fillText(copy.resultAbsent, { names: absent.join(", ") }) });
   const anyFailed = outcomes.some((outcome) => outcome.status === "failed");
   const anyApplied = outcomes.some((outcome) => outcome.status === "applied");
   if (anyFailed && anyApplied) lines.push({ tone: "info", text: copy.resultKeptOthers });
@@ -188,4 +194,140 @@ export function lastBackupText(view: { kind: LastBackupKind; n?: number }, copy:
   if (view.kind === "today") return copy.lastToday;
   if (view.kind === "yesterday") return copy.lastYesterday;
   return fillText(copy.lastDays, { n: view.n ?? 0 });
+}
+
+/**
+ * Las partes que se respaldaron DESPUÉS del último respaldo completo (o todas las anotadas, si nunca hubo uno completo) y
+ * cuándo fue el más reciente. `null` si el último respaldo fue completo (o no hay ninguno).
+ */
+export function partialBackup(full: Date | null, parts: BackupParts): { parts: BackupPart[]; at: Date } | null {
+  const newer = BACKUP_PARTS.filter((part) => {
+    const date = parts[part];
+    return date !== undefined && (full === null || date.getTime() > full.getTime());
+  });
+  if (newer.length === 0) return null;
+  return { parts: newer, at: new Date(Math.max(...newer.map((part) => (parts[part] as Date).getTime()))) };
+}
+
+function whenText(view: BackupWhen, copy: BackupCopy): string {
+  if (view.kind === "today") return copy.whenToday;
+  if (view.kind === "yesterday") return copy.whenYesterday;
+  if (view.kind === "days") return fillText(copy.whenDays, { n: view.n });
+  return copy.whenNever;
+}
+
+/**
+ * La línea «Último respaldo…» que ven Ajustes y «Mis documentos». Si el último respaldo fue COMPLETO es la de siempre
+ * («Último respaldo: hoy»). Si fue PARCIAL (p. ej. solo Ajustes) lo dice sin presumir: «Último respaldo parcial (Ajustes): hoy.
+ * Aún no has hecho un respaldo completo.».
+ */
+export function lastBackupLine(full: Date | null, parts: BackupParts, copy: BackupCopy, now: Date = new Date()): string {
+  const partial = partialBackup(full, parts);
+  if (!partial) return lastBackupText(lastBackupView(full, now), copy);
+  const sentence = fillText(copy.lastPartial, {
+    parts: partial.parts.map((part) => copy.moduleNames[part]).join(", "),
+    when: whenText(lastBackupView(partial.at, now), copy),
+  });
+  const tail = full ? fillText(copy.lastFullWas, { when: whenText(lastBackupView(full, now), copy) }) : copy.lastNoFull;
+  return `${sentence} ${tail}`;
+}
+
+/** «N documentos no se incluirán / no se incluyeron porque falta su copia del PDF» (antes / después de exportar); `null` si no falta ninguna. */
+export function withoutCopyNote(count: number, copy: BackupCopy, when: "before" | "after"): string | null {
+  if (count <= 0) return null;
+  const one = when === "before" ? copy.withoutCopyWarnOne : copy.withoutCopyDoneOne;
+  const many = when === "before" ? copy.withoutCopyWarnMany : copy.withoutCopyDoneMany;
+  return countText(count, one, many);
+}
+
+/** Por qué lo elegido no cabe en un paquete: con cuánto pesa, el máximo y cuánto sobra (o el motivo general si solo lo dicen los borradores). */
+export function tooLargeText(
+  description: Pick<ExportDescription, "estimatedBytes" | "limitBytes" | "overBy">,
+  copy: BackupCopy,
+  locale: string,
+): string {
+  if (description.overBy <= 0) return copy.tooLarge;
+  return fillText(copy.tooLargeSize, {
+    size: formatBytes(description.estimatedBytes, locale),
+    limit: formatBytes(description.limitBytes, locale),
+    over: formatBytes(description.overBy, locale),
+  });
+}
+
+/* ------------------------------------------------------------------------------------------------------------ */
+/* Vista previa de Ajustes: qué cambiaría, valor a valor (H8)                                                      */
+/* ------------------------------------------------------------------------------------------------------------ */
+
+const THEME_KEY = "optimuspdf.theme";
+const LANGUAGE_KEY = "optimuspdf.language";
+const LAYOUT_KEY = "optimuspdf.pro.layout.v1";
+const NOTICE_KEYS = new Set(["optimuspdf.sign-pdf.privacyNoticeSeen", "optimuspdf.edit-pdf.privacyNoticeSeen"]);
+
+/** El valor de un ajuste en lenguaje de persona («Activado», «Oscuro», «Español»…). Todo es texto: nada del paquete se interpreta. */
+export function settingValueText(row: Pick<SettingsRow, "key" | "flag">, value: SettingValue, copy: BackupCopy): string {
+  if (typeof value === "boolean") {
+    if (NOTICE_KEYS.has(row.key)) return value ? copy.valueSeen : copy.valueUnseen;
+    return value ? copy.valueOn : copy.valueOff;
+  }
+  if (typeof value === "string") {
+    if (row.key === THEME_KEY) return Object.hasOwn(copy.themeValues, value) ? copy.themeValues[value as keyof typeof copy.themeValues] : value;
+    if (row.key === LANGUAGE_KEY) return Object.hasOwn(copy.languageValues, value) ? copy.languageValues[value as keyof typeof copy.languageValues] : value;
+    return value;
+  }
+  if (typeof value === "number") return String(value);
+  if (row.key === LAYOUT_KEY) {
+    return fillText(copy.layoutValue, {
+      thumbs: Number(value.thumbsWidth) || 0,
+      thumbsState: value.thumbsOpen === true ? copy.stateOpen : copy.stateClosed,
+      context: Number(value.contextWidth) || 0,
+      contextState: value.contextOpen === true ? copy.stateOpen : copy.stateClosed,
+    });
+  }
+  return Object.entries(value)
+    .map(([name, item]) => `${name}: ${String(item)}`)
+    .join(", ");
+}
+
+/** «Ahora: Activado → Paquete: Desactivado»; si lo de ahora no está guardado, dice que es el valor por defecto. */
+export function settingChangeText(row: SettingsRow, copy: BackupCopy): string {
+  const now = settingValueText(row, row.local, copy);
+  return fillText(copy.settingRowLine, {
+    now: row.localStored ? now : fillText(copy.settingRowDefault, { value: now }),
+    value: settingValueText(row, row.value, copy),
+  });
+}
+
+/** La decisión efectiva de una fila: la suya, o la general de Ajustes. */
+export function rowDecision(decisions: Pick<SettingsDecisions, "settings" | "rows">, id: string): "replace" | "omit" {
+  const own = decisions.rows !== undefined && Object.hasOwn(decisions.rows, id) ? decisions.rows[id] : undefined;
+  return own === "replace" || own === "omit" ? own : decisions.settings;
+}
+
+/**
+ * Cambia la decisión de UNA fila. Si con ello todas las filas quedan igual se vuelve a «todos Reemplazar / Omitir» (sin
+ * decisiones por fila); si quedan mezcladas se guarda la decisión de CADA fila, sin ambigüedad.
+ */
+export function withRowDecision(decisions: SettingsDecisions, rows: readonly SettingsRow[], id: string, decision: "replace" | "omit"): SettingsDecisions {
+  const next = new Map(rows.map((row) => [row.id, row.id === id ? decision : rowDecision(decisions, row.id)] as const));
+  const values = new Set(next.values());
+  if (values.size <= 1) {
+    const { rows: _rows, ...rest } = decisions;
+    void _rows;
+    return { ...rest, settings: values.values().next().value ?? decisions.settings };
+  }
+  return { ...decisions, rows: Object.fromEntries(next) };
+}
+
+/** «Reemplazar todos» / «Omitir todos»: una sola decisión para todas las filas (sin decisiones por fila). */
+export function withAllRows(decisions: SettingsDecisions, decision: "replace" | "omit"): SettingsDecisions {
+  const { rows: _rows, ...rest } = decisions;
+  void _rows;
+  return { ...rest, settings: decision };
+}
+
+/** Si todas las filas llevan la misma decisión, cuál; si están mezcladas, `null` (ninguna opción general marcada). */
+export function commonRowDecision(decisions: Pick<SettingsDecisions, "settings" | "rows">, rows: readonly SettingsRow[]): "replace" | "omit" | null {
+  if (rows.length === 0) return decisions.settings;
+  const first = rowDecision(decisions, rows[0].id);
+  return rows.every((row) => rowDecision(decisions, row.id) === first) ? first : null;
 }

@@ -599,8 +599,9 @@ for (const name of ["package-all-v1.optimuspdf.zip", "package-all-v1-encrypted.o
       expect(text).toContain("Firmas: 3 importadas.");
       expect(text).toContain("Plantillas y documentos: 3 documentos, 2 plantillas.");
       expect(text).toContain("Borradores: 4 importados.");
-      // 10 ajustes en el paquete; uno (el aviso de privacidad ya visto) ya era igual en este navegador: se aplican 9.
-      expect(text).toContain("Ajustes: 9 aplicados.");
+      // 10 ajustes en el paquete: el aviso de privacidad de Firmar ya era igual en este navegador y el del Editor afecta a la
+      // privacidad, así que con las decisiones SUGERIDAS se omite (F4-fix, H8): se aplican 8.
+      expect(text).toContain("Ajustes: 8 aplicados.");
       expect(text).not.toContain("historial de valores"); // por defecto el historial NO entra
       await expect(dialog.locator("[data-backup-reload]")).toBeVisible();
       expect(await counts(page)).toEqual({ signatures: 3, documents: 3, templates: 2, drafts: 4 });
@@ -609,6 +610,7 @@ for (const name of ["package-all-v1.optimuspdf.zip", "package-all-v1-encrypted.o
       expect(stored["optimuspdf.language"]).toBe("en");
       expect(stored).not.toHaveProperty("optimuspdf.valueHistory");
       expect(stored).not.toHaveProperty("optimuspdf.lastBackup");
+      expect(stored).not.toHaveProperty("optimuspdf.edit-pdf.privacyNoticeSeen");
       expect((await readVault(page)).map((row) => [row.signerName, row.signatureHash !== null, row.initialsHash !== null])).toEqual([
         ["Ana Pérez", true, true],
         ["Luis Gómez", true, false],
@@ -743,7 +745,7 @@ test.describe("recordatorio de respaldo", () => {
       await page.clock.setFixedTime(new Date(Date.now() + 8 * DAY));
       await openSettings(page);
       await expect(reminder(page)).toHaveAttribute("data-backup-reminder", "changes");
-      expect(Object.keys(JSON.parse((await readStorage(page))["optimuspdf.backupReminder"] as string)).sort()).toEqual(["changes", "since", "snoozeUntil"]);
+      expect(Object.keys(JSON.parse((await readStorage(page))["optimuspdf.backupReminder"] as string)).sort()).toEqual(["by", "changes", "since", "snoozeUntil"]); // `by`: cuántos cambios fueron de cada parte (números, sin datos personales)
     } finally {
       await context.close();
     }

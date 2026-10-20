@@ -646,7 +646,7 @@ export type ApplySignaturesResult =
   | { ok: true; written: number; replaced: number; skipped: number }
   | {
       ok: false;
-      reason: "limit" | "unavailable" | "invalid" | "blocked" | "changed";
+      reason: "limit" | "quota" | "unavailable" | "invalid" | "blocked" | "changed";
       /** `limit`: cuantos de los aprobados caben. */
       fits?: number;
       wanted?: number;
@@ -730,6 +730,7 @@ export async function applySignaturesImport(
       return { ok: false, reason: "limit", fits: 0, wanted: check.wanted };
     }
     if (result.reason === "changed") return { ok: false, reason: "changed" };
+    if (result.reason === "quota") return { ok: false, reason: "quota" };
     return {
       ok: false,
       reason: result.reason === "unavailable" ? "unavailable" : "invalid",

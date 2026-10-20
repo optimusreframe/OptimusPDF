@@ -38,7 +38,7 @@ export function BackupReminder({
     status.reason === "changes"
       ? fillText(copy.reminderChanges, { n: status.changes })
       : status.lastBackup === null
-        ? fillText(copy.reminderDaysNever, { n: status.days ?? 0 })
+        ? fillText(status.partialBackups ? copy.reminderDaysPartial : copy.reminderDaysNever, { n: status.days ?? 0 })
         : fillText(copy.reminderDays, { n: status.days ?? 0 });
 
   return (

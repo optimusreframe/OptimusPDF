@@ -227,10 +227,17 @@ export async function buildPackage(opts: BuildPackageOptions): Promise<Blob> {
     files,
   };
 
+  // El tope de 250 MiB de la importacion suma TAMBIEN `manifest.json` (directorio central): lo que aqui no cupiera alli,
+  // no se genera (un respaldo que luego no se puede abrir es peor que ninguno).
+  const manifestText = JSON.stringify(manifest);
+  if (totalBytes + new TextEncoder().encode(manifestText).byteLength > PACKAGE_LIMITS.maxUncompressedBytes) {
+    throw new PackageError("tooLarge");
+  }
+
   const Zip = await loadJSZip();
   const inner = new Zip();
   const jsonOptions = { createFolders: false, compression: "DEFLATE" as const };
-  inner.file(MANIFEST_NAME, JSON.stringify(manifest), jsonOptions);
+  inner.file(MANIFEST_NAME, manifestText, jsonOptions);
   for (const file of allFiles) {
     // Un Uint8Array de otro dominio (jsdom, datos clonados de IndexedDB) no lo
     // reconoce JSZip: se copia al del dominio actual solo en ese caso.
@@ -243,9 +250,11 @@ export async function buildPackage(opts: BuildPackageOptions): Promise<Blob> {
   }
 
   if (!wantsPassword) {
-    return inner.generateAsync({ type: "blob", mimeType: "application/zip" });
+    return assertImportable(await inner.generateAsync({ type: "blob", mimeType: "application/zip" }));
   }
   const innerBytes = await inner.generateAsync({ type: "uint8array" });
+  // El archivo recibido y lo descifrado tienen el mismo tope al importar (250 MiB).
+  if (innerBytes.byteLength > PACKAGE_LIMITS.maxFileBytes) throw new PackageError("tooLarge");
   let box;
   try {
     box = await encryptWithPassword(innerBytes, opts.password as string, {
@@ -260,7 +269,13 @@ export async function buildPackage(opts: BuildPackageOptions): Promise<Blob> {
   const outer = new Zip();
   outer.file(ENVELOPE_NAME, box.header, { createFolders: false, compression: "STORE" });
   outer.file(PAYLOAD_NAME, box.payload, { createFolders: false, compression: "STORE" });
-  return outer.generateAsync({ type: "blob", mimeType: "application/zip" });
+  return assertImportable(await outer.generateAsync({ type: "blob", mimeType: "application/zip" }));
+}
+
+/** Lo que sale de `buildPackage` tiene que caber en lo que `readPackage` acepta recibir. */
+function assertImportable(blob: Blob): Blob {
+  if (blob.size > PACKAGE_LIMITS.maxFileBytes) throw new PackageError("tooLarge");
+  return blob;
 }
 
 // ---------------------------------------------------------------------------
@@ -550,11 +565,11 @@ function envelopeVersion(header: Uint8Array): unknown {
 }
 
 /** Zip exterior de un paquete cifrado -> bytes del zip interior. */
-async function decryptOuter(
-  opened: OpenedZip,
-  password: string | undefined,
-  budget: InflateBudget,
-): Promise<Uint8Array> {
+async function decryptOuter(opened: OpenedZip, password: string | undefined): Promise<Uint8Array> {
+  // La capa EXTERNA tiene su propio presupuesto de inflado (envelope.json + payload.bin): lo que gasta aqui no es lo que
+  // despues infla el zip INTERIOR. Con un unico presupuesto de 250 MiB, un paquete cifrado de mas de ~125 MiB gastaba la
+  // mitad en `payload.bin` y la otra mitad en sus PDF, y la app no podia reabrir lo que ella misma exportaba.
+  const budget: InflateBudget = { remaining: PACKAGE_LIMITS.maxUncompressedBytes };
   const names = opened.entries.map((entry) => entry.name).sort();
   if (names.length !== 2 || names[0] !== ENVELOPE_NAME || names[1] !== PAYLOAD_NAME) {
     throw new PackageError("badZip");
@@ -586,6 +601,24 @@ async function decryptOuter(
  * un archivo suelto que no cuadra (SHA, tamaño, ausente) se aisla en su
  * `PackageFileRead.status` y el resto sigue siendo importable.
  */
+/**
+ * Abre el archivo recibido y, si esta cifrado, la caja. Va aparte para que los bytes del zip exterior y del `payload.bin`
+ * queden fuera de alcance (y se puedan liberar) antes de inflar el zip interior.
+ */
+async function openLayers(file: Blob, password: string | undefined): Promise<{ opened: OpenedZip; encrypted: boolean }> {
+  if (file.size > PACKAGE_LIMITS.maxFileBytes) throw new PackageError("tooLarge");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.byteLength > PACKAGE_LIMITS.maxFileBytes) throw new PackageError("tooLarge");
+
+  const outer = await openZip(bytes);
+  if (!outer.byName.has(ENVELOPE_NAME)) return { opened: outer, encrypted: false };
+  const innerBytes = await decryptOuter(outer, password);
+  if (innerBytes.byteLength > PACKAGE_LIMITS.maxFileBytes) throw new PackageError("tooLarge");
+  // Sin cajas dentro de cajas: un zip interior que fuera otro paquete
+  // cifrado no trae `manifest.json` y se rechaza abajo como `badZip`.
+  return { opened: await openZip(innerBytes), encrypted: true };
+}
+
 export async function readPackage(
   file: Blob,
   password?: string,
@@ -593,21 +626,9 @@ export async function readPackage(
 ): Promise<PackageReadResult> {
   const registry = opts.registry ?? DEFAULT_MODULE_REGISTRY;
   if (!isBlobLike(file)) throw new PackageError("badZip");
-  if (file.size > PACKAGE_LIMITS.maxFileBytes) throw new PackageError("tooLarge");
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes.byteLength > PACKAGE_LIMITS.maxFileBytes) throw new PackageError("tooLarge");
-
-  let opened = await openZip(bytes);
-  let encrypted = false;
+  const { opened, encrypted } = await openLayers(file, password);
+  // Presupuesto de la capa INTERIOR (el contenido del paquete): <= 250 MiB realmente inflados, como siempre.
   const budget: InflateBudget = { remaining: PACKAGE_LIMITS.maxUncompressedBytes };
-  if (opened.byName.has(ENVELOPE_NAME)) {
-    encrypted = true;
-    const innerBytes = await decryptOuter(opened, password, budget);
-    if (innerBytes.byteLength > PACKAGE_LIMITS.maxFileBytes) throw new PackageError("tooLarge");
-    // Sin cajas dentro de cajas: un zip interior que fuera otro paquete
-    // cifrado no trae `manifest.json` y se rechaza abajo como `badZip`.
-    opened = await openZip(innerBytes);
-  }
 
   const manifestRaw = parseStrictJson(
     await mustRead(opened, MANIFEST_NAME, PACKAGE_LIMITS.maxManifestBytes, budget),
