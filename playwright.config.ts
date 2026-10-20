@@ -39,7 +39,7 @@ const MOBILE_EXCLUDED = /(compress[\w-]*|edit-pdf-flow|pdf-pro-viewer|pdf-pro-pa
  * aplicacion automatica y automapeo). Solo `webkit-ipad` los suma a `CROSS_SPECS`;
  * los demas proyectos cruzados no cambian. En Chromium corren porque `chromium` no filtra por archivo.
  */
-const F0_SPECS = /(sign-ceremony-turns|sign-recovery|sign-record|sign-privacy|recent-continue|sign-draft-safety|sign-stale-signature|sign-assignment|sign-templates|sign-templates-a11y|sign-templates-no-loss|sign-templates-stale|sign-templates-no-loss-a11y|sign-templates-variants)\.spec\.ts$/;
+const F0_SPECS = /(sign-ceremony-turns|sign-recovery|sign-record|sign-privacy|recent-continue|sign-draft-safety|sign-stale-signature|sign-assignment|sign-templates|sign-templates-a11y|sign-templates-no-loss|sign-templates-stale|sign-templates-no-loss-a11y|sign-templates-variants|mobile-pro-(sheet-space|pages|touch|a11y)|mobile-sign-(multi|quality|privacy)|mobile-shared-ui|mobile-safe-area-sheet)\.spec\.ts$/;
 /**
  * Las pruebas que hoy DEBEN fallar (defectos aun sin corregir) llevan `@f0-pendiente` en el titulo y se EXCLUYEN de
  * cualquier ejecucion por defecto (local y CI) para no dejar la suite en rojo. `PW_F0=1` las incluye:
