@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, FileText, GripVertical, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { localeTag } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { ButtonGroup } from "@/components/ui/ButtonGroup";
 import { springs } from "@/lib/motion";
 import {
   MAX_SAFE_FILE_SIZE,
@@ -190,7 +191,8 @@ function FileRow({
       </div>
 
       {canReorder ? (
-        <div className="flex shrink-0 items-center">
+        // VI-07: «Subir», «Bajar» y el asa estaban pegados (0 px): `ButtonGroup` los separa 4 px con raton y 8 px con dedo.
+        <ButtonGroup className="shrink-0">
           <IconButton
             label={labels.moveUp}
             disabled={index === 0}
@@ -213,7 +215,7 @@ function FileRow({
           >
             <GripVertical aria-hidden="true" className="size-4" />
           </span>
-        </div>
+        </ButtonGroup>
       ) : null}
 
       <IconButton

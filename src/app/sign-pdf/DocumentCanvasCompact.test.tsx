@@ -215,18 +215,26 @@ describe("fuera del compacto o en movil: como siempre", () => {
     expect(bar().className).toContain("mb-3");
   });
 
-  it("compacto en movil (menos de 768 px): tambien tarjeta aparte y contadores encima", async () => {
+  it("compacto en movil (menos de 768 px): tarjeta aparte, mas ajustada, y la HOJA PRIMERO (contadores debajo; VP-01)", async () => {
     stubMobile();
     render(<Harness />);
     await ready();
     expect(bar().contains(signerGroup())).toBe(false);
     expect(signerGroup().closest(".surface-card")).not.toBeNull();
-    expect(follows(statusRow(), host())).toBe(true);
+    expect(signerGroup().closest(".surface-card")!.className).toContain("p-2");
+    expect(follows(host(), statusRow())).toBe(true);
   });
 
-  it("«Solo yo» en movil: la frase de ayuda se ve (no es sr-only)", async () => {
+  it("«Solo yo» en movil compacto (PDF Pro): la frase de ayuda va solo para lectores de pantalla (la hoja primero)", async () => {
     stubMobile();
     render(<Harness solo={SOLO_NO_SIGNATURE} />);
+    await ready();
+    expect(screen.getByText(strings.noSignature).className).toContain("sr-only");
+  });
+
+  it("«Solo yo» en movil, herramienta suelta (no compacto): la frase de ayuda se ve (no es sr-only)", async () => {
+    stubMobile();
+    render(<Harness compact={false} solo={SOLO_NO_SIGNATURE} />);
     await ready();
     expect(screen.getByText(strings.noSignature).className).not.toContain("sr-only");
   });

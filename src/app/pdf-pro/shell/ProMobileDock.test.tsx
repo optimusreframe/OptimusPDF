@@ -75,9 +75,9 @@ describe("barra inferior de movil", () => {
     expect(screen.getByRole("button", { name: PRO_STRINGS.en.suite.tabs.sign })).toBeTruthy();
   });
 
-  it("cada boton tiene un ancho minimo de 56 px: a 320 px el dock se desplaza en vez de tocar las etiquetas (VI-03)", () => {
+  it("cada boton tiene un ancho minimo de 48 px: a 320 px el dock se desplaza en vez de tocar las etiquetas (VI-03) y a 375 px los siete caben", () => {
     render(<ProMobileDock language="es" openTab={null} onSelect={() => undefined} />);
-    for (const button of screen.getAllByRole("button")) expect(button.className).toContain("min-w-14");
+    for (const button of screen.getAllByRole("button")) expect(button.className).toContain("min-w-[max(3rem,min-content)]");
     expect(screen.getByRole("toolbar").className).toContain("overflow-x-auto");
   });
 });

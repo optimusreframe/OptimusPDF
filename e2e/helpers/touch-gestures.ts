@@ -228,7 +228,59 @@ export async function boxOf(locator: Locator): Promise<{ x: number; y: number; w
   return box;
 }
 
+/**
+ * En un telefono (< 768 px) la paleta de Firmar llega PLEGADA en un boton con la herramienta activa (SC-02 de la
+ * auditoria): si lo esta, la abre. En tablet y escritorio la paleta ya esta abierta y no hace nada.
+ */
+export async function unfoldPalette(page: Page): Promise<void> {
+  const fab = page.locator("[data-palette-fab]");
+  if (await fab.isVisible().catch(() => false)) {
+    await fab.click();
+    await expect(page.getByRole("toolbar", { name: /Herramientas del documento|Document tools/ })).toBeVisible();
+  }
+}
+
+/** Elige una herramienta de la paleta (la abre antes si esta plegada); en un telefono elegir una la vuelve a plegar. */
 export async function pickTool(page: Page, name: RegExp): Promise<void> {
-  await page.getByRole("toolbar").first().getByRole("button", { name }).click();
+  await unfoldPalette(page);
+  await page.getByRole("toolbar", { name: /Herramientas del documento|Document tools/ }).getByRole("button", { name }).click();
   await page.waitForTimeout(250);
+}
+
+/**
+ * Franja de la pantalla que de verdad ve la persona: por arriba, hasta donde llega la barra de zoom pegajosa; por abajo,
+ * hasta la capa fija o pegajosa mas alta que toca el borde inferior (tab bar, barra «Opciones/Procesar», «Continuar» y el
+ * dock plegable de la paleta). Medida independiente de la que usa el propio lienzo.
+ */
+export async function visibleBand(page: Page): Promise<{ top: number; bottom: number }> {
+  return page.evaluate(() => {
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const sticky = document.querySelector("[data-canvas-sticky]")?.getBoundingClientRect();
+    let bottom = vh;
+    for (const element of document.querySelectorAll<HTMLElement>("body *")) {
+      const cs = getComputedStyle(element);
+      if (cs.position !== "fixed" && cs.position !== "sticky") continue;
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      const r = element.getBoundingClientRect();
+      if (r.width < vw * 0.5 || r.height < 24 || r.top < vh * 0.4 || r.bottom < vh - 220) continue;
+      bottom = Math.min(bottom, r.top);
+    }
+    // La barra de zoom pegada arriba (en Pro, arriba de la region que se desplaza, ya bajo la cabecera de Firmar).
+    return { top: sticky && sticky.top < vh * 0.5 ? sticky.bottom : 0, bottom };
+  });
+}
+
+/**
+ * Un punto DENTRO de lo que se ve de la hoja (la fraccion `fx`/`fy` de su caja, recortada a la franja visible con
+ * 40 px de margen): tras «Usar esta firma» la pagina queda desplazada hasta la firma y la parte alta de la hoja puede
+ * estar bajo la barra de zoom, asi que «el 30 % del alto de la hoja» ya no es un sitio que se pueda tocar.
+ */
+export async function sheetPoint(page: Page, fx = 0.4, fy = 0.3): Promise<Point> {
+  const sheet = await boxOf(host(page));
+  const band = await visibleBand(page);
+  const top = Math.max(sheet.y, band.top) + 40;
+  const bottom = Math.min(sheet.y + sheet.height, band.bottom) - 40;
+  const wanted = sheet.y + sheet.height * fy;
+  return { x: sheet.x + sheet.width * fx, y: Math.max(top, Math.min(wanted, bottom)) };
 }

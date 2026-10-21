@@ -28,7 +28,19 @@ async function axeOnce(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     type Axe = { run: (ctx: unknown, opts: unknown) => Promise<{ violations: Array<{ id: string; nodes: Array<{ target: string[]; failureSummary?: string }> }> }> };
     const axe = (window as unknown as { axe: Axe }).axe;
-    const result = await axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] } });
+    // Al llegar al final de la pagina lo ultimo del paso (la barra de zoom pegajosa, «Atras») puede quedar a medio camino
+    // BAJO la cabecera pegajosa: nadie lo toca ahi (se desplaza un poco mas) y `target-size` lo cuenta como tapado. Segun cuanto
+    // mida lo de debajo (el pie, la fuente ancha del CI de Linux) pasa o no pasa, asi que no cuenta lo que esta bajo la cabecera.
+    const header = document.querySelector("header")?.getBoundingClientRect();
+    const underHeader = header
+      ? [...document.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [role="button"], [role="tab"], [role="radio"]')].filter((element) => {
+          if (element.closest("header")) return false;
+          const r = element.getBoundingClientRect();
+          return r.height > 0 && r.top < header.bottom - 1 && r.bottom > 0;
+        })
+      : [];
+    const context = underHeader.length > 0 ? { include: [document], exclude: underHeader } : document;
+    const result = await axe.run(context, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] } });
     return result.violations.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
   });
 }
@@ -51,6 +63,9 @@ async function axeViolations(page: Page): Promise<string[]> {
 
 async function noHorizontalOverflow(page: Page): Promise<string> {
   return page.evaluate(() => {
+    // WebKit corre la pagina ~10 px en horizontal unos cientos de ms tras enfocar un campo o tocar un boton, con
+    // `scrollWidth` igual al ancho de la ventana (no hay desborde): sin esto todo parece estar a -10..310. Se mide sin ese corrimiento.
+    window.scrollTo(0, window.scrollY);
     const vw = window.innerWidth;
     if (document.documentElement.scrollWidth > vw + 1) return `la pagina desborda: ${document.documentElement.scrollWidth} > ${vw}`;
     for (const element of document.body.querySelectorAll<HTMLElement>("*")) {

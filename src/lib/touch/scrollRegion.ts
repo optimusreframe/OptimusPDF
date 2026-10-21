@@ -54,7 +54,10 @@ function isChromeBar(element: Element, box: Box): "top" | "bottom" | null {
   // Una barra pegajosa que aun no esta pegada (esta en el flujo, lejos del borde) no tapa nada.
   const nearTop = rect.top <= box.top + 140 && rect.bottom > box.top + 4 && rect.bottom < box.top + height * 0.6;
   if (nearTop) return "top";
-  const nearBottom = rect.bottom >= box.bottom - 140 && rect.top < box.bottom - 4 && rect.top > box.top + height * 0.4;
+  // El dock plegable de la paleta de Firmar (`data-palette-dock`) va pegado MAS arriba que las barras de accion: se
+  // apoya sobre la barra «Opciones/Procesar» y la tab bar (hasta ~11 rem del borde en el telefono).
+  const reach = element.hasAttribute("data-palette-dock") ? 260 : 140;
+  const nearBottom = rect.bottom >= box.bottom - reach && rect.top < box.bottom - 4 && rect.top > box.top + height * 0.4;
   if (nearBottom) return "bottom";
   return null;
 }
@@ -68,7 +71,7 @@ export type Obstructions = { top: number; bottom: number };
  */
 export function measureObstructions(box: Box, root: ParentNode = document): Obstructions {
   const candidates = root.querySelectorAll(
-    'header, nav, [role="toolbar"], [data-fixed-chrome], [data-canvas-sticky], [data-chrome], [class*="fixed"], [class*="sticky"]',
+    'header, nav, [role="toolbar"], [data-fixed-chrome], [data-canvas-sticky], [data-palette-dock], [data-chrome], [class*="fixed"], [class*="sticky"]',
   );
   let top = box.top;
   let bottom = box.bottom;

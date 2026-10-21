@@ -297,7 +297,7 @@ export function ModeHeader({
     <>
       {leading}
       {status}
-      <details className="min-w-0 text-footnote text-muted-foreground" data-pro-mode-notes="">
+      <details className="min-w-0 text-footnote text-muted-foreground" data-pro-mode-notes="" data-pro-fold="">
         <summary className="flex min-h-11 cursor-pointer select-none items-center gap-1.5 rounded-ios-sm px-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal">
           <Info aria-hidden="true" className="size-4 shrink-0" />
           {notesLabel}

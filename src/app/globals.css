@@ -776,16 +776,6 @@
     :root[data-action-bar] body {
       padding-bottom: 4.25rem;
     }
-    /*
-     * W2-C: la paleta de herramientas de Firmar es FIJA sobre la barra de
-     * accion (su alto es 3.5 rem: 44 px de boton + 4 px de relleno por lado +
-     * 2 px de margen). Mientras esta montada (el lienzo escribe
-     * data-fixed-palette en <html>), el final de la pagina reserva ese alto
-     * mas un respiro de 0.5 rem: el pie queda por encima de la paleta.
-     */
-    :root[data-action-bar][data-fixed-palette] body {
-      padding-bottom: calc(4.25rem + 4rem);
-    }
   }
 }
 

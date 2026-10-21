@@ -365,7 +365,7 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
     >
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-2 max-md:scroll-pb-48 max-md:pb-52 md:px-4"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-2 max-md:scroll-pb-32 md:px-4"
         data-pro-mode-scroll=""
         inert={busy}
       >

@@ -39,8 +39,8 @@ window.dispatchEvent(new CustomEvent(CANVAS_REVEAL_EVENT, { detail: { rect, opti
 Sin herramienta (Seleccionar) un dedo siempre desplaza la pagina (`touch-action: pan-x pan-y`); con zoom > 1 mueve la
 hoja y, al llegar a su borde, sigue con la pagina. Raton: dibuja de inmediato. Lapiz: como el dedo.
 
-CSS: `--canvas-palette-bottom` (por defecto `calc(9.25rem + env(safe-area-inset-bottom))`) coloca la paleta fija de
-movil; PDF Pro puede fijarla segun su propia barra inferior.
+La paleta de Firmar ya no es una capa fija (integracion M4): en el telefono es un dock pegajoso plegable DETRAS de la
+hoja (`[data-palette-dock]`); `freeRegion` / `measureObstructions` lo cuentan como obstruccion inferior.
 
 ## Zonas de seguridad (`globals.css`)
 

@@ -473,7 +473,7 @@ function SessionBody({
     <>
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-2 max-md:scroll-pb-48 max-md:pb-52 md:px-4"
+        className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-2 max-md:scroll-pb-32 md:px-4"
         data-pro-mode-scroll=""
         inert={busy}
       >
@@ -482,7 +482,7 @@ function SessionBody({
 
           <ModeHeader
             leading={
-              <div className="w-full max-w-xs min-w-[14rem] flex-1">
+              <div className="w-full max-w-xs min-w-[14rem] flex-1" data-pro-fold="">
                 <SegmentedControl<SignMode>
                   label={strings.modeLabel}
                   hideLabel

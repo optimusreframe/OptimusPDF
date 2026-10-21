@@ -32,6 +32,18 @@ import {
 
 const S = PRO_STRINGS.es;
 const SG = SIGN_STRINGS.es;
+
+/**
+ * En un telefono (< 768 px) la paleta de Firmar llega PLEGADA en un boton (`data-palette-fab`, tambien dentro de PDF Pro:
+ * auditoria VP-01, integracion M4); en tablet y escritorio es la barra. `paletteOrFab` vale para ambas; `pickPaletteTool`
+ * la abre si hace falta antes de elegir la herramienta.
+ */
+const paletteOrFab = (page: Page) => page.getByRole("toolbar", { name: SG.paletteLabel }).or(page.locator("[data-palette-fab]"));
+async function pickPaletteTool(page: Page, paletteLabel: string, tool: string): Promise<void> {
+  const fab = page.locator("[data-palette-fab]");
+  if (await fab.isVisible().catch(() => false)) await fab.click();
+  await page.getByRole("toolbar", { name: paletteLabel }).getByRole("button", { name: tool, exact: true }).click();
+}
 const SE = SIGN_EMBEDDED_STRINGS.es;
 const FE = FILL_EMBEDDED_STRINGS.es;
 const HOST = getModeStrings("es").host;
@@ -216,7 +228,7 @@ async function createTypedSignature(page: Page, name: string): Promise<void> {
 
 /** Texto libre sobre la pagina visible con la herramienta Texto y su alternativa por boton. */
 async function addTextHere(page: Page, value: string): Promise<void> {
-  await page.getByRole("toolbar", { name: SG.paletteLabel }).getByRole("button", { name: SG.fieldTypeText, exact: true }).click();
+  await pickPaletteTool(page, SG.paletteLabel, SG.fieldTypeText);
   const textboxes = await page.getByRole("textbox").count();
   await clickUntil(page.getByRole("button", { name: SG.addTextFieldHere }), async () => (await page.getByRole("textbox").count()) > textboxes);
   const input = page.getByRole("textbox").last();
@@ -264,7 +276,7 @@ for (const viewport of AXE_VIEWPORTS) {
       await openProPdf(page, await buildContract());
       await gotoTab(page, "sign");
       await expect(page.getByRole("region", { name: SE.regionLabel })).toBeVisible();
-      await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+      await expect(paletteOrFab(page)).toBeVisible();
       // Sin nada que aplicar todavia: el anfitrion deja «Aplicar» apagado.
       await expect(hostApply(page)).toHaveAttribute("aria-disabled", "true");
       await expectFocusNotBody(page, "al abrir Firmar");
@@ -336,7 +348,7 @@ for (const viewport of AXE_VIEWPORTS) {
         await page.locator("[data-pro-mode-scroll]").evaluate((node) => {
           node.scrollTop = 0;
         });
-        await page.getByRole("toolbar", { name: SG.paletteLabel }).getByRole("button", { name: SG.fieldSignature, exact: true }).click();
+        await pickPaletteTool(page, SG.paletteLabel, SG.fieldSignature);
         await page.getByRole("button", { name: SG.addFieldHere }).click();
       }
       await page.getByRole("button", { name: `3. ${SG.stepSign}` }).click();
@@ -569,7 +581,7 @@ for (const viewport of AXE_VIEWPORTS) {
     test("recargar o cerrar con trabajo sin aplicar avisa; aplicar o descartar retira el aviso", async ({ page }) => {
       await openProPdf(page, await buildContract());
       await gotoTab(page, "sign");
-      await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+      await expect(paletteOrFab(page)).toBeVisible();
       expect(await unloadPrevented(page), "sin trabajo no avisa").toBe(false);
       await createTypedSignature(page, "Ana Pérez");
       expect(await unloadPrevented(page), "con una firma sin aplicar avisa").toBe(true);
@@ -604,7 +616,7 @@ for (const viewport of AXE_VIEWPORTS) {
     test("descartar un modo limpio no deja el foco ni un fotograma en <body>", async ({ page }) => {
       await openProPdf(page, await buildContract());
       await gotoTab(page, "sign");
-      await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+      await expect(paletteOrFab(page)).toBeVisible();
       expect(await focusEverInBody(page, "[data-pro-mode-discard]")).toBe(false);
       await expect(page.locator("[data-pro-mode-host]")).toHaveCount(0);
       await expectFocusNotBody(page, "tras descartar un modo limpio");
@@ -614,7 +626,7 @@ for (const viewport of AXE_VIEWPORTS) {
       test.skip(viewport.touch && browserName === "webkit", "Playwright no soporta mouse.wheel en WebKit movil (isMobile)");
       await openProPdf(page, await buildContract());
       await gotoTab(page, "sign");
-      await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+      await expect(paletteOrFab(page)).toBeVisible();
       const metrics = await page.locator("[data-pro-mode-scroll]").evaluate((node) => ({
         scrollHeight: node.scrollHeight,
         clientHeight: node.clientHeight,
@@ -675,7 +687,7 @@ test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)
   test("con un aviso del documento el lienzo empieza a la vista y se ve con >= 450 px de alto", async ({ page }) => {
     await openProPdf(page, await buildDigitallySigned(), "firmado.pdf");
     await gotoTab(page, "sign");
-    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(paletteOrFab(page)).toBeVisible();
     await expect(page.locator("[data-pro-mode-warnings] li")).toHaveCount(1);
     const layout = await canvasLayout(page);
     expect(layout.scrollTop).toBe(0);
@@ -691,7 +703,7 @@ test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)
   test("con DOS avisos apilados (y el aviso general de la suite encima) la zona del lienzo sigue siendo >= 450 px", async ({ page }) => {
     await openProPdf(page, await buildSignedAndRestricted(), "avisos.pdf");
     await gotoTab(page, "sign");
-    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(paletteOrFab(page)).toBeVisible();
     await expect(page.locator("[data-pro-mode-warnings] li")).toHaveCount(2);
     const layout = await canvasLayout(page);
     expect(layout.scrollTop).toBe(0);
@@ -719,7 +731,7 @@ test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)
     await expect(banner).toBeVisible();
     await expect(banner.getByRole("button", { name: new RegExp(`${S.suite.warningsTitle}.*${S.suite.warningsCount(2)}`) })).toBeVisible();
     await gotoTab(page, "sign");
-    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(paletteOrFab(page)).toBeVisible();
     await expect(page.getByRole("button", { name: SE.warningsCount(2), exact: true })).toBeVisible();
     const layout = await canvasLayout(page);
     expect(layout.scrollTop).toBe(0);
@@ -732,7 +744,7 @@ test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)
   test("los avisos plegados: texto completo al expandir, teclado (Intro y Escape con el foco en el boton) y NINGUNA region viva nueva", async ({ page }) => {
     await openProPdf(page, await buildSignedAndRestricted(), "avisos.pdf");
     await gotoTab(page, "sign");
-    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(paletteOrFab(page)).toBeVisible();
     const fold = page.getByRole("button", { name: SE.warningsCount(2), exact: true });
     const panel = page.locator("[data-pro-mode-warnings-fold] [data-notice-fold-panel]");
     await expect(fold).toHaveAttribute("aria-expanded", "false");
@@ -757,7 +769,7 @@ test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)
     await expect(fold).toHaveAttribute("aria-expanded", "false");
     await expect(fold).toBeFocused();
     // Escape NO sale del modo (el pliegue se queda el evento): seguimos en Firmar.
-    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(paletteOrFab(page)).toBeVisible();
     // Ni abrir ni cerrar tocaron una region viva.
     expect(await page.locator('[role="status"], [role="alert"], [aria-live]').allInnerTexts()).toEqual(liveBefore);
     // Espacio tambien lo abre; un clic lo cierra.
@@ -770,7 +782,7 @@ test.describe("PDF Pro · modos Firmar y Rellenar · lienzo compacto (1280×800)
   test("con UN aviso no hay pliegue: una linea con su texto, como siempre", async ({ page }) => {
     await openProPdf(page, await buildDigitallySigned(), "firmado.pdf");
     await gotoTab(page, "sign");
-    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(paletteOrFab(page)).toBeVisible();
     await expect(page.locator("[data-pro-mode-warnings-fold]")).toHaveCount(0);
     await expect(page.locator("[data-pro-mode-warnings] li")).toHaveCount(1);
   });
@@ -832,7 +844,7 @@ test.describe("PDF Pro · modos Firmar y Rellenar · ingles", () => {
     await openProPdf(page, await buildContract(), "contract.pdf");
     await page.locator('[data-tab="sign"]').click();
     await expect(page.getByRole("region", { name: ee.regionLabel })).toBeVisible();
-    await page.getByRole("toolbar", { name: en.paletteLabel }).getByRole("button", { name: en.fieldTypeText, exact: true }).click();
+    await pickPaletteTool(page, en.paletteLabel, en.fieldTypeText);
     const textboxes = await page.getByRole("textbox").count();
     await clickUntil(page.getByRole("button", { name: en.addTextFieldHere }), async () => (await page.getByRole("textbox").count()) > textboxes);
     await page.getByRole("textbox").last().fill("Hello");
@@ -845,16 +857,17 @@ test.describe("PDF Pro · modos Firmar y Rellenar · ingles", () => {
 test.describe("PDF Pro · Firmar · avisos plegados · movil 375×812", () => {
   test.use({ locale: "es-ES", viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
 
-  test("dos avisos: una linea «2 avisos» expandible, sin desbordes; la tarjeta de la firma y el lienzo siguen como siempre", async ({ page }) => {
+  test("dos avisos: una linea «2 avisos» expandible, sin desbordes; la tarjeta de la firma sigue en su sitio y el lienzo va primero", async ({ page }) => {
     await openProPdf(page, await buildSignedAndRestricted(), "avisos.pdf");
     await gotoTab(page, "sign");
-    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(paletteOrFab(page)).toBeVisible();
     const fold = page.getByRole("button", { name: SE.warningsCount(2), exact: true });
     await expect(fold).toBeVisible();
     const target = await fold.boundingBox();
     expect(target!.height, "objetivo tactil").toBeGreaterThanOrEqual(44);
     await noHorizontalOverflow(page, "movil, plegado");
-    // En movil NO se junta la barra: el dueno de la firma sigue en su tarjeta y los contadores encima de la hoja.
+    // En movil NO se junta la barra: el dueno de la firma sigue en su tarjeta. Los contadores van DEBAJO de la hoja (la hoja
+    // primero: integracion M4 / VP-01; antes estaban encima y la hoja no se veia en un telefono).
     await expect(page.locator("[data-canvas-controls]")).toHaveCount(0);
     await expect(page.getByRole("button", { name: SG.createSignature }).first()).toBeVisible();
     const order = await page.evaluate(() => {
@@ -862,7 +875,7 @@ test.describe("PDF Pro · Firmar · avisos plegados · movil 375×812", () => {
       const row = document.querySelector("[data-canvas-status-row]")!;
       return host.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_PRECEDING ? "antes" : "despues";
     });
-    expect(order).toBe("antes");
+    expect(order).toBe("despues");
     // Expandir: el texto completo de los dos, dentro del ancho del telefono.
     await fold.tap();
     await expect(fold).toHaveAttribute("aria-expanded", "true");
@@ -878,6 +891,6 @@ test.describe("PDF Pro · Firmar · avisos plegados · movil 375×812", () => {
     expect(await runAxe(page), "axe en movil con los avisos expandidos").toEqual([]);
     await fold.tap();
     await expect(fold).toHaveAttribute("aria-expanded", "false");
-    await expect(page.getByRole("toolbar", { name: SG.paletteLabel })).toBeVisible();
+    await expect(paletteOrFab(page)).toBeVisible();
   });
 });

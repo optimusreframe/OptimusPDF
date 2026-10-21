@@ -602,7 +602,10 @@ export function PageGrid({
       data-pages-grid=""
       onKeyDown={handleKeyDown}
       onScroll={(event) => setScrollTop((event.currentTarget as HTMLDivElement).scrollTop)}
-      className={cn("relative min-h-0 overflow-y-auto overflow-x-hidden", className)}
+      // Con el dedo no hay barra de desplazamiento: con barras clasicas (WebKit) 6 paginas apenas desbordan, la barra aparecia y
+      // desaparecia al cambiar el ancho de las tarjetas y estas oscilaban de 117 a 113 px sin parar (Playwright: «element is not
+      // stable»). Con barras superpuestas (iOS) no cambia nada.
+      className={cn("relative min-h-0 overflow-y-auto overflow-x-hidden pointer-coarse:[scrollbar-width:none]", className)}
     >
       <div className="relative w-full" style={{ height: metrics.totalHeight }}>
         {rendered.map((index) => {

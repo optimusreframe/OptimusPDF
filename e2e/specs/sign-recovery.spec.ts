@@ -220,7 +220,8 @@ test.describe("la sesion en la URL", () => {
   test("(c7) el id de la URL es opaco: sin nombres de archivo ni de firmantes", async ({ page }) => {
     const docs = await makeTwoDocs();
     await collectAllSignatures(page, docs);
-    expect(page.url()).not.toMatch(/Contrato|Anexo|Ana|Luis|\.pdf/i);
+    // Sin /i: el id (`s-<hora en base 36>-<azar>`) es de minusculas y puede contener «ana» durante un rato (era un fallo intermitente por hora).
+    expect(page.url()).not.toMatch(/Contrato|Anexo|Ana|Luis|\.pdf/);
     expect(sessionParam(page)).toMatch(/^s-[a-z0-9]+-[a-z0-9]+$/);
   });
 

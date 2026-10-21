@@ -64,6 +64,18 @@ describe("measureObstructions · barras fijas y pegajosas", () => {
     expect(measureObstructions(box)).toEqual({ top: 0, bottom: 0 });
   });
 
+  it("cuenta el dock plegable de la paleta (pegado ~11 rem sobre el borde, por encima de las barras de accion)", () => {
+    bar("position: fixed", { top: 560, bottom: 700 }, { "data-chrome": "tabbar" });
+    // Dock: su borde de abajo queda a 152 px del borde de la ventana, mas lejos que los 140 px de una barra normal.
+    bar("position: sticky", { top: 460, bottom: 508 }, { "data-palette-dock": "" });
+    expect(measureObstructions(box)).toEqual({ top: 0, bottom: 240 });
+  });
+
+  it("un dock que descansa en el flujo, lejos del borde de abajo, no tapa nada", () => {
+    bar("position: sticky", { top: 300, bottom: 348 }, { "data-palette-dock": "" });
+    expect(measureObstructions(box)).toEqual({ top: 0, bottom: 0 });
+  });
+
   it("freeRegion descuenta las barras de la caja visible del scroller", () => {
     const scroller = document.createElement("div");
     scroller.style.overflowY = "auto";

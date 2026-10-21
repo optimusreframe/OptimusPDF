@@ -88,6 +88,7 @@ import {
   FloatingFieldBar,
 } from "@/app/sign-pdf/FloatingFieldBar";
 import { ToolPalette } from "@/app/sign-pdf/ToolPalette";
+import { useInProSuite } from "@/app/sign-pdf/useInProSuite";
 import {
   IDEAL_TARGET_PX,
   expandHitTargets,
@@ -189,8 +190,8 @@ const COARSE_TALL = "pointer-coarse:h-11 pointer-coarse:before:hidden";
 const COARSE_TALL_MIN = `${COARSE_TALL} pointer-coarse:min-h-11`;
 
 /**
- * En movil la paleta de herramientas es `fixed` (9.25 rem sobre el borde inferior + su alto, hasta dos filas): al
- * enfocar un control de la pagina, el navegador lo desplaza hasta dejarlo por encima de ella (WCAG 2.4.11).
+ * En movil la paleta (dock pegajoso) y las barras fijas de abajo (tab bar + «Opciones/Procesar», ~12,5 rem en total) tapan el
+ * borde inferior: al enfocar un control de la pagina, el navegador lo desplaza hasta dejarlo por encima (WCAG 2.4.11).
  */
 const ABOVE_FLOATING_PALETTE = "max-md:scroll-mb-48";
 
@@ -569,6 +570,8 @@ function DocumentCanvasInner({
 }: DocumentCanvasProps) {
   const touchStrings = useTouchStrings();
   const compact = useCanvasCompact();
+  /** Dentro de PDF Pro el layout de tablet lo gobierna la suite (paleta en carril desde 768 px); fuera, desde 1 280 px. */
+  const inPro = useInProSuite();
   const isDesktop = useIsDesktop();
   /** Recuento de paginas que da la pasada de miniaturas (la vista grande trae el suyo). */
   const [thumbPageCount, setThumbPageCount] = useState(0);
@@ -2471,17 +2474,6 @@ function DocumentCanvasInner({
     [],
   );
 
-  /*
-   * La paleta movil es FIJA (sobre la barra de accion de ToolShell): mientras
-   * el lienzo esta montado marca `<html>` para que `globals.css` reserve, al
-   * final de la pagina, el alto de la paleta y el pie no quede tapado.
-   */
-  useEffect(() => {
-    const root = document.documentElement;
-    root.setAttribute("data-fixed-palette", "");
-    return () => root.removeAttribute("data-fixed-palette");
-  }, []);
-
   if (!file) return null;
 
   /*
@@ -2725,6 +2717,12 @@ function DocumentCanvasInner({
    * se pintan a la vez.
    */
   const merged = compact && isDesktop && !sequence?.hidePager;
+  /*
+   * Hoja primero (PDF Pro, tablet y movil; auditoria VP-01): dentro de Pro cada pixel antes de la hoja cuenta, asi que el
+   * texto de ayuda de la tarjeta va solo para lectores de pantalla y el estado y las acciones de borrar (raras) pasan
+   * DEBAJO de la hoja, como en escritorio.
+   */
+  const sheetFirst = merged || compact;
 
   /* Dueño de los huecos nuevos (o la firma propia, en "Solo yo"). */
   const signatureControls = (
@@ -2745,7 +2743,7 @@ function DocumentCanvasInner({
           ) : (
             <p
               className={
-                merged
+                sheetFirst
                   ? "sr-only"
                   : // VI-01: `flex-1` (base 0) nunca pasaba a otra linea y se comprimia a una palabra por linea bajo
                     // los botones. Con base de 14 rem crece si hay sitio y, si no, ocupa su propia linea.
@@ -2759,7 +2757,7 @@ function DocumentCanvasInner({
             <Button
               variant={solo.signaturePng ? "secondary" : "primary"}
               size="sm"
-              className={COARSE_TALL}
+              className={cn(COARSE_TALL, compact && "px-2.5!")}
               onClick={solo.onCreateSignature}
             >
               <PenLine aria-hidden="true" className="size-4" />
@@ -2769,7 +2767,7 @@ function DocumentCanvasInner({
               <Button
                 variant="secondary"
                 size="sm"
-                className={COARSE_TALL}
+                className={cn(COARSE_TALL, compact && "px-2.5!")}
                 onClick={solo.onOpenSaved}
               >
                 <Bookmark aria-hidden="true" className="size-4" />
@@ -2858,7 +2856,7 @@ function DocumentCanvasInner({
       data-canvas-status-row=""
       className={cn(
         "flex flex-wrap items-center justify-between gap-3",
-        merged ? "mt-3" : "mb-3",
+        sheetFirst ? "mt-3" : "mb-3",
       )}
     >
       <p className="flex flex-wrap items-center gap-x-1.5 text-caption text-muted-foreground tabular-nums">
@@ -3008,7 +3006,7 @@ function DocumentCanvasInner({
 
       {/* Dueño de los huecos nuevos (o la firma propia, en "Solo yo") y alta con teclado. */}
       {merged ? null : (
-        <div className="surface-card rounded-ios mb-3 space-y-3 p-3">
+        <div className={cn("surface-card rounded-ios space-y-3", compact ? "mb-2 p-2" : "mb-3 p-3")}>
           {signatureControls}
           {placeControl}
         </div>
@@ -3029,8 +3027,8 @@ function DocumentCanvasInner({
             "material-thick shadow-elevation-2 rounded-ios sticky z-30 flex flex-wrap items-center justify-between gap-x-1 gap-y-1 p-1",
             // VI-04: con la paleta vertical a la izquierda (md+) la barra empieza donde empieza la hoja (3rem de la
             // paleta + 0.75rem de separacion): al salir la paleta por arriba ya no pasa por debajo de los botones de zoom.
-            !merged && "md:ml-[3.75rem]",
-            merged ? "mb-1.5" : "mb-3",
+            !merged && (inPro ? "md:ml-[3.75rem]" : "xl:ml-[3.75rem]"),
+            merged ? "mb-1.5" : compact ? "mb-2" : "mb-3",
             compact
               ? "top-1"
               : "top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3",
@@ -3078,7 +3076,7 @@ function DocumentCanvasInner({
         </div>
       )}
 
-      {merged ? null : statusRow}
+      {sheetFirst ? null : statusRow}
 
       {/* «Editar texto»: pista, deshacer/rehacer y la nota de que al firmar se quita el texto original (salvo casos especiales). */}
       {textEdit && (editingText || textEditing.count > 0) ? (
@@ -3156,7 +3154,7 @@ function DocumentCanvasInner({
        * pinta debajo de la pagina, pegajosa sobre la barra de accion de
        * ToolShell (barra de pestanas 4.5 rem + barra de accion 4.25 rem).
        */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-start">
+      <div className={cn("flex flex-col gap-3", inPro ? "md:flex-row md:items-start" : "xl:flex-row xl:items-start")}>
         <ToolPalette
           tool={effectiveTool}
           tools={tools}
@@ -3167,7 +3165,6 @@ function DocumentCanvasInner({
           canPrevField={hasOtherPendingField}
           canNextField={hasOtherPendingField}
           strings={strings}
-          className="z-[35] max-md:fixed max-md:inset-x-0 max-md:bottom-[var(--canvas-palette-bottom,calc(9.25rem+env(safe-area-inset-bottom,0px)))] max-md:flex-wrap max-md:justify-center max-md:rounded-none max-md:pl-[max(0.25rem,env(safe-area-inset-left,0px))] max-md:pr-[max(0.25rem,env(safe-area-inset-right,0px))] md:sticky md:top-24 md:w-12 md:shrink-0"
         />
 
         <div ref={stageRef} className="relative min-w-0 flex-1">
@@ -3189,7 +3186,11 @@ function DocumentCanvasInner({
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerCancel}
               className={cn(
-                "relative w-full max-w-[640px] select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
+                "relative w-full max-w-[640px] select-none",
+                // Tablet (768-1279 px, fuera de PDF Pro): la hoja pasa de los 640 px de escritorio (en un iPad vertical y
+                // horizontal ocupaba 295-460 px). El escritorio (>= 1 280 px) queda igual.
+                !inPro && "md:max-xl:max-w-[52rem]",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
                 // GE-01: por defecto un dedo sobre la hoja DESPLAZA la pagina (`pan-x pan-y`, tambien con una
                 // herramienta armada: un toque coloca y mantener pulsado dibuja); los elementos y tiradores llevan
                 // `touch-none` propio (solo mientras se arrastran). El lienzo se queda con el gesto solo con zoom
@@ -3454,7 +3455,7 @@ function DocumentCanvasInner({
         </div>
       </div>
 
-      {merged ? statusRow : null}
+      {sheetFirst ? statusRow : null}
 
       {selectedTextField?.confidence === "low" ? (
         <p className="mt-3 flex items-start gap-2 text-footnote leading-relaxed text-foreground">

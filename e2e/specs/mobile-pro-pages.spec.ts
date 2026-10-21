@@ -49,7 +49,8 @@ async function listbox(page: Page) {
 }
 
 test.describe("GE-03 · reordenar páginas en el móvil", () => {
-  test("el auto-desplazamiento va por TIEMPO (px/s), sube cerca del borde y tiene tope", async ({ page }) => {
+  test("el auto-desplazamiento va por TIEMPO (px/s), sube cerca del borde y tiene tope", async ({ page, browserName }) => {
+    test.skip(browserName !== "chromium", "el dedo se emula por CDP (Input.dispatchTouchEvent), solo Chromium");
     await openPages(page);
     const cdp: CDPSession = await page.context().newCDPSession(page);
     const area = await listbox(page);
@@ -78,7 +79,8 @@ test.describe("GE-03 · reordenar páginas en el móvil", () => {
     expect(speeds.cerca, "a 40 px del borde sigue desplazando").toBeGreaterThan(40);
   });
 
-  test("tras desplazarse y soltar, el scroll se conserva y la página movida queda a la vista y seleccionada", async ({ page }) => {
+  test("tras desplazarse y soltar, el scroll se conserva y la página movida queda a la vista y seleccionada", async ({ page, browserName }) => {
+    test.skip(browserName !== "chromium", "el dedo se emula por CDP (Input.dispatchTouchEvent), solo Chromium");
     await openPages(page);
     const cdp: CDPSession = await page.context().newCDPSession(page);
     const area = await listbox(page);

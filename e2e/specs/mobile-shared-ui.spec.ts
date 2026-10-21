@@ -2,13 +2,13 @@ import { expect, test, type Browser } from "@playwright/test";
 import {
   boxOf,
   cdpOf,
-  host,
   isChromium,
   newTouchContext,
   openSignWithPdf,
   openSoloCanvasWithSignature,
   pickTool,
   revealSheet,
+  sheetPoint,
   touchDrag,
   touchTap,
   type DeviceName,
@@ -145,8 +145,7 @@ test.describe("VI-05 · objetivos tactiles de 44 px", () => {
       // Barra del campo seleccionado: se arma «Texto» y se toca la hoja.
       await revealSheet(page);
       await pickTool(page, /^Texto$|^Text$/);
-      const sheet = await boxOf(host(page));
-      await tap(page, { x: sheet.x + sheet.width * 0.4, y: Math.min(sheet.y + sheet.height * 0.3, 500) });
+      await tap(page, await sheetPoint(page, 0.4, 0.3));
       await expect(page.locator('[data-element-kind="text"][data-drag-mode="move"]')).toHaveCount(1);
       await page.keyboard.press("Escape");
       await expect(page.locator("[data-floating-bar]")).toBeVisible();
@@ -196,8 +195,7 @@ test.describe("VI-05 · tirador de un elemento diminuto", () => {
       await openSignWithPdf(page, 1);
       await revealSheet(page);
       await pickTool(page, /^Texto$|^Text$/);
-      const sheet = await boxOf(host(page));
-      const from = { x: sheet.x + sheet.width * 0.3, y: Math.min(sheet.y + sheet.height * 0.3, 480) };
+      const from = await sheetPoint(page, 0.3, 0.3);
       // Mantener y arrastrar dibuja un campo de ~26 x 16 px: diminuto (los dos lados < 40 px).
       await touchDrag(cdp, from, { x: from.x + 26, y: from.y + 16 }, { holdMs: 450, steps: 6, stepMs: 14 });
       const field = page.locator('[data-element-kind="text"][data-drag-mode="move"]').first();
@@ -313,8 +311,7 @@ test.describe("SC-04 · entradas >= 16 px", () => {
       await openSignWithPdf(page, 1);
       await revealSheet(page);
       await pickTool(page, /^Texto$|^Text$/);
-      const sheet = await boxOf(host(page));
-      await tap(page, { x: sheet.x + sheet.width * 0.4, y: Math.min(sheet.y + sheet.height * 0.3, 500) });
+      await tap(page, await sheetPoint(page, 0.4, 0.3));
       const input = page.locator("input[data-canvas-input]");
       await expect(input).toBeVisible();
       const fontSize = await input.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));

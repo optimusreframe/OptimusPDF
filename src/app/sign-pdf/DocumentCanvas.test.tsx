@@ -3623,11 +3623,10 @@ describe("DocumentCanvas — pulido tactil y de teclado (W2-C)", () => {
     spy.mockRestore();
   });
 
-  it("el lienzo marca <html> con data-fixed-palette mientras esta montado (reserva el alto de la paleta fija)", async () => {
+  it("el lienzo ya NO marca <html> con data-fixed-palette: la paleta es un dock pegajoso detras de la hoja, sin reserva al final", async () => {
     const { unmount } = render(<Harness tool="select" />);
-    expect(document.documentElement.hasAttribute("data-fixed-palette")).toBe(true);
-    unmount();
     expect(document.documentElement.hasAttribute("data-fixed-palette")).toBe(false);
+    unmount();
   });
 
   describe("selector de tipo de la barra", () => {

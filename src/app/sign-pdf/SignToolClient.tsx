@@ -17,7 +17,6 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Sheet } from "@/components/ui/Sheet";
 import { ToolShell, type ProcessResult, type ToolRenderContext } from "@/components/tool/ToolShell";
 import { useMatchMedia } from "@/app/sign-pdf/useMatchMedia";
-import { cn } from "@/lib/cn";
 import { isRevealed, pulseElement, revealElement } from "@/app/sign-pdf/scrollReveal";
 import { useInProSuite } from "@/app/sign-pdf/useInProSuite";
 import {
@@ -2474,6 +2473,8 @@ export function SignToolClient() {
         </DocumentSessionHost>
       )}
       renderOptions={tabletOptions ? undefined : renderOptionsPanel}
+      // El editor de plantillas ocupa toda la pantalla: la hoja «Opciones» del movil no se queda abierta encima.
+      suspended={editor !== null}
     />
     </FileAdmissionContext.Provider>
     <LeaveSheet state={leave} strings={strings.resume} closeLabel={t.common.close} />
@@ -2539,37 +2540,6 @@ function TabletOptions({
       </Sheet>
     </div>
   );
-}
-
-/**
- * Ajustes del lienzo hechos desde fuera (el lienzo es de otro modulo; solo se toca su contrato `data-*`):
- *  - Tablet (768-1279 px): la paleta pasa de carril lateral a dock bajo la hoja y la hoja puede pasar de los 640 px de escritorio —en un iPad vertical (834 px) y horizontal
- *    (1 194 px) ocupaba 295-460 px—. Se sube el tope SOLO ahi y solo para el anfitrion (`data-canvas="host"`); el escritorio
- *    (>= 1 280 px) queda igual.
- *  - Tactil: el campo de texto que se escribe sobre la hoja (12 px) pasa a 16 px, que Safari no amplia al enfocarlo
- *    (SC-04), y sobresale 6 px por arriba y por abajo para que la letra entre; con raton no cambia nada.
- */
-/** Ajustes tactiles, validos en cualquier contenedor (herramienta suelta y PDF Pro). */
-const CANVAS_TOUCH_OVERRIDES = [
-  "pointer-coarse:[&_[data-element-kind=text]_input]:text-base",
-  "pointer-coarse:[&_[data-element-kind=text]_input]:h-auto",
-  "pointer-coarse:[&_[data-element-kind=text]_input]:-inset-y-1.5",
-  // Barra de zoom del lienzo: «Alejar / 100 % / Acercar» a 2 px entre si; con el dedo, 8 px (VI-07).
-  "pointer-coarse:[&_[data-canvas-sticky]_[role=group]]:gap-2",
-].join(" ");
-
-/** Solo la herramienta suelta (no PDF Pro, que gobierna su propio layout de tablet). */
-export const CANVAS_OVERRIDES = [
-  CANVAS_TOUCH_OVERRIDES,
-  "md:max-xl:[&_[data-canvas=host]]:max-w-[52rem]",
-  // El dock de la paleta va DETRAS de la hoja (columna) tambien en tablet; el lienzo la pone en fila desde 768 px.
-  "md:max-xl:[&_div:has(>[data-palette-dock])]:flex-col",
-  "md:max-xl:[&_div:has(>[data-palette-dock])]:items-stretch",
-].join(" ");
-
-/** Clases del contenedor del lienzo segun donde se monte (PDF Pro conserva su layout de tablet). */
-function canvasOverridesFor(inPro: boolean): string {
-  return inPro ? CANVAS_TOUCH_OVERRIDES : CANVAS_OVERRIDES;
 }
 
 /** Notifica a la aplicacion automatica de plantillas los archivos de la ronda. No pinta nada. */
@@ -3274,7 +3244,7 @@ export function MultiFlow({
   ) : null;
 
   return (
-    <div className={cn("space-y-5", canvasOverridesFor(inProSuite))}>
+    <div className="space-y-5">
       {/* Anuncio del cambio de paso (region viva siempre montada; sin `role` para no duplicar los `status` de la pagina). */}
       <p aria-live="polite" aria-atomic="true" className="sr-only" data-step-announce="">
         {stepAnnouncement}
@@ -3302,8 +3272,8 @@ export function MultiFlow({
               onClick={() => setOptions({ step })}
               className={
                 active
-                  ? "min-h-11 rounded-ios-sm border border-signal/60 bg-signal/15 px-3 text-footnote font-semibold text-foreground"
-                  : "min-h-11 rounded-ios-sm border border-white/10 bg-white/5 px-3 text-footnote font-semibold text-muted-foreground transition-colors enabled:hover:border-white/25 enabled:hover:text-foreground disabled:opacity-40"
+                  ? "min-h-11 rounded-ios-sm border border-signal/60 bg-signal/15 px-3 max-[420px]:px-2 text-footnote font-semibold text-foreground"
+                  : "min-h-11 rounded-ios-sm border border-white/10 bg-white/5 px-3 max-[420px]:px-2 text-footnote font-semibold text-muted-foreground transition-colors enabled:hover:border-white/25 enabled:hover:text-foreground disabled:opacity-40"
               }
             >
               {index + 1}. {stepLabels[step]}
@@ -3807,10 +3777,9 @@ export function SoloFlow({
     seen,
   });
   const textEditConfig = useTextEditConfig(options.textEdits, setOptions, editStrings);
-  const inProSuite = useInProSuite();
 
   return (
-    <section className={cn("flex flex-col gap-4", canvasOverridesFor(inProSuite))}>
+    <section className="flex flex-col gap-4">
       <DetectionStatus
         detecting={detecting}
         failed={detectionFailed}

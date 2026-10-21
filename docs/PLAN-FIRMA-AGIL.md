@@ -1697,3 +1697,58 @@ Responde a los hallazgos de Firmar de esta auditoría. Todo el cambio vive en `s
 - `DocumentCanvas.tsx` (M3): sigue pasando a `ToolPalette` las clases `max-md:fixed …` (la paleta las ignora); `max-w-[640px]` de la hoja y el `text-xs` del campo de texto se corrigen desde fuera con selectores sobre `data-canvas="host"` / `data-element-kind`; conviene que el lienzo los asuma. `globals.css` sigue reservando 4 rem más al final de la página (`data-fixed-palette`), ya innecesarios.
 - `ToolShell` / `Sidebar` / `MobileTabBar`: «Subir/Bajar» de la lista de archivos siguen a 0 px (VI-07); la barra lateral global de escritorio (272 px) y la tab bar de 72 px siguen fijas dentro de Firmar.
 - Pendiente de verificar en dispositivo real: Safari/iPad (teclado, `visualViewport`, barra de direcciones y `dvh`, gestos reales).
+## Integración móvil/iPad (M4)
+
+Reconcilia las tres entregas de la auditoría móvil/iPad (M3 lienzo compartido y UI base, M2 PDF Pro, M1 Firmar PDF), que se escribieron por separado y al juntarse dejaban 12 fallos E2E en modo CI (Chromium, build de producción). Cada fallo se diagnosticó con captura y medidas antes de tocar nada: 11 eran pruebas que asumían la paleta de Firmar SIEMPRE abierta y fija (M1 la pliega en teléfono) o un punto de toque que ya no cae sobre la hoja; uno era un defecto real de M2.
+
+### Causa de cada uno de los 12 fallos
+
+| Prueba | Causa | Arreglo |
+|---|---|---|
+| `mobile-a11y-matrix` (axe, herramienta armada y campo colocado, claro/oscuro × ES/EN, 4 casos) | Spec: `pickTool` buscaba `getByRole("toolbar")` y en un teléfono la paleta llega plegada en un botón (timeout de 3-4 min). | `pickTool` abre la paleta si está plegada (`unfoldPalette`). Mismas aserciones (axe 0 violaciones en 6 anchos). |
+| `mobile-canvas-gestures` :70 (deslizar con «Texto» armada) | Spec: misma causa. | Idem. Misma aserción: el dedo desplaza la página y no crea nada. |
+| `mobile-canvas-gestures` :90 (toque coloca) y :102 (mantener y arrastrar dibuja) | Spec, dos causas: la paleta plegada y el punto de toque. Tras «Usar esta firma» M1 desplaza la página hasta la firma (ER-01), así que la parte alta de la hoja queda bajo la barra de zoom y «el 30 % de la hoja» caía sobre «Acercar» (la hoja pasaba a 150 % y no se creaba nada). | Helpers `sheetPoint` / `visibleBand`: un punto DENTRO de la parte visible de la hoja (bajo la barra de zoom, sobre las capas fijas). Mismas aserciones. |
+| `mobile-canvas-gestures` :279 («ver este hueco») | Mixto. Spec: la sonda medía la zona libre contra la paleta `fixed` que ya no existe. Defecto real: `measureObstructions` no contaba el dock plegable de la paleta (pegado a ~9,5 rem del borde, más arriba que su umbral de 140 px). | `[data-palette-dock]` cuenta como obstrucción inferior (alcance 260 px) en `src/lib/touch/scrollRegion.ts` + pruebas unitarias; la sonda del spec mide independientemente la franja visible (`visibleBand`). |
+| `mobile-shared-ui` :137 (objetivos de 44 px), :188 (tirador de un campo diminuto), :310 (campo sobre la hoja a 16 px) | Spec: `pickTool` y punto de toque (como arriba). | Idem. Mismas aserciones (44 px, zona de agarre 44 px, 16 px). |
+| `pdf-pro-viewer` :600 (visor continuo 375 px, 7 herramientas) | Defecto real de M2 (no de M3): el dock con celdas `min-w-14` (56 px) suma 7 × 56 = 392 px en 367 px útiles, se desplazaba y recortaba la 7.ª herramienta a 375 px. M2 escribió que «a 375/393 siguen cabiendo»: no era cierto. | `min-w-[max(3rem,min-content)]` (48 px o el texto): 7 caben a 375 px (336 px) y a 320 px sigue desplazándose sin tocar las etiquetas (VI-03). |
+
+### Defectos reales del cruce, corregidos
+
+- **Firmar dentro de PDF Pro (VP-01 pendiente de M2)**: la hoja visible medía 0 px (375×667) y 16 px (393×852). Ahora `DocumentCanvas` recibe «hoja primero» cuando se monta en Pro (`useInProSuite`): ayuda de la tarjeta solo para lectores de pantalla, tarjeta más ajustada, contadores y «Quitar todo» DEBAJO de la hoja; el conmutador «Solo yo / Varios» y «Qué debes saber» llevan `data-pro-fold` (se pliegan con «Ocultar herramientas»); la paleta se pliega en un botón también dentro de Pro en teléfono (abierta tapaba ~105 px de la hoja con dos filas) y ese botón también lleva `data-pro-fold`; el relleno de 13 rem al final del contenedor de Firmar/Rellenar sobraba. Medido con `elementFromPoint`: 375×667 pasa de 0 a 288 px; 393×852 de 16 a ≥ 300; 744×1133 y 834×1194, 640 y 824 px.
+- **Barra flotante del campo**: `FloatingFieldBar` también esquiva el dock (`[data-palette-dock]`, plegado o abierto, en cualquier ancho donde tenga caja); antes solo miraba `[data-tool-palette]`.
+- **«Subir/Bajar» de la lista de archivos** (`FileList`): estaban pegados (0 px) con el asa y entre sí; ahora van en un `ButtonGroup` (4 px con ratón, 8 px con dedo).
+- **Hoja «Opciones» sobre el editor de plantillas en el teléfono**: `ToolShell` gana `suspended?: boolean` y `SignToolClient` lo pone mientras el editor está abierto; la hoja se cierra al abrirlo (la de tablet ya lo hacía).
+- **Cuadrícula de «Páginas» de PDF Pro en WebKit** (también fallaba en HEAD): con 6 páginas apenas desbordan, la barra clásica aparecía y desaparecía al cambiar el ancho de las tarjetas y estas oscilaban de 117 a 113 px sin parar (Playwright: «element is not stable», `mobile-pro-pages` GE-05). `PageGrid` oculta la barra con puntero grueso (`pointer-coarse:[scrollbar-width:none]`); con ratón no cambia nada.
+- **Paso de varios firmantes con tipografía ancha** (DejaVu del CI de Linux): los tres chips de paso pasan a `px-2` bajo 420 px (antes «3. Firmar» saltaba a otra fila y empujaba el traspaso por debajo de la mitad de la pantalla); los dos botones de la tarjeta de firma en Pro llevan `px-2.5!` para no partirse en dos filas.
+
+### Limpiezas entre dueños
+
+- `DocumentCanvas`: ya no pasa a `ToolPalette` las clases `max-md:fixed …` (que la paleta ignoraba) y `ToolPalette` deja de filtrarlas; se quita la marca `data-fixed-palette` de `<html>` y su regla de `globals.css` (4 rem extra al final de la página); se retiran los parches por selector de `SignToolClient` (`CANVAS_OVERRIDES`: `max-w-[52rem]` de la hoja en tablet, tamaño de letra y altura del campo de texto —el lienzo ya lo hace nativo con `text-base` y `scale-75`—, separación de la barra de zoom —ya la da `ButtonGroup`—, orden del dock en tablet). Ahora son nativos del lienzo: hoja de 52 rem en tablet (768-1279 px) fuera de Pro, dock y carril según `useInProSuite` (carril desde 1 280 px; dentro de Pro desde 768 px) y barra de zoom alineada con la hoja (`xl:ml-[3.75rem]`, `md:` en Pro).
+- No hizo falta un hueco de acción primaria en `ToolShell`/`MobileTabBar`: «Continuar» pegado abajo (a la derecha) y el botón de la paleta (a la izquierda) comparten la franja sobre «Opciones/Procesar» sin taparse (prueba E2E con un campo colocado justo sobre el dock).
+- Playwright: los specs `mobile-*` corren todos en `webkit-ipad` (`mobile-[\w-]+` en `F0_SPECS`; faltaban `mobile-sign-a11y`, `mobile-a11y-matrix` y `mobile-canvas-gestures`).
+
+### Pruebas que cambian (y por qué)
+
+- `pdf-pro-modes-sign` (375×812): la paleta es un botón plegado también en Pro (helpers `paletteOrFab` / `pickPaletteTool`); la prueba de «2 avisos» ahora exige los contadores DEBAJO de la hoja (hoja primero).
+- `mobile-sign-a11y`: la medición «al final de la página» excluye lo que queda a medias bajo la cabecera pegajosa (la barra de zoom y «Atrás» pasan por ahí según cuánto mida el pie; nadie lo toca en ese punto y `target-size` lo contaba como tapado).
+- `sign-recovery` (c7): el id de la URL (`s-<hora en base 36>-<azar>`) puede contener «ana» durante un rato y la expresión era `/…|Ana|…/i`; ahora distingue mayúsculas (los nombres van capitalizados). Era un fallo intermitente por hora.
+- `mobile-pro-pages` (GE-03, 2 pruebas): usan CDP y ahora se saltan fuera de Chromium (fallaban en `webkit-ipad` con «CDP session is only available in Chromium»). `mobile-sign-a11y`: `noHorizontalOverflow` mide sin el corrimiento de ~10 px que WebKit deja unos cientos de ms tras enfocar un campo o tocar un botón (con `scrollWidth` igual al ancho: no hay desborde).
+- `mobile-safe-area-sheet` (SC-06): espera a que la hoja deje de moverse antes de deslizar (con carga en Linux tardaba más de 700 ms).
+- Unitarias: `DocumentCanvas.test` (ya no se marca `data-fixed-palette`), `DocumentCanvasCompact.test` (hoja primero en teléfono compacto; la frase de ayuda sigue visible fuera de Pro), `ToolPalette.mobile.test` (se pliega en Pro en teléfono), `ProMobileDock.test` (48 px).
+
+### Pruebas nuevas
+
+`e2e/specs/mobile-integration.spec.ts` (17 pruebas): hoja visible de Firmar en Pro a 375×667 (≥ 280), 393×852 (≥ 300), 744×1133 y 834×1194; «Aplicar», «Descartar» y el dock de Pro sin nada encima; botón de la paleta anclado a la región de Firmar, que no desplaza con un toque real y que se pliega con «Ocultar herramientas»; campo colocado justo sobre el dock a 375 y 393 px (barra flotante y tirador sin nada encima); el dedo desplaza con «Texto» armada con la paleta plegada y con ella abierta; «Subir/Bajar» de 44 px y a ≥ 8 px; la hoja «Opciones» se cierra al abrir el editor de plantillas. Unitarias: `ToolShell.suspended.test.tsx`, `FileList.spacing.test.tsx`, casos nuevos de `scrollRegion.test.tsx`.
+
+### Cifras de verificación (copia aislada, build de producción, `CI=1`)
+
+- `npx tsc --noEmit` 0; `npx eslint src e2e` 0 errores (1 aviso previo); vitest completo con `F2_REAL_PDFS=1`: 553 archivos + 4 omitidos, 12 646 tests, 0 fallos (antes 551 / 12 640).
+- macOS · Chromium, suite completa (1 463 pruebas): 1 456 pasan, 1 intermitente (`sign-recovery` (d), «recarga 100 ms después»: también falla 2 de 24 veces en HEAD), 6 omitidas, 0 fallos. Tras los últimos cambios (`PageGrid`, specs) se repitieron `mobile-*`, `pdf-pro-pages` y `mobile-integration`: 170 pasan.
+- macOS · `webkit-ipad` (958 pruebas de `mobile-*`, `pdf-pro-*`, `sign-*`, `a11y-sweep`, `recent-continue`, `my-documents`, `settings*`, `documents-backup`, `focus-own-headers`, `tool-errors`): 911 pasan, 3 intermitentes, 36 omitidas (gestos CDP) y 8 fallos: 3 de `mobile-pro-pages` y 3 de `mobile-sign-a11y` (corregidos arriba; pasan) y 2 de `settings-package` (reloj simulado, pasan solas y en HEAD: carga).
+- Linux · Docker `mcr.microsoft.com/playwright:v1.62.0-noble` con `fonts-dejavu-core` (como el runner de GitHub), Chromium, build de producción: 1 247 de 1 254 pruebas (`mobile-*`, `sign-*`, `pdf-pro-*`, `a11y-sweep`, `recent-continue`, `my-documents`, `settings*`, `documents-backup`, `focus-own-headers`, `tool-errors`) pasan, 2 intermitentes (`sign-recovery` (d) y `sign-upload-a11y` «Escape devuelve el foco»), 0 fallos; y, con el código final, `mobile-*`, `sign-*-a11y`, `a11y-sweep`, `pdf-pro-viewer`, `pdf-pro-pages`, `pdf-pro-modes-sign` y las de tipografía ancha: 489 pasan, 0 fallos.
+- Las pruebas nuevas de `mobile-integration.spec.ts` fallan sobre HEAD (12 de 17) y pasan con el arreglo; la medida de hoja visible de Firmar en Pro pasa de 0 / 16 px a 288 / ≥ 300 px (375×667 / 393×852).
+- Lo de Linux sin DejaVu (imagen tal cual) dio 12 fallos solo en `sign-wide-font` y `sign-templates-wide-font`, cuya guarda exige una fuente ancha instalada: no son defectos.
+
+### Límites
+
+Safari/iPad reales sin verificar (rebote, barra de direcciones y `dvh`, auto-zoom de campos, `touchmove` no pasivo, safe-area real, teclado). Los gestos de dedo (CDP) solo existen en Chromium. La imagen de Playwright no trae DejaVu: se instaló `fonts-dejavu-core` en el contenedor para parecerse al runner de GitHub.

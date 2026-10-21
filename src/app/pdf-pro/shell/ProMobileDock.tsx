@@ -81,11 +81,12 @@ export function ProMobileDock({ language, openTab, onSelect, modeTab = null, mod
             onFocus={() => setFocusTab(id)}
             onClick={() => onSelect(id)}
             className={cn(
-              // `min-w-14` (56 px): con 7 botones en 320 px las etiquetas («Proteger», «Convertir») se tocaban; ahora el dock se
-              // desplaza en vez de apretarlas, y a 375/393 px siguen cabiendo con aire entre etiquetas.
+              // `min-w-12` (48 px, >= 44): con 7 botones en 320 px las etiquetas («Proteger», «Convertir») se tocaban; ahora el
+              // dock se desplaza en vez de apretarlas (7 x 48 = 336 > 312), y a 375/393 px los siete caben a la vez (336 <= 367)
+              // sin recorte ni desplazamiento. Con 56 px (392 px) se desbordaba tambien a 375 px (integracion M4).
               rail
                 ? "flex min-h-14 w-full shrink-0 flex-col items-center justify-center gap-0.5 px-0.5 text-caption-2 font-medium"
-                : "flex min-h-14 min-w-14 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 text-caption-2 font-medium",
+                : "flex min-h-14 min-w-[max(3rem,min-content)] flex-1 flex-col items-center justify-center gap-0.5 px-0.5 text-caption-2 font-medium",
               "focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-signal forced-colors:focus-visible:outline-[Highlight]",
               active ? "text-signal-text forced-colors:text-[Highlight]" : "text-muted-foreground",
             )}

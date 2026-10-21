@@ -8,8 +8,8 @@ import type { PlacementTool } from "@/app/sign-pdf/canvasTools";
 /*
  * Paleta del lienzo en movil (auditoria movil/iPad, SC-02 / VI-04 / VI-07): PLEGADA por defecto en un boton con la
  * herramienta activa (las capas fijas de abajo dejan de sumar ~34 % del alto), se abre con ese boton, elegir una
- * herramienta (o Escape, o «Plegar herramientas») la vuelve a plegar y devuelve el foco al boton. Dentro de PDF Pro, en
- * tablet y en escritorio no se pliega.
+ * herramienta (o Escape, o «Plegar herramientas») la vuelve a plegar y devuelve el foco al boton. En
+ * tablet y en escritorio no se pliega; dentro de PDF Pro se pliega igual en un telefono.
  */
 
 const strings = SIGN_STRINGS.es;
@@ -50,7 +50,6 @@ function Harness({ onPick }: { onPick?: (tool: PlacementTool) => void }) {
       canPrevField
       canNextField
       strings={strings}
-      className="z-20 max-md:fixed max-md:inset-x-0 max-md:bottom-[calc(9.25rem+env(safe-area-inset-bottom,0px))] md:sticky md:top-24 md:w-12 md:shrink-0"
     />
   );
 }
@@ -135,9 +134,17 @@ describe("ToolPalette · tablet, escritorio y PDF Pro", () => {
     expect(screen.getByRole("toolbar").getAttribute("aria-orientation")).toBe("vertical");
   });
 
-  it("dentro de PDF Pro no se pliega en un telefono", () => {
+  it("dentro de PDF Pro se pliega en un telefono (boton marcado `data-pro-fold` para «Ocultar herramientas») y en tablet no", () => {
     document.documentElement.setAttribute("data-pro-suite", "");
     stubViewport(393);
+    const { unmount } = render(<Harness />);
+    expect(screen.queryByRole("toolbar", { name: strings.paletteLabel })).toBeNull();
+    const fab = screen.getByRole("button", { name: strings.paletteExpand(strings.toolSelect) });
+    expect(fab.hasAttribute("data-pro-fold")).toBe(true);
+    fireEvent.click(fab);
+    expect(screen.getByRole("toolbar", { name: strings.paletteLabel })).toBeTruthy();
+    unmount();
+    stubViewport(834);
     render(<Harness />);
     expect(screen.getByRole("toolbar", { name: strings.paletteLabel })).toBeTruthy();
     expect(screen.queryByRole("button", { name: strings.paletteCollapse })).toBeNull();

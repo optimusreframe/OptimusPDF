@@ -47,8 +47,8 @@ import type { SignStrings } from "@/app/sign-pdf/strings";
  * «Procesar» en tablet) mientras la hoja se ve; al final de la pagina descansa bajo la hoja, sin taparla. En el movil
  * (< 768 px) esta PLEGADO por defecto en un boton con la herramienta activa: asi las capas fijas de abajo (barra + tab
  * bar) suman ~16 % del alto de un iPhone y no ~34 %; al abrirlo, una fila (o dos) de botones de 44 px separados 8 px, y
- * elegir una herramienta lo pliega de nuevo. Dentro de PDF Pro (`<html data-pro-suite>`) la paleta no se pliega y el
- * carril de escritorio empieza en 768 px, como antes: ese layout lo gobierna la suite.
+ * elegir una herramienta lo pliega de nuevo. Dentro de PDF Pro (`<html data-pro-suite>`) el
+ * carril de escritorio empieza en 768 px, como antes: ese layout lo gobierna la suite; en el telefono se pliega igual.
  */
 
 const TOOL_ICONS: Record<PlacementTool, typeof Type> = {
@@ -82,12 +82,6 @@ export function paletteItemClass(active: boolean, dimmed = false): string {
 }
 
 type ItemKey = PlacementTool | "prev" | "next" | "collapse";
-
-/**
- * Lo que el lienzo (`DocumentCanvas`) le pasa en `className` y esta paleta decide ella misma: la colocacion en movil
- * (`max-md:*`: era `fixed` a 9,25 rem del borde) y el `top` del carril, que debe quedar bajo la barra de zoom.
- */
-const OWN_LAYOUT = /^(max-md:.*|md:sticky|md:top-24|md:w-12|md:shrink-0|z-20)$/;
 
 export type ToolPaletteProps = {
   tool: PlacementTool;
@@ -124,8 +118,11 @@ export function ToolPalette({
   const railMedium = useMatchMedia("(min-width: 768px)");
   const vertical = inPro ? railMedium : railWide;
   const narrow = useMatchMedia("(max-width: 767.98px)");
-  /** Movil fuera de PDF Pro: la paleta se pliega en un boton. En jsdom (`matchMedia` ausente) nunca. */
-  const collapsible = narrow && !inPro;
+  /**
+   * Movil (< 768 px), tambien dentro de PDF Pro: la paleta se pliega en un boton. En PDF Pro abierta tapaba ~105 px de la
+   * hoja (dos filas) en un iPhone de 852 px (hoja visible 216 px); plegada la deja en ~320. En jsdom (`matchMedia` ausente) nunca.
+   */
+  const collapsible = narrow;
   const [open, setOpen] = useState(false);
   /** Quien debe recibir el foco tras plegar/abrir: lo que la persona acaba de pulsar desaparece del arbol. */
   const focusAfterRef = useRef<"fab" | "tool" | null>(null);
@@ -215,11 +212,6 @@ export function ToolPalette({
   const itemClass = (active: boolean, dimmed = false) =>
     cn(paletteItemClass(active, dimmed), inPro ? "max-md:w-11 max-md:flex-none" : "max-xl:h-11 max-xl:w-11 max-xl:flex-none");
 
-  const owned = (className ?? "")
-    .split(/\s+/)
-    .filter((token) => token && !OWN_LAYOUT.test(token))
-    .join(" ");
-
   const ActiveIcon = TOOL_ICONS[tool];
   const armed = tool !== "select";
 
@@ -251,7 +243,7 @@ export function ToolPalette({
               // Carril de escritorio ancho: bajo la barra de zoom (que se pega a 0,75 rem de arriba desde 1 024 px).
               "xl:sticky xl:top-20 xl:w-12 xl:shrink-0 xl:flex-col xl:gap-0.5 xl:pointer-coarse:gap-2",
             ],
-        owned,
+        className,
       )}
     >
       {tools.map((key) => {
@@ -367,6 +359,8 @@ export function ToolPalette({
           ref={fabRef}
           type="button"
           data-palette-fab=""
+          // PDF Pro pliega con «Ocultar herramientas» lo marcado `data-pro-fold` (y la barra desplegada, por `data-tool-palette`).
+          data-pro-fold=""
           aria-label={strings.paletteExpand(labelOf(tool))}
           aria-expanded={false}
           title={strings.paletteExpand(labelOf(tool))}

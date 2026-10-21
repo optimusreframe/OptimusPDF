@@ -335,6 +335,17 @@ export function FloatingFieldBar({
         }
       }
     }
+    // El dock de la paleta de Firmar (boton plegado o barra, pegajoso detras de la hoja) tapa el borde de abajo de la parte
+    // util: elemento, tiradores y barra quedan por encima de el. En escritorio ancho el dock es `display: contents` (sin caja).
+    if (!keyboardOpen) {
+      const dock = document.querySelector<HTMLElement>("[data-palette-dock]");
+      if (dock) {
+        const dockRect = dock.getBoundingClientRect();
+        if (dockRect.height > 0 && dockRect.top > safeTop + (safeBottom - safeTop) * 0.3 && dockRect.top < safeBottom && dockRect.bottom > safeTop) {
+          safeBottom = Math.min(safeBottom, dockRect.top - 4);
+        }
+      }
+    }
     // Elemento fuera de la parte util de la ventana (se hizo scroll): la barra se
     // oculta en vez de quedarse anclada al borde, solapando la paleta o las barras fijas.
     if (anchorRect.y + anchorRect.height <= safeTop || anchorRect.y >= viewBottom) {

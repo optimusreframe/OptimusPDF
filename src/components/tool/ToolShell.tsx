@@ -243,6 +243,11 @@ export type ToolShellProps<TOptions> = {
    * Firmar para ofrecer «Deshacer» al quitar un documento con trabajo hecho (F0 · U0.3).
    */
   onFilesChanged?: (next: File[], previous: File[]) => void;
+  /**
+   * Otra pantalla (el editor de plantillas de Firmar) pasa a primer plano y tapa la herramienta, que sigue montada: el
+   * panel «Opciones» abierto (hoja movil) se cierra en vez de quedarse encima de ella.
+   */
+  suspended?: boolean;
 };
 
 type Phase = "idle" | "files" | "options" | "processing" | "done";
@@ -308,6 +313,7 @@ export function ToolShell<TOptions>({
   loadRef,
   renderIdle,
   onFilesChanged,
+  suspended = false,
 }: ToolShellProps<TOptions>) {
   const t = useT();
   const Icon = tool.icon;
@@ -315,6 +321,10 @@ export function ToolShell<TOptions>({
   const belowHasContent = useScrollEdge("bottom");
 
   const [phase, setPhase] = useState<Phase>("idle");
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cierra la hoja «Opciones» cuando otra pantalla pasa a primer plano
+    if (suspended) setPhase((current) => (current === "options" ? "files" : current));
+  }, [suspended]);
   const [files, setFiles] = useState<File[]>([]);
   const [options, setOptionsState] = useState<TOptions>(defaultOptions);
   const [progress, setProgress] = useState(0);

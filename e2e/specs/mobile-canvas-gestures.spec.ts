@@ -11,7 +11,9 @@ import {
   scrollY,
   touchDrag,
   touchPinch,
+  sheetPoint,
   touchTap,
+  visibleBand,
   type DeviceName,
 } from "../helpers/touch-gestures";
 
@@ -91,8 +93,7 @@ test.describe("GE-01 · el dedo desplaza la pagina aunque haya herramienta o zoo
     const { page, cdp, close } = await openSession(browser, "iphone15");
     try {
       await pickTool(page, /^Texto$|^Text$/);
-      const sheet = await boxOf(host(page));
-      await touchTap(cdp, { x: sheet.x + sheet.width * 0.4, y: Math.min(sheet.y + sheet.height * 0.3, 520) });
+      await touchTap(cdp, await sheetPoint(page, 0.4, 0.3));
       await expect(page.locator('[data-element-kind="text"][data-drag-mode="move"]')).toHaveCount(1);
     } finally {
       await close();
@@ -103,8 +104,7 @@ test.describe("GE-01 · el dedo desplaza la pagina aunque haya herramienta o zoo
     const { page, cdp, close } = await openSession(browser, "iphone15");
     try {
       await pickTool(page, /^Texto$|^Text$/);
-      const sheet = await boxOf(host(page));
-      const from = { x: sheet.x + sheet.width * 0.2, y: Math.min(sheet.y + sheet.height * 0.25, 440) };
+      const from = await sheetPoint(page, 0.2, 0.25);
       await touchDrag(cdp, from, { x: from.x + 150, y: from.y + 50 }, { holdMs: 450, steps: 10, stepMs: 14 });
       const field = page.locator('[data-element-kind="text"][data-drag-mode="move"]').first();
       await expect(field).toBeVisible();
@@ -258,23 +258,28 @@ test.describe("API del lienzo: «ver este hueco» (scrollIntoViewRect)", () => {
       [rect, options] as const,
     );
 
-  /** Centro (px de pantalla) de una fraccion de la hoja y la zona libre (entre la barra de zoom y las barras fijas de abajo). */
-  const probe = (page: Page, rect: { x: number; y: number; width: number; height: number }) =>
-    page.evaluate((rect) => {
-      const sheet = document.querySelector<HTMLElement>('[data-canvas="host"]')!.getBoundingClientRect();
-      const bar = document.querySelector("[data-canvas-sticky]")?.getBoundingClientRect();
-      const palette = document.querySelector("[data-tool-palette]")?.getBoundingClientRect();
-      const paletteIsBar = palette && getComputedStyle(document.querySelector("[data-tool-palette]")!).position === "fixed";
-      return {
-        top: sheet.top + rect.y * sheet.height,
-        bottom: sheet.top + (rect.y + rect.height) * sheet.height,
-        left: sheet.left + rect.x * sheet.width,
-        right: sheet.left + (rect.x + rect.width) * sheet.width,
-        freeTop: bar && bar.top < 200 ? bar.bottom : 0,
-        freeBottom: paletteIsBar ? palette!.top : innerHeight,
-        vw: innerWidth,
-      };
-    }, rect);
+  /**
+   * Centro (px de pantalla) de una fraccion de la hoja y la zona libre: entre la barra de zoom y la capa fija o pegajosa
+   * mas alta de abajo (tab bar, barra «Opciones/Procesar» y el dock plegable de la paleta), medida con `visibleBand`.
+   */
+  const probe = async (page: Page, rect: { x: number; y: number; width: number; height: number }) => {
+    const band = await visibleBand(page);
+    return page.evaluate(
+      ([rect, band]) => {
+        const sheet = document.querySelector<HTMLElement>('[data-canvas="host"]')!.getBoundingClientRect();
+        return {
+          top: sheet.top + rect.y * sheet.height,
+          bottom: sheet.top + (rect.y + rect.height) * sheet.height,
+          left: sheet.left + rect.x * sheet.width,
+          right: sheet.left + (rect.x + rect.width) * sheet.width,
+          freeTop: band.top,
+          freeBottom: band.bottom,
+          vw: innerWidth,
+        };
+      },
+      [rect, band] as const,
+    );
+  };
 
   test("lleva un hueco del pie de una hoja alta a la zona libre (sin tapar por la barra de zoom ni la paleta)", async ({ browser }) => {
     const { page, close } = await openSession(browser, "iphone15", 2, [595, 1700]);
@@ -353,9 +358,8 @@ test.describe("PDF Pro · Firmar usa el mismo lienzo", () => {
           return -1;
         });
       await pickTool(page, /^Texto$|^Text$/);
-      const sheet = await boxOf(host(page));
-      const x = sheet.x + sheet.width / 2;
-      const y = Math.min(sheet.y + sheet.height * 0.5, 540);
+      // Un punto de la hoja que SI se ve: la cabecera de Firmar (conmutadores y avisos) no se desplaza y ocupa la franja de arriba.
+      const { x, y } = await sheetPoint(page, 0.5, 0.5);
       const before = await region();
       await touchDrag(cdp, { x, y }, { x, y: y - 220 }, { steps: 10, stepMs: 12 });
       await page.waitForTimeout(500);

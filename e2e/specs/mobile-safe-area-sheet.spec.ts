@@ -12,6 +12,7 @@ import {
 } from "../helpers/touch-gestures";
 import { outsideSafeColumns } from "../helpers/touch-measure";
 import { goToTab, openProPdf } from "../helpers/pro-flow";
+import { stillBox } from "../helpers/engine";
 
 /**
  * M3 · zonas de seguridad laterales (SC-03), hoja que se cierra deslizando desde el contenido (SC-06) y barra lateral
@@ -97,6 +98,8 @@ test.describe("SC-06 · la hoja se cierra deslizando desde el contenido", () => 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await page.waitForTimeout(700);
+    // La hoja entra con un muelle: el dedo baja cuando su caja ya esta quieta (en el CI de Linux, con carga, tardaba mas de 700 ms).
+    await stillBox(dialog, 5000);
     return dialog;
   }
 
