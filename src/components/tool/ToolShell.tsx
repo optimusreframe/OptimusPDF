@@ -1149,7 +1149,7 @@ export function ToolShell<TOptions>({
         <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-8">
           {/* Con la hoja de opciones abierta (movil) el fondo queda inerte: no se lee ni se enfoca. */}
           <div className="min-w-0 flex-1" inert={phase === "options"}>
-            <div className="mb-3 flex items-baseline justify-between gap-3">
+            <div className="mb-3 flex items-baseline justify-between gap-3 pointer-coarse:mb-5">
               <h2 className="ui-label text-muted-foreground">
                 {t.tool.filesTitle}
               </h2>
