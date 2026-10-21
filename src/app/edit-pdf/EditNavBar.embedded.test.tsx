@@ -53,3 +53,23 @@ describe("EditNavBar embebida", () => {
     expect(b.container.querySelectorAll("button, input").length).toBe(normal);
   });
 });
+
+describe("EditNavBar · una fila en pantallas estrechas con 8 px entre botones (M5 · N2, VI-07)", () => {
+  it("con el dedo los grupos separan sus botones 8 px (antes 0, y «Pagina siguiente» tocaba «Miniaturas»)", () => {
+    const { container } = renderBar(true);
+    const groups = Array.from(container.querySelectorAll<HTMLElement>('[role="group"], [data-nav-embedded] > div'));
+    expect(groups.length).toBeGreaterThanOrEqual(2);
+    for (const group of groups) expect(group.className).toContain("pointer-coarse:gap-2");
+    expect((container.firstElementChild as HTMLElement).className).toContain("gap-x-2");
+  });
+
+  it("por debajo de 380 px el porcentaje y el «/ N» se leen solo por voz para que quepa en UNA fila; el nombre accesible no cambia", () => {
+    const { container } = renderBar(true);
+    const percent = Array.from(container.querySelectorAll<HTMLElement>("span")).find((span) => /\d+ ?%/.test(span.textContent ?? ""))!;
+    expect(percent.className).toContain("max-[379px]:sr-only");
+    const total = Array.from(container.querySelectorAll<HTMLElement>('span[aria-hidden="true"]')).find((span) => /3/.test(span.textContent ?? ""))!;
+    expect(total.className).toContain("max-[379px]:hidden");
+    expect(container.textContent).toContain(EDIT_STRINGS.es.pageOf(1, 3));
+    expect((container.firstElementChild as HTMLElement).className).toContain("max-[359px]:px-0.5");
+  });
+});

@@ -44,6 +44,11 @@ export type ProTopBarProps = {
    * ahi «Descartar» y «Aplicar», junto a «Descargar» y «Mas».
    */
   modeSlotRef?: (element: HTMLDivElement | null) => void;
+  /**
+   * (M5 · N1) Con un modo abierto en un movil el deshacer/rehacer GLOBAL esta apagado (el modo trae el suyo en la paleta): sus
+   * dos botones de 44 px se retiran y dejan sitio a «Aplicar» y al titulo en vez de quedar como dos botones muertos.
+   */
+  hideHistory?: boolean;
 };
 
 /** Boton de icono de 44 px (patron del Sidebar): el relleno visible es de 32 px. */
@@ -113,6 +118,7 @@ export function ProTopBar({
   status,
   compact = false,
   modeSlotRef,
+  hideHistory = false,
 }: ProTopBarProps) {
   const strings = getProStrings(language);
   const s = strings.suite;
@@ -131,8 +137,8 @@ export function ProTopBar({
         "has-[[data-export-indicator]]:flex-wrap has-[[data-export-indicator]]:py-1",
       )}
     >
-      <Layers aria-hidden="true" className="hidden size-5 shrink-0 text-accent-pro sm:block" />
-      <div className={cn("flex-1", modeSlotRef ? "min-w-[6rem]" : "min-w-0")}>
+      <Layers aria-hidden="true" className={cn("hidden size-5 shrink-0 text-accent-pro", compact ? "min-[900px]:block" : "sm:block")} />
+      <div className={cn("flex-1", modeSlotRef ? "min-w-[4.5rem]" : "min-w-0")}>
         <h1
           ref={headingRef}
           tabIndex={-1}
@@ -158,12 +164,16 @@ export function ProTopBar({
           )}
         </p>
       </div>
-      <BarIconButton label={s.undo} shortcut="Control+Z Meta+Z" disabled={!canUndo} onClick={onUndo}>
-        <Undo2 aria-hidden="true" className="size-[18px]" />
-      </BarIconButton>
-      <BarIconButton label={s.redo} shortcut="Control+Shift+Z Meta+Shift+Z Control+Y" disabled={!canRedo} onClick={onRedo}>
-        <Redo2 aria-hidden="true" className="size-[18px]" />
-      </BarIconButton>
+      {hideHistory ? null : (
+        <>
+          <BarIconButton label={s.undo} shortcut="Control+Z Meta+Z" disabled={!canUndo} onClick={onUndo}>
+            <Undo2 aria-hidden="true" className="size-[18px]" />
+          </BarIconButton>
+          <BarIconButton label={s.redo} shortcut="Control+Shift+Z Meta+Shift+Z Control+Y" disabled={!canRedo} onClick={onRedo}>
+            <Redo2 aria-hidden="true" className="size-[18px]" />
+          </BarIconButton>
+        </>
+      )}
       {status}
       {modeSlotRef ? <div ref={modeSlotRef} data-pro-mode-slot="" className="contents" /> : null}
       <Button size="md" onClick={onDownload} className="shrink-0">

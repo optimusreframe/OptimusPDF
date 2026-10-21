@@ -12,6 +12,7 @@ import {
 } from "react";
 import { Bookmark, PenLine, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/cn";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Sheet } from "@/components/ui/Sheet";
@@ -3211,9 +3212,14 @@ export function MultiFlow({
     const nav = stepNavRef.current;
     if (nav) revealElement(nav, { align: "start", margin: 8 });
     const active = document.activeElement;
-    if (!active || active === document.body || (active instanceof HTMLElement && active.hasAttribute("data-step-nav"))) {
-      nav?.querySelector<HTMLElement>('[aria-current="step"]')?.focus({ preventScroll: true });
-    }
+    // (M5 · N7) WebKit no enfoca un boton al pulsarlo: el foco que tenia un control que ya no existe cae al ancestro enfocable
+    // (`<main tabindex="-1">`), no a <body>. Tambien eso es «sin sitio»: pasa al paso actual, igual que en Chromium.
+    const landed =
+      !active ||
+      active === document.body ||
+      (active instanceof HTMLElement &&
+        (active.hasAttribute("data-step-nav") || (active.tagName === "MAIN" && active.getAttribute("tabindex") === "-1")));
+    if (landed) nav?.querySelector<HTMLElement>('[aria-current="step"]')?.focus({ preventScroll: true });
     setStepAnnouncement(stepAnnounceText);
     // `stepAnnounceText` cambia SOLO con el paso (y el idioma): no hace falta en las dependencias.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3231,7 +3237,31 @@ export function MultiFlow({
   const tabletLayout = useMatchMedia(
     "(min-width: 768px) and (max-width: 1279.98px), (max-width: 767.98px) and (min-height: 961px)",
   );
-  const nextPlacement: "sticky" | "nav" | "flow" = inProSuite ? "flow" : phoneLayout ? "sticky" : tabletLayout ? "nav" : "flow";
+  // (M5 · N5) En tablet «Continuar» vive en la barra de pasos MIENTRAS esta a la vista y, en cuanto sale por arriba (quedaba 280-450 px
+  // por encima de la pantalla al trabajar la hoja), pasa a anclarse abajo a la derecha, en la esquina del pulgar (la barra
+  // «Opciones/Procesar» es solo de movil). Nunca hay dos a la vez. Cerca del inicio de la pagina la barra de zoom aun esta en su sitio
+  // natural, abajo: por eso no se ancla abajo hasta que la barra de pasos ya no se ve.
+  const [stepNavInView, setStepNavInView] = useState(true);
+  useEffect(() => {
+    const nav = stepNavRef.current;
+    if (!nav || typeof IntersectionObserver === "undefined") return;
+    // `-72px` arriba: lo que queda bajo la cabecera pegajosa no cuenta como visible.
+    const observer = new IntersectionObserver(([entry]) => setStepNavInView(entry.isIntersecting), {
+      rootMargin: "-72px 0px 0px 0px",
+      threshold: 1,
+    });
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, []);
+  const nextPlacement: "sticky" | "tablet" | "nav" | "flow" = inProSuite
+    ? "flow"
+    : phoneLayout
+      ? "sticky"
+      : tabletLayout
+        ? stepNavInView
+          ? "nav"
+          : "tablet"
+        : "flow";
   const nextButton = nextStep ? (
     <Button
       size="md"
@@ -3273,7 +3303,7 @@ export function MultiFlow({
               className={
                 active
                   ? "min-h-11 rounded-ios-sm border border-signal/60 bg-signal/15 px-3 max-[420px]:px-2 text-footnote font-semibold text-foreground"
-                  : "min-h-11 rounded-ios-sm border border-white/10 bg-white/5 px-3 max-[420px]:px-2 text-footnote font-semibold text-muted-foreground transition-colors enabled:hover:border-white/25 enabled:hover:text-foreground disabled:opacity-40"
+                  : "min-h-11 rounded-ios-sm border border-white/10 bg-white/5 px-3 max-[420px]:px-2 text-footnote font-semibold text-muted-foreground transition-colors enabled:hover:border-white/25 enabled:hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-transparent"
               }
             >
               {index + 1}. {stepLabels[step]}
@@ -3515,10 +3545,17 @@ export function MultiFlow({
         y la tab bar. El contenedor no pinta ni recibe toques: el boton lleva su propio material. «Atras» queda en el flujo
         (la paleta plegada del lienzo ocupa ese rincon).
       */}
-      {nextPlacement === "sticky" && nextButton ? (
+      {(nextPlacement === "sticky" || nextPlacement === "tablet") && nextButton ? (
         <div
           data-step-actions=""
-          className="pointer-events-none sticky bottom-[calc(9.5rem+env(safe-area-inset-bottom,0px))] z-20 flex justify-end"
+          data-placement={nextPlacement}
+          className={cn(
+            "pointer-events-none sticky z-20 flex justify-end",
+            nextPlacement === "sticky"
+              ? "bottom-[calc(9.5rem+env(safe-area-inset-bottom,0px))]"
+              : // Un iPad mini vertical (744 px) aun lleva la tab bar y la barra «Opciones/Procesar» fijas (`md:hidden`): se ancla sobre ellas.
+                "bottom-[calc(9.5rem+env(safe-area-inset-bottom,0px))] md:bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))]",
+          )}
         >
           <span className="pointer-events-auto material-thick shadow-elevation-2 rounded-ios-sm">{nextButton}</span>
         </div>

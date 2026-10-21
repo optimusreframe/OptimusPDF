@@ -237,7 +237,7 @@ export function PagesActionBar({ model, handlers }: { model: PagesToolbarModel; 
   const none = selectionCount === 0 || busy;
   return (
     <div role="group" aria-label={s.actions.moreTitle} data-pages-toolbar="" className="space-y-2 px-4 pb-3">
-      <div role="group" aria-label={s.actions.groupSelection} className="flex flex-wrap items-center gap-1.5">
+      <div role="group" aria-label={s.actions.groupSelection} className="flex flex-wrap items-center gap-1.5 pointer-coarse:gap-2">
         <span className="ui-label mr-1 text-muted-foreground">{s.actions.select}</span>
         <ActionButton label={s.actions.selectAll} onClick={handlers.onSelectAll} testId="select-all" />
         <ActionButton label={s.actions.selectOdd} onClick={handlers.onSelectOdd} testId="select-odd" />
@@ -248,7 +248,7 @@ export function PagesActionBar({ model, handlers }: { model: PagesToolbarModel; 
           {selectionCount === 0 ? s.status.none : s.status.selected(selectionCount, total)}
         </span>
       </div>
-      <div role="group" aria-label={s.actions.groupPages} className="flex flex-wrap items-center gap-1.5">
+      <div role="group" aria-label={s.actions.groupPages} className="flex flex-wrap items-center gap-1.5 pointer-coarse:gap-2">
         <ActionButton label={s.actions.rotateLeft} icon={<RotateCcw />} onClick={handlers.onRotateLeft} disabled={none} testId="rotate-left" />
         <ActionButton label={s.actions.rotateRight} icon={<RotateCw />} onClick={handlers.onRotateRight} disabled={none} testId="rotate-right" />
         <ActionButton label={s.actions.remove} icon={<Trash2 />} onClick={handlers.onRemove} disabled={none || !canRemove} testId="remove" />
@@ -256,13 +256,13 @@ export function PagesActionBar({ model, handlers }: { model: PagesToolbarModel; 
         <ActionButton label={s.actions.moveBefore} icon={<ArrowLeft />} onClick={handlers.onMoveBefore} disabled={none} testId="move-before" />
         <ActionButton label={s.actions.moveAfter} icon={<ArrowRight />} onClick={handlers.onMoveAfter} disabled={none} testId="move-after" />
       </div>
-      <div role="group" aria-label={s.actions.groupInsert} className="flex flex-wrap items-center gap-1.5">
+      <div role="group" aria-label={s.actions.groupInsert} className="flex flex-wrap items-center gap-1.5 pointer-coarse:gap-2">
         <ActionButton label={s.actions.insertBlank} icon={<FilePlus2 />} onClick={handlers.onInsertBlank} testId="insert-blank" />
         <ActionButton label={s.actions.insertFromPdf} icon={<FileInput />} onClick={handlers.onInsertPdf} testId="insert-pdf" />
         <ActionButton label={s.actions.insertImages} icon={<ImagePlus />} onClick={handlers.onInsertImages} testId="insert-images" />
         <ActionButton label={s.actions.mergePdfs} icon={<Merge />} onClick={handlers.onMerge} testId="merge" />
       </div>
-      <div role="group" aria-label={s.actions.groupExport} className="flex flex-wrap items-center gap-1.5">
+      <div role="group" aria-label={s.actions.groupExport} className="flex flex-wrap items-center gap-1.5 pointer-coarse:gap-2">
         <ActionButton label={s.actions.extract} icon={<FileOutput />} onClick={handlers.onExtract} disabled={none} testId="extract" />
         <ActionButton label={s.actions.split} icon={<Scissors />} onClick={handlers.onSplit} testId="split" />
       </div>

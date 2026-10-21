@@ -77,6 +77,7 @@ export function Header() {
 
   return (
     <header
+      data-site-header=""
       data-scrolled={scrolled ? "true" : "false"}
       className="material-thick scroll-edge-bottom safe-top sticky top-0 z-40 lg:hidden"
       /* El material trae borde en los cuatro lados; una barra pegada al

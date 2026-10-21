@@ -51,6 +51,10 @@ test.describe("GE-01 · herramienta armada: «Desplazar»", () => {
     await openProDoc(page, { pages: 3 });
     await openTab(page, "edit");
     await expect(page.locator("[data-edit-scroll] canvas, [data-edit-scroll] img").first()).toBeVisible({ timeout: 20_000 });
+    // M5: la bandeja de herramientas flota sobre la hoja (ya no le resta alto), asi que a 100 % la pagina cabe entera y no hay
+    // recorrido que desplazar: se acerca para que la hoja sea mas alta que su zona, como al editar de verdad.
+    await page.getByRole("button", { name: /Acercar/ }).first().click();
+    await page.getByRole("button", { name: /Acercar/ }).first().click();
     await page.locator('[data-palette-item="rect"]').click();
     const toggle = page.getByRole("switch", { name: new RegExp(MODE_STRINGS.es.host.panLabel) });
     await expect(toggle).toBeVisible();
@@ -120,6 +124,8 @@ test.describe("VI-08 · ayudas táctiles en Editar", () => {
         await openTab(page, "edit");
         await expect(page.locator("[data-edit-scroll] canvas, [data-edit-scroll] img").first()).toBeVisible({ timeout: 20_000 });
         for (const tool of ["text", "rect", "highlight", "check"]) {
+          // M5: elegir una herramienta cierra la bandeja: para elegir otra se vuelve a abrir con su boton.
+          if (!(await page.locator(`[data-palette-item="${tool}"]`).isVisible())) await page.locator("[data-pro-fold-toggle]").click();
           await page.locator(`[data-palette-item="${tool}"]`).click();
           const hint = (await page.locator("[data-tool-hint]").textContent()) ?? "";
           expect(hint.length, `ayuda de ${tool}`).toBeGreaterThan(10);

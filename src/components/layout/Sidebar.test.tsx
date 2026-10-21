@@ -77,3 +77,23 @@ describe("Sidebar — aria-controls del buscador", () => {
     }
   });
 });
+
+/*
+ * M5 · N10: con la barra plegada (72 px) el boton «Expandir barra lateral» media 39 px de ancho: su contenedor llevaba `px-4` y
+ * `px-0` a la vez (gana el que la hoja de estilos escribe despues: `px-4`) y dejaba 40 px al boton de 44. Se elige UNA de las dos.
+ */
+describe("Sidebar — boton de plegar/expandir de 44 px (M5 · N10)", () => {
+  it("expandida el contenedor lleva px-4 y plegada px-0, nunca las dos (el boton conserva sus 44 px)", () => {
+    renderSidebar();
+    const collapse = screen.getByRole("button", { name: "Colapsar barra lateral" });
+    const header = collapse.parentElement!;
+    expect(header.className).toContain("px-4");
+    expect(header.className).not.toContain("px-0");
+    fireEvent.click(collapse);
+    const expand = screen.getByRole("button", { name: "Expandir barra lateral" });
+    const folded = expand.parentElement!;
+    expect(folded.className).toContain("px-0");
+    expect(folded.className).not.toContain("px-4");
+    expect(expand.className).toContain("size-11");
+  });
+});

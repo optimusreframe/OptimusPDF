@@ -146,3 +146,17 @@ describe("ResizeHandle (separador vertical WAI-ARIA)", () => {
     expect(handle.className).toContain("md:block");
   });
 });
+
+describe("ResizeHandle · area de agarre (M5 · VI-05)", () => {
+  it("mide 24 px con raton y 44 px con el dedo, sin ocupar ancho en el reparto (margen negativo igual a la mitad)", () => {
+    const { handle } = setup();
+    // Antes `w-3` (12 px): por debajo de los 24 px de WCAG 2.5.8 y de los 44 px de un dedo.
+    expect(handle.className).toContain("w-6");
+    expect(handle.className).toContain("-mx-3");
+    expect(handle.className).toContain("pointer-coarse:w-11");
+    expect(handle.className).toContain("pointer-coarse:-mx-[22px]");
+    expect(handle.className).not.toMatch(/(^|\s)w-3(\s|$)/);
+    // Lo que se ve sigue siendo una linea de 1 px: solo crece lo que se puede tocar.
+    expect(handle.querySelector("span")!.className).toContain("w-px");
+  });
+});

@@ -60,6 +60,19 @@ const modeBar = (page: Page) => page.locator("[data-pro-mode-bar]");
 const applyButton = (page: Page) => page.locator("[data-pro-mode-apply]");
 const discardButton = (page: Page) => page.locator("[data-pro-mode-discard]");
 const palette = (page: Page, id: string) => page.locator(`[data-palette-item="${id}"]`);
+/**
+ * M5 · en un movil vertical la paleta vive en una bandeja que se CIERRA al elegir una herramienta: para elegir otra (o para llevarle
+ * el foco) se vuelve a abrir con el boton «Mostrar herramientas». En escritorio y en movil horizontal la paleta ya esta a la vista.
+ */
+async function showPalette(page: Page, id: string): Promise<void> {
+  if (await palette(page, id).isVisible()) return;
+  await page.locator("[data-pro-fold-toggle]").click();
+  await expect(palette(page, id)).toBeVisible();
+}
+async function pickPalette(page: Page, id: string): Promise<void> {
+  await showPalette(page, id);
+  await palette(page, id).click();
+}
 const grid = (page: Page) => page.getByRole("listbox", { name: /Páginas del documento/ });
 const cardAt = (page: Page, n: number) => grid(page).getByRole("option", { name: new RegExp(`^Página ${n} de`) });
 const block = (page: Page, text: string) => page.getByRole("button", { name: new RegExp(`^Texto: ${text}`) });
@@ -131,7 +144,8 @@ async function enterMode(page: Page, env: Env, name: "Editar" | "Anotar"): Promi
   await pickTool(page, env, name);
   await expect(host(page)).toBeVisible();
   await expect(page.locator('[data-render-state="ready"]')).toBeVisible({ timeout: 30_000 });
-  await expect(palette(page, "select")).toBeVisible();
+  // M5: en un movil vertical la bandeja de la paleta puede estar plegada (se pliega al elegir una herramienta): basta con que exista.
+  await expect(palette(page, "select")).toBeAttached();
 }
 
 async function noHorizontalOverflow(page: Page): Promise<void> {
@@ -218,6 +232,7 @@ for (const viewport of VIEWPORTS) {
 
       // 3) Editar el texto existente. El modo entra en la pagina que se miraba (la 2, que se acaba de girar): se
       // pasa a la 1 con el teclado, donde esta el texto.
+      await showPalette(page, "select");
       await palette(page, "select").focus();
       await page.keyboard.press("[");
       await expect(page.getByRole("textbox", { name: EDIT_STRINGS.es.inline.goToPageLabel })).toHaveValue("1");
@@ -230,7 +245,7 @@ for (const viewport of VIEWPORTS) {
       await expect(modeBar(page)).toContainText(M.host.dirty);
 
       // 4) Anadir una imagen desde el selector.
-      await palette(page, "image").click();
+      await pickPalette(page, "image");
       await page.locator("[data-image-input]").setInputFiles({
         name: "sello.png",
         mimeType: "image/png",
@@ -286,9 +301,9 @@ for (const viewport of VIEWPORTS) {
       }
       await expect(page.locator("[data-flatten-toggle]")).toHaveCount(0);
 
-      await palette(page, "highlight").click();
+      await pickPalette(page, "highlight");
       await dragOnSheet(page, env, [0.12, 0.1], [0.55, 0.13]);
-      await palette(page, "rect").click();
+      await pickPalette(page, "rect");
       await dragOnSheet(page, env, [0.2, 0.3], [0.6, 0.4]);
       await expect(modeBar(page)).toContainText(M.host.dirty);
 
@@ -327,7 +342,7 @@ for (const viewport of VIEWPORTS) {
     test("salir con cambios sin aplicar pregunta: seguir, descartar y salir, o aplicar y salir", async ({ page }) => {
       await openPro(page, await makeReport());
       await enterMode(page, env, "Anotar");
-      await palette(page, "rect").click();
+      await pickPalette(page, "rect");
       await dragOnSheet(page, env, [0.2, 0.3], [0.6, 0.4]);
       await expect(modeBar(page)).toContainText(M.host.dirty);
 
@@ -352,7 +367,7 @@ for (const viewport of VIEWPORTS) {
 
       // Otra vez, ahora «Aplicar y salir»: UN snapshot y se llega a la pestaña pedida.
       await enterMode(page, env, "Anotar");
-      await palette(page, "ellipse").click();
+      await pickPalette(page, "ellipse");
       await dragOnSheet(page, env, [0.2, 0.3], [0.5, 0.4]);
       await pickTool(page, env, S.suite.tabs.pages);
       await page.getByRole("dialog").getByRole("button", { name: M.host.leaveApply }).click();
@@ -369,14 +384,16 @@ for (const viewport of VIEWPORTS) {
       await openPro(page, await makeReport());
       await rotatePageFromPages(page, env, 1);
       await enterMode(page, env, "Anotar");
-      await palette(page, "rect").click();
+      await pickPalette(page, "rect");
       await dragOnSheet(page, env, [0.2, 0.3], [0.6, 0.4]);
       await expect(modeBar(page)).toContainText(M.host.dirty);
+      await showPalette(page, "select");
       await palette(page, "select").focus();
       await page.keyboard.press("ControlOrMeta+Z");
       await expect(modeBar(page)).toContainText(M.host.clean);
-      // Los botones de deshacer del documento estan apagados dentro del modo.
-      await expect(topBar(page).getByRole("button", { name: S.suite.undo })).toHaveAttribute("aria-disabled", "true");
+      // Los botones de deshacer del documento estan apagados dentro del modo (en un movil vertical ni se pintan: M5 · N1).
+      if (env.mobile) await expect(topBar(page).getByRole("button", { name: S.suite.undo })).toHaveCount(0);
+      else await expect(topBar(page).getByRole("button", { name: S.suite.undo })).toHaveAttribute("aria-disabled", "true");
       await discardButton(page).click();
       await expect(host(page)).toHaveCount(0);
       await expect(page.locator("[data-pro-viewer-scroller]")).toBeVisible();
@@ -487,7 +504,7 @@ test.describe("PDF Pro · atajos de los modos (escritorio)", () => {
     const bytes = await makeReport();
     await openPro(page, bytes);
     await enterMode(page, { mobile: false }, "Anotar");
-    await palette(page, "rect").click();
+    await pickPalette(page, "rect");
     await dragOnSheet(page, { mobile: false }, [0.2, 0.3], [0.6, 0.4]);
     await expect(modeBar(page)).toContainText(M.host.dirty);
     // Da tiempo al autoguardado (calma de 350 ms) y recarga con el mismo archivo.

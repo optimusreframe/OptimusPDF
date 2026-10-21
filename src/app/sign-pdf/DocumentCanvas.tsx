@@ -2301,6 +2301,13 @@ function DocumentCanvasInner({
       // Sin zoom solo hay desplazamiento vertical: los bordes laterales no cuentan.
       return { top: free.top, bottom: free.bottom, left: -Infinity, right: Infinity };
     };
+    /** `true` si, desplazando la pagina `dy` px (+ baja), aun se descubre hoja bajo (o sobre) la zona libre. */
+    const sheetHasRoomToScroll = (dy: number): boolean => {
+      const card = (clipRef.current ?? hostRef.current)?.getBoundingClientRect();
+      if (!card) return true;
+      const free = regionOf();
+      return dy > 0 ? card.bottom > free.bottom + 1 : card.top < free.top - 1;
+    };
     const scroller = createEdgeAutoScroller({
       pointer: () => lastPointerRef.current,
       region: regionOf,
@@ -2318,7 +2325,9 @@ function DocumentCanvasInner({
           if (appliedX !== 0 || appliedY !== 0) applyView(zoomRef.current, result.pan);
           restY = dy - appliedY;
         }
-        if (restY !== 0) appliedY += scrollVerticallyBy(findScrollParent(host), restY);
+        // (M5 · N6) La pagina solo se desplaza mientras quede hoja por descubrir en esa direccion: con el borde de la hoja ya a la
+        // vista el elemento (sujeto a ese borde) no puede ir mas lejos, y seguir desplazando lo sacaba de la pantalla.
+        if (restY !== 0 && sheetHasRoomToScroll(restY)) appliedY += scrollVerticallyBy(findScrollParent(host), restY);
         dragRegionRef.current = null;
         return { dx: appliedX, dy: appliedY };
       },

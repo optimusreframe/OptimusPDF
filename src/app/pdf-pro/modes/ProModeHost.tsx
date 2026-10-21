@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { AlertTriangle, Check, Hand, PanelBottomClose, PanelBottomOpen, X } from "lucide-react";
 import { createBatchedSink, LiveSinkProvider } from "@/components/tool/liveRouting";
+import { TrayProvider, type TrayTool, type TrayValue } from "@/components/tool/trayRouting";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Spinner } from "@/components/ui/Spinner";
@@ -40,6 +41,8 @@ export type ProModeHostLayout = {
   slot: HTMLElement | null;
   /** El dock inferior esta debajo de la barra: la barra no necesita su propia zona segura. */
   dockBelow: boolean;
+  /** (M5) Se eligio una herramienta en la bandeja del movil: las barras se pliegan solas para devolverle el alto a la hoja. */
+  onToolPicked: () => void;
 };
 
 const DESKTOP_LAYOUT: ProModeHostLayout = {
@@ -48,6 +51,7 @@ const DESKTOP_LAYOUT: ProModeHostLayout = {
   onToggleCollapsed: () => {},
   slot: null,
   dockBelow: false,
+  onToolPicked: () => {},
 };
 
 export function ProModeHost({
@@ -97,6 +101,26 @@ const FOLD_CLASSES = [
  */
 const PAN_CLASSES = "data-[pan]:[&_[data-tool]]:touch-pan-y! data-[pan]:[&_[data-tool]]:touch-pan-x!";
 
+/** (M5 · GE-01) El aviso «Para mover la página, activa Desplazar o usa dos dedos» se da UNA vez por navegador. */
+const PAN_HINT_SEEN_KEY = "optimuspdf.pro.panHintSeen";
+const PAN_HINT_MS = 7000;
+
+function panHintSeen(): boolean {
+  try {
+    return window.localStorage.getItem(PAN_HINT_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markPanHintSeen(): void {
+  try {
+    window.localStorage.setItem(PAN_HINT_SEEN_KEY, "1");
+  } catch {
+    // Sin almacenamiento el aviso puede repetirse: no rompe nada.
+  }
+}
+
 function ProModeHostInner({
   session,
   def,
@@ -125,12 +149,14 @@ function ProModeHostInner({
   const modeName = modeBarName(language, subName ?? def.tab);
   const coarse = useCoarsePointer();
   const panHintId = useId();
+  const trayId = useId();
   // «Desplazar» solo tiene sentido con un dedo y en los modos que dibujan sobre la hoja (Editar y Anotar).
   const [pan, setPan] = useState(false);
   const panAvailable = coarse && (def.tab === "edit" || def.tab === "annotate");
   // Al salir del modo, el foco nunca cae a <body> en el instante en que se retira la barra (sus botones).
   const rootRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   useFocusReturn(rootRef, barRef);
   /*
    * Todo lo que el modo dice (entrar, campos detectados, avisos...) sale por la UNICA region viva de PDF Pro. Un aviso que
@@ -140,6 +166,80 @@ function ProModeHostInner({
   useEffect(() => {
     speak(m.host.entered(modeShortName(language, def.tab)));
   }, [speak, m, language, def.tab]);
+
+  const { mobile, collapsed, onToggleCollapsed, slot, dockBelow, onToolPicked } = layout;
+  // En un movil horizontal la barra va dentro de la cabecera (si su hueco ya existe); si no, abajo.
+  const inSlot = mobile && slot !== null;
+  const bottom = mobile && !inSlot;
+
+  /*
+   * (M5 · N2) Bandeja de herramientas del telefono vertical: la paleta, «Aplanar», el aviso de privacidad y el interruptor de
+   * Anotar flotan sobre el borde inferior de la hoja (no le restan alto) y se cierran al elegir una herramienta. En horizontal,
+   * en tablet y en escritorio la paleta es una columna lateral y no hay bandeja.
+   */
+  const trayMode = mobile && (def.tab === "edit" || def.tab === "annotate");
+  // En horizontal (dock como raíl) la paleta sigue siendo la columna lateral: la bandeja solo lleva «Aplanar» y la privacidad.
+  const trayPalette = trayMode && dockBelow;
+  const [paletteEl, setPaletteEl] = useState<HTMLDivElement | null>(null);
+  const [actionsEl, setActionsEl] = useState<HTMLDivElement | null>(null);
+  const [privacyEl, setPrivacyEl] = useState<HTMLDivElement | null>(null);
+  const [trayTool, setTrayTool] = useState<TrayTool | null>(null);
+  const trayRef = useRef<HTMLDivElement>(null);
+  const handleToolPicked = useCallback(() => {
+    // Con el foco dentro de la bandeja (teclado) este pasa al boton de la barra; si la eleccion vino de fuera, no se roba.
+    const hadFocus = trayRef.current?.contains(window.document.activeElement) ?? false;
+    onToolPicked();
+    if (hadFocus) window.requestAnimationFrame(() => toggleRef.current?.focus({ preventScroll: true }));
+  }, [onToolPicked]);
+  /* (M5 · GE-01) Aviso de UNA vez: con la primera herramienta armada con el dedo se dice como mover la pagina. */
+  const [panHint, setPanHint] = useState(false);
+  const armedNow = trayTool !== null;
+  const reportTool = useCallback(
+    (tool: TrayTool | null) => {
+      setTrayTool(tool);
+      if (!tool || !panAvailable || panHintSeen()) return;
+      markPanHintSeen();
+      setPanHint(true);
+      speak(m.host.panFirstHint);
+    },
+    [panAvailable, speak, m],
+  );
+  useEffect(() => {
+    if (!panHint) return;
+    const timer = window.setTimeout(() => setPanHint(false), PAN_HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [panHint]);
+  const hintVisible = panHint && armedNow && !pan;
+
+  const trayValue = useMemo<TrayValue | null>(
+    () =>
+      trayMode
+        ? {
+            slots: trayPalette
+              ? { palette: paletteEl, actions: actionsEl, privacy: privacyEl }
+              : { actions: actionsEl, privacy: privacyEl },
+            onToolPicked: handleToolPicked,
+            reportTool,
+          }
+        : null,
+    [trayMode, trayPalette, paletteEl, actionsEl, privacyEl, handleToolPicked, reportTool],
+  );
+  const showTray = trayMode && !collapsed;
+  const activeTool = trayMode ? trayTool : null;
+
+  // Abrir la bandeja con el boton lleva el foco a la herramienta activa de la paleta (sin esto el teclado se queda atras).
+  const wasTrayShown = useRef(showTray);
+  useEffect(() => {
+    const was = wasTrayShown.current;
+    wasTrayShown.current = showTray;
+    if (!showTray || was) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (!trayRef.current?.contains(window.document.activeElement) && window.document.activeElement === toggleRef.current) {
+        trayRef.current?.querySelector<HTMLElement>('[data-tool-palette] [tabindex="0"]')?.focus({ preventScroll: true });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [showTray]);
 
   const value = useMemo<ProModeHostValue>(
     () => ({
@@ -161,25 +261,38 @@ function ProModeHostInner({
   if (!document || !snapshot || !file) return null;
   const Component = def.Component;
   const canApply = hasControls && dirty && !busy;
-  const { mobile, collapsed, onToggleCollapsed, slot, dockBelow } = layout;
-  // En un movil horizontal la barra va dentro de la cabecera (si su hueco ya existe); si no, abajo.
-  const inSlot = mobile && slot !== null;
-  const bottom = mobile && !inSlot;
+
+  const toggleLabel = collapsed
+    ? activeTool
+      ? m.host.showToolsActive(activeTool.label)
+      : m.host.showTools
+    : m.host.hideTools;
+  const ToolIcon = collapsed && activeTool ? activeTool.icon : null;
 
   const controls = (
     <>
       {mobile ? (
         <button
+          ref={toggleRef}
           type="button"
           data-pro-fold-toggle=""
+          data-tool-active={ToolIcon ? activeTool?.id : undefined}
           aria-expanded={!collapsed}
-          aria-label={collapsed ? m.host.showTools : m.host.hideTools}
-          title={collapsed ? m.host.showTools : m.host.hideTools}
+          aria-controls={trayMode ? trayId : undefined}
+          aria-label={toggleLabel}
+          title={toggleLabel}
           onClick={onToggleCollapsed}
           className="group flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-[-6px] focus-visible:outline-signal forced-colors:focus-visible:outline-[Highlight]"
         >
-          <span className="flex size-8 items-center justify-center rounded-full text-foreground transition-[background-color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-active:scale-90 group-active:duration-[80ms] forced-colors:border forced-colors:border-[ButtonText]">
-            {collapsed ? (
+          <span
+            className={cn(
+              "flex size-8 items-center justify-center rounded-full text-foreground transition-[background-color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] group-active:scale-90 group-active:duration-[80ms] forced-colors:border forced-colors:border-[ButtonText]",
+              ToolIcon && "bg-signal/15 text-signal-text",
+            )}
+          >
+            {ToolIcon ? (
+              <ToolIcon aria-hidden="true" className="size-[18px]" />
+            ) : collapsed ? (
               <PanelBottomOpen aria-hidden="true" className="size-[18px]" />
             ) : (
               <PanelBottomClose aria-hidden="true" className="size-[18px]" />
@@ -203,7 +316,8 @@ function ProModeHostInner({
           )}
         >
           <Hand aria-hidden="true" className="size-4" />
-          <span className={inSlot ? "sr-only" : "max-[389px]:sr-only"}>{m.host.panLabel}</span>
+          {/* Texto corto a la vista siempre que quepa (390 px en vertical —con la tipografia ancha de Linux a 375 px no cabe—, 840 px en la cabecera horizontal). */}
+          <span className={inSlot ? "max-[839px]:sr-only" : "max-[389px]:sr-only"}>{m.host.panLabel}</span>
         </button>
       ) : null}
       {panAvailable ? (
@@ -261,9 +375,11 @@ function ProModeHostInner({
       data-pro-mode-bar=""
       data-placement={inSlot ? "header" : bottom ? "bottom" : "top"}
       className={cn(
-        "flex items-center gap-x-2 gap-y-1",
+        "relative flex items-center gap-x-2 gap-y-1",
         inSlot
-          ? "min-w-0 shrink"
+          ? // (M5 · N1) Dentro de la cabecera la barra NO se encoge: lo que no cabe lo cede el titulo del documento (que se trunca),
+            // nunca «Aplicar» (antes se pisaba con «Descargar» al sumar las zonas seguras de un iPhone horizontal).
+            "shrink-0"
           : bottom
             ? cn(
                 "shrink-0 border-t border-hairline bg-background pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] py-1",
@@ -280,7 +396,8 @@ function ProModeHostInner({
           inSlot && "max-lg:sr-only",
         )}
       >
-        <span data-pro-mode-name="" className={mobile ? "truncate max-[359px]:sr-only" : undefined}>
+        {/* (M5 · N4) El nombre del modo se lee ENTERO o no se pinta (el dock ya marca la pestaña): nada de «E…» / «A…». */}
+        <span data-pro-mode-name="" className={mobile ? "truncate max-[479px]:sr-only" : undefined}>
           {modeName}
         </span>
         {/* En el movil el estado cabe como un punto (la barra ya es estrecha); el texto sigue para lectores de pantalla. */}
@@ -302,6 +419,17 @@ function ProModeHostInner({
         {busy ? <Spinner className="size-4" /> : null}
       </p>
       {actions}
+      {hintVisible ? (
+        <p
+          data-pro-pan-first-hint=""
+          className={cn(
+            "surface-card shadow-elevation-2 pointer-events-none absolute z-40 rounded-ios px-3 py-2 text-footnote text-foreground",
+            inSlot ? "top-[calc(100%+0.5rem)] right-0 w-72" : "inset-x-2 bottom-[calc(100%+0.5rem)]",
+          )}
+        >
+          {m.host.panFirstHint}
+        </p>
+      ) : null}
     </div>
   );
 
@@ -319,6 +447,7 @@ function ProModeHostInner({
       data-busy={busy ? "" : undefined}
       data-chrome={mobile && collapsed ? "collapsed" : undefined}
       data-pan={pan && panAvailable ? "" : undefined}
+      data-armed-tool={activeTool?.id}
       className={cn("flex min-h-0 min-w-0 flex-1 flex-col outline-none", FOLD_CLASSES, PAN_CLASSES)}
     >
       {bottom || inSlot ? null : bar}
@@ -336,21 +465,50 @@ function ProModeHostInner({
 
       <div
         data-pro-mode-body=""
-        className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mobile ? "p-1 sm:p-2" : "p-2 md:p-3")}
+        // Escape dentro de la bandeja la cierra. El manejador va AQUI y no en la bandeja: las piezas llegan por portal y los eventos
+        // de React suben por el arbol de React (el editor), no por el DOM de la bandeja; se comprueba por DOM que viene de ella.
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !showTray || !trayRef.current?.contains(event.target as Node)) return;
+          event.stopPropagation();
+          onToggleCollapsed();
+          window.requestAnimationFrame(() => toggleRef.current?.focus({ preventScroll: true }));
+        }}
+        className={cn("relative min-h-0 min-w-0 flex-1 overflow-hidden", mobile ? "p-1 sm:p-2" : "p-2 md:p-3")}
       >
         <ProModeHostContext.Provider value={value}>
           <LiveSinkProvider value={sink}>
-            <Component
-              key={`${document.id}:${snapshot.id}`}
-              file={file}
-              bytes={snapshot.bytes}
-              lang={language}
-              onApply={session.onApply}
-              onCancel={onCancel}
-              onDirtyChange={session.onDirtyChange}
-            />
+            <TrayProvider value={trayValue}>
+              <Component
+                key={`${document.id}:${snapshot.id}`}
+                file={file}
+                bytes={snapshot.bytes}
+                lang={language}
+                onApply={session.onApply}
+                onCancel={onCancel}
+                onDirtyChange={session.onDirtyChange}
+              />
+            </TrayProvider>
           </LiveSinkProvider>
         </ProModeHostContext.Provider>
+        {trayMode ? (
+          <div
+            ref={trayRef}
+            id={trayId}
+            data-pro-tray=""
+            data-open={showTray ? "" : undefined}
+            className={cn(
+              "surface-card shadow-elevation-3 absolute inset-x-1 bottom-1 z-[45] max-h-[calc(100%-0.5rem)] flex-col gap-1 overflow-y-auto overscroll-contain rounded-ios p-1 sm:inset-x-2 sm:bottom-2",
+              showTray ? "flex" : "hidden",
+            )}
+          >
+            {trayPalette ? <div ref={setPaletteEl} className="empty:hidden" /> : null}
+            {/* «Aplanar» (o el interruptor de Anotar) y la fila de privacidad comparten renglon: la bandeja resta menos hoja. */}
+            <div className="hidden flex-wrap items-center justify-between gap-x-3 px-1 has-[>div:not(:empty)]:flex">
+              <div ref={setActionsEl} className="empty:hidden" />
+              <div ref={setPrivacyEl} className="empty:hidden" />
+            </div>
+          </div>
+        ) : null}
       </div>
       {bottom ? bar : null}
       {inSlot && slot ? createPortal(bar, slot) : null}

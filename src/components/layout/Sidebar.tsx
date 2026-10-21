@@ -180,10 +180,9 @@ export function Sidebar() {
       )}
     >
       <div
-        className={cn(
-          "flex h-16 shrink-0 items-center px-4",
-          collapsed && "justify-center px-0",
-        )}
+        // (M5 · N10) `px-4` y `px-0` en el mismo `cn` no se excluyen (gana el que la hoja de estilos escribe despues: `px-4`): con la
+        // barra plegada (72 px) el boton quedaba en 40 px y media 39 de ancho. Se elige UNA de las dos.
+        className={cn("flex h-16 shrink-0 items-center", collapsed ? "justify-center px-0" : "px-4")}
       >
         {collapsed ? null : <Logo />}
         <button

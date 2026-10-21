@@ -746,6 +746,14 @@
     main#content {
       padding-top: 0.25rem;
     }
+    /*
+     * M5 · axe `target-size` en Firmar: al enfocar o desplazar un control (`focus()`, `scrollIntoView`, el tabulador) el navegador lo
+     * deja pegado al borde de arriba de la ventana, justo BAJO la cabecera pegajosa (56-64 px + zona segura), que lo tapaba
+     * salvo 7 de sus 44 px. `scroll-padding-top` hace que ese borde sea el de debajo de la cabecera.
+     */
+    html {
+      scroll-padding-top: calc(4.25rem + env(safe-area-inset-top, 0px));
+    }
   }
 
   /*
@@ -764,6 +772,29 @@
    */
   :root[data-pro-suite] [data-chrome] {
     display: none;
+  }
+
+  /*
+   * M5 · N2: la cabecera de la web (56-64 px) se oculta dentro de PDF Pro cuando la hoja no tiene alto de sobra: en un movil
+   * horizontal (852x393, 800x360: el 15 % de la pantalla para el logo) y, en un movil vertical bajo (iPhone SE: 568-667 px),
+   * mientras un modo (Editar, Anotar, Firmar) esta abierto (`ProSuite` escribe `data-pro-immersive` en <html>). La suite pasa a medir
+   * todo el alto y la hoja recupera esos px; el logo y el selector de idioma vuelven al salir del modo.
+   */
+  :root[data-pro-immersive] [data-site-header] {
+    display: none;
+  }
+  /* `main#content` aun deja 0.25 rem arriba (< 1024 px): se descuentan para que la pagina NO se pueda desplazar. */
+  :root[data-pro-immersive] section[data-pro-suite] {
+    height: calc(100dvh - 0.25rem) !important;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  @media (max-height: 479.98px) {
+    :root[data-pro-suite] [data-site-header] {
+      display: none;
+    }
+    :root[data-pro-suite] section[data-pro-suite] {
+      height: calc(100dvh - 0.25rem) !important;
+    }
   }
 
   /*

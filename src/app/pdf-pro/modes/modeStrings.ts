@@ -53,6 +53,10 @@ export type ModeStrings = {
     /** (M2) Interruptor «Desplazar»: con el, un dedo sobre la hoja la desplaza aunque haya una herramienta armada. */
     panLabel: string;
     panHint: string;
+    /** (M5) Con la bandeja cerrada, el boton nombra la herramienta armada: «Mostrar herramientas (activa: Texto)». */
+    showToolsActive: (tool: string) => string;
+    /** (M5) Aviso de una sola vez al armar la primera herramienta con el dedo. */
+    panFirstHint: string;
   };
   /** (M2) Ayudas de cada herramienta armada con el dedo (sin «clic», sin «Esc»): sustituyen a las de escritorio en tactil. */
   touchHints: Record<"text" | "note" | "image" | "rect" | "ellipse" | "line" | "highlight" | "check", string>;
@@ -135,7 +139,9 @@ const ES: ModeStrings = {
     hideTools: "Ocultar herramientas",
     showTools: "Mostrar herramientas",
     panLabel: "Desplazar",
-    panHint: "Con «Desplazar» activado, un dedo sobre la hoja la mueve; toca para colocar el elemento.",
+    panHint: "Con «Desplazar» activado, un dedo sobre la hoja la mueve; toca para colocar el elemento. Con dos dedos siempre se desplaza y se hace zoom.",
+    showToolsActive: (tool) => `Mostrar herramientas (activa: ${tool})`,
+    panFirstHint: "Para mover la página, activa Desplazar o usa dos dedos.",
   },
   touchHints: {
     text: "Toca o arrastra en la página para añadir un cuadro de texto. Toca otra herramienta para cancelar.",
@@ -225,7 +231,9 @@ const EN: ModeStrings = {
     hideTools: "Hide tools",
     showTools: "Show tools",
     panLabel: "Scroll",
-    panHint: "With “Scroll” on, one finger on the page moves it; tap to place the item.",
+    panHint: "With “Scroll” on, one finger on the page moves it; tap to place the item. Two fingers always scroll and zoom.",
+    showToolsActive: (tool) => `Show tools (active: ${tool})`,
+    panFirstHint: "To move the page, turn on Scroll or use two fingers.",
   },
   touchHints: {
     text: "Tap or drag on the page to add a text box. Tap another tool to cancel.",

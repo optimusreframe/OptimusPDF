@@ -10,6 +10,7 @@ import { isTool } from "@/app/edit-pdf/editTools";
 import { EDIT_FLOW_STRINGS } from "@/app/edit-pdf/flowStrings";
 import { EDIT_STRINGS } from "@/app/edit-pdf/strings";
 import { useEditSession } from "@/app/edit-pdf/useEditSession";
+import { TrayPortal } from "@/components/tool/trayRouting";
 import { Spinner } from "@/components/ui/Spinner";
 import { errorCopy } from "@/components/tool/errorCopy";
 import { useI18n } from "@/lib/i18n";
@@ -189,8 +190,10 @@ export function ProEditorMode({
       // Si se entro pulsando una pestaña (o el dock) el foco ya esta donde la persona lo puso: se respeta.
       const onTabControl = !!active?.closest('[data-pro-region="tabs"]');
       if (onTabControl) return;
-      if (active && rootRef.current?.contains(active)) return;
-      const stop = rootRef.current?.querySelector<HTMLElement>('[data-tool-palette] [tabindex="0"]');
+      if (active && (rootRef.current?.closest("[data-pro-mode-host]") ?? rootRef.current)?.contains(active)) return;
+      // (M5 · N2) En movil la paleta vive en la bandeja del host (fuera de este contenedor): se busca en todo el modo.
+      const scope = rootRef.current?.closest<HTMLElement>("[data-pro-mode-host]") ?? rootRef.current;
+      const stop = scope?.querySelector<HTMLElement>('[data-tool-palette] [tabindex="0"]');
       if (stop && !sheetOpen) {
         stop.focus({ preventScroll: true });
         return;
@@ -222,6 +225,7 @@ export function ProEditorMode({
       className="flex h-full min-h-0 flex-col gap-2"
     >
       {variant === "annotate" ? (
+        <TrayPortal slot="actions">
         <div data-pro-fold="" className="flex shrink-0 flex-wrap items-center gap-2">
           <button
             type="button"
@@ -246,6 +250,7 @@ export function ProEditorMode({
             {m.annotate.textToggle}
           </button>
         </div>
+        </TrayPortal>
       ) : null}
       <div className="min-h-0 flex-1">
         <ReadyEditor

@@ -107,13 +107,13 @@ export function EditNavBar({
       data-canvas-sticky={embedded ? undefined : ""}
       data-nav-embedded={embedded ? "" : undefined}
       className={cn(
-        "material-thick shadow-elevation-2 rounded-ios z-30 flex flex-wrap items-center justify-between gap-y-1 p-1",
+        "material-thick shadow-elevation-2 rounded-ios z-30 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 p-1 max-[359px]:px-0.5",
         embedded
           ? "relative"
           : "sticky top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] md:top-[calc(4rem+env(safe-area-inset-top,0px)+0.5rem)] lg:top-3",
       )}
     >
-      <div role="group" aria-label={s.zoomGroupLabel} className="flex items-center gap-0.5 pointer-coarse:gap-0">
+      <div role="group" aria-label={s.zoomGroupLabel} className="flex items-center gap-0.5 pointer-coarse:gap-2">
         <NavButton
           aria-label={s.zoomOut}
           aria-keyshortcuts="-"
@@ -123,7 +123,8 @@ export function EditNavBar({
         >
           <ZoomOut aria-hidden="true" className="size-4" />
         </NavButton>
-        <span className="min-w-10 text-center text-footnote font-medium text-foreground tabular-nums">
+        {/* (M5 · N2) Por debajo de 380 px la barra cabe en UNA fila (ahorra 48 px de hoja): el porcentaje se lee solo por voz (los botones +/- siguen). */}
+        <span className="min-w-10 text-center text-footnote font-medium text-foreground tabular-nums max-[379px]:sr-only">
           {s.zoomValue(Math.round(zoom * 100))}
         </span>
         <NavButton
@@ -136,7 +137,7 @@ export function EditNavBar({
           <ZoomIn aria-hidden="true" className="size-4" />
         </NavButton>
       </div>
-      <div className="flex items-center gap-0.5 pointer-coarse:gap-0">
+      <div className="flex items-center gap-0.5 pointer-coarse:gap-2">
         <NavButton
           aria-label={strings.previousPage}
           aria-keyshortcuts="["
@@ -173,7 +174,8 @@ export function EditNavBar({
               "focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
             )}
           />
-          <span aria-hidden="true" className="text-muted-foreground">
+          {/* Por debajo de 380 px se lee «1» y el total queda para lectores (arriba): asi la barra cabe en UNA fila con 8 px entre botones. */}
+          <span aria-hidden="true" className="text-muted-foreground max-[379px]:hidden">
             {s.pageTotal(total)}
           </span>
         </span>

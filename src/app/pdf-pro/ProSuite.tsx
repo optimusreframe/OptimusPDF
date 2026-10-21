@@ -227,10 +227,27 @@ function ProSuiteBody({
   const foldActive = !isDesktop && modeActive;
   const folded = foldActive && (foldPref ?? compactHeight);
   const toggleFold = useCallback(() => setFoldPref(!(foldPref ?? compactHeight)), [foldPref, compactHeight]);
+  /* (M5 · N2) Con un modo abierto en un movil de poco alto (SE) la cabecera de la web se oculta: +56 px de hoja (globals.css). */
+  const immersive = foldActive && compactHeight;
+  useEffect(() => {
+    if (!immersive) return;
+    const root = window.document.documentElement;
+    root.setAttribute("data-pro-immersive", "");
+    return () => root.removeAttribute("data-pro-immersive");
+  }, [immersive]);
   const [modeSlot, setModeSlot] = useState<HTMLDivElement | null>(null);
+  // (M5 · N2) Elegir una herramienta en la bandeja del movil la cierra: la hoja vuelve a tener todo el alto.
+  const foldAfterPick = useCallback(() => setFoldPref(true), []);
   const modeLayout = useMemo<ProModeHostLayout>(
-    () => ({ mobile: !isDesktop, collapsed: folded, onToggleCollapsed: toggleFold, slot: rail ? modeSlot : null, dockBelow: !rail }),
-    [isDesktop, folded, toggleFold, rail, modeSlot],
+    () => ({
+      mobile: !isDesktop,
+      collapsed: folded,
+      onToggleCollapsed: toggleFold,
+      slot: rail ? modeSlot : null,
+      dockBelow: !rail,
+      onToolPicked: foldAfterPick,
+    }),
+    [isDesktop, folded, toggleFold, rail, modeSlot, foldAfterPick],
   );
 
   /* «Retomar» o «Descartar» borrador quitan la oferta (con el boton que tenia el foco): el foco pasa al titulo del
@@ -606,6 +623,7 @@ function ProSuiteBody({
         headingRef={headingRef}
         status={<ExportIndicator />}
         compact={foldActive || rail}
+        hideHistory={foldActive}
         modeSlotRef={rail && modeActive ? setModeSlot : undefined}
       />
 

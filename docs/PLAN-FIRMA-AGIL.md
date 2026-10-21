@@ -1752,3 +1752,41 @@ Reconcilia las tres entregas de la auditoría móvil/iPad (M3 lienzo compartido 
 ### Límites
 
 Safari/iPad reales sin verificar (rebote, barra de direcciones y `dvh`, auto-zoom de campos, `touchmove` no pasivo, safe-area real, teclado). Los gestos de dedo (CDP) solo existen en Chromium. La imagen de Playwright no trae DejaVu: se instaló `fonts-dejavu-core` en el contenedor para parecerse al runner de GitHub.
+## Correcciones tras la verificación móvil/iPad (M5)
+
+Responde a `docs/VERIFICACION-MOVIL-IPAD.md` (veredicto: PDF Pro REFUTED por N1 y N2; Firmar y lo compartido VERIFIED). Cada hallazgo tiene una prueba E2E que FALLA sin el arreglo (`e2e/specs/mobile-pro-m5.spec.ts`, `mobile-sign-m5.spec.ts`) y pruebas unitarias.
+
+| ID | Qué cambia para el usuario | Dónde |
+|---|---|---|
+| N1 (MAYOR) | En un iPhone horizontal con zona segura (insets 59 px) «Aplicar» ya no queda tapado por «Descargar»: la barra del modo no se encoge dentro de la cabecera, el deshacer/rehacer GLOBAL (apagado dentro de un modo) se retira de la cabecera del móvil y el título cede el sitio y se trunca. Medido: solape 30×44 px → 0 con insets de 59 (852×393), 47 (812×375), 44 (800×360) y 0 (667×375, 568×320). | `ProModeHost.tsx`, `ProTopBar.tsx`, `ProSuite.tsx` |
+| N2 (MAYOR) | **Bandeja de herramientas**: en un teléfono vertical la paleta, «Aplanar página», el interruptor de Anotar y la fila de privacidad flotan sobre el borde inferior de la hoja (no le restan alto); elegir una herramienta cierra la bandeja y el botón de la barra del modo pasa a mostrar la herramienta armada (icono + «Mostrar herramientas (activa: Texto)»). Escape la cierra y devuelve el foco. En móvil horizontal la paleta sigue siendo una columna (2 columnas con < 480 px de alto) y solo «Aplanar»/privacidad van a la bandeja. En un móvil de poco alto (SE, horizontales) la cabecera de la web se oculta mientras hay un modo abierto (+56-64 px de hoja); la barra de zoom/páginas cabe en UNA fila a 320 px. Hoja visible (px de la hoja, Chromium; antes con herramientas plegadas / abiertas → ahora, igual abiertas y plegadas): SE 320: 204 / 0 → 307 (54 % del alto); SE 375: 350 / 140 → 406 (61 %); iPhone 15 Pro: 326 / 326 → 508 (60 %); 852×393: 170 / 118 → 234 (60 %); 800×360: 138 / 86 → 201 (56 %). Con las herramientas abiertas el reparto del alto es el mismo que plegadas. | `src/components/tool/trayRouting.tsx` (nuevo), `ProModeHost.tsx`, `ProSuite.tsx`, `EditWorkspace.tsx`, `EditDocumentGate.tsx`, `ProEditorMode.tsx`, `EditNavBar.tsx`, `globals.css`, `Header.tsx` |
+| N3 | El dock de PDF Pro a 320 px se desplaza (con ajuste a cada celda) y las celdas miden ≥ 48 × 56 px con la etiqueta dentro y ≥ 6 px entre etiquetas; a 375/393 caben las siete. La clase anterior `min-w-[max(3rem,min-content)]` no era CSS válido: ahora `flex-[1_0_3rem]` (la mutación que la quita ya muere). | `ProMobileDock.tsx` |
+| N4 | «Editando» / «Anotando» se lee entero (≥ 480 px) o solo queda para lectores (el dock ya marca la pestaña); nada de «E…». | `ProModeHost.tsx` |
+| N5 | En tablet «Continuar» va en la barra de pasos mientras se ve y, al salir por arriba, se ancla abajo a la derecha (sobre las barras fijas en 744 px); nunca hay dos. | `SignToolClient.tsx` |
+| N6 | El auto-desplazamiento al arrastrar un elemento se detiene cuando el borde de la hoja ya está a la vista: la firma deja de salir de la pantalla. | `DocumentCanvas.tsx` |
+| N7 | En WebKit el foco tras cambiar de paso va al paso actual (antes caía en `<main>`). | `SignToolClient.tsx` |
+| N9 | El nombre del documento de la barra de zoom se recorta por el final con «…» y `title` completo (antes «c.A.pdf» con 8 px). | `DocumentSequence.tsx` |
+| N10 | «Expandir barra lateral» mide 44 × 44 px (`px-4` y `px-0` a la vez dejaban 40 px). | `Sidebar.tsx` |
+| axe `target-size` | `scroll-padding-top` bajo la cabecera pegajosa: lo enfocado o desplazado no queda tapado por ella. | `globals.css` |
+| VI-05 | Asas de redimensionar: 12 → 24 px con ratón y 44 px con el dedo (sin ocupar ancho; la línea sigue de 1 px). | `ResizeHandle.tsx` |
+| VI-06 | El paso deshabilitado «3. Firmar» sin opacidad: texto en `muted-foreground` (≥ 3:1), borde discontinuo, sin fondo y `cursor-not-allowed`. | `SignToolClient.tsx` |
+| VI-07 | ≥ 8 px entre botones contiguos con el dedo en la barra de zoom/páginas del editor («Página siguiente»/«Miniaturas»), la paleta (Deshacer/Rehacer) y la barra de Páginas. | `EditNavBar.tsx`, `EditWorkspace.tsx`, `PagesToolbar.tsx` |
+| GE-01 (Pro) | «Desplazar» con texto visible junto a la herramienta armada (≥ 390 px en vertical; ≥ 840 px en la cabecera horizontal; por debajo solo el icono, con el aviso de una vez), aviso de UNA vez («Para mover la página, activa Desplazar o usa dos dedos»; se anuncia por la región viva única y no bloquea toques) y, con una herramienta armada, DOS dedos siempre desplazan (vertical y, con zoom, horizontal) y pellizcan. | `ProModeHost.tsx`, `useZoomGestures.ts`, `modeStrings.ts` |
+
+### Diseño
+
+- **Bandeja** (`trayRouting.tsx`): contexto + `TrayPortal` con tres huecos (`palette`, `actions`, `privacy`). Sin bandeja, o con un hueco que no figura, cada pieza se pinta en su sitio (escritorio, «Editar PDF» suelto, paleta lateral). Los eventos de React suben por el árbol de React (el editor), no por el DOM de la bandeja: el manejador de Escape vive en el cuerpo del modo y comprueba por DOM que viene de la bandeja.
+- **Plegado**: elegir una herramienta pone `foldPref = true` (misma preferencia de `Ocultar/Mostrar herramientas`). Por defecto la bandeja arranca abierta en alturas ≥ 720 px y cerrada por debajo.
+- **Inmersivo**: `ProSuite` escribe `data-pro-immersive` en `<html>` con un modo abierto y alto < 720 px; `globals.css` oculta `[data-site-header]` y la suite pasa a medir `100dvh − 0,25 rem` (la página no se puede desplazar). En móvil horizontal (< 480 px de alto) la cabecera se oculta dentro de PDF Pro siempre.
+- **Clave nueva**: `optimuspdf.pro.panHintSeen` (de cada dispositivo; no viaja en Ajustes).
+
+### Pruebas que cambian (y por qué)
+
+- `mobile-pro-touch.spec.ts` · GE-01: a 100 % la hoja ya cabe entera (la bandeja no resta alto), así que acerca antes de comprobar que «Desplazar» desplaza; VI-08: elegir una herramienta cierra la bandeja, se reabre entre herramientas.
+- `ProModeHost.test.tsx`: en el móvil la cabecera ya no pinta el deshacer/rehacer global. `ProMobileDock.test.tsx`: la clase nueva. `DocumentSequence.test.tsx`: el nombre se recorta por el final (la prueba exigía el recorte por el medio).
+- `settingsRegistry.ts`: la clave del aviso figura entre las que no viajan.
+
+### Peticiones / no verificado
+
+- Safari e iPad reales (rebote, barra de direcciones y `dvh`, zona segura real, gestos de dos dedos con herramienta armada: solo Chromium con CDP), VoiceOver.
+- Firmar dentro de PDF Pro a 320 px sigue con una hoja corta al entrar (la configuración y la barra de zoom ocupan dos filas): fuera de N2.

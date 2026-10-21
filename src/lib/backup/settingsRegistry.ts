@@ -51,6 +51,7 @@ const SIDEBAR_STORAGE_KEY = "optimuspdf.sidebarCollapsed";
  *  - `optimuspdf.recent` (nombres de archivos del cliente), `optimuspdf.valueHistory` (PII: tiene su propio archivo
  *    opcional, `value-history.json`), `optimuspdf.signTemplates` (plantillas antiguas: las lleva el modulo de la
  *    biblioteca), `optimuspdf.pro.historyHotBytes` / `optimuspdf.pro.viewerRangeMinBytes` (diagnostico y pruebas),
+ *    `optimuspdf.pro.panHintSeen` (aviso de una vez de PDF Pro, de cada dispositivo),
  *    las senales entre pestanas (`*.signal`) y todo lo de `sessionStorage`.
  */
 
@@ -279,6 +280,8 @@ export const SETTINGS_NEVER_EXPORTED_KEYS: readonly string[] = [
   "optimuspdf.signTemplates",
   "optimuspdf.pro.historyHotBytes",
   "optimuspdf.pro.viewerRangeMinBytes",
+  // M5 (GE-01): el aviso de una vez «Para mover la página, activa Desplazar o usa dos dedos» de PDF Pro (de cada dispositivo).
+  "optimuspdf.pro.panHintSeen",
   "optimuspdf.sign-drafts.signal",
 ];
 

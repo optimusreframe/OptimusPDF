@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProToolClient } from "@/app/pdf-pro/ProToolClient";
+import { Square } from "lucide-react";
 import { StatusRegion } from "@/components/tool/liveRouting";
+import { TrayPortal, useTray } from "@/components/tool/trayRouting";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { clearHandoff } from "@/app/pdf-pro/proHandoff";
 import { __resetProFeatureFlagsCacheForTests } from "@/app/pdf-pro/proFeatureFlags";
@@ -80,6 +82,8 @@ type Behavior = {
   discard?: () => void;
   /** El modo espera a esta puerta antes de entregar los bytes (para probar «ocupado»). */
   gate?: Promise<void>;
+  /** (M5) El modo lleva una «paleta» y una fila de privacidad a la bandeja del movil (como el editor de verdad). */
+  tray?: boolean;
 };
 const behavior: Behavior = {};
 const spies = {
@@ -95,6 +99,7 @@ function FakeMode(props: ProModeProps) {
   const { onApply, onDirtyChange } = props;
   const [dirty, setDirty] = useState(false);
   const host = useProModeHost();
+  const tray = useTray();
   useEffect(() => {
     spies.props = props;
     spies.host = host;
@@ -133,6 +138,30 @@ function FakeMode(props: ProModeProps) {
         </button>
       ) : null}
       <input aria-label="Campo de texto del modo" />
+      {behavior.tray ? (
+        <>
+          <TrayPortal slot="palette">
+            <div data-testid="fake-palette" role="toolbar" aria-label="Paleta falsa">
+              <button
+                type="button"
+                data-palette-item="rect"
+                onClick={() => {
+                  tray?.reportTool({ id: "rect", label: "Rectángulo", icon: Square });
+                  tray?.onToolPicked();
+                }}
+              >
+                Rectángulo
+              </button>
+              <button type="button" data-palette-item="select" onClick={() => tray?.reportTool(null)}>
+                Seleccionar
+              </button>
+            </div>
+          </TrayPortal>
+          <TrayPortal slot="privacy">
+            <p data-testid="fake-privacy">Privacidad</p>
+          </TrayPortal>
+        </>
+      ) : null}
       <span>{dirty ? "sucio" : "limpio"}</span>
       {/* Region de estado propia del modo: dentro de PDF Pro NO debe ser una region viva mas (A11Y-3). */}
       <StatusRegion text={dirty ? "Estado propio del modo" : ""} data-fake-status="">
@@ -157,6 +186,7 @@ beforeEach(async () => {
   clearHandoff();
   clearRecentEntries();
   window.localStorage.removeItem("optimuspdf.pro.featureFlags");
+  window.localStorage.removeItem("optimuspdf.pro.panHintSeen");
   window.localStorage.removeItem(PRO_LAYOUT_STORAGE_KEY);
   __resetProFeatureFlagsCacheForTests();
   __resetProDraftsMemoryForTests();
@@ -1352,8 +1382,10 @@ describe("movil: reparto del alto con un modo abierto", () => {
     expect(within(bar()!).getByRole("button", { name: M.host.apply })).toBeTruthy();
     expect(within(bar()!).getByRole("button", { name: M.host.discard })).toBeTruthy();
     expect(document.querySelector('[data-pro-region="top"]')!.getAttribute("data-compact")).toBe("");
-    // El deshacer global sigue en la cabecera (apagado dentro del modo): la fila no crece por ello.
-    expect(topUndo().getAttribute("aria-disabled")).toBe("true");
+    // M5 · N1: el deshacer/rehacer GLOBAL esta apagado dentro de un modo (el modo trae el suyo): en el movil sus dos botones de 44 px
+    // se retiran de la cabecera y dejan sitio a «Aplicar» y al titulo, en vez de quedar como dos botones muertos.
+    expect(topBar().queryByRole("button", { name: S.suite.undo })).toBeNull();
+    expect(topBar().queryByRole("button", { name: S.suite.redo })).toBeNull();
   });
 
   it("«Ocultar herramientas» pliega las barras del editor y «Mostrar» las devuelve; el dock siempre queda a la vista y el foco no se pierde", async () => {
@@ -1427,6 +1459,90 @@ describe("movil: reparto del alto con un modo abierto", () => {
     expect(panToggle()).toBeNull();
   });
 
+  it("(M5 · N2) en el movil la paleta y la privacidad flotan en una bandeja sobre la hoja (no restan alto) y el boton la controla", async () => {
+    behavior.tray = true;
+    await enterOnPhone();
+    const tray = document.querySelector<HTMLElement>("[data-pro-tray]")!;
+    expect(tray).not.toBeNull();
+    expect(tray.className).toContain("absolute");
+    expect(tray.hasAttribute("data-open")).toBe(true);
+    expect(tray.contains(screen.getByTestId("fake-palette"))).toBe(true);
+    expect(tray.contains(screen.getByTestId("fake-privacy"))).toBe(true);
+    // Esta dentro del cuerpo del modo, no en el flujo: el visor/hoja ocupa todo el alto.
+    expect(document.querySelector("[data-pro-mode-body]")!.contains(tray)).toBe(true);
+    expect(foldToggle().getAttribute("aria-controls")).toBe(tray.id);
+  });
+
+  it("(M5 · N2) elegir una herramienta cierra la bandeja y el boton nombra la herramienta armada", async () => {
+    behavior.tray = true;
+    await enterOnPhone();
+    const tray = document.querySelector<HTMLElement>("[data-pro-tray]")!;
+    fireEvent.click(within(tray).getByRole("button", { name: "Rectángulo" }));
+    await settle();
+    expect(host()!.getAttribute("data-chrome")).toBe("collapsed");
+    expect(tray.hasAttribute("data-open")).toBe(false);
+    expect(tray.className).toContain("hidden");
+    expect(foldToggle().getAttribute("aria-expanded")).toBe("false");
+    expect(foldToggle().getAttribute("aria-label")).toBe(M.host.showToolsActive("Rectángulo"));
+    expect(foldToggle().getAttribute("data-tool-active")).toBe("rect");
+    // Sin herramienta armada vuelve el icono y el nombre genericos.
+    fireEvent.click(foldToggle());
+    await settle();
+    fireEvent.click(within(tray).getByRole("button", { name: "Seleccionar" }));
+    await settle();
+    expect(foldToggle().getAttribute("aria-label")).toBe(M.host.hideTools);
+    fireEvent.click(foldToggle());
+    await settle();
+    expect(foldToggle().getAttribute("aria-label")).toBe(M.host.showTools);
+    expect(foldToggle().hasAttribute("data-tool-active")).toBe(false);
+  });
+
+  it("(M5 · N2) Escape dentro de la bandeja la cierra y devuelve el foco al boton de herramientas", async () => {
+    behavior.tray = true;
+    await enterOnPhone();
+    const piece = within(document.querySelector<HTMLElement>("[data-pro-tray]")!).getByRole("button", { name: "Rectángulo" });
+    piece.focus();
+    fireEvent.keyDown(piece, { key: "Escape" });
+    await settle(4);
+    expect(host()!.getAttribute("data-chrome")).toBe("collapsed");
+    await waitFor(() => expect(document.activeElement).toBe(foldToggle()));
+  });
+
+  it("(M5 · GE-01) el aviso «Para mover la página, activa Desplazar o usa dos dedos» sale UNA sola vez, con la primera herramienta armada", async () => {
+    behavior.tray = true;
+    await enterOnPhone();
+    expect(document.querySelector("[data-pro-pan-first-hint]")).toBeNull();
+    const tray = document.querySelector<HTMLElement>("[data-pro-tray]")!;
+    fireEvent.click(within(tray).getByRole("button", { name: "Rectángulo" }));
+    await settle();
+    const hint = document.querySelector<HTMLElement>("[data-pro-pan-first-hint]");
+    expect(hint).not.toBeNull();
+    expect(hint!.textContent).toBe(M.host.panFirstHint);
+    expect(hint!.className).toContain("pointer-events-none");
+    expect(window.localStorage.getItem("optimuspdf.pro.panHintSeen")).toBe("1");
+    // Activar «Desplazar» lo retira.
+    fireEvent.click(panToggle()!);
+    expect(document.querySelector("[data-pro-pan-first-hint]")).toBeNull();
+  });
+
+  it("(M5 · GE-01) con el aviso ya visto no vuelve a salir", async () => {
+    window.localStorage.setItem("optimuspdf.pro.panHintSeen", "1");
+    behavior.tray = true;
+    await enterOnPhone();
+    fireEvent.click(within(document.querySelector<HTMLElement>("[data-pro-tray]")!).getByRole("button", { name: "Rectángulo" }));
+    await settle();
+    expect(document.querySelector("[data-pro-pan-first-hint]")).toBeNull();
+  });
+
+  it("(M5 · N2) en un movil horizontal la paleta sigue en su sitio (columna) y solo la privacidad va a la bandeja", async () => {
+    behavior.tray = true;
+    await enterOnPhone({ short: true });
+    const tray = document.querySelector<HTMLElement>("[data-pro-tray]")!;
+    expect(tray.contains(screen.getByTestId("fake-privacy"))).toBe(true);
+    expect(tray.contains(screen.getByTestId("fake-palette"))).toBe(false);
+    expect(screen.getByTestId("fake-mode").contains(screen.getByTestId("fake-palette"))).toBe(true);
+  });
+
   it("en escritorio la barra sigue ARRIBA, sin boton de plegar ni interruptor", async () => {
     await openPro();
     await enterAnnotate();
@@ -1435,5 +1551,7 @@ describe("movil: reparto del alto con un modo abierto", () => {
     expect(foldToggle()).toBeNull();
     expect(panToggle()).toBeNull();
     expect(topUndo()).toBeTruthy();
+    // M5: sin bandeja en escritorio; la paleta se pinta donde siempre.
+    expect(document.querySelector("[data-pro-tray]")).toBeNull();
   });
 });

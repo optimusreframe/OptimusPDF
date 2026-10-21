@@ -446,7 +446,7 @@ describe("DocumentSequence — numeracion global y etiqueta del documento", () =
     expect(bar().contains(zoomGroup)).toBe(true);
   });
 
-  it("el nombre largo se recorta con puntos suspensivos pero «p. 2/3» no (queda fuera del tramo recortable)", async () => {
+  it("el nombre largo se recorta por el final con puntos suspensivos pero «p. 2/3» no (queda fuera del tramo recortable)", async () => {
     const files = [
       pdfFile("contrato-de-arrendamiento-muy-largo.pdf", [PORTRAIT, PORTRAIT]),
       pdfFile("b.pdf", [PORTRAIT]),
@@ -454,9 +454,11 @@ describe("DocumentSequence — numeracion global y etiqueta del documento", () =
     renderSequence({ files });
     await waitFor(() => expect(pageText()).toBe("Página 1 de 3"));
     const spans = bar().querySelectorAll("[data-sequence-doc-label] > span");
-    // Nombre: el medio se recorta y el final («y.pdf»... las 5 ultimas letras) siempre se ve.
-    expect(spans[0].children[0].className).toContain("text-ellipsis");
-    expect(spans[0].children[1].textContent).toBe("o.pdf");
+    // M5 · N9: el nombre se recorta por el FINAL (no por el medio) y el texto completo va en `title`.
+    const name = spans[0].querySelector("[data-doc-label-name]")!;
+    expect(name.className).toContain("text-ellipsis");
+    expect(name.textContent).toBe("contrato-de-arrendamiento-muy-largo.pdf");
+    expect(spans[0].querySelector("[data-doc-label-tail]")).toBeNull();
     expect(spans[0].getAttribute("title")).toBe(
       "contrato-de-arrendamiento-muy-largo.pdf · p. 1/2",
     );
@@ -465,8 +467,8 @@ describe("DocumentSequence — numeracion global y etiqueta del documento", () =
   });
 });
 
-describe("DocumentSequence — etiqueta del documento: los espacios del nombre no se pierden", () => {
-  it("el nombre con espacio se parte en cabeza y cola sin perder ningun caracter y ambas conservan los espacios (whitespace-pre)", async () => {
+describe("DocumentSequence — etiqueta del documento: el nombre completo y el titulo no pierden caracteres", () => {
+  it("el nombre con espacios se conserva entero (sin cortarse en cabeza y cola) y el titulo lleva el texto completo", async () => {
     const files = [
       pdfFile("Contrato A.pdf", [PORTRAIT, PORTRAIT]),
       pdfFile("Contrato de arrendamiento B.pdf", [PORTRAIT]),
@@ -474,14 +476,9 @@ describe("DocumentSequence — etiqueta del documento: los espacios del nombre n
     renderSequence({ files });
     await waitFor(() => expect(pageText()).toBe("Página 1 de 3"));
     const label = bar().querySelector("[data-sequence-doc-label]")!;
-    const head = label.querySelector("[data-doc-label-head]")!;
-    const tail = label.querySelector("[data-doc-label-tail]")!;
-    // «Contrato A.pdf» (14 letras): cola = las 5 ultimas («A.pdf»), cabeza = «Contrato » (con su espacio).
-    expect(head.textContent! + tail.textContent!).toBe("Contrato A.pdf");
-    expect(head.textContent).toBe("Contrato ");
-    expect(head.className).toContain("whitespace-pre");
-    expect(head.className).not.toContain("truncate"); // `truncate` trae whitespace-nowrap, que colapsa el espacio final
-    expect(tail.className).toContain("whitespace-pre");
+    const name = label.querySelector("[data-doc-label-name]")!;
+    expect(name.textContent).toBe("Contrato A.pdf");
+    expect(name.className).not.toContain("truncate");
     expect(label.textContent).toBe("Contrato A.pdf · p. 1/2");
     expect(label.querySelector("[title]")!.getAttribute("title")).toBe("Contrato A.pdf · p. 1/2");
   });

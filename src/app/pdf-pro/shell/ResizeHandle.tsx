@@ -96,7 +96,9 @@ export function ResizeHandle({
       onKeyDown={onKeyDown}
       onDoubleClick={onReset}
       className={cn(
-        "group relative z-10 -mx-1.5 hidden w-3 shrink-0 cursor-col-resize touch-none select-none outline-none md:block",
+        // (M5 · VI-05) El area de agarre mide 24 px con raton (antes 12) y 44 px con el dedo; el ancho que ocupa en el reparto sigue
+        // siendo 0 (margen negativo igual a la mitad) y la linea que se ve, de 1 px: solo crece lo que se puede tocar.
+        "group relative z-10 -mx-3 hidden w-6 shrink-0 cursor-col-resize touch-none select-none outline-none md:block pointer-coarse:-mx-[22px] pointer-coarse:w-11",
         className,
       )}
     >

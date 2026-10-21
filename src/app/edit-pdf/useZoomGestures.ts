@@ -87,6 +87,8 @@ export function useZoomGestures({
   const pendingRef = useRef<Pending | null>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  /** Centro de los dos dedos en el ultimo movimiento y si hay que desplazar a mano (herramienta armada: `touch-action: none`). */
+  const panRef = useRef<{ x: number; y: number; manual: boolean } | null>(null);
   const pinchingRef = useRef(false);
   const frameRef = useRef(0);
   const queuedRef = useRef<{ zoom: number; anchor: ZoomAnchor } | null>(null);
@@ -171,6 +173,26 @@ export function useZoomGestures({
 
   const isPinching = useCallback(() => pinchingRef.current, []);
 
+  /** Mueve la hoja con el centro de los dos dedos (el contenido sigue a los dedos): vertical a la region/ventana, horizontal a la tarjeta con zoom. */
+  const scrollByFingers = useCallback(
+    (dx: number, dy: number) => {
+      const clip = clipRef.current;
+      if (clip && dx !== 0) clip.scrollLeft -= dx;
+      if (dy === 0) return;
+      const scroller = scrollRef?.current ?? null;
+      if (scroller && typeof scroller.scrollBy === "function") {
+        scroller.scrollBy({ top: -dy, behavior: "instant" });
+      } else if (typeof window.scrollBy === "function") {
+        try {
+          window.scrollBy(0, -dy);
+        } catch {
+          // jsdom no implementa el desplazamiento.
+        }
+      }
+    },
+    [clipRef, scrollRef],
+  );
+
   const pinchProps = useMemo(() => {
     const measure = () => {
       const [a, b] = [...pointersRef.current.values()];
@@ -183,7 +205,10 @@ export function useZoomGestures({
     const end = (event: ReactPointerEvent<HTMLElement>) => {
       if (event.pointerType !== "touch") return;
       pointersRef.current.delete(event.pointerId);
-      if (pointersRef.current.size < 2) pinchRef.current = null;
+      if (pointersRef.current.size < 2) {
+        pinchRef.current = null;
+        panRef.current = null;
+      }
       if (pointersRef.current.size === 0) pinchingRef.current = false;
     };
     return {
@@ -195,6 +220,11 @@ export function useZoomGestures({
           if (m && m.distance > 0) {
             pinchRef.current = { distance: m.distance, zoom: zoomRef.current };
             pinchingRef.current = true;
+            // (M5 · GE-01) Con una herramienta armada la hoja lleva `touch-action: none` (el dedo dibuja): el navegador NO desplaza
+            // con dos dedos, asi que el desplazamiento se hace aqui. Sin herramienta armada lo hace el propio navegador.
+            const host = hostRef.current;
+            const manual = !!host && window.getComputedStyle(host).touchAction === "none";
+            panRef.current = { x: m.mid.clientX, y: m.mid.clientY, manual };
             window.dispatchEvent(new Event(PINCH_START_EVENT));
           }
         }
@@ -208,6 +238,14 @@ export function useZoomGestures({
         if (!pinchingRef.current) return;
         const pinch = pinchRef.current;
         const m = measure();
+        const pan = panRef.current;
+        if (pan && m) {
+          const dx = m.mid.clientX - pan.x;
+          const dy = m.mid.clientY - pan.y;
+          pan.x = m.mid.clientX;
+          pan.y = m.mid.clientY;
+          if (pan.manual && (dx !== 0 || dy !== 0)) scrollByFingers(dx, dy);
+        }
         if (pinch && m && m.distance > 0) {
           queuedRef.current = { zoom: pinch.zoom * (m.distance / pinch.distance), anchor: m.mid };
           if (!frameRef.current) frameRef.current = window.requestAnimationFrame(flush);
@@ -224,7 +262,7 @@ export function useZoomGestures({
         end(event);
       },
     };
-  }, [enabled, flush]);
+  }, [enabled, flush, hostRef, scrollByFingers]);
 
   return { applyZoom, isPinching, pinchProps };
 }

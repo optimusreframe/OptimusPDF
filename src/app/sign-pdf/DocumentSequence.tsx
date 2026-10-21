@@ -591,25 +591,18 @@ function DocLabel({
 }) {
   const full = strings.sequenceDocPage(name, local, total);
   const suffix = full.slice(name.length);
-  // Truncado util: se recorta el medio del nombre y se conserva el final («Contr…B.pdf»), que es lo que distingue.
-  const tailLength = name.length > 10 ? 5 : 0;
-  const head = name.slice(0, name.length - tailLength);
-  const tail = name.slice(name.length - tailLength);
+  // (M5 · N9) El nombre se recorta por el FINAL con puntos suspensivos («contrato…»), con el texto completo en `title`: el
+  // recorte por el medio («c.A.pdf») dejaba 8 px al nombre en un iPhone con dos documentos y no se leia nada.
   return (
     <>
       <span className="flex min-w-0" title={full}>
-        {/* `whitespace-pre`: sin el, el espacio final de la cabeza (o el inicial de la cola) se colapsa en el flex y «Contrato A.pdf» se ve «ContratoA.pdf». */}
+        {/* `whitespace-nowrap` (con `truncate` seria lo mismo): el espacio final del nombre no debe colapsarse. */}
         <span
-          data-doc-label-head=""
-          className="min-w-0 overflow-hidden text-ellipsis whitespace-pre"
+          data-doc-label-name=""
+          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
         >
-          {head}
+          {name}
         </span>
-        {tail ? (
-          <span data-doc-label-tail="" className="shrink-0 whitespace-pre">
-            {tail}
-          </span>
-        ) : null}
       </span>
       <span className="shrink-0 whitespace-pre">{suffix}</span>
     </>

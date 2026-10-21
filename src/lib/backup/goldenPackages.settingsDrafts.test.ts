@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listAllDrafts, listDrafts, listSessionDrafts, loadSessionDraft } from "@/app/sign-pdf/signDrafts";
 import { listEditDrafts, loadEditDraft } from "@/app/edit-pdf/editDrafts";
 import { listProDrafts, loadProDraft } from "@/app/pdf-pro/proDrafts";
@@ -26,7 +26,12 @@ const PASSWORD = "dorada-2026";
 const NOW = Date.parse("2026-10-15T12:00:00.000Z");
 const open = (name: string) => new Blob([new Uint8Array(readFileSync(path.join(DIR, name)))]);
 
+// Los dorados llevan fechas fijas (borradores que caducan a los 7 dias): el reloj se fija para que el paso del tiempo no los caduque.
+const GOLDEN_NOW = new Date("2026-10-15T00:00:00.000Z");
+afterEach(() => vi.useRealTimers());
+
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ["Date"], now: GOLDEN_NOW });
   await clearAllLocalDrafts();
 });
 

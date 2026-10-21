@@ -15,6 +15,7 @@ import {
 import { ImagePlus, Layers, Redo2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useLiveSink } from "@/components/tool/liveRouting";
+import { TrayPortal, useTray } from "@/components/tool/trayRouting";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -1227,6 +1228,11 @@ export function EditWorkspace({
   );
 
   /** Arma una herramienta (o vuelve a Seleccionar): arma = suelta la seleccion y descarta lo que se dibujaba. */
+  const tray = useTray();
+  const trayRef = useRef(tray);
+  useEffect(() => {
+    trayRef.current = tray;
+  });
   const chooseTool = useCallback(
     (next: Tool) => {
       creationRef.current = null;
@@ -1238,6 +1244,8 @@ export function EditWorkspace({
       setMessage(next === "select" ? "" : latest.current.strings.toolHints[next]);
       if (next !== "select" && next !== "text" && next !== "note") enter(null, "selected");
       if (next === "image") imageInputRef.current?.click();
+      // (M5 · N2) En movil la bandeja de PDF Pro se cierra al elegir: la hoja recupera todo su alto.
+      trayRef.current?.onToolPicked();
     },
     [enter, setMessage],
   );
@@ -1733,6 +1741,17 @@ export function EditWorkspace({
   }, [glyphText, announceFocus]);
   const armed = tool !== "select";
   const passiveText = isDrawTool(tool) || tool === "image";
+  /* (M5 · N2) Con la bandeja cerrada la barra del modo nombra la herramienta armada (icono + nombre accesible). */
+  const reportTool = tray?.reportTool;
+  const armedTool = tools.find((item) => item.id === tool);
+  const armedId = armed ? armedTool?.id : undefined;
+  const armedLabel = armedTool?.label;
+  const armedIcon = armedTool?.icon;
+  useEffect(() => {
+    if (!reportTool) return;
+    reportTool(armedId && armedLabel && armedIcon ? { id: armedId, label: armedLabel, icon: armedIcon } : null);
+    return () => reportTool(null);
+  }, [reportTool, armedId, armedLabel, armedIcon]);
 
   // El documento no se pudo leer (cabecera valida pero contenido danado): estado de error claro, sin lienzo ni spinner.
   if (error) {
@@ -1873,22 +1892,24 @@ export function EditWorkspace({
 
       {/* En movil la barra de paginas no tiene sitio para otro boton de 44 px: la accion va en su fila. */}
       {pageCount > 0 && !annotate ? (
-        <div className="md:hidden" data-page-actions="">
-          <Button
-            variant="ghost"
-            size="sm"
-            data-flatten-toggle=""
-            data-flattened={flattenHere ? "" : undefined}
-            className="pointer-coarse:h-11 pointer-coarse:before:hidden"
-            onClick={flattenHere ? () => unflattenPage(flattenHere.id) : requestFlatten}
-          >
-            <Layers
-              aria-hidden="true"
-              className={cn("size-4", flattenHere && "text-signal-text")}
-            />
-            {flattenHere ? flow.unflattenAction : flow.flattenAction}
-          </Button>
-        </div>
+        <TrayPortal slot="actions">
+          <div className="md:hidden" data-page-actions="">
+            <Button
+              variant="ghost"
+              size="sm"
+              data-flatten-toggle=""
+              data-flattened={flattenHere ? "" : undefined}
+              className="pointer-coarse:h-11 pointer-coarse:before:hidden"
+              onClick={flattenHere ? () => unflattenPage(flattenHere.id) : requestFlatten}
+            >
+              <Layers
+                aria-hidden="true"
+                className={cn("size-4", flattenHere && "text-signal-text")}
+              />
+              {flattenHere ? flow.unflattenAction : flow.flattenAction}
+            </Button>
+          </div>
+        </TrayPortal>
       ) : null}
 
 
@@ -1914,46 +1935,48 @@ export function EditWorkspace({
             : "flex flex-col gap-3 md:flex-row md:items-start"
         }
       >
-        <EditToolPalette
-          tool={tool}
-          tools={tools}
-          onToolChange={(id) => chooseTool(isTool(id) ? id : "select")}
-          actions={[
-            {
-              id: "undo",
-              icon: Undo2,
-              label: s.undo,
-              keyShortcuts: "Control+Z Meta+Z",
-              shortcutLabel: "Ctrl+Z",
-              disabled: !session.canUndo,
-              onClick: session.undo,
-            },
-            {
-              id: "redo",
-              icon: Redo2,
-              label: s.redo,
-              keyShortcuts: "Control+Shift+Z Meta+Shift+Z Control+Y",
-              shortcutLabel: "Ctrl+Shift+Z",
-              disabled: !session.canRedo,
-              onClick: session.redo,
-            },
-          ]}
-          label={s.paletteLabel}
-          // Medido (no supuesto): con el motivo de «Procesar» la barra fija de abajo es mas alta que 4,75 rem y tapaba la
-          // segunda fila. Sin medida (escritorio, sin barras) vale la distancia de siempre, `9.25rem` + zona segura.
-          // En el movil sube a `z-30` (el nivel de la barra de zoom y paginas, que va ANTES en el DOM): en una pantalla
-          // baja (360x640) esa barra, aun sin pegarse arriba, cae detras de la paleta y no debe taparla.
-          style={
-            !embedded && barsClearance !== null
-              ? ({ "--edit-palette-bottom": `${barsClearance}px` } as CSSProperties)
-              : undefined
-          }
-          className={
-            embedded
-              ? "z-20 shrink-0 max-md:order-last max-md:grid max-md:grid-cols-[repeat(auto-fit,minmax(2.75rem,1fr))] max-md:justify-items-center max-md:[&_[role=separator]]:hidden md:min-h-0 md:max-h-full md:w-12 md:self-start md:overflow-y-auto md:overscroll-contain"
-              : "z-20 max-md:z-30 max-md:fixed max-md:inset-x-0 max-md:bottom-[var(--edit-palette-bottom,calc(9.25rem+env(safe-area-inset-bottom,0px)))] max-md:grid max-md:grid-cols-5 max-md:rounded-none max-md:px-1 max-md:[&_[role=separator]]:hidden md:sticky md:top-24 md:w-12 md:shrink-0"
-          }
-        />
+        <TrayPortal slot="palette">
+          <EditToolPalette
+            tool={tool}
+            tools={tools}
+            onToolChange={(id) => chooseTool(isTool(id) ? id : "select")}
+            actions={[
+              {
+                id: "undo",
+                icon: Undo2,
+                label: s.undo,
+                keyShortcuts: "Control+Z Meta+Z",
+                shortcutLabel: "Ctrl+Z",
+                disabled: !session.canUndo,
+                onClick: session.undo,
+              },
+              {
+                id: "redo",
+                icon: Redo2,
+                label: s.redo,
+                keyShortcuts: "Control+Shift+Z Meta+Shift+Z Control+Y",
+                shortcutLabel: "Ctrl+Shift+Z",
+                disabled: !session.canRedo,
+                onClick: session.redo,
+              },
+            ]}
+            label={s.paletteLabel}
+            // Medido (no supuesto): con el motivo de «Procesar» la barra fija de abajo es mas alta que 4,75 rem y tapaba la
+            // segunda fila. Sin medida (escritorio, sin barras) vale la distancia de siempre, `9.25rem` + zona segura.
+            // En el movil sube a `z-30` (el nivel de la barra de zoom y paginas, que va ANTES en el DOM): en una pantalla
+            // baja (360x640) esa barra, aun sin pegarse arriba, cae detras de la paleta y no debe taparla.
+            style={
+              !embedded && barsClearance !== null
+                ? ({ "--edit-palette-bottom": `${barsClearance}px` } as CSSProperties)
+                : undefined
+            }
+            className={
+              embedded
+                ? "z-20 shrink-0 max-md:order-last max-md:grid max-md:grid-cols-[repeat(auto-fit,minmax(2.75rem,1fr))] max-md:justify-items-center max-md:gap-2 max-md:[&_[role=separator]]:hidden md:min-h-0 md:max-h-full md:w-12 md:self-start md:overflow-y-auto md:overscroll-contain [@media(max-height:479.98px)]:md:grid [@media(max-height:479.98px)]:md:w-[6.5rem] [@media(max-height:479.98px)]:md:grid-cols-2 [@media(max-height:479.98px)]:md:justify-items-center"
+                : "z-20 max-md:z-30 max-md:fixed max-md:inset-x-0 max-md:bottom-[var(--edit-palette-bottom,calc(9.25rem+env(safe-area-inset-bottom,0px)))] max-md:grid max-md:grid-cols-5 max-md:rounded-none max-md:px-1 max-md:[&_[role=separator]]:hidden md:sticky md:top-24 md:w-12 md:shrink-0"
+            }
+          />
+        </TrayPortal>
 
         <div
           ref={embedded ? scrollRef : undefined}

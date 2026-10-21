@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import type { PdfErrorCode } from "@/lib/pdf/core";
 import { EditNotices, type EditNotice } from "@/app/edit-pdf/EditNotices";
 import { EditPrivacyNotice } from "@/app/edit-pdf/EditPrivacyNotice";
+import { TrayPortal } from "@/components/tool/trayRouting";
 import { EditWorkspace } from "@/app/edit-pdf/EditWorkspace";
 import { PasswordSheet } from "@/app/edit-pdf/PasswordSheet";
 import {
@@ -351,7 +352,9 @@ export function ReadyEditor({
           </p>
         </GateCard>
       )}
-      <EditPrivacyNotice flow={flow} compact={embedded} />
+      <TrayPortal slot="privacy">
+        <EditPrivacyNotice flow={flow} compact={embedded} />
+      </TrayPortal>
     </div>
   );
 }

@@ -77,8 +77,16 @@ describe("barra inferior de movil", () => {
 
   it("cada boton tiene un ancho minimo de 48 px: a 320 px el dock se desplaza en vez de tocar las etiquetas (VI-03) y a 375 px los siete caben", () => {
     render(<ProMobileDock language="es" openTab={null} onSelect={() => undefined} />);
-    for (const button of screen.getAllByRole("button")) expect(button.className).toContain("min-w-[max(3rem,min-content)]");
+    // M5 · N3: `min-w-[max(3rem,min-content)]` NO es CSS valido (`CSS.supports` da false): el navegador la ignoraba y las celdas
+    // se apretaban a 38-41 px. La celda mide 48 px como minimo con `flex-basis` y sin encoger (`flex-[1_0_3rem]`): su ancho minimo
+    // automatico es el de la etiqueta, asi que nunca se tocan. Y el dock se desplaza (con ajuste a cada celda) si no caben.
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.className).toContain("flex-[1_0_3rem]");
+      expect(button.className).not.toContain("min-w-[max(");
+      expect(button.className).toContain("snap-start");
+    }
     expect(screen.getByRole("toolbar").className).toContain("overflow-x-auto");
+    expect(screen.getByRole("toolbar").className).toContain("snap-x");
   });
 });
 
