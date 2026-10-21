@@ -57,7 +57,15 @@ export type EditToolPaletteProps = {
   className?: string;
   /** (W10-C-A3) Variables CSS de colocacion que mide quien la monta (p. ej. `--edit-palette-bottom`). */
   style?: CSSProperties;
+  /**
+   * (M6 · b) Bandeja del telefono: UNA fila desplazable en horizontal (sin tarjeta propia: la bandeja ya la tiene), con un
+   * desvanecido en el borde que tiene mas herramientas por ver y la herramienta activa a la vista al abrirla.
+   */
+  scrollRow?: boolean;
 };
+
+/** Margen (px) bajo el cual el desplazamiento de la fila cuenta como «al borde». */
+const EDGE_EPSILON = 2;
 
 export function EditToolPalette({
   tool,
@@ -67,8 +75,10 @@ export function EditToolPalette({
   label,
   className,
   style,
+  scrollRow = false,
 }: EditToolPaletteProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState<{ start: boolean; end: boolean }>({ start: false, end: false });
   const vertical = useMediaQuery("(min-width: 768px)");
   const keys = [...tools.map((item) => item.id), ...actions.map((item) => item.id)];
 
@@ -79,6 +89,37 @@ export function EditToolPalette({
     // Un cambio de herramienta desde fuera (atajo) recoloca la parada.
     if (!rootRef.current?.contains(document.activeElement)) setFocusKey(null);
   }, [tool]);
+
+  /* (M6 · b) Fila desplazable: marca de que borde queda mas por ver (desvanecido) y deja la herramienta activa a la vista. */
+  useEffect(() => {
+    const element = rootRef.current;
+    if (!scrollRow || !element) return;
+    const measure = () => {
+      const start = element.scrollLeft > EDGE_EPSILON;
+      const end = element.scrollLeft + element.clientWidth < element.scrollWidth - EDGE_EPSILON;
+      setEdges((previous) => (previous.start === start && previous.end === end ? previous : { start, end }));
+    };
+    const centerActive = () => {
+      const active = element.querySelector<HTMLElement>('[aria-pressed="true"]');
+      if (!active || element.clientWidth === 0) return;
+      const box = element.getBoundingClientRect();
+      const at = active.getBoundingClientRect();
+      element.scrollLeft += at.left - box.left - (element.clientWidth - at.width) / 2;
+    };
+    centerActive();
+    measure();
+    element.addEventListener("scroll", measure, { passive: true });
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+      // Al abrir la bandeja (de `display: none` a visible) la fila vuelve a medir y a centrar la herramienta activa.
+      centerActive();
+      measure();
+    }) : null;
+    observer?.observe(element);
+    return () => {
+      element.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, [scrollRow, tool, tools.length, actions.length]);
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const current = keys.indexOf(
@@ -114,8 +155,12 @@ export function EditToolPalette({
       style={style}
       onKeyDown={onKeyDown}
       className={cn(
-        "material-thick shadow-elevation-2 rounded-ios p-1",
-        "flex items-center md:flex-col md:gap-0.5",
+        scrollRow
+          ? "flex items-center gap-2 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          : "material-thick shadow-elevation-2 rounded-ios p-1 flex items-center md:flex-col md:gap-0.5 pointer-coarse:md:gap-2",
+        scrollRow && edges.end && !edges.start && "[mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)]",
+        scrollRow && edges.start && !edges.end && "[mask-image:linear-gradient(to_left,black_calc(100%-1.75rem),transparent)]",
+        scrollRow && edges.start && edges.end && "[mask-image:linear-gradient(to_right,transparent,black_1.75rem,black_calc(100%-1.75rem),transparent)]",
         className,
       )}
     >
@@ -137,7 +182,7 @@ export function EditToolPalette({
             onClick={() =>
               onToolChange(active && item.id !== firstTool ? (firstTool ?? item.id) : item.id)
             }
-            className={paletteItemClass(active)}
+            className={cn(paletteItemClass(active), scrollRow && "w-11 flex-none")}
           >
             <Icon aria-hidden="true" className="size-5" />
           </button>
@@ -170,7 +215,7 @@ export function EditToolPalette({
             onClick={() => {
               if (!action.disabled) action.onClick();
             }}
-            className={paletteItemClass(false, action.disabled)}
+            className={cn(paletteItemClass(false, action.disabled), scrollRow && "w-11 flex-none")}
           >
             <Icon aria-hidden="true" className="size-5" />
           </button>

@@ -9,6 +9,7 @@ import {
   useIsCompactHeight,
   useIsDesktop,
   useIsShortViewport,
+  useIsWideViewport,
 } from "@/app/pdf-pro/shell/useIsDesktop";
 
 afterEach(() => {
@@ -115,5 +116,17 @@ describe("reparto por alto y puntero (M2)", () => {
     expect(renderHook(() => useIsShortViewport()).result.current).toBe(false);
     expect(renderHook(() => useIsCompactHeight()).result.current).toBe(false);
     expect(renderHook(() => useCoarsePointer()).result.current).toBe(false);
+  });
+});
+
+describe("useIsWideViewport (M6)", () => {
+  it("sin matchMedia (cliente) no es ancho y con ella sigue a (min-width: 768px) aunque el alto sea de movil horizontal", () => {
+    expect(renderHook(() => useIsWideViewport()).result.current).toBe(false);
+    cleanup();
+    const media = stubMatchMedia(false);
+    const { result } = renderHook(() => useIsWideViewport());
+    expect(result.current).toBe(false);
+    media.set(true);
+    expect(result.current).toBe(true);
   });
 });

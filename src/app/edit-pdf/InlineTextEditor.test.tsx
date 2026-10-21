@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import {
   InlineTextEditor,
+  MIN_TOUCH_FONT_PX,
   frameStyle,
+  shrunkBoxStyle,
+  touchShrinkFactor,
   textBoxStyle,
   textCssStyle,
   type InlineTextEditorProps,
@@ -391,5 +394,52 @@ describe("readEditableText", () => {
     expect(readEditableText(root("uno\n"))).toBe("uno");
     expect(readEditableText(root("uno<br>"))).toBe("uno");
     expect(readEditableText(root("uno\ndos"))).toBe("uno\ndos");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * (M6 · d) Con el dedo el cuadro de texto mide 16 px (Safari no acerca la pagina) y se reduce con scale()
+ * ------------------------------------------------------------------ */
+describe("InlineTextEditor · 16 px con el dedo", () => {
+  it("el factor de reduccion es fontPx/16 solo con puntero grueso y letra menor de 16 px", () => {
+    expect(MIN_TOUCH_FONT_PX).toBe(16);
+    expect(touchShrinkFactor(8, true)).toBeCloseTo(0.5, 5);
+    expect(touchShrinkFactor(12, true)).toBeCloseTo(0.75, 5);
+    expect(touchShrinkFactor(12, false)).toBe(1);
+    expect(touchShrinkFactor(16, true)).toBe(1);
+    expect(touchShrinkFactor(24, true)).toBe(1);
+    expect(touchShrinkFactor(0, true)).toBe(1);
+  });
+
+  it("la caja se agranda 1/factor y se reduce con scale(): ya reducida ocupa justo el marco y conserva el giro y la linea base", () => {
+    const frame: TextFrame = { left: 40, top: 60, width: 200, height: 30, angle: 10 };
+    const base = textBoxStyle(frame, { ...CSS, fontSize: 8 }, 1);
+    const style = shrunkBoxStyle(base, frame, 0.5);
+    expect(style.fontSize).toBe("16px");
+    expect(style.width).toBe(400);
+    expect(style.minHeight).toBe(60);
+    expect(String(style.transform)).toMatch(/^rotate\(10deg\).*scale\(0\.5\)$/);
+    expect(style.transformOrigin).toBe("0 0");
+    expect(style.left).toBe(40);
+    expect(style.top).toBe(60);
+    // Sin reduccion no se toca nada.
+    expect(shrunkBoxStyle(base, frame, 1)).toBe(base);
+  });
+
+  it("con puntero grueso el campo se escribe a 16 px; con raton conserva el tamano del PDF", () => {
+    const original = window.matchMedia;
+    try {
+      window.matchMedia = ((query: string) => ({ matches: query.includes("pointer: coarse"), media: query, addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;
+      const coarse = setup({ css: { ...CSS, fontSize: 10 }, scale: 0.8 });
+      expect(coarse.editor.style.fontSize).toBe("16px");
+      expect(coarse.editor.style.transform).toContain("scale(0.5)");
+      coarse.unmount();
+      window.matchMedia = ((query: string) => ({ matches: false, media: query, addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;
+      const fine = setup({ css: { ...CSS, fontSize: 10 }, scale: 0.8 });
+      expect(fine.editor.style.fontSize).toBe("8px");
+      expect(fine.editor.style.transform).not.toContain("scale(");
+    } finally {
+      window.matchMedia = original;
+    }
   });
 });

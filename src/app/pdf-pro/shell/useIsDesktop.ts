@@ -31,6 +31,7 @@ function subscribeTo(queries: readonly string[]) {
 
 const subscribeDesktop = subscribeTo([PRO_DESKTOP_QUERY, PRO_SHORT_QUERY]);
 const subscribeShort = subscribeTo([PRO_SHORT_QUERY]);
+const subscribeWide = subscribeTo([PRO_DESKTOP_QUERY]);
 const subscribeCompact = subscribeTo([PRO_COMPACT_HEIGHT_QUERY]);
 const subscribeCoarse = subscribeTo([PRO_COARSE_QUERY]);
 
@@ -62,4 +63,12 @@ export function useIsCompactHeight(): boolean {
 /** `true` si el puntero principal es un dedo: los textos de ayuda hablan de «toca», no de «haz clic» ni de «Esc». */
 export function useCoarsePointer(): boolean {
   return useSyncExternalStore(subscribeCoarse, () => matches(PRO_COARSE_QUERY), () => false);
+}
+
+/**
+ * (M6) `true` desde 768 px de ancho (aunque el alto sea de movil horizontal): ahi la paleta del editor cabe como columna lateral.
+ * Un movil horizontal estrecho (667×375, 568×320) no tiene sitio: la paleta va en la bandeja, como en vertical.
+ */
+export function useIsWideViewport(): boolean {
+  return useSyncExternalStore(subscribeWide, () => matches(PRO_DESKTOP_QUERY), () => true);
 }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Square } from "lucide-react";
-import { TrayPortal, TrayProvider, useTray, type TrayValue } from "@/components/tool/trayRouting";
+import { TrayHistoryPortal, TrayPortal, TrayProvider, useHistoryInBar, useTray, type TrayValue } from "@/components/tool/trayRouting";
 
 /** M5 · N2: la bandeja de herramientas de PDF Pro en movil. Sin bandeja (o sin ese hueco) cada pieza se pinta en su sitio. */
 afterEach(cleanup);
@@ -112,5 +112,61 @@ describe("useTray", () => {
     screen.getByRole("button", { name: "elegir" }).click();
     expect(tray.reportTool).toHaveBeenCalledWith({ id: "rect", label: "Rectángulo", icon: Square });
     expect(tray.onToolPicked).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* (M6 · a) Hueco `history`: deshacer/rehacer en la barra del modo. */
+describe("TrayHistoryPortal", () => {
+  function Probe() {
+    return <span data-testid="in-bar">{String(useHistoryInBar())}</span>;
+  }
+
+  it("sin bandeja o sin hueco `history` NO pinta nada (la pieza vive ya en la paleta) y no hay historial en la barra", () => {
+    render(
+      <div data-testid="in-place">
+        <TrayHistoryPortal>
+          <button type="button">Deshacer</button>
+        </TrayHistoryPortal>
+        <Probe />
+      </div>,
+    );
+    expect(screen.queryByRole("button", { name: "Deshacer" })).toBeNull();
+    expect(screen.getByTestId("in-bar").textContent).toBe("false");
+    cleanup();
+    render(
+      <TrayProvider value={value({ palette: document.createElement("div") })}>
+        <TrayHistoryPortal>
+          <button type="button">Deshacer</button>
+        </TrayHistoryPortal>
+        <Probe />
+      </TrayProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "Deshacer" })).toBeNull();
+    expect(screen.getByTestId("in-bar").textContent).toBe("false");
+  });
+
+  it("con el hueco `history` montado lleva los botones a la barra por portal; si aun es null espera (y ya cuenta como historial en la barra)", () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const { rerender } = render(
+      <TrayProvider value={value({ history: null })}>
+        <TrayHistoryPortal>
+          <button type="button">Deshacer</button>
+        </TrayHistoryPortal>
+        <Probe />
+      </TrayProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "Deshacer" })).toBeNull();
+    expect(screen.getByTestId("in-bar").textContent).toBe("true");
+    rerender(
+      <TrayProvider value={value({ history: target })}>
+        <TrayHistoryPortal>
+          <button type="button">Deshacer</button>
+        </TrayHistoryPortal>
+        <Probe />
+      </TrayProvider>,
+    );
+    expect(target.contains(screen.getByRole("button", { name: "Deshacer" }))).toBe(true);
+    target.remove();
   });
 });

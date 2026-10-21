@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { ProToolClient } from "@/app/pdf-pro/ProToolClient";
 import { Square } from "lucide-react";
 import { StatusRegion } from "@/components/tool/liveRouting";
-import { TrayPortal, useTray } from "@/components/tool/trayRouting";
+import { TrayHistoryPortal, TrayPortal, useTray } from "@/components/tool/trayRouting";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { clearHandoff } from "@/app/pdf-pro/proHandoff";
 import { __resetProFeatureFlagsCacheForTests } from "@/app/pdf-pro/proFeatureFlags";
@@ -140,6 +140,11 @@ function FakeMode(props: ProModeProps) {
       <input aria-label="Campo de texto del modo" />
       {behavior.tray ? (
         <>
+          <TrayHistoryPortal>
+            <button type="button" data-testid="fake-undo" aria-label="Deshacer">
+              ↶
+            </button>
+          </TrayHistoryPortal>
           <TrayPortal slot="palette">
             <div data-testid="fake-palette" role="toolbar" aria-label="Paleta falsa">
               <button
@@ -1342,13 +1347,14 @@ describe("ocupado", () => {
  * ------------------------------------------------------------------ */
 
 /** `matchMedia` de un telefono: ancho de movil, puntero grueso y, si se pide, alto pequeño o de movil horizontal. */
-function stubPhone(options: { compactHeight?: boolean; short?: boolean; coarse?: boolean } = {}) {
-  const { compactHeight = false, short = false, coarse = true } = options;
+function stubPhone(options: { compactHeight?: boolean; short?: boolean; coarse?: boolean; wide?: boolean } = {}) {
+  const { compactHeight = false, short = false, coarse = true, wide = false } = options;
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => ({
       matches:
         query.includes("max-width: 767px") ||
+        (wide && query.includes("min-width: 768px")) ||
         (coarse && query.includes("pointer: coarse")) ||
         ((compactHeight || short) && query.includes("max-height: 719")) ||
         (short && query.includes("max-height: 479")),
@@ -1534,13 +1540,79 @@ describe("movil: reparto del alto con un modo abierto", () => {
     expect(document.querySelector("[data-pro-pan-first-hint]")).toBeNull();
   });
 
-  it("(M5 · N2) en un movil horizontal la paleta sigue en su sitio (columna) y solo la privacidad va a la bandeja", async () => {
+  it("(M5 · N2) en un movil horizontal ANCHO (≥ 768 px) la paleta sigue en su sitio (columna) y solo la privacidad va a la bandeja", async () => {
     behavior.tray = true;
-    await enterOnPhone({ short: true });
+    await enterOnPhone({ short: true, wide: true });
     const tray = document.querySelector<HTMLElement>("[data-pro-tray]")!;
     expect(tray.contains(screen.getByTestId("fake-privacy"))).toBe(true);
     expect(tray.contains(screen.getByTestId("fake-palette"))).toBe(false);
     expect(screen.getByTestId("fake-mode").contains(screen.getByTestId("fake-palette"))).toBe(true);
+  });
+
+  it("(M6) en un movil horizontal ESTRECHO (< 768 px: 667×375, 568×320) la paleta no cabe como columna: va en la bandeja, como en vertical", async () => {
+    behavior.tray = true;
+    await enterOnPhone({ short: true, wide: false });
+    const tray = document.querySelector<HTMLElement>("[data-pro-tray]")!;
+    expect(tray.contains(screen.getByTestId("fake-palette"))).toBe(true);
+    expect(tray.contains(screen.getByTestId("fake-privacy"))).toBe(true);
+  });
+
+  it("(M6 · a) deshacer/rehacer del editor se pintan DENTRO de la barra del modo (no en la bandeja), en vertical y en horizontal", async () => {
+    behavior.tray = true;
+    await enterOnPhone();
+    const history = document.querySelector<HTMLElement>("[data-pro-history]")!;
+    expect(bar()!.contains(history)).toBe(true);
+    expect(history.contains(screen.getByTestId("fake-undo"))).toBe(true);
+    expect(document.querySelector<HTMLElement>("[data-pro-tray]")!.contains(screen.getByTestId("fake-undo"))).toBe(false);
+  });
+
+  it("(M6 · c) en horizontal (sin cabecera de la web) el menu «Mas» trae «Inicio» e idioma; el idioma cambia la interfaz", async () => {
+    behavior.tray = true;
+    await enterOnPhone({ short: true, wide: true });
+    fireEvent.click(topBar().getByRole("button", { name: S.shell.more }));
+    const home = await screen.findByRole("menuitem", { name: S.shell.homeItem });
+    expect(home).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: S.shell.languageItem }));
+    await settle();
+    // La interfaz pasa a ingles: la barra del modo habla ya en ingles.
+    expect(within(bar()!).getByRole("button", { name: MODE_STRINGS.en.host.apply })).toBeTruthy();
+    // El idioma vive en un almacen del modulo: se devuelve a español por la misma via para no contaminar el resto de pruebas.
+    fireEvent.click(topBar().getByRole("button", { name: PRO_STRINGS.en.shell.more }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: PRO_STRINGS.en.shell.languageItem }));
+    await settle();
+    expect(within(bar()!).getByRole("button", { name: M.host.apply })).toBeTruthy();
+  });
+
+  it("(M6 · c) en vertical con la cabecera de la web a la vista el menu «Mas» NO repite «Inicio» ni idioma", async () => {
+    await enterOnPhone();
+    fireEvent.click(topBar().getByRole("button", { name: S.shell.more }));
+    await screen.findByRole("menuitem", { name: S.shell.shortcutsItem });
+    expect(screen.queryByRole("menuitem", { name: S.shell.homeItem })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: S.shell.languageItem })).toBeNull();
+  });
+
+  it("(M6 · H2) con la barra del modo dentro de la cabecera (horizontal) salen de ella «Guardar y exportar» y «Cerrar documento» (viven en «Mas»)", async () => {
+    await enterOnPhone({ short: true, wide: true });
+    expect(bar()!.getAttribute("data-placement")).toBe("header");
+    const top = topBar();
+    expect(top.queryByRole("button", { name: S.save.menuLabel })).toBeNull();
+    // «Cerrar documento» no se pinta en la cabecera delgada (sin CSS en jsdom: se mira su clase `hidden`, no `max-sm:hidden`).
+    const closeButton = top.getByRole("button", { name: S.suite.close, hidden: true });
+    expect(closeButton.className.split(" ")).toContain("hidden");
+    expect(closeButton.className).not.toContain("max-sm:hidden");
+    fireEvent.click(top.getByRole("button", { name: S.shell.more }));
+    // Sus opciones estan en «Mas» (sin `narrowOnly`: visibles en cualquier ancho).
+    expect(await screen.findByRole("menuitem", { name: S.save.saveAs })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: S.shell.closeItem })).toBeTruthy();
+  });
+
+  it("(M6 · H1) «Aplicar» y «Descartar» llevan su nombre accesible completo aunque en movil estrecho solo se vea el icono", async () => {
+    await enterOnPhone();
+    expect(applyButton()!.textContent).toContain(M.host.apply);
+    expect(discardButton()!.textContent).toContain(M.host.discard);
+    // Sin texto visible por debajo de 390 px / 700 px: el rotulo queda para lectores (`sr-only`), no se quita.
+    expect(applyButton()!.querySelector("span")!.className).toContain("max-[389px]:sr-only");
+    expect(discardButton()!.querySelector("span")!.className).toContain("max-[699px]:sr-only");
   });
 
   it("en escritorio la barra sigue ARRIBA, sin boton de plegar ni interruptor", async () => {

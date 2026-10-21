@@ -14,7 +14,7 @@ import type { LucideIcon } from "lucide-react";
  * es `null` y cada pieza se pinta donde siempre.
  */
 
-export type TraySlot = "palette" | "actions" | "privacy";
+export type TraySlot = "palette" | "actions" | "privacy" | "history";
 
 export type TrayTool = { id: string; label: string; icon: LucideIcon };
 
@@ -47,4 +47,21 @@ export function TrayPortal({ slot, children }: { slot: TraySlot; children: React
   if (!tray || !(slot in tray.slots)) return <>{children}</>;
   const target = tray.slots[slot];
   return target ? createPortal(children, target) : null;
+}
+
+/**
+ * (M6 · a) Deshacer y rehacer van en la BARRA del modo (siempre a la vista, sin abrir la bandeja): el hueco `history` es un nodo
+ * de esa barra. A diferencia de los otros huecos, una pieza de `history` NO se pinta en su sitio cuando no hay hueco
+ * (escritorio, «Editar PDF» suelto): ahi ya tienen su boton en la paleta.
+ */
+export function TrayHistoryPortal({ children }: { children: ReactNode }) {
+  const tray = useTray();
+  const target = tray && "history" in tray.slots ? tray.slots.history : null;
+  return target ? createPortal(children, target) : null;
+}
+
+/** ¿Los botones de deshacer/rehacer viven en la barra del modo (y la paleta de la bandeja no los repite)? */
+export function useHistoryInBar(): boolean {
+  const tray = useTray();
+  return tray !== null && "history" in tray.slots;
 }

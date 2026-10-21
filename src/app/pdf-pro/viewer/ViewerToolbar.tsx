@@ -120,7 +120,7 @@ export function ViewerToolbar({
       role="toolbar"
       aria-label={s.toolbarLabel}
       data-pro-viewer-toolbar=""
-      className="flex shrink-0 flex-wrap items-center gap-x-1 border-b border-hairline pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.5rem,env(safe-area-inset-right,0px))] pointer-coarse:gap-x-2"
+      className="flex shrink-0 flex-wrap items-center gap-x-1 border-b border-hairline px-2 pointer-coarse:gap-x-2"
     >
       <ToolbarIconButton
         label={thumbsOpen && !thumbsAsSheet ? s.hideThumbs : thumbsAsSheet ? s.openThumbs : s.showThumbs}

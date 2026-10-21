@@ -63,10 +63,13 @@ describe("EditNavBar · una fila en pantallas estrechas con 8 px entre botones (
     expect((container.firstElementChild as HTMLElement).className).toContain("gap-x-2");
   });
 
-  it("por debajo de 380 px el porcentaje y el «/ N» se leen solo por voz para que quepa en UNA fila; el nombre accesible no cambia", () => {
+  it("por debajo de 380 px el «/ N» y, por debajo de 370 px, el porcentaje se leen solo por voz para que quepa en UNA fila; el nombre accesible no cambia", () => {
     const { container } = renderBar(true);
     const percent = Array.from(container.querySelectorAll<HTMLElement>("span")).find((span) => /\d+ ?%/.test(span.textContent ?? ""))!;
-    expect(percent.className).toContain("max-[379px]:sr-only");
+    // (M6 · e) El porcentaje se ve desde 370 px (iPhone SE de 375 px) y no recibe toques: su caja se mete 4 px bajo cada boton.
+    expect(percent.className).toContain("max-[369px]:sr-only");
+    expect(percent.className).toContain("pointer-events-none");
+    expect(percent.className).toContain("pointer-coarse:-mx-1");
     const total = Array.from(container.querySelectorAll<HTMLElement>('span[aria-hidden="true"]')).find((span) => /3/.test(span.textContent ?? ""))!;
     expect(total.className).toContain("max-[379px]:hidden");
     expect(container.textContent).toContain(EDIT_STRINGS.es.pageOf(1, 3));

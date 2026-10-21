@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { boxOf, host, isChromium, makeA4Pdf, pickTool, revealSheet, touchTap, cdpOf } from "../helpers/touch-gestures";
 
 /**
- * M3 · axe en el lienzo compartido y la UI base con tacto: claro/oscuro x ES/EN x 320/375/393/744/834/1194.
+ * M3 · axe en el lienzo compartido y la UI base con tacto: claro/oscuro x ES/EN x 320/375/393/430/744/834/1194.
  * Firmar con un PDF, la herramienta «Texto» armada (el interruptor «Dibujar con el dedo» y la paleta visibles) y un
  * campo colocado (barra flotante). 0 violaciones de contraste, nombres, roles/atributos validos y `target-size` (24 px).
  * Headless siempre.
@@ -29,6 +29,7 @@ const WIDTHS = [
   { width: 320, height: 568 },
   { width: 375, height: 667 },
   { width: 393, height: 852 },
+  { width: 430, height: 932 },
   { width: 744, height: 1133 },
   { width: 834, height: 1194 },
   { width: 1194, height: 834 },

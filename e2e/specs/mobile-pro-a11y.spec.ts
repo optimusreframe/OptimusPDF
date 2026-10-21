@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { openProDoc, openTab, noHorizontalOverflow } from "../helpers/mobile-pro";
 
 /**
- * M2 · axe sobre PDF Pro en las pantallas del informe (320, 375, 393, 744, 834 y 1194 px) × claro/oscuro × ES/EN: la suite
+ * M2 · axe sobre PDF Pro en las pantallas del informe (320, 375, 393, 430, 744, 834 y 1194 px) × claro/oscuro × ES/EN: la suite
  * (cabecera, barra del modo, dock/raíl, interruptor «Desplazar», hojas) con 0 violaciones de WCAG 2.2 AA, INCLUIDO
  * `target-size` (objetivos tactiles de 24 px; el CI de GitHub usa una tipografia ancha). Solo se analiza la suite
  * (`[data-pro-suite]`) y las hojas abiertas: la cabecera y el pie de la web son de otra unidad.
@@ -14,6 +14,7 @@ const SIZES = [
   { width: 320, height: 568 },
   { width: 375, height: 667 },
   { width: 393, height: 852 },
+  { width: 430, height: 932 },
   { width: 744, height: 1133 },
   { width: 834, height: 1194 },
   { width: 1194, height: 834 },
@@ -75,6 +76,21 @@ for (const size of SIZES) {
               await noHorizontalOverflow(page);
             }
             if ((await fold.getAttribute("aria-expanded")) === "false") await fold.click();
+          }
+          // (M6) Anotar con la barra del modo de iconos (deshacer/rehacer/«Desplazar»/«Descartar»/«Aplicar»), la bandeja de una fila y sus dos estados.
+          await openTab(page, "annotate");
+          await expect(page.locator("[data-edit-scroll] canvas, [data-edit-scroll] img").first()).toBeVisible({ timeout: 20_000 });
+          await page.waitForTimeout(500);
+          expect(await runAxe(page), "Anotar").toEqual([]);
+          const annotateFold = page.locator("[data-pro-fold-toggle]");
+          if (await annotateFold.isVisible().catch(() => false)) {
+            for (let pass = 0; pass < 2; pass += 1) {
+              const expanded = (await annotateFold.getAttribute("aria-expanded")) === "true";
+              await annotateFold.click();
+              await page.waitForTimeout(300);
+              expect(await runAxe(page), expanded ? "Anotar con las barras plegadas" : "Anotar con las barras a la vista").toEqual([]);
+              await noHorizontalOverflow(page);
+            }
           }
           await openTab(page, "pages");
           await expect(page.locator("[data-pages-grid]")).toBeVisible();

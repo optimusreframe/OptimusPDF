@@ -16,7 +16,7 @@ import { ProModeHostContext, type ProModeHostValue } from "@/app/pdf-pro/modes/m
 import { useFocusReturn } from "@/app/pdf-pro/modes/modeFocus";
 import { getModeStrings, modeBarName, modeShortName } from "@/app/pdf-pro/modes/modeStrings";
 import type { ProModeSession } from "@/app/pdf-pro/modes/useProModeSession";
-import { useCoarsePointer } from "@/app/pdf-pro/shell/useIsDesktop";
+import { useCoarsePointer, useIsWideViewport } from "@/app/pdf-pro/shell/useIsDesktop";
 
 /**
  * Host de modos de PDF Pro (Wave 7 · U6): monta el modo de la pestana activa EN LUGAR DEL VISOR, con su barra
@@ -103,7 +103,8 @@ const PAN_CLASSES = "data-[pan]:[&_[data-tool]]:touch-pan-y! data-[pan]:[&_[data
 
 /** (M5 · GE-01) El aviso «Para mover la página, activa Desplazar o usa dos dedos» se da UNA vez por navegador. */
 const PAN_HINT_SEEN_KEY = "optimuspdf.pro.panHintSeen";
-const PAN_HINT_MS = 7000;
+/** (M6 · f) El aviso tapa la hoja: se lee en 4 s y se retira solo. */
+const PAN_HINT_MS = 4000;
 
 function panHintSeen(): boolean {
   try {
@@ -178,11 +179,16 @@ function ProModeHostInner({
    * en tablet y en escritorio la paleta es una columna lateral y no hay bandeja.
    */
   const trayMode = mobile && (def.tab === "edit" || def.tab === "annotate");
-  // En horizontal (dock como raíl) la paleta sigue siendo la columna lateral: la bandeja solo lleva «Aplanar» y la privacidad.
-  const trayPalette = trayMode && dockBelow;
+  // En horizontal (dock como raíl) con 768 px o mas la paleta sigue siendo la columna lateral: la bandeja solo lleva «Aplanar» y la
+  // privacidad. (M6) Con menos (667×375, 568×320) no hay sitio para la columna: la paleta va en la bandeja, como en vertical
+  // (antes la bandeja la tapaba y las herramientas no se alcanzaban).
+  const wide = useIsWideViewport();
+  const trayPalette = trayMode && (dockBelow || !wide);
   const [paletteEl, setPaletteEl] = useState<HTMLDivElement | null>(null);
   const [actionsEl, setActionsEl] = useState<HTMLDivElement | null>(null);
   const [privacyEl, setPrivacyEl] = useState<HTMLDivElement | null>(null);
+  // (M6 · a) Deshacer y rehacer del editor van en la barra del modo, siempre a la vista (la bandeja tapa la hoja).
+  const [historyEl, setHistoryEl] = useState<HTMLDivElement | null>(null);
   const [trayTool, setTrayTool] = useState<TrayTool | null>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const handleToolPicked = useCallback(() => {
@@ -216,13 +222,13 @@ function ProModeHostInner({
       trayMode
         ? {
             slots: trayPalette
-              ? { palette: paletteEl, actions: actionsEl, privacy: privacyEl }
-              : { actions: actionsEl, privacy: privacyEl },
+              ? { palette: paletteEl, actions: actionsEl, privacy: privacyEl, history: historyEl }
+              : { actions: actionsEl, privacy: privacyEl, history: historyEl },
             onToolPicked: handleToolPicked,
             reportTool,
           }
         : null,
-    [trayMode, trayPalette, paletteEl, actionsEl, privacyEl, handleToolPicked, reportTool],
+    [trayMode, trayPalette, paletteEl, actionsEl, privacyEl, historyEl, handleToolPicked, reportTool],
   );
   const showTray = trayMode && !collapsed;
   const activeTool = trayMode ? trayTool : null;
@@ -300,6 +306,8 @@ function ProModeHostInner({
           </span>
         </button>
       ) : null}
+      {/* (M6 · a) Deshacer y rehacer del editor (el editor los pinta aqui con un portal): a 44 px y siempre a la vista. */}
+      {trayMode ? <div ref={setHistoryEl} data-pro-history="" className={cn("contents", busy && "max-[479px]:hidden")} /> : null}
       {panAvailable ? (
         <button
           type="button"
@@ -316,8 +324,8 @@ function ProModeHostInner({
           )}
         >
           <Hand aria-hidden="true" className="size-4" />
-          {/* Texto corto a la vista siempre que quepa (390 px en vertical —con la tipografia ancha de Linux a 375 px no cabe—, 840 px en la cabecera horizontal). */}
-          <span className={inSlot ? "max-[839px]:sr-only" : "max-[389px]:sr-only"}>{m.host.panLabel}</span>
+          {/* Texto a la vista solo cuando sobra sitio (M6: con deshacer y rehacer en la misma barra son 700 px en vertical y 840 en la cabecera horizontal); si no, el icono (nombre accesible completo). */}
+          <span className={inSlot ? "max-[839px]:sr-only" : "max-[699px]:sr-only"}>{m.host.panLabel}</span>
         </button>
       ) : null}
       {panAvailable ? (
@@ -329,9 +337,10 @@ function ProModeHostInner({
   );
 
   const actions = hasControls ? (
-    <div className="flex shrink-0 items-center gap-2">
+    // `ml-auto`: bajo 560 px el parrafo del nombre sale del flujo y no empuja «Descartar»/«Aplicar» al borde derecho.
+    <div className="ml-auto flex shrink-0 items-center gap-2">
       {busy && session.hasControls ? (
-        <Button variant="ghost" size="md" data-pro-mode-cancel="" onClick={session.cancelApply}>
+        <Button variant="ghost" size="md" data-pro-mode-cancel="" className="max-[479px]:px-2" onClick={session.cancelApply}>
           {m.host.cancelApply}
         </Button>
       ) : null}
@@ -340,14 +349,18 @@ function ProModeHostInner({
         size="md"
         data-pro-mode-discard=""
         aria-disabled={busy || undefined}
-        className="aria-disabled:opacity-50"
+        className={cn(
+          "aria-disabled:opacity-50",
+          // (M6 · H1) En movil «Descartar» es un icono de 44 px (nombre accesible completo): con texto solo desde 700 px en vertical; siempre icono en la cabecera.
+          inSlot ? "w-11 px-0!" : mobile && "max-[699px]:w-11 max-[699px]:px-0",
+          busy && "max-[479px]:hidden",
+        )}
         onClick={() => {
           if (!busy) session.requestDiscard();
         }}
       >
         <X aria-hidden="true" className="size-4" />
-        {/* En movil estrecho solo el icono (el nombre accesible sigue siendo «Descartar»): «Aplicar» conserva su texto. */}
-        <span className={inSlot ? "sr-only" : mobile ? "max-[420px]:sr-only" : undefined}>{m.host.discard}</span>
+        <span className={inSlot ? "sr-only" : mobile ? "max-[699px]:sr-only" : undefined}>{m.host.discard}</span>
       </Button>
       <Button
         variant="primary"
@@ -355,14 +368,20 @@ function ProModeHostInner({
         data-pro-mode-apply=""
         aria-disabled={!canApply || undefined}
         // Con `aria-disabled` el boton se ve igual que uno activo: se le da el aspecto apagado.
-        className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:shadow-none"
+        className={cn(
+          "aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:shadow-none",
+          // (M6 · H1) «Aplicar» nunca se corta: con texto cuando cabe (≥ 390 px en vertical, ≥ 760 px en la cabecera horizontal con
+          // 59 px de zona segura por lado) y, si no, un boton de 44 px con la marca (nombre accesible «Aplicar»); el relleno
+          // primario lo distingue de «Descartar». `!`: `cn` no fusiona clases y `px-5`/`text-callout` del boton base ganarian.
+          mobile && (inSlot ? "gap-1.5 px-3! text-subheadline! max-[759px]:w-11 max-[759px]:px-0!" : "gap-1.5 px-3! text-subheadline! max-[389px]:w-11 max-[389px]:px-0!"),
+        )}
         onClick={() => {
           if (canApply) session.requestApply();
           else if (!busy) doc.announce(m.host.noChanges);
         }}
       >
         <Check aria-hidden="true" className="size-4" />
-        {busy ? m.host.applying : m.host.apply}
+        <span className={mobile ? (inSlot ? "max-[759px]:sr-only" : "max-[389px]:sr-only") : undefined}>{busy ? m.host.applying : m.host.apply}</span>
       </Button>
     </div>
   ) : null;
@@ -382,7 +401,7 @@ function ProModeHostInner({
             "shrink-0"
           : bottom
             ? cn(
-                "shrink-0 border-t border-hairline bg-background pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] py-1",
+                "shrink-0 border-t border-hairline bg-background px-2 py-1",
                 // Sin el dock debajo (plegado) la barra hace de borde inferior: respeta la zona segura del iPhone.
                 dockBelow ? "" : "pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]",
               )
@@ -393,11 +412,13 @@ function ProModeHostInner({
       <p
         className={cn(
           "flex min-w-0 flex-1 items-center gap-2 text-subheadline font-semibold text-foreground",
-          inSlot && "max-lg:sr-only",
+          // (M6 · H1) Bajo 560 px el nombre solo queda para lectores: el parrafo sale del flujo (si no, aporta dos huecos de 8 px).
+          inSlot ? "max-lg:sr-only" : mobile && "max-[559px]:sr-only",
         )}
       >
-        {/* (M5 · N4) El nombre del modo se lee ENTERO o no se pinta (el dock ya marca la pestaña): nada de «E…» / «A…». */}
-        <span data-pro-mode-name="" className={mobile ? "truncate max-[479px]:sr-only" : undefined}>
+        {/* (M5 · N4, M6) El nombre del modo se lee ENTERO o no se pinta (el dock ya marca la pestaña): nada de «E…» / «A…».
+            Desde 560 px sobra sitio junto a los botones; `shrink-0`: el que cede es el texto de estado, nunca el nombre. */}
+        <span data-pro-mode-name="" className={mobile ? "shrink-0 max-[559px]:sr-only" : undefined}>
           {modeName}
         </span>
         {/* En el movil el estado cabe como un punto (la barra ya es estrecha); el texto sigue para lectores de pantalla. */}

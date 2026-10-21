@@ -387,15 +387,21 @@ describe("Editar y Anotar dentro de PDF Pro", () => {
     expect(screen.getByRole("toolbar", { name: EDIT_STRINGS.en.inline.paletteLabel })).toBeTruthy();
   });
 
-  it("movil: «Editar» en el dock monta el editor con la paleta debajo de la hoja y sin hoja modal", async () => {
+  it("movil: «Editar» en el dock monta el editor con la paleta en la bandeja (UNA fila desplazable), deshacer/rehacer en la barra y sin hoja modal", async () => {
     stubMobile();
     await openPro();
     fireEvent.click(screen.getByRole("button", { name: "Editar" }));
     await screen.findByTestId("edit-host");
     expect(screen.queryByRole("dialog")).toBeNull();
     const toolbar = document.querySelector<HTMLElement>("[data-tool-palette]")!;
-    expect(toolbar.className).toContain("max-md:order-last");
+    expect(toolbar.closest("[data-pro-tray]")).not.toBeNull();
+    expect(toolbar.className).toContain("overflow-x-auto");
     expect(toolbar.className).not.toContain("max-md:fixed");
+    // (M6 · a) Deshacer y rehacer viven en la barra del modo y no se repiten en la paleta de la bandeja.
+    const bar = document.querySelector<HTMLElement>("[data-pro-mode-bar]")!;
+    expect(within(bar).getByRole("button", { name: EDIT_STRINGS.es.inline.undo })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: EDIT_STRINGS.es.inline.redo })).toBeTruthy();
+    expect(toolbar.querySelector('[data-palette-item="undo"]')).toBeNull();
   });
 
   it("movil: aplicar devuelve el foco al boton del dock de origen", async () => {

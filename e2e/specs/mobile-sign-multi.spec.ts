@@ -61,6 +61,15 @@ for (const profile of ALL_PROFILES) {
       await openSign(page, [pdfFile(await makeContract())]);
       await multiWithTwoSigners(page);
 
+      // (M6 · N8) Precondicion: se baja hasta el final del paso 1, de modo que en un TELEFONO la barra de pasos sale por arriba. Antes la
+      // pagina ya estaba casi en su sitio (tras rellenar los nombres), la prueba no distinguia «se desplaza al paso nuevo» de «se queda
+      // donde estaba» y la mutacion que quitaba el desplazamiento sobrevivia en 375 y 393 px (en tablet no: ahi la barra queda mas abajo).
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await page.waitForTimeout(300);
+      if (profile.phone && (page.viewportSize()?.width ?? 0) < 700) {
+        expect(await stepperTop(page), "precondicion: en el telefono la barra de pasos sale por arriba antes de cambiar de paso").toBeLessThan(-100);
+      }
+
       // Paso 1 -> 2 desde el stepper: la barra de pasos queda justo bajo la cabecera.
       await page.getByRole("button", { name: "2. Documento" }).click();
       await waitSheetReady(page);

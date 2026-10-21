@@ -191,7 +191,9 @@ export async function drawSignatureWithTouch(page: Page, cdp: CDPSession): Promi
   const at = (a: number, b: number): Point => ({ x: box!.x + box!.width * a, y: box!.y + box!.height * b });
   await touchPath(cdp, [at(0.1, 0.5), at(0.3, 0.3), at(0.5, 0.65), at(0.7, 0.35), at(0.9, 0.5)]);
   await dialog.getByRole("button", { name: /Usar esta firma|Use this signature/ }).click();
-  await expect(dialog).toBeHidden();
+  // (M6 · H2) 5 s no bastaban en el CI de GitHub (2 CPU cargadas): el compositor recorta y codifica el PNG de la firma antes de
+  // cerrarse. Es una espera de la prueba, no del producto: se da el mismo margen que al resto de esperas de carga del archivo.
+  await expect(dialog).toBeHidden({ timeout: 30_000 });
 }
 
 /** Lienzo de «Solo yo» con la firma ya colocada (el flujo de un ajustador: subir, crear firma, usarla). */

@@ -146,3 +146,57 @@ describe("EditToolPalette", () => {
     expect(toolbar.style.getPropertyValue("--edit-palette-bottom")).toBe("168px");
   });
 });
+
+/* (M6 · b) Bandeja del telefono: UNA fila desplazable con desvanecido en el borde con mas herramientas. */
+describe("EditToolPalette · fila desplazable de la bandeja", () => {
+  function row(overrides: { scrollWidth?: number; clientWidth?: number } = {}) {
+    render(<EditToolPalette tool="select" tools={TOOLS} onToolChange={vi.fn()} actions={[]} label="Herramientas de edición" scrollRow />);
+    const toolbar = screen.getByRole("toolbar", { name: "Herramientas de edición" });
+    Object.defineProperty(toolbar, "scrollWidth", { configurable: true, value: overrides.scrollWidth ?? 500 });
+    Object.defineProperty(toolbar, "clientWidth", { configurable: true, value: overrides.clientWidth ?? 300 });
+    return toolbar;
+  }
+
+  it("sin tarjeta propia, en una fila que se desplaza, con botones de 44 px que no se encogen", () => {
+    const toolbar = row();
+    expect(toolbar.className).toContain("overflow-x-auto");
+    expect(toolbar.className).not.toContain("material-thick");
+    expect(toolbar.className).toContain("gap-2");
+    for (const button of Array.from(toolbar.querySelectorAll<HTMLElement>("button"))) {
+      expect(button.className).toContain("w-11");
+      expect(button.className).toContain("flex-none");
+    }
+  });
+
+  it("desvanece el borde derecho cuando hay mas por ver y el izquierdo tras desplazarse", () => {
+    const toolbar = row();
+    act(() => {
+      toolbar.dispatchEvent(new Event("scroll"));
+    });
+    expect(toolbar.className).toContain("mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)");
+    toolbar.scrollLeft = 120;
+    act(() => {
+      toolbar.dispatchEvent(new Event("scroll"));
+    });
+    expect(toolbar.className).toContain("transparent,black_1.75rem");
+    toolbar.scrollLeft = 200;
+    act(() => {
+      toolbar.dispatchEvent(new Event("scroll"));
+    });
+    expect(toolbar.className).toContain("mask-image:linear-gradient(to_left,black_calc(100%-1.75rem),transparent)");
+  });
+
+  it("sin desbordar (caben todas) no hay desvanecido", () => {
+    const toolbar = row({ scrollWidth: 300, clientWidth: 300 });
+    act(() => {
+      toolbar.dispatchEvent(new Event("scroll"));
+    });
+    expect(toolbar.className).not.toContain("mask-image");
+  });
+
+  it("la paleta normal (columna/rejilla) lleva 8 px entre botones con el dedo en tablet (VI-07)", () => {
+    setup();
+    expect(screen.getByRole("toolbar").className).toContain("pointer-coarse:md:gap-2");
+    expect(screen.getByRole("toolbar").className).not.toContain("overflow-x-auto");
+  });
+});

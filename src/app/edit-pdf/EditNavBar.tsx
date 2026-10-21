@@ -123,8 +123,16 @@ export function EditNavBar({
         >
           <ZoomOut aria-hidden="true" className="size-4" />
         </NavButton>
-        {/* (M5 · N2) Por debajo de 380 px la barra cabe en UNA fila (ahorra 48 px de hoja): el porcentaje se lee solo por voz (los botones +/- siguen). */}
-        <span className="min-w-10 text-center text-footnote font-medium text-foreground tabular-nums max-[379px]:sr-only">
+        {/* (M5 · N2, M6 · e) Por debajo de 370 px la barra cabe en UNA fila (ahorra 48 px de hoja): el porcentaje se lee solo por voz (los botones +/- siguen).
+            Desde 370 px se ve («100 %» tras un pellizco): con el dedo su caja se mete 4 px bajo cada boton (el area tactil sigue siendo de 44 px y
+            8 px entre botones: el texto no recibe toques) y asi la barra cabe en una fila hasta con 10 paginas a 393 px. */}
+        <span
+          className={cn(
+            "text-center text-footnote font-medium text-foreground tabular-nums",
+            // En PDF Pro la barra tiene todo el ancho; suelta («Editar PDF», con margenes de pagina) conserva el limite de 380 px.
+            embedded ? "pointer-events-none min-w-10 pointer-coarse:-mx-1 pointer-coarse:min-w-9 max-[369px]:sr-only" : "min-w-10 max-[379px]:sr-only",
+          )}
+        >
           {s.zoomValue(Math.round(zoom * 100))}
         </span>
         <NavButton

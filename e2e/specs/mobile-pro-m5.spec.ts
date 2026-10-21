@@ -67,8 +67,10 @@ const LANDSCAPE = [
   { name: "móvil apaisado 800×360 (zona segura 44 px)", width: 800, height: 360, inset: 44 },
   { name: "iPhone SE horizontal 667×375 (sin zona segura)", width: 667, height: 375, inset: 0 },
   { name: "iPhone 5/SE 1.ª gen horizontal 568×320 (sin zona segura)", width: 568, height: 320, inset: 0 },
-  // Ancho FORZADO (700 con 59 de zona segura por lado: no cabe todo): lo que no cabe se sale por la derecha, pero nunca se pisa.
-  { name: "ventana estrecha 700×360 (zona segura 59 px, no cabe todo)", width: 700, height: 360, inset: 59, tight: true },
+  // Ancho FORZADO (700 con 59 de zona segura por lado). (M6 · H2) Antes «no cabia todo» y se salia 2 px por la derecha (la prueba lo
+  // toleraba y fallaba igual en el CI): ahora la cabecera no suma la zona segura dos veces, no lleva «Guardar y exportar» ni «Cerrar»
+  // en horizontal y «Aplicar» es un boton de 44 px por debajo de 760 px: cabe, sin excepciones.
+  { name: "ventana estrecha 700×360 (zona segura 59 px)", width: 700, height: 360, inset: 59 },
 ] as const;
 
 for (const profile of LANDSCAPE) {
@@ -113,7 +115,7 @@ for (const profile of LANDSCAPE) {
         );
         expect(report.count, "la cabecera pinta sus controles").toBeGreaterThan(4);
         expect(report.overlaps, "controles de la cabecera que se pisan").toEqual([]);
-        if (!("tight" in profile)) expect(report.outside, "controles fuera de la zona segura").toEqual([]);
+        expect(report.outside, "controles fuera de la zona segura").toEqual([]);
         expect(report.applyHit, "el centro de «Aplicar» es de «Aplicar»").toBe(true);
         expect(report.applyRightHit, "el borde derecho de «Aplicar» tambien (antes caia en «Descargar»)").toBe(true);
         await noHorizontalOverflow(page);
@@ -129,9 +131,8 @@ test.describe("N1 · sin zona segura nada cambia y no hay botones muertos de des
     await openMode(page, "edit");
     await expect(page.locator('[data-pro-region="top"]').getByRole("button", { name: S.suite.undo })).toHaveCount(0);
     await expect(page.locator('[data-pro-region="top"]').getByRole("button", { name: S.suite.redo })).toHaveCount(0);
-    // El deshacer del MODO sigue en su paleta.
-    await setTray(page, true);
-    await expect(page.locator('[data-palette-item="undo"]')).toBeVisible();
+    // El deshacer del MODO sigue ahi: (M6 · a) en la barra del modo, siempre a la vista (antes, dentro de la bandeja).
+    await expect(page.locator('[data-pro-mode-bar] [data-history-button="undo"]')).toBeVisible();
   });
 });
 
@@ -187,24 +188,39 @@ for (const profile of SHEET_PROFILES) {
       });
     }
 
-    test("las ocho herramientas y deshacer/rehacer se alcanzan con el dedo (≥ 44 px) con las herramientas abiertas", async ({ page }) => {
+    test("las ocho herramientas (en una fila que se desplaza) y deshacer/rehacer (en la barra) se alcanzan con el dedo (≥ 44 px)", async ({ page }) => {
       await openMode(page, "edit");
       await setTray(page, true);
       const items = page.locator("[data-tool-palette] [data-palette-item]");
-      expect(await items.count()).toBeGreaterThanOrEqual(10);
+      // (M6 · a, b) Las ocho herramientas van en UNA fila desplazable; deshacer y rehacer viven en la barra del modo.
+      const landscapeColumn = profile.landscape && profile.width >= 768;
+      expect(await items.count()).toBeGreaterThanOrEqual(landscapeColumn ? 10 : 8);
       const small: string[] = [];
       const outside: string[] = [];
       for (let index = 0; index < (await items.count()); index += 1) {
         const item = items.nth(index);
-        const box = await item.boundingBox();
         const id = (await item.getAttribute("data-palette-item")) ?? String(index);
+        // La fila (o la columna de horizontal) se desplaza hasta el boton, como haria el dedo.
+        await item.evaluate((element) => {
+          const palette = element.closest<HTMLElement>("[data-tool-palette]")!;
+          const box = palette.getBoundingClientRect();
+          const at = element.getBoundingClientRect();
+          palette.scrollLeft += at.left - box.left - (palette.clientWidth - at.width) / 2;
+        });
+        const box = await item.boundingBox();
         if (!box) continue;
-        // Con la paleta en columna (horizontal) las ultimas filas se alcanzan desplazando su propia columna.
         if (box.width < 43.5 || box.height < 43.5) small.push(`${id} ${Math.round(box.width)}×${Math.round(box.height)}`);
-        if (!profile.landscape && (box.y < 0 || box.y + box.height > profile.height)) outside.push(id);
+        if (!profile.landscape && (box.x < 0 || box.x + box.width > profile.width || box.y < 0 || box.y + box.height > profile.height)) outside.push(id);
       }
       expect(small, "botones de la paleta menores de 44 px").toEqual([]);
       expect(outside, "botones de la paleta fuera de la pantalla").toEqual([]);
+      for (const id of ["undo", "redo"]) {
+        const button = page.locator(`[data-pro-mode-bar] [data-history-button="${id}"]`);
+        await expect(button).toBeVisible();
+        const box = (await button.boundingBox())!;
+        expect(box.width, `${id} ancho`).toBeGreaterThanOrEqual(43.5);
+        expect(box.height, `${id} alto`).toBeGreaterThanOrEqual(43.5);
+      }
     });
   });
 }
@@ -425,13 +441,14 @@ test.describe("VI-07 · botones contiguos de Editar y Páginas", () => {
 test.describe("GE-01 · descubribilidad del desplazamiento con una herramienta armada", () => {
   test.use({ viewport: { width: 393, height: 852 }, locale: "es-ES", hasTouch: true, isMobile: true });
 
-  test("«Desplazar» muestra su texto junto a la herramienta armada y el aviso sale UNA sola vez", async ({ page }) => {
+  test("«Desplazar» es un interruptor de 44 px con nombre accesible completo y el aviso de la primera vez sale UNA sola vez", async ({ page }) => {
     await openMode(page, "edit");
     const pan = page.getByRole("switch", { name: new RegExp(M.host.panLabel) });
     await expect(pan).toBeVisible();
-    // Texto corto a la vista (no solo un icono).
-    const label = await pan.locator("span").first().boundingBox();
-    expect(label && label.width > 20, "el texto «Desplazar» se ve").toBe(true);
+    // (M6) A 393 px la barra del modo lleva tambien deshacer y rehacer (44 px cada uno): «Desplazar» es el icono de la mano, con su
+    // nombre accesible completo, y el texto se ve desde 700 px (probado en `mobile-pro-m6`). Antes el texto se veia desde 390 px.
+    const box = (await pan.boundingBox())!;
+    expect(box.width, "el interruptor mide 44 px").toBeGreaterThanOrEqual(43.5);
     await expect(page.locator("[data-pro-pan-first-hint]")).toHaveCount(0);
 
     await pickTool(page, "rect");

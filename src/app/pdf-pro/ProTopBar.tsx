@@ -49,6 +49,11 @@ export type ProTopBarProps = {
    * dos botones de 44 px se retiran y dejan sitio a «Aplicar» y al titulo en vez de quedar como dos botones muertos.
    */
   hideHistory?: boolean;
+  /**
+   * (M6 · H2) Cabecera delgada (movil horizontal con la barra del modo dentro): sin el boton «Cerrar documento» (vive en «Mas»); el
+   * llamador tampoco pasa `saveItems`. Asi «Aplicar» cabe con 59 px de zona segura por lado.
+   */
+  slim?: boolean;
 };
 
 /** Boton de icono de 44 px (patron del Sidebar): el relleno visible es de 32 px. */
@@ -119,6 +124,7 @@ export function ProTopBar({
   compact = false,
   modeSlotRef,
   hideHistory = false,
+  slim = false,
 }: ProTopBarProps) {
   const strings = getProStrings(language);
   const s = strings.suite;
@@ -129,10 +135,10 @@ export function ProTopBar({
       aria-label={s.topBarLabel}
       data-compact={compact ? "" : undefined}
       className={cn(
-        "flex shrink-0 items-center gap-2 border-b border-hairline px-3 max-[360px]:gap-1 md:px-4",
+        "flex shrink-0 items-center gap-2 border-b border-hairline px-3 md:px-4",
         compact ? "min-h-12" : "min-h-14",
-        // Con `viewport-fit=cover` un iPhone horizontal tapa los bordes con la isla y las esquinas: la barra respeta la zona segura.
-        "pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))]",
+        // La zona segura lateral (`viewport-fit=cover`: isla y esquinas de un iPhone horizontal) la aplica `main#content` (globals.css):
+        // sumarla aqui otra vez (M6 · H2) dejaba 59 px de mas por lado sin usar y «Aplicar» no cabia en 700×360.
         // Con un indicador a la vista el indicador baja a su propia fila: la barra se parte en dos mientras dura.
         "has-[[data-export-indicator]]:flex-wrap has-[[data-export-indicator]]:py-1",
       )}
@@ -192,7 +198,7 @@ export function ProTopBar({
       ) : null}
       {moreItems ? <MoreMenu label={strings.shell.more} items={moreItems} menuId="more" openSignal={moreMenuSignal} /> : null}
       {/* En movil «Cerrar documento» vive en el menu «Mas» (no caben cinco botones de 44 px junto al nombre). */}
-      <BarIconButton label={s.close} onClick={onClose} className="max-sm:hidden">
+      <BarIconButton label={s.close} onClick={onClose} className={slim ? "hidden" : "max-sm:hidden"}>
         <X aria-hidden="true" className="size-[18px]" />
       </BarIconButton>
     </div>

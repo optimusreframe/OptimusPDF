@@ -7,7 +7,7 @@ import { makeContract, openSign, pdfFile, safeSheetY, waitSheetReady } from "../
  *
  * axe-core (WCAG 2.0/2.1/2.2 A y AA, incluido `target-size`) = 0 violaciones en las pantallas que cambian con esta unidad
  * —aviso de privacidad con resumen, paso de firmantes con «Continuar» pegajoso, paso documento con la paleta plegada /
- * en dock / en carril, traspaso de la ceremonia y la hoja «Opciones» de tablet— en 320, 375, 393, 744, 834 y 1 194 px,
+ * en dock / en carril, traspaso de la ceremonia y la hoja «Opciones» de tablet— en 320, 375, 393, 430, 744, 834 y 1 194 px,
  * tema claro/oscuro y ES/EN, y NINGUNA pantalla gana scroll horizontal (ni con una tipografia ancha forzada, la de DejaVu
  * del CI de Linux) a 320 y 375 px. Tactil, headless.
  */
@@ -18,6 +18,7 @@ const WIDTHS: Array<{ width: number; height: number }> = [
   { width: 320, height: 568 },
   { width: 375, height: 667 },
   { width: 393, height: 852 },
+  { width: 430, height: 932 },
   { width: 744, height: 1133 },
   { width: 834, height: 1194 },
   { width: 1194, height: 834 },

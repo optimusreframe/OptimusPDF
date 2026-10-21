@@ -5,6 +5,7 @@ import {
   useId,
   useLayoutEffect,
   useRef,
+  useState,
   type ClipboardEvent as ReactClipboardEvent,
   type CSSProperties,
   type FormEvent as ReactFormEvent,
@@ -95,6 +96,32 @@ export function textBoxStyle(frame: TextFrame, css: TextCssInput, scale: number)
     scale,
   );
   return { ...frameStyle(frame, shift), ...textCssStyle(css, scale) };
+}
+
+/** Safari de iPhone acerca la pagina al enfocar un campo editable de menos de 16 px (M6 · d). */
+export const MIN_TOUCH_FONT_PX = 16;
+
+/**
+ * (M6 · d) Con el dedo, un cuadro de texto cuyo cuerpo de PDF mide menos de 16 px se escribe a 16 px y se REDUCE con `scale()`
+ * hasta el tamano real (como el campo de Firmar, SC-04): mismo aspecto y mismo reparto de lineas, sin zoom automatico de iOS.
+ * `shrink` es el factor (< 1) o 1 si no hace falta.
+ */
+export function touchShrinkFactor(fontPx: number, coarse: boolean): number {
+  return coarse && fontPx > 0 && fontPx < MIN_TOUCH_FONT_PX ? fontPx / MIN_TOUCH_FONT_PX : 1;
+}
+
+/** Estilo del cuadro con el cuerpo a 16 px reducido por `shrink`: ancho y alto se agrandan 1/shrink para que, ya reducido, ocupe el marco. */
+export function shrunkBoxStyle(base: CSSProperties, frame: TextFrame, shrink: number): CSSProperties {
+  if (shrink === 1) return base;
+  const inverse = 1 / shrink;
+  return {
+    ...base,
+    fontSize: `${MIN_TOUCH_FONT_PX}px`,
+    width: frame.width * inverse,
+    minHeight: frame.height * inverse,
+    transform: `${base.transform ?? ""} scale(${shrink})`.trim(),
+    transformOrigin: "0 0",
+  };
 }
 
 export type InlineExitReason = "escape" | "shift-enter" | "blur";
@@ -276,6 +303,9 @@ export function InlineTextEditor({
   const ref = useRef<HTMLDivElement>(null);
   const composingRef = useRef(false);
   const hintId = useId();
+  // Se lee al abrir el editor (nace tras un toque o un clic): no hace falta escuchar cambios durante una edicion.
+  const [coarse] = useState(() => typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches);
+  const shrink = touchShrinkFactor(css.fontSize * scale, coarse);
   const emitted = useRef(text);
 
   useEffect(() => {
@@ -393,9 +423,10 @@ export function InlineTextEditor({
         }}
         className="pointer-events-auto z-[6] cursor-text whitespace-pre-wrap"
         style={{
-          ...textBoxStyle(frame, css, scale),
-          outline: "2px solid var(--color-signal)",
-          outlineOffset: 2,
+          ...shrunkBoxStyle(textBoxStyle(frame, css, scale), frame, shrink),
+          // El contorno se dibuja con la caja ya reducida: se agranda lo mismo para que se siga viendo de 2 px.
+          outline: `${2 / shrink}px solid var(--color-signal)`,
+          outlineOffset: 2 / shrink,
         }}
       />
       <span id={hintId} className="sr-only">

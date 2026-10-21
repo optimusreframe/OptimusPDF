@@ -164,6 +164,10 @@ export type ShellStrings = {
   panelItem: string;
   resetLayout: string;
   closeItem: string;
+  /** (M6 · c) Con la cabecera de la web oculta (movil horizontal): volver al inicio y cambiar de idioma desde «Mas». */
+  homeItem: string;
+  homeConfirm: string;
+  languageItem: string;
   shortcutsTitle: string;
   shortcutGroups: Record<ShortcutGroupId, string>;
   shortcutActions: Record<ShortcutId, string>;
@@ -328,6 +332,9 @@ export const SHELL_STRINGS_ES: ShellStrings = {
   panelItem: "Panel de herramienta",
   resetLayout: "Restablecer la distribución",
   closeItem: "Cerrar documento",
+  homeItem: "Ir al inicio de OptimusPDF",
+  homeConfirm: "Salir al inicio",
+  languageItem: "Cambiar el idioma a English",
   shortcutsTitle: "Atajos de teclado",
   shortcutGroups: { document: "Documento", viewer: "Visor", thumbs: "Miniaturas" },
   shortcutActions: {
@@ -378,6 +385,9 @@ export const SHELL_STRINGS_EN: ShellStrings = {
   panelItem: "Tool panel",
   resetLayout: "Reset the layout",
   closeItem: "Close document",
+  homeItem: "Go to the OptimusPDF home page",
+  homeConfirm: "Leave for the home page",
+  languageItem: "Switch the language to Español (Spanish)",
   shortcutsTitle: "Keyboard shortcuts",
   shortcutGroups: { document: "Document", viewer: "Viewer", thumbs: "Thumbnails" },
   shortcutActions: {

@@ -15,7 +15,7 @@ import {
 import { ImagePlus, Layers, Redo2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useLiveSink } from "@/components/tool/liveRouting";
-import { TrayPortal, useTray } from "@/components/tool/trayRouting";
+import { TrayHistoryPortal, TrayPortal, useHistoryInBar, useTray } from "@/components/tool/trayRouting";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -27,6 +27,7 @@ import {
 } from "@/lib/pdf/editPdf";
 import type { TextBlock, TextEdit, UserBox } from "@/lib/pdf/editTypes";
 import { EditFloatingBar, glyphNotice, type BarTextState } from "@/app/edit-pdf/EditFloatingBar";
+import { EditHistoryButtons } from "@/app/edit-pdf/EditHistoryButtons";
 import { EditNavBar, ZOOM_STEPS } from "@/app/edit-pdf/EditNavBar";
 import { EditSurface, type SurfaceHandle } from "@/app/edit-pdf/EditSurface";
 import { EditToolPalette, type PaletteTool } from "@/app/edit-pdf/EditToolPalette";
@@ -162,6 +163,8 @@ const ELEMENT_REGION_SELECTOR = '[data-element-id][data-drag-mode="move"]';
 
 /** Frames que `focusRegion` espera a que aparezca la region de un elemento recien creado. */
 const FOCUS_REGION_MAX_FRAMES = 20;
+/** (M6 · f) Tiempo que el aviso de la herramienta armada cuelga sobre la hoja en el telefono. */
+const HINT_VISIBLE_MS = 4000;
 
 type Creation = {
   pointerId: number;
@@ -1229,6 +1232,9 @@ export function EditWorkspace({
 
   /** Arma una herramienta (o vuelve a Seleccionar): arma = suelta la seleccion y descarta lo que se dibujaba. */
   const tray = useTray();
+  // (M6) Telefono: la paleta va en la bandeja (una fila) y deshacer/rehacer en la barra del modo.
+  const historyInBar = useHistoryInBar();
+  const paletteInTray = tray !== null && "palette" in tray.slots;
   const trayRef = useRef(tray);
   useEffect(() => {
     trayRef.current = tray;
@@ -1741,6 +1747,18 @@ export function EditWorkspace({
   }, [glyphText, announceFocus]);
   const armed = tool !== "select";
   const passiveText = isDrawTool(tool) || tool === "image";
+  /*
+   * (M6 · f) En el telefono (bandeja de PDF Pro) el aviso de la herramienta armada cuelga SOBRE la hoja (hasta el 38 % a 320 px): se
+   * lee en 4 s y se retira solo (queda para lectores de pantalla). «Imagen» lo conserva: lleva el boton «Elegir imagen».
+   */
+  const hintAutoHide = historyInBar && tool !== "image";
+  const [hintExpired, setHintExpired] = useState<Tool | null>(null);
+  useEffect(() => {
+    if (!hintAutoHide || !armed) return;
+    const timer = window.setTimeout(() => setHintExpired(tool), HINT_VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [hintAutoHide, armed, tool]);
+  const hintRetired = hintAutoHide && hintExpired === tool && !imageNotice;
   /* (M5 · N2) Con la bandeja cerrada la barra del modo nombra la herramienta armada (icono + nombre accesible). */
   const reportTool = tray?.reportTool;
   const armedTool = tools.find((item) => item.id === tool);
@@ -1810,14 +1828,17 @@ export function EditWorkspace({
           <div
             data-tool-hint-box=""
             className={cn(
-              armed || imageNotice
-                ? "surface-card shadow-elevation-2 rounded-ios pointer-events-none absolute inset-x-0 top-[calc(100%+0.25rem)] z-10 flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"
+              (armed || imageNotice) && !hintRetired
+                ? cn(
+                    "surface-card shadow-elevation-2 rounded-ios pointer-events-none absolute inset-x-0 top-[calc(100%+0.25rem)] z-10 flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2",
+                    historyInBar && "px-2.5 py-1.5",
+                  )
                 : "sr-only",
             )}
           >
             <p
               data-tool-hint=""
-              className={cn("min-w-0 flex-1 text-sm", imageNotice?.error ? "text-destructive-text" : "text-foreground")}
+              className={cn("min-w-0 flex-1 text-sm", historyInBar && "text-xs leading-snug", imageNotice?.error ? "text-destructive-text" : "text-foreground")}
             >
               {hintText}
             </p>
@@ -1935,12 +1956,25 @@ export function EditWorkspace({
             : "flex flex-col gap-3 md:flex-row md:items-start"
         }
       >
+        {/* (M6 · a) Deshacer/rehacer en la barra del modo (telefono): siempre a la vista, sin abrir la bandeja. */}
+        <TrayHistoryPortal>
+          <EditHistoryButtons
+            undoLabel={s.undo}
+            redoLabel={s.redo}
+            canUndo={session.canUndo}
+            canRedo={session.canRedo}
+            onUndo={session.undo}
+            onRedo={session.redo}
+          />
+        </TrayHistoryPortal>
         <TrayPortal slot="palette">
           <EditToolPalette
             tool={tool}
             tools={tools}
             onToolChange={(id) => chooseTool(isTool(id) ? id : "select")}
-            actions={[
+            // (M6 · a) Con la paleta en la bandeja del telefono, deshacer/rehacer viven en la barra del modo (no se repiten).
+            scrollRow={paletteInTray}
+            actions={paletteInTray && historyInBar ? [] : [
               {
                 id: "undo",
                 icon: Undo2,
@@ -1971,7 +2005,9 @@ export function EditWorkspace({
                 : undefined
             }
             className={
-              embedded
+              embedded && paletteInTray
+                ? "z-20 shrink-0"
+                : embedded
                 ? "z-20 shrink-0 max-md:order-last max-md:grid max-md:grid-cols-[repeat(auto-fit,minmax(2.75rem,1fr))] max-md:justify-items-center max-md:gap-2 max-md:[&_[role=separator]]:hidden md:min-h-0 md:max-h-full md:w-12 md:self-start md:overflow-y-auto md:overscroll-contain [@media(max-height:479.98px)]:md:grid [@media(max-height:479.98px)]:md:w-[6.5rem] [@media(max-height:479.98px)]:md:grid-cols-2 [@media(max-height:479.98px)]:md:justify-items-center"
                 : "z-20 max-md:z-30 max-md:fixed max-md:inset-x-0 max-md:bottom-[var(--edit-palette-bottom,calc(9.25rem+env(safe-area-inset-bottom,0px)))] max-md:grid max-md:grid-cols-5 max-md:rounded-none max-md:px-1 max-md:[&_[role=separator]]:hidden md:sticky md:top-24 md:w-12 md:shrink-0"
             }
@@ -1987,7 +2023,12 @@ export function EditWorkspace({
           tabIndex={embedded ? 0 : undefined}
           className={
             embedded
-              ? "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-ios focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+              ? // (M6 · H3) En movil la barra vertical SIEMPRE existe (`overflow-y: scroll`): con barras clasicas (WebKit sin barras superpuestas) la
+                // hoja oscilaba entre dos anchos (331/341 px) cuando su alto quedaba a ~10 px de caber: sin barra cabia, con ella ya no (es mas
+                // estrecha y mas baja), y vuelta a empezar; el recorte ganaba scroll horizontal (axe `scrollable-region-focusable`). Con la barra
+                // fija el ancho no depende del alto. (`scrollbar-gutter: stable` no basta: WebKit lo ignora con barras clasicas.) Barras
+                // superpuestas (iOS, Android, macOS) no ocupan sitio: no cambia nada.
+                "min-h-0 min-w-0 flex-1 overflow-y-auto max-md:overflow-y-scroll overscroll-contain rounded-ios focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
               : "contents"
           }
         >

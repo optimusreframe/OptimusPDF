@@ -146,7 +146,7 @@ function ProSuiteBody({
   tab,
   setTab,
 }: ProSuiteProps & { tab: ProTabId; setTab: (tab: ProTabId) => void }) {
-  const { t, language } = useI18n();
+  const { t, language, setLanguage } = useI18n();
   const strings = getProStrings(language);
   const s = strings.suite;
   const shell = strings.shell;
@@ -236,6 +236,11 @@ function ProSuiteBody({
     return () => root.removeAttribute("data-pro-immersive");
   }, [immersive]);
   const [modeSlot, setModeSlot] = useState<HTMLDivElement | null>(null);
+  /* (M6 · H2) Cabecera «delgada»: con la barra del modo DENTRO de la cabecera (movil horizontal) el menu «Guardar y exportar» y el boton
+     de cerrar salen de ella (sus opciones viven en «Mas»): asi «Aplicar» cabe tambien con 59 px de zona segura por lado. */
+  const slimHeader = rail && modeActive;
+  /* (M6 · c) La cabecera de la web (logo, idioma, menus) no existe en horizontal ni con un modo abierto en un movil bajo: «Inicio» e idioma pasan a «Mas». */
+  const siteHeaderHidden = rail || immersive;
   // (M5 · N2) Elegir una herramienta en la bandeja del movil la cierra: la hoja vuelve a tener todo el alto.
   const foldAfterPick = useCallback(() => setFoldPref(true), []);
   const modeLayout = useMemo<ProModeHostLayout>(
@@ -293,17 +298,32 @@ function ProSuiteBody({
   const { download } = save;
   const [saveMenuSignal, setSaveMenuSignal] = useState(0);
 
-  const requestClose = useCallback(() => {
-    guardMode(() => {
-      // D7: un paso en vuelo (operacion corriendo o confirmacion encolada) cuenta como cambios pendientes; Wave 9: una
-      // exportacion en curso tambien (se cancelara al cerrar) y la hoja lo dice.
-      const decision = leaveConfirmation(doc, language, "close", getProStrings(language).suite.closeConfirmBody);
-      if (decision.needed) {
-        setConfirmCloseBody(decision.body);
-        setConfirmClose(true);
-      } else onClose();
-    });
-  }, [doc, onClose, language, setConfirmClose, setConfirmCloseBody, guardMode]);
+  /** (M6 · c) «Cerrar documento» y «Inicio» (cabecera de la web oculta en horizontal) pasan por la misma pregunta de cambios sin guardar. */
+  const [leaveTarget, setLeaveTarget] = useState<"close" | "home">("close");
+  const leaveNow = useCallback(
+    (target: "close" | "home") => {
+      if (target === "home") window.location.assign("/");
+      else onClose();
+    },
+    [onClose],
+  );
+  const requestLeave = useCallback(
+    (target: "close" | "home") => {
+      guardMode(() => {
+        // D7: un paso en vuelo (operacion corriendo o confirmacion encolada) cuenta como cambios pendientes; Wave 9: una
+        // exportacion en curso tambien (se cancelara al cerrar) y la hoja lo dice.
+        const decision = leaveConfirmation(doc, language, "close", getProStrings(language).suite.closeConfirmBody);
+        if (decision.needed) {
+          setLeaveTarget(target);
+          setConfirmCloseBody(decision.body);
+          setConfirmClose(true);
+        } else leaveNow(target);
+      });
+    },
+    [doc, language, setConfirmClose, setConfirmCloseBody, guardMode, leaveNow],
+  );
+  const requestClose = useCallback(() => requestLeave("close"), [requestLeave]);
+  const requestHome = useCallback(() => requestLeave("home"), [requestLeave]);
 
   /** Elige una pestaña: en escritorio reabre el panel si estaba plegado; en movil abre su hoja. */
   const goToTabNow = useCallback(
@@ -529,9 +549,9 @@ function ProSuiteBody({
   const moreItems: MoreMenuItem[] = [
     { id: "palette", label: shell.paletteItem, shortcut: "Ctrl/⌘ K", onSelect: () => setPaletteOpen(true) },
     // En pantallas estrechas el menu «Guardar y exportar» no cabe en la barra: sus opciones viven aqui.
-    { id: "download", label: saveStrings.downloadPdf, narrowOnly: true, separatorBefore: true, onSelect: download },
-    { id: "save-as", label: saveStrings.saveAs, narrowOnly: true, onSelect: save.openSaveAs },
-    { id: "save-protect", label: saveStrings.saveWithPassword, narrowOnly: true, onSelect: save.openProtect },
+    { id: "download", label: saveStrings.downloadPdf, narrowOnly: !slimHeader, separatorBefore: true, onSelect: download },
+    { id: "save-as", label: saveStrings.saveAs, narrowOnly: !slimHeader, onSelect: save.openSaveAs },
+    { id: "save-protect", label: saveStrings.saveWithPassword, narrowOnly: !slimHeader, onSelect: save.openProtect },
     { id: "export", label: shell.exportItem, onSelect: exportDocument },
     ...(onOpenFile ? [{ id: "open-another", label: createStrings.menu.openAnother, separatorBefore: true, onSelect: pickOpen }] : []),
     ...(onNewFromImages ? [{ id: "new-images", label: createStrings.menu.newFromImages, onSelect: onNewFromImages }] : []),
@@ -551,7 +571,13 @@ function ProSuiteBody({
       : []),
     ...(isDesktop ? [{ id: "reset", label: shell.resetLayout, onSelect: resetLayout }] : []),
     { id: "shortcuts", label: shell.shortcutsItem, separatorBefore: true, onSelect: () => setShortcutsOpen(true) },
-    { id: "close", label: shell.closeItem, narrowOnly: true, onSelect: requestClose },
+    ...(siteHeaderHidden
+      ? [
+          { id: "home", label: shell.homeItem, separatorBefore: true, onSelect: requestHome },
+          { id: "language", label: shell.languageItem, onSelect: () => setLanguage(language === "es" ? "en" : "es") },
+        ]
+      : []),
+    { id: "close", label: shell.closeItem, narrowOnly: !slimHeader, onSelect: requestClose },
   ];
 
   const skipTargets: { id: ProRegionId; label: string }[] = [
@@ -617,7 +643,8 @@ function ProSuiteBody({
         onDownload={download}
         onClose={requestClose}
         moreItems={moreItems}
-        saveItems={saveItems}
+        saveItems={slimHeader ? undefined : saveItems}
+        slim={slimHeader}
         saveMenuSignal={saveMenuSignal}
         moreMenuSignal={moreMenuSignal}
         headingRef={headingRef}
@@ -922,10 +949,10 @@ function ProSuiteBody({
         open={confirmClose}
         onClose={() => setConfirmClose(false)}
         // Cerrar el documento cancela y limpia la exportacion en curso (el almacen escucha al documento de trabajo).
-        onConfirm={onClose}
-        title={s.close}
+        onConfirm={() => leaveNow(leaveTarget)}
+        title={leaveTarget === "home" ? shell.homeConfirm : s.close}
         body={confirmCloseBody}
-        confirmLabel={s.close}
+        confirmLabel={leaveTarget === "home" ? shell.homeConfirm : s.close}
         cancelLabel={s.cancel}
         closeLabel={t.common.close}
       />

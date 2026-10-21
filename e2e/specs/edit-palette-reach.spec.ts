@@ -126,6 +126,46 @@ async function expectReachable(page: Page, label: string): Promise<Report> {
   return report;
 }
 
+/**
+ * (M6 · a, b) PDF Pro en el telefono: las herramientas van en UNA fila desplazable dentro de la bandeja y deshacer/rehacer en la
+ * barra del modo. Se mide que cada herramienta, desplazando la fila hasta ella, mide >= 44 px, cae dentro de la ventana y nada la
+ * tapa; y que los dos botones de la barra estan siempre a la vista (sin abrir nada) con 44 px.
+ */
+async function expectProTrayReachable(page: Page, label: string): Promise<void> {
+  await settle(page);
+  const report = await page.evaluate(() => {
+    const palette = document.querySelector<HTMLElement>("[data-tool-palette]")!;
+    const describe = (el: Element | null) => (el ? `${el.tagName.toLowerCase()}[${el.getAttribute("aria-label") ?? ""}]` : "nada");
+    const small: string[] = [];
+    const unreachable: string[] = [];
+    const tools = Array.from(palette.querySelectorAll<HTMLElement>("button"));
+    for (const button of tools) {
+      const id = button.dataset.paletteItem ?? "?";
+      // La fila se desplaza hasta dejar el boton en el centro (lo que haria el dedo).
+      const box = palette.getBoundingClientRect();
+      const at = button.getBoundingClientRect();
+      palette.scrollLeft += at.left - box.left - (palette.clientWidth - at.width) / 2;
+      const rect = button.getBoundingClientRect();
+      if (rect.width < 43.5 || rect.height < 43.5) small.push(`${id} ${Math.round(rect.width)}x${Math.round(rect.height)}`);
+      const inside = rect.left >= -0.5 && rect.right <= window.innerWidth + 0.5 && rect.top >= -0.5 && rect.bottom <= window.innerHeight + 0.5;
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      if (!inside || !(hit === button || (hit && button.contains(hit)))) unreachable.push(`${id} -> ${inside ? describe(hit) : "fuera de la ventana"}`);
+    }
+    const history = ["undo", "redo"].map((id) => {
+      const button = document.querySelector<HTMLElement>(`[data-pro-mode-bar] [data-history-button="${id}"]`);
+      const rect = button?.getBoundingClientRect();
+      const hit = rect ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) : null;
+      return { id, ok: !!button && !!rect && rect.width >= 43.5 && rect.height >= 43.5 && rect.right <= window.innerWidth && (hit === button || !!button.contains(hit)) };
+    });
+    return { tools: tools.length, small, unreachable, history, overflow: document.documentElement.scrollWidth - window.innerWidth };
+  });
+  expect(report.tools, `${label}: herramientas de la paleta`).toBeGreaterThanOrEqual(8);
+  expect(report.small, `${label}: botones de menos de 44 px`).toEqual([]);
+  expect(report.unreachable, `${label}: botones fuera de la ventana o tapados`).toEqual([]);
+  expect(report.history.filter((item) => !item.ok), `${label}: deshacer/rehacer de la barra del modo`).toEqual([]);
+  expect(report.overflow, `${label}: desborde horizontal`).toBeLessThanOrEqual(0);
+}
+
 /** Ejecuta axe sobre un contexto de la pagina y devuelve las violaciones (id + nodo). */
 async function axeViolations(page: Page, context: string): Promise<string[]> {
   await page.addScriptTag({ path: AXE_PATH });
@@ -213,7 +253,7 @@ for (const viewport of VIEWPORTS) {
         const fold = page.locator("[data-pro-fold-toggle]");
         if ((await fold.getAttribute("aria-expanded")) === "false") await fold.tap();
         await expect(page.locator("[data-tool-palette]")).toBeVisible();
-        await expectReachable(page, `Pro Editar ${viewport.name} ${scheme}`);
+        await expectProTrayReachable(page, `Pro Editar ${viewport.name} ${scheme}`);
         expect(errors).toEqual([]);
       });
     });
