@@ -766,6 +766,17 @@ export const PDF_WORKER_SRC = `/pdf.worker.min.mjs?v=${process.env.NEXT_PUBLIC_P
  */
 export const PDF_STANDARD_FONTS_URL = "/standard_fonts/";
 
+/**
+ * Decodificadores WebAssembly de pdf.js: `openjpeg.wasm` (imagenes JPX / JPEG 2000), `jbig2.wasm` (JBIG2) y
+ * `qcms_bg.wasm` (perfiles de color ICC), mas sus respaldos en JavaScript (`*_nowasm_fallback.js`, para un navegador
+ * sin WebAssembly). Escaneos y facturas suelen traer JPX o JBIG2: sin esta ruta pdf.js no sabe de donde cargar el
+ * decodificador y la imagen se queda SIN pintar ni extraer («OpenJPEG failed to initialize»). Se copian de
+ * `pdfjs-dist/wasm` a `public/pdfjs-wasm/` (igual que el worker y las fuentes) y deben refrescarse al subir de version
+ * la libreria (`core.wasm.test.ts` falla si dejan de coincidir byte a byte). Mismo origen: no hay peticiones externas y
+ * el CSP ya permite `'wasm-unsafe-eval'`. Lleva la barra final que exige pdf.js.
+ */
+export const PDF_WASM_URL = "/pdfjs-wasm/";
+
 type PdfJsModule = typeof import("pdfjs-dist");
 
 let pdfjsPromise: Promise<PdfJsModule> | null = null;
@@ -805,6 +816,7 @@ export async function openPdfDocument(
       data: copy,
       password,
       standardFontDataUrl: PDF_STANDARD_FONTS_URL,
+      wasmUrl: PDF_WASM_URL,
     });
     return await task.promise;
   } catch (error) {

@@ -15,6 +15,9 @@ const eslintConfig = defineConfig([
     // Worker de pdfjs-dist copiado tal cual desde node_modules: es codigo
     // de terceros minificado, no se lintea.
     "public/pdf.worker.min.mjs",
+    // Respaldos en JavaScript de los decodificadores JPX / JBIG2 de pdfjs-dist (U7.0), copiados tal cual: tambien
+    // codigo de terceros minificado (asignan `module`), no se lintea.
+    "public/pdfjs-wasm/**",
   ]),
 ]);
 

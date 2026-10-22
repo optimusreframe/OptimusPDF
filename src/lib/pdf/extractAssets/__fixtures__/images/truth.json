@@ -1,0 +1,4819 @@
+{
+  "png-alpha": {
+    "name": "png-alpha",
+    "description": "Un PNG 120 x 48 con transparencia (firma sintetica azul) en una pagina carta.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "firma",
+        "source": "xobject",
+        "width": 120,
+        "height": 48,
+        "hasAlpha": true,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.117647059,
+              "y": 0.121212121,
+              "width": 0.392156863,
+              "height": 0.121212121
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "png-opaque": {
+    "name": "png-opaque",
+    "description": "Un PNG opaco 96 x 64 (degradado) en una pagina carta.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "degradado",
+        "source": "xobject",
+        "width": 96,
+        "height": 64,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.163398693,
+              "y": 0.45959596,
+              "width": 0.31372549,
+              "height": 0.161616162
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "jpeg": {
+    "name": "jpeg",
+    "description": "Tres JPEG: RGB (original disponible), gris (original disponible) y CMYK Adobe con /Decode (sin original: se veria invertido).",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "jpeg-rgb",
+        "source": "xobject",
+        "width": 64,
+        "height": 48,
+        "hasAlpha": false,
+        "jpegOriginal": true,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.081699346,
+              "y": 0.171717172,
+              "width": 0.209150327,
+              "height": 0.121212121
+            }
+          }
+        ]
+      },
+      {
+        "id": "jpeg-gris",
+        "source": "xobject",
+        "width": 48,
+        "height": 32,
+        "hasAlpha": false,
+        "jpegOriginal": true,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.359477124,
+              "y": 0.212121212,
+              "width": 0.156862745,
+              "height": 0.080808081
+            }
+          }
+        ]
+      },
+      {
+        "id": "jpeg-cmyk",
+        "source": "xobject",
+        "width": 32,
+        "height": 24,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.202020202,
+              "width": 0.156862745,
+              "height": 0.090909091
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "logo-repeat": {
+    "name": "logo-repeat",
+    "description": "El MISMO logo (un solo objeto) en la cabecera de 5 paginas: un elemento con 5 apariciones.",
+    "pageCount": 5,
+    "images": [
+      {
+        "id": "logo",
+        "source": "xobject",
+        "width": 90,
+        "height": 30,
+        "hasAlpha": true,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.065359477,
+              "y": 0.04040404,
+              "width": 0.147058824,
+              "height": 0.037878788
+            }
+          },
+          {
+            "pageIndex": 1,
+            "rect": {
+              "x": 0.065359477,
+              "y": 0.04040404,
+              "width": 0.147058824,
+              "height": 0.037878788
+            }
+          },
+          {
+            "pageIndex": 2,
+            "rect": {
+              "x": 0.065359477,
+              "y": 0.04040404,
+              "width": 0.147058824,
+              "height": 0.037878788
+            }
+          },
+          {
+            "pageIndex": 3,
+            "rect": {
+              "x": 0.065359477,
+              "y": 0.04040404,
+              "width": 0.147058824,
+              "height": 0.037878788
+            }
+          },
+          {
+            "pageIndex": 4,
+            "rect": {
+              "x": 0.065359477,
+              "y": 0.04040404,
+              "width": 0.147058824,
+              "height": 0.037878788
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "logo-copies": {
+    "name": "logo-copies",
+    "description": "Tres objetos de imagen DISTINTOS con exactamente los mismos pixeles (una en cada pagina): un elemento con 3 apariciones.",
+    "pageCount": 3,
+    "images": [
+      {
+        "id": "logo-copia",
+        "source": "xobject",
+        "width": 60,
+        "height": 40,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.735294118,
+              "y": 0.015151515,
+              "width": 0.147058824,
+              "height": 0.075757576
+            }
+          },
+          {
+            "pageIndex": 1,
+            "rect": {
+              "x": 0.735294118,
+              "y": 0.015151515,
+              "width": 0.147058824,
+              "height": 0.075757576
+            }
+          },
+          {
+            "pageIndex": 2,
+            "rect": {
+              "x": 0.735294118,
+              "y": 0.015151515,
+              "width": 0.147058824,
+              "height": 0.075757576
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "inline": {
+    "name": "inline",
+    "description": "Dos imagenes en linea (BI/ID/EI): una de 8 x 8 y otra de 120 x 100.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "inline-pequena",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.163398693,
+              "y": 0.161616162,
+              "width": 0.104575163,
+              "height": 0.080808081
+            }
+          }
+        ]
+      },
+      {
+        "id": "inline-grande",
+        "width": 120,
+        "height": 100,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.408496732,
+              "y": 0.166666667,
+              "width": 0.196078431,
+              "height": 0.126262626
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": [],
+    "note": "La grande pasa por `paintImageXObject` en pdf.js (w + h >= 200): el tipo de origen no se exige."
+  },
+  "inline-group": {
+    "name": "inline-group",
+    "description": "12 imagenes en linea distintas y consecutivas (8 x 8): pdf.js las funde en un atlas y hay que separarlas.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "atlas-0",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.098039216,
+              "y": 0.166666667,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-1",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.22875817,
+              "y": 0.166666667,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-2",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.359477124,
+              "y": 0.166666667,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-3",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.490196078,
+              "y": 0.166666667,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-4",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.620915033,
+              "y": 0.166666667,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-5",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.751633987,
+              "y": 0.166666667,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-6",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.098039216,
+              "y": 0.28030303,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-7",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.22875817,
+              "y": 0.28030303,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-8",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.359477124,
+              "y": 0.28030303,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-9",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.490196078,
+              "y": 0.28030303,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-10",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.620915033,
+              "y": 0.28030303,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      },
+      {
+        "id": "atlas-11",
+        "source": "inline",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.751633987,
+              "y": 0.28030303,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "mask-1bit": {
+    "name": "mask-1bit",
+    "description": "Una mascara de imagen de 1 bit (tablero de 16 x 16) pintada en rojo.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "mascara",
+        "source": "mask",
+        "width": 16,
+        "height": 16,
+        "hasAlpha": true,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.163398693,
+              "y": 0.212121212,
+              "width": 0.104575163,
+              "height": 0.080808081
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "form-nested": {
+    "name": "form-nested",
+    "description": "Una imagen dentro de dos Form XObjects anidados (giro de 30 grados y escala 1,5 x 1,25) en la pagina 1 y la misma imagen directa en la 2.",
+    "pageCount": 2,
+    "images": [
+      {
+        "id": "imagen-en-formulario",
+        "source": "xobject",
+        "width": 30,
+        "height": 20,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.306372549,
+              "y": 0.350314053,
+              "width": 0.176376285,
+              "height": 0.102021806
+            }
+          },
+          {
+            "pageIndex": 1,
+            "rect": {
+              "x": 0.163398693,
+              "y": 0.823232323,
+              "width": 0.098039216,
+              "height": 0.050505051
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "smask": {
+    "name": "smask",
+    "description": "Una imagen RGB con SMask de degradado horizontal y un JPEG con SMask (sin JPEG original: la transparencia no cabe), sobre un fondo amarillo.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "rgb-smask",
+        "source": "xobject",
+        "width": 40,
+        "height": 40,
+        "hasAlpha": true,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.130718954,
+              "y": 0.141414141,
+              "width": 0.196078431,
+              "height": 0.151515152
+            }
+          }
+        ]
+      },
+      {
+        "id": "jpeg-smask",
+        "source": "xobject",
+        "width": 64,
+        "height": 48,
+        "hasAlpha": true,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.424836601,
+              "y": 0.171717172,
+              "width": 0.209150327,
+              "height": 0.121212121
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "scanned": {
+    "name": "scanned",
+    "description": "Pagina 1 escaneada (una imagen a pagina completa y nada de texto), pagina 2 solo texto y pagina 3 con el mismo fondo pero con texto real (no es un escaneo).",
+    "pageCount": 3,
+    "images": [
+      {
+        "id": "escaneo",
+        "source": "xobject",
+        "width": 120,
+        "height": 156,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 1,
+              "height": 1
+            }
+          },
+          {
+            "pageIndex": 2,
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 1,
+              "height": 1
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [
+      0
+    ],
+    "warnings": [
+      "scanned-page"
+    ]
+  },
+  "mosaic-200": {
+    "name": "mosaic-200",
+    "description": "200 imagenes pequenas DISTINTAS (12 x 12) en una cuadricula de 20 x 10.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "tesela-0",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-1",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-2",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-3",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-4",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-5",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-6",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-7",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-8",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-9",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-10",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-11",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-12",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-13",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-14",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-15",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-16",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-17",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-18",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-19",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.893939394,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-20",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-21",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-22",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-23",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-24",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-25",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-26",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-27",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-28",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-29",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-30",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-31",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-32",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-33",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-34",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-35",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-36",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-37",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-38",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-39",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.805555556,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-40",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-41",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-42",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-43",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-44",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-45",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-46",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-47",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-48",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-49",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-50",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-51",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-52",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-53",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-54",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-55",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-56",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-57",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-58",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-59",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.717171717,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-60",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-61",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-62",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-63",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-64",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-65",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-66",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-67",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-68",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-69",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-70",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-71",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-72",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-73",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-74",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-75",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-76",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-77",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-78",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-79",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.628787879,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-80",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-81",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-82",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-83",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-84",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-85",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-86",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-87",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-88",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-89",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-90",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-91",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-92",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-93",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-94",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-95",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-96",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-97",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-98",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-99",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.54040404,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-100",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-101",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-102",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-103",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-104",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-105",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-106",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-107",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-108",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-109",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-110",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-111",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-112",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-113",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-114",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-115",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-116",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-117",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-118",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-119",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.452020202,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-120",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-121",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-122",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-123",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-124",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-125",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-126",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-127",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-128",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-129",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-130",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-131",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-132",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-133",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-134",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-135",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-136",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-137",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-138",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-139",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.363636364,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-140",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-141",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-142",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-143",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-144",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-145",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-146",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-147",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-148",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-149",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-150",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-151",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-152",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-153",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-154",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-155",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-156",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-157",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-158",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-159",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.275252525,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-160",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-161",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-162",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-163",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-164",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-165",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-166",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-167",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-168",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-169",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-170",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-171",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-172",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-173",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-174",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-175",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-176",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-177",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-178",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-179",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.186868687,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-180",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.058823529,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-181",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.102941176,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-182",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.147058824,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-183",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.191176471,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-184",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.235294118,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-185",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.279411765,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-186",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.323529412,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-187",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.367647059,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-188",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.411764706,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-189",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.455882353,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-190",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.5,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-191",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.544117647,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-192",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.588235294,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-193",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.632352941,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-194",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.676470588,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-195",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.720588235,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-196",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.764705882,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-197",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.808823529,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-198",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.852941176,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      },
+      {
+        "id": "tesela-199",
+        "source": "xobject",
+        "width": 12,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.897058824,
+              "y": 0.098484848,
+              "width": 0.039215686,
+              "height": 0.03030303
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "repeat-12": {
+    "name": "repeat-12",
+    "description": "La misma imagen pintada 12 veces seguidas (q cm Do Q): pdf.js las funde en una operacion de repeticion.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "icono",
+        "source": "xobject",
+        "width": 16,
+        "height": 16,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.098039216,
+              "y": 0.179292929,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.22875817,
+              "y": 0.179292929,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.359477124,
+              "y": 0.179292929,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.490196078,
+              "y": 0.179292929,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.620915033,
+              "y": 0.179292929,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.751633987,
+              "y": 0.179292929,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.098039216,
+              "y": 0.292929293,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.22875817,
+              "y": 0.292929293,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.359477124,
+              "y": 0.292929293,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.490196078,
+              "y": 0.292929293,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.620915033,
+              "y": 0.292929293,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          },
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.751633987,
+              "y": 0.292929293,
+              "width": 0.081699346,
+              "height": 0.063131313
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "bomb": {
+    "name": "bomb",
+    "description": "Una bomba de pixeles: 8000 x 8000 (64 MP) de 1 bit en pocos KB, mas una imagen normal. La bomba se omite con `image-too-large` (no es un JPEG: no hay original que ofrecer) y, al cubrir toda la pagina sin texto, la pagina cuenta como escaneada.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "normal",
+        "source": "xobject",
+        "width": 10,
+        "height": 10,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.163398693,
+              "y": 0.823232323,
+              "width": 0.065359477,
+              "height": 0.050505051
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [
+      0
+    ],
+    "warnings": [
+      "image-too-large",
+      "scanned-page"
+    ]
+  },
+  "decode-failed": {
+    "name": "decode-failed",
+    "description": "Una imagen buena y otra JPX corrupta: la corrupta da `decode-failed` y la buena se extrae igual.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "buena",
+        "source": "xobject",
+        "width": 20,
+        "height": 20,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.163398693,
+              "y": 0.292929293,
+              "width": 0.098039216,
+              "height": 0.075757576
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": [
+      "decode-failed"
+    ]
+  },
+  "jpx": {
+    "name": "jpx",
+    "description": "Una imagen JPX (JPEG 2000) sin perdida de 32 x 20: necesita `openjpeg.wasm` (U7.0).",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "jpx",
+        "source": "xobject",
+        "width": 32,
+        "height": 20,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.163398693,
+              "y": 0.242424242,
+              "width": 0.261437908,
+              "height": 0.126262626
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "jbig2": {
+    "name": "jbig2",
+    "description": "Una imagen JBIG2 (region generica MMR) de 16 x 12 con una «F» negra: necesita `jbig2.wasm` (U7.0).",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "jbig2",
+        "source": "xobject",
+        "width": 16,
+        "height": 12,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.163398693,
+              "y": 0.217171717,
+              "width": 0.261437908,
+              "height": 0.151515152
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "rotated-page": {
+    "name": "rotated-page",
+    "description": "Una pagina con /Rotate 90 y una imagen: la caja se da sobre la pagina GIRADA, como se ve.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "imagen",
+        "source": "xobject",
+        "width": 24,
+        "height": 16,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.631313131,
+              "y": 0.117647059,
+              "width": 0.101010101,
+              "height": 0.196078431
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "offset-box": {
+    "name": "offset-box",
+    "description": "Una pagina de 500 x 700 con la caja de medios desplazada a (20, 30): las cajas se miden desde su esquina.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "imagen",
+        "source": "xobject",
+        "width": 16,
+        "height": 16,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.2,
+              "y": 0.428571429,
+              "width": 0.2,
+              "height": 0.142857143
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": []
+  },
+  "annotation-image": {
+    "name": "annotation-image",
+    "description": "Una imagen en el contenido y un sello (/Stamp) cuya apariencia lleva otra imagen: por defecto solo la del contenido (la del sello es de annotations.ts); con `includeAnnotations`, las dos.",
+    "pageCount": 1,
+    "images": [
+      {
+        "id": "contenido",
+        "source": "xobject",
+        "width": 8,
+        "height": 8,
+        "hasAlpha": false,
+        "jpegOriginal": false,
+        "occurrences": [
+          {
+            "pageIndex": 0,
+            "rect": {
+              "x": 0.066666667,
+              "y": 0.766666667,
+              "width": 0.166666667,
+              "height": 0.166666667
+            }
+          }
+        ]
+      }
+    ],
+    "scannedPages": [],
+    "warnings": [],
+    "note": "Con `includeAnnotations: true` aparece ademas la imagen del sello (8 x 8) en la caja del /Rect [150 150 210 210]."
+  },
+  "no-images": {
+    "name": "no-images",
+    "description": "Texto y una raya, sin ninguna imagen.",
+    "pageCount": 1,
+    "images": [],
+    "scannedPages": [],
+    "warnings": []
+  }
+}

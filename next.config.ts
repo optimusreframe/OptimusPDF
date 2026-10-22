@@ -99,6 +99,11 @@ const nextConfig: NextConfig = {
         source: "/standard_fonts/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=2592000" }],
       },
+      // Decodificadores WASM de pdf.js (JPX, JBIG2, ICC): los pide cada documento con imagenes de esos formatos.
+      {
+        source: "/pdfjs-wasm/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=2592000" }],
+      },
       {
         source: "/(.*)",
         headers: [

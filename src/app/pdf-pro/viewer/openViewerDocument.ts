@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { PDF_STANDARD_FONTS_URL, getPdfJs, openPdfDocument } from "@/lib/pdf/core";
+import { PDF_STANDARD_FONTS_URL, PDF_WASM_URL, getPdfJs, openPdfDocument } from "@/lib/pdf/core";
 
 /**
  * Apertura del documento de pdf.js del VISOR (Wave 9 · memoria).
@@ -127,6 +127,8 @@ async function openByRanges(bytes: Uint8Array, options: OpenViewerOptions): Prom
     disableAutoFetch: true,
     disableStream: true,
     standardFontDataUrl: options.standardFontDataUrl ?? PDF_STANDARD_FONTS_URL,
+    // Decodificadores JPX / JBIG2 de pdf.js (U7.0): sin ellos un escaneo grande abierto por rangos no pinta sus imagenes.
+    wasmUrl: PDF_WASM_URL,
   });
   const destroy = task.destroy.bind(task);
   task.destroy = () => {
