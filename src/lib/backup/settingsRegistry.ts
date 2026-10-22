@@ -283,6 +283,8 @@ export const SETTINGS_NEVER_EXPORTED_KEYS: readonly string[] = [
   // M5 (GE-01): el aviso de una vez «Para mover la página, activa Desplazar o usa dos dedos» de PDF Pro (de cada dispositivo).
   "optimuspdf.pro.panHintSeen",
   "optimuspdf.sign-drafts.signal",
+  // «Calidad de imagen» de Imagenes a PDF / Escanear a PDF: preferencia de CADA dispositivo (pantalla, espacio, red), no viaja.
+  "optimuspdf.imageQuality",
 ];
 
 /** Comparacion estable de dos valores de ajuste (el objeto con las claves en cualquier orden). */

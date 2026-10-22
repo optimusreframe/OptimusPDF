@@ -146,12 +146,34 @@ export const DEFAULT_WATERMARK_OPTIONS: WatermarkOptions = {
 /** Tope de repeticiones por pagina en modo mosaico. */
 const MAX_TILES_PER_PAGE = 400;
 
+/** Una imagen de marca de agua que pesa mas que esto se trata como foto: se reduce con la calidad de imagen elegida. */
+const WATERMARK_PHOTO_BYTES = 300 * 1024;
+/** Lado largo (px) que como maximo necesita una marca de agua (se dibuja a una fraccion del ancho de la pagina). */
+const WATERMARK_MAX_SIDE = 1600;
+
 async function embedImageFile(
   document: PDFDocument,
   file: File,
 ): Promise<PDFImage> {
-  const bytes = await readFileBytes(file);
+  let bytes = await readFileBytes(file);
   if (bytes.byteLength < 4) throw new PdfError("invalidType");
+  if (bytes.byteLength > WATERMARK_PHOTO_BYTES) {
+    // Una FOTO grande como marca de agua (no un logo): se reduce y se hornea su orientacion EXIF. Un PNG con transparencia
+    // o un grafico pasa intacto (ver `prepareForPdf.ts`). Ante cualquier fallo se incrusta el archivo tal cual.
+    try {
+      const [{ prepareImageForPdf }, { readStoredImagePreset }] = await Promise.all([
+        import("@/lib/image/prepareBrowser"),
+        import("@/lib/image/imageQualityPref"),
+      ]);
+      const prepared = await prepareImageForPdf(file, readStoredImagePreset(), {
+        fitMaxSide: WATERMARK_MAX_SIDE,
+        bakeOrientation: true,
+      });
+      if (prepared.changed) bytes = prepared.bytes;
+    } catch {
+      // Se usa el archivo original.
+    }
+  }
   const isPng =
     bytes[0] === 0x89 &&
     bytes[1] === 0x50 &&

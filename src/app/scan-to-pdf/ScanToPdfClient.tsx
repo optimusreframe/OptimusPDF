@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
@@ -11,11 +11,20 @@ import { useFocusTarget } from "@/components/tool/useFocusTarget";
 import { useOwnToolFocus } from "@/components/tool/useOwnToolFocus";
 import { OptionsPanel } from "@/components/tool/OptionsPanel";
 import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
-import { useI18n } from "@/lib/i18n";
+import { ImageQualityPicker } from "@/components/tool/ImageQualityPicker";
+import { useIsClient } from "@/hooks/useIsClient";
+import { localeTag, useI18n } from "@/lib/i18n";
+import { estimatePdfSize } from "@/lib/image/estimatePdfSize";
+import { readStoredImagePreset, writeStoredImagePreset } from "@/lib/image/imageQualityPref";
+import { DEFAULT_IMAGE_PRESET, type ImagePresetId } from "@/lib/image/prepareForPdf";
+import { IMAGE_QUALITY_STRINGS, describeResult, fillCopy } from "@/lib/image/qualityStrings";
+import { useImageProbes } from "@/lib/image/useImageProbes";
+import { MARGINS, pageSizeInPoints } from "@/lib/pdf/imagesToPdf";
 import { cn } from "@/lib/cn";
 import { addRecentEntry } from "@/lib/recent";
 import {
   downloadBlob,
+  formatFileSize,
   slugify,
   toPdfError,
   type PdfErrorCode,
@@ -47,7 +56,24 @@ const TOOL = getTool("scan-to-pdf");
 
 type Phase = "capture" | "options" | "processing" | "done";
 
-type ScanResult = { blob: Blob; filename: string };
+type ScanResult = {
+  blob: Blob;
+  filename: string;
+  summary: string;
+  notices?: { title: string; items: string[] };
+};
+
+/**
+ * La calidad de imagen queda sin elegir (`undefined`) hasta que la persona la cambia: se usa la ultima recordada en este
+ * dispositivo o la recomendada. Asi un «Empezar de nuevo» no pierde la preferencia.
+ */
+const INITIAL_OPTIONS: ScanToPdfOptions = { ...DEFAULT_SCAN_OPTIONS };
+
+/** Calidad efectiva: la elegida, la recordada en este dispositivo (ya montado en el cliente) o la recomendada. */
+function useImageQuality(options: ScanToPdfOptions): ImagePresetId {
+  const isClient = useIsClient();
+  return options.quality ?? (isClient ? readStoredImagePreset() : DEFAULT_IMAGE_PRESET);
+}
 
 /**
  * Con una captura todavia en deteccion, el PDF se compondria con la foto
@@ -72,7 +98,25 @@ export function ScanToPdfClient() {
 
   const [phase, setPhase] = useState<Phase>("capture");
   const [captures, setCaptures] = useState<ScanCapture[]>([]);
-  const [options, setOptions] = useState<ScanToPdfOptions>(DEFAULT_SCAN_OPTIONS);
+  const [options, setOptions] = useState<ScanToPdfOptions>(INITIAL_OPTIONS);
+  const [progressText, setProgressText] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
+  const quality = useImageQuality(options);
+  const captureBlobs = useMemo(() => captures.map((capture) => capture.blob), [captures]);
+  const probes = useImageProbes(captureBlobs);
+  const estimate = useMemo(
+    () =>
+      probes
+        ? estimatePdfSize(probes, quality, {
+            perPage: 1,
+            pageSize: pageSizeInPoints(options.pageSize),
+            orientation: options.orientation,
+            margin: MARGINS[options.margin],
+          })
+        : null,
+    [probes, quality, options.pageSize, options.orientation, options.margin],
+  );
+  const qualityCopy = IMAGE_QUALITY_STRINGS[language];
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<PdfErrorCode | null>(null);
   // Mismo foco que ToolShell: un aviso nuevo recibe el foco (nunca <body>).
@@ -363,7 +407,7 @@ export function ScanToPdfClient() {
     for (const capture of capturesRef.current) URL.revokeObjectURL(capture.url);
     setEditingId(null);
     setCaptures([]);
-    setOptions(DEFAULT_SCAN_OPTIONS);
+    setOptions(INITIAL_OPTIONS);
     setResult(null);
     setProgress(0);
     setError(null);
@@ -384,15 +428,26 @@ export function ScanToPdfClient() {
 
     setError(null);
     setProgress(0);
+    setProgressText("");
     setPhase("processing");
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const effective: ImagePresetId = options.quality ?? readStoredImagePreset();
 
     try {
       const blob = await scanToPdf(
         captures.map((capture) => capture.blob),
-        options,
+        { ...options, quality: effective },
         (value) => {
           if (runIdRef.current !== runId) return;
           setProgress(Math.round(Math.min(1, Math.max(0, value)) * 100));
+        },
+        {
+          signal: controller.signal,
+          onPhotoStart: (n, total) => {
+            if (runIdRef.current !== runId) return;
+            setProgressText(fillCopy(effective === "original" ? qualityCopy.progressAdding : qualityCopy.progressOptimizing, { n, total }));
+          },
         },
       );
       if (runIdRef.current !== runId) return;
@@ -400,7 +455,15 @@ export function ScanToPdfClient() {
       const base =
         t.filenames["scan-to-pdf"] ?? slugify(t.tools["scan-to-pdf"].name);
       const filename = `${base}.pdf`;
-      setResult({ blob, filename });
+      const locale = localeTag(language);
+      const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
+      const described = describeResult(
+        qualityCopy,
+        { sourceBytes: captures.reduce((sum, capture) => sum + capture.blob.size, 0), pdfBytes: blob.size },
+        (bytes) => formatFileSize(bytes, locale),
+        (value) => percent.format(value / 100),
+      );
+      setResult({ blob, filename, summary: described.summary, notices: described.notices });
       addRecentEntry("scan-to-pdf", filename);
       setPhase("done");
       askFocus("download");
@@ -409,10 +472,12 @@ export function ScanToPdfClient() {
       setError(toPdfError(caught).code);
       setPhase("capture");
     }
-  }, [captures, options, t, askFocus]);
+  }, [captures, options, t, askFocus, language, qualityCopy]);
 
   const cancel = useCallback(() => {
     runIdRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
     setPhase("capture");
     setProgress(0);
     setError("cancelled");
@@ -541,6 +606,15 @@ export function ScanToPdfClient() {
               </p>
             </div>
 
+            <ImageQualityPicker
+              value={quality}
+              estimate={estimate}
+              onChange={(next) => {
+                patchOptions({ quality: next });
+                writeStoredImagePreset(next);
+              }}
+            />
+
             <SegmentedControl<ImagePageSize>
               label={s.pageSizeLabel}
               value={options.pageSize}
@@ -615,7 +689,7 @@ export function ScanToPdfClient() {
       {phase === "processing" ? (
         <ProcessingOverlay
           progress={progress}
-          message={copy.name}
+          message={progressText || copy.name}
           onCancel={cancel}
         />
       ) : null}
@@ -628,6 +702,8 @@ export function ScanToPdfClient() {
           onDownload={() => downloadBlob(result.blob, result.filename)}
           onStartOver={reset}
           downloadButtonRef={downloadRef}
+          summary={result.summary}
+          notices={result.notices}
         />
       ) : null}
     </div>

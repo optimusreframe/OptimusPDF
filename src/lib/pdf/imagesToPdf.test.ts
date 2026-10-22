@@ -294,7 +294,10 @@ describe("imagesToPdf — src/lib/pdf/imagesToPdf.ts", () => {
       orientation: "auto",
       pageSize: "a4",
       margin: "none",
+      // Calidad de imagen recomendada y una foto por pagina (ver `imagesToPdf.quality.test.ts`).
+      photosPerPage: 1,
       merge: true,
+      quality: "balanced",
     });
   });
 });

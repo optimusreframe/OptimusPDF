@@ -14,6 +14,11 @@ export type ImageOrderGridProps = {
    * haya dos sitios distintos decidiendo que imagenes entran.
    */
   onOrderChange: (order: number[]) => void;
+  /**
+   * Miniaturas ya hechas (misma posicion que `files`): `undefined` = pendiente (se pinta un hueco), `null` = no se pudo
+   * (se usa el archivo original). Sin esta propiedad se pinta el archivo original de cada foto, como siempre.
+   */
+  thumbnails?: ReadonlyArray<string | null | undefined>;
   className?: string;
 };
 
@@ -32,6 +37,7 @@ export function ImageOrderGrid(props: ImageOrderGridProps) {
 function ImageOrderGridInner({
   files,
   onOrderChange,
+  thumbnails,
   className,
 }: ImageOrderGridProps) {
   const { t, language } = useI18n();
@@ -43,14 +49,16 @@ function ImageOrderGridInner({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
-  // Un object URL por archivo; se revocan al desmontar para no filtrar
-  // memoria con lotes grandes de fotos.
-  const urls = useMemo(() => files.map((file) => URL.createObjectURL(file)), [
-    files,
-  ]);
+  // Un object URL del archivo original SOLO donde no hay miniatura (sin la propiedad `thumbnails`, en todos); se revocan al
+  // desmontar para no filtrar memoria con lotes grandes de fotos y no se decodifican fotos enteras para pintar una miniatura.
+  const needsOriginalKey = files.map((_, index) => (!thumbnails || thumbnails[index] === null ? "1" : "0")).join("");
+  const urls = useMemo(
+    () => files.map((file, index) => (needsOriginalKey[index] === "1" ? URL.createObjectURL(file) : null)),
+    [files, needsOriginalKey],
+  );
   useEffect(
     () => () => {
-      for (const url of urls) URL.revokeObjectURL(url);
+      for (const url of urls) if (url) URL.revokeObjectURL(url);
     },
     [urls],
   );
@@ -128,12 +136,18 @@ function ImageOrderGridInner({
               )}
             >
               <span className="flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={urls[fileIndex]}
-                  alt={`${s.imageAlt} ${position + 1}`}
-                  className="max-h-full max-w-full object-contain"
-                />
+                {(urls[fileIndex] ?? thumbnails?.[fileIndex]) ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={(urls[fileIndex] ?? thumbnails?.[fileIndex]) as string}
+                    alt={`${s.imageAlt} ${position + 1}`}
+                    loading="lazy"
+                    decoding="async"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                ) : (
+                  <span role="img" aria-label={`${s.imageAlt} ${position + 1}`} className="size-full" />
+                )}
               </span>
 
               <div className="mt-2 flex items-center justify-between gap-1">

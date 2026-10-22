@@ -1,4 +1,5 @@
-import { PdfError, savePdfToBlob, toPdfError } from "@/lib/pdf/core";
+import { PdfError, savePdfToBlob, throwIfAborted, toPdfError } from "@/lib/pdf/core";
+import { DEFAULT_IMAGE_PRESET, type ImagePresetId } from "@/lib/image/prepareForPdf";
 import type { ProgressCallback } from "@/lib/pdf/core";
 import {
   buildPdfFromImages,
@@ -333,6 +334,8 @@ export async function applyScanFilter(
 
 export type ScanToPdfOptions = ImageLayout & {
   filter: ScanFilter;
+  /** Calidad de imagen del PDF (ver `src/lib/image/prepareForPdf.ts`). Sin ella, la recomendada. */
+  quality?: ImagePresetId;
 };
 
 export const DEFAULT_SCAN_OPTIONS: ScanToPdfOptions = {
@@ -342,17 +345,25 @@ export const DEFAULT_SCAN_OPTIONS: ScanToPdfOptions = {
   margin: "none",
 };
 
+/** Extras de una ejecucion: cancelacion y aviso antes de preparar cada captura. */
+export type ScanToPdfRun = {
+  signal?: AbortSignal;
+  onPhotoStart?: (position: number, total: number) => void;
+};
+
 /** Compone el PDF con las capturas en el orden recibido. */
 export async function scanToPdf(
   captures: Blob[],
   options: ScanToPdfOptions = DEFAULT_SCAN_OPTIONS,
   onProgress?: ProgressCallback,
+  run: ScanToPdfRun = {},
 ): Promise<Blob> {
   if (captures.length === 0) throw new PdfError("empty");
 
   try {
     const processed: Blob[] = [];
     for (let index = 0; index < captures.length; index += 1) {
+      throwIfAborted(run.signal);
       processed.push(await applyScanFilter(captures[index], options.filter));
       onProgress?.(((index + 1) / captures.length) * 0.4);
     }
@@ -365,8 +376,15 @@ export async function scanToPdf(
         margin: options.margin,
       },
       (value) => onProgress?.(0.4 + value * 0.5),
+      1,
+      {
+        preset: options.quality ?? DEFAULT_IMAGE_PRESET,
+        signal: run.signal,
+        onPhotoStart: run.onPhotoStart,
+      },
     );
 
+    throwIfAborted(run.signal);
     const blob = await savePdfToBlob(document);
     onProgress?.(1);
     return blob;

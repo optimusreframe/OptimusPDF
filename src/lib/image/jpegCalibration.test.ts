@@ -1,0 +1,105 @@
+import { createCanvas } from "@napi-rs/canvas";
+import { describe, expect, it } from "vitest";
+import {
+  CALIBRATION_REFERENCE,
+  CALIBRATION_SIZE,
+  CALIBRATION_TOLERANCE,
+  MIN_CALIBRATED_QUALITY,
+  calibrationPixels,
+  pickCalibratedQuality,
+  referenceBytesFor,
+} from "@/lib/image/jpegCalibration";
+
+/** Calibracion del codificador JPEG: un codificador que pesa mas que Chromium con la misma calidad se corrige a la baja. */
+
+/** Un codificador de juguete: pesa `scale` veces lo de referencia a cada calidad (crece con la calidad). */
+const encoderWeighing = (scale: number) => async (quality: number) => referenceBytesFor(quality) * scale;
+
+describe("referenceBytesFor", () => {
+  it("devuelve el punto medido y interpola entre dos puntos", () => {
+    for (const [quality, bytes] of CALIBRATION_REFERENCE) expect(referenceBytesFor(quality)).toBe(bytes);
+    const [q0, b0] = CALIBRATION_REFERENCE[3];
+    const [q1, b1] = CALIBRATION_REFERENCE[4];
+    expect(referenceBytesFor((q0 + q1) / 2)).toBeCloseTo((b0 + b1) / 2, 6);
+  });
+
+  it("fuera de rango se queda en el extremo y es creciente con la calidad", () => {
+    expect(referenceBytesFor(0.1)).toBe(CALIBRATION_REFERENCE[0][1]);
+    expect(referenceBytesFor(1)).toBe(CALIBRATION_REFERENCE[CALIBRATION_REFERENCE.length - 1][1]);
+    let previous = 0;
+    for (let q = 0.5; q <= 0.95; q += 0.01) {
+      const bytes = referenceBytesFor(q);
+      expect(bytes).toBeGreaterThanOrEqual(previous);
+      previous = bytes;
+    }
+  });
+
+  it("sin tabla no hay referencia (no se corrige nada)", () => {
+    expect(referenceBytesFor(0.87, [])).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
+describe("pickCalibratedQuality", () => {
+  it("un codificador como el de referencia (o hasta un 12 % mas pesado) conserva la calidad pedida", async () => {
+    for (const scale of [1, 1.05, CALIBRATION_TOLERANCE]) {
+      expect(await pickCalibratedQuality(0.87, referenceBytesFor(0.87), encoderWeighing(scale))).toBe(0.87);
+    }
+  });
+
+  it("un codificador que pesa 2 veces mas baja la calidad hasta igualar el peso de referencia, sin pasarse del limite", async () => {
+    const measure = encoderWeighing(2);
+    const quality = await pickCalibratedQuality(0.87, referenceBytesFor(0.87), measure);
+    expect(quality).toBeLessThan(0.87);
+    expect(quality).toBeGreaterThanOrEqual(MIN_CALIBRATED_QUALITY);
+    expect(await measure(quality)).toBeLessThanOrEqual(referenceBytesFor(0.87) * CALIBRATION_TOLERANCE);
+    // Y es la mas alta que cumple (un poco mas arriba ya se pasaria del limite).
+    expect(await measure(quality + 0.02)).toBeGreaterThan(referenceBytesFor(0.87) * CALIBRATION_TOLERANCE * 0.97);
+  });
+
+  it("si ni la calidad minima cabe, devuelve la minima; nunca baja de ella", async () => {
+    expect(await pickCalibratedQuality(0.9, 1000, async () => 1e9)).toBe(MIN_CALIBRATED_QUALITY);
+    // Y esa minima son 0,5: por debajo un JPEG se ve mal.
+    expect(MIN_CALIBRATED_QUALITY).toBe(0.5);
+  });
+
+  it("sin referencia finita no toca la calidad y no mide nada", async () => {
+    let calls = 0;
+    const quality = await pickCalibratedQuality(0.8, Number.POSITIVE_INFINITY, async () => {
+      calls += 1;
+      return 1;
+    });
+    expect(quality).toBe(0.8);
+    expect(calls).toBe(0);
+  });
+
+  it("mide un numero acotado de veces (no recorre todas las calidades)", async () => {
+    let calls = 0;
+    await pickCalibratedQuality(0.92, referenceBytesFor(0.92), async (q) => {
+      calls += 1;
+      return referenceBytesFor(q) * 2;
+    });
+    expect(calls).toBeLessThanOrEqual(9);
+  });
+});
+
+describe("calibrationPixels", () => {
+  it("es determinista, opaca y de tamano fijo", () => {
+    const a = calibrationPixels();
+    const b = calibrationPixels();
+    expect(a.length).toBe(CALIBRATION_SIZE * CALIBRATION_SIZE * 4);
+    expect(Buffer.compare(Buffer.from(a), Buffer.from(b))).toBe(0);
+    for (let index = 3; index < a.length; index += 4) expect(a[index]).toBe(255);
+  });
+
+  it("codificada a JPEG pesa lo que pesa una foto (varios KB) y crece con la calidad", () => {
+    const canvas = createCanvas(CALIBRATION_SIZE, CALIBRATION_SIZE);
+    const context = canvas.getContext("2d");
+    const image = context.createImageData(CALIBRATION_SIZE, CALIBRATION_SIZE);
+    image.data.set(calibrationPixels());
+    context.putImageData(image, 0, 0);
+    const sizes = [60, 80, 92].map((quality) => canvas.toBuffer("image/jpeg", quality).length);
+    expect(sizes[0]).toBeGreaterThan(5_000);
+    expect(sizes[0]).toBeLessThan(sizes[1]);
+    expect(sizes[1]).toBeLessThan(sizes[2]);
+  });
+});

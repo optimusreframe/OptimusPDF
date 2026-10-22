@@ -2064,3 +2064,95 @@ Cifras agregadas sobre 12 PDF reales (3 firmados por OptimusPDF con 3 contratos 
 7. Tiempos: Node con pdf.js «legacy»; los del navegador son los de los E2E.
 
 **Peticiones a otros dueños.** (a) `src/app/pdf-pro/viewer/openViewerDocument.ts`: sigue pendiente el parche de `wasmUrl` de U7.0. (b) `docs/COMPATIBILIDAD-NAVEGADORES.md`: anotar `extract-(ui|images|annots|core)` en `CROSS_SPECS`.
+## Optimización de imágenes para PDF
+
+**Problema.** Las fotos del móvil pesan 3–15 MB y «Imágenes a PDF» las incrustaba tal cual: un JPEG pasaba sin recomprimir y un PNG/WebP/HEIC se reconvertía a PNG (todavía más pesado). 39 fotos de inspección daban un PDF de 334,7 MB, imposible de mandar por WhatsApp o correo. Ahora cada foto pasa por un módulo compartido de preparación (`src/lib/image/prepareForPdf.ts`) que la reduce **sin ampliar nunca**, **solo si ahorra ≥ 15 %**, respetando la orientación EXIF y **sin tocar el archivo original** (el módulo solo lee bytes y devuelve bytes nuevos o los mismos).
+
+### Calidad de imagen (presets)
+
+| Preset | Lado largo | JPEG | Para qué |
+|---|---|---|---|
+| Original | sin cambios | sin cambios | los bytes de cada JPEG/PNG viajan intactos (PDF = lo que pesan las fotos). WebP/AVIF/HEIC/GIF, que pdf-lib no incrusta, se convierten igualmente, con los topes de lienzo de iOS |
+| Alta | ≤ 4096 px | 0,92 | casi idéntica al original, incluso con zoom |
+| **Equilibrada** (por defecto) | ≤ 3000 px (≈ 250 ppp en un A4 completo) | 0,87 | se ve igual y pesa mucho menos |
+| Compacta | ≤ 2200 px | 0,80 | correo y mensajería (la añadimos porque con 39 fotos «Equilibrada» queda en ≈ 40 MB y «Compacta» baja de 25 MB, el límite habitual del correo) |
+
+La última calidad elegida se recuerda en `localStorage` (`optimuspdf.imageQuality`, **no exportable**: es una preferencia de cada dispositivo; clasificada en `SETTINGS_NEVER_EXPORTED_KEYS`). Sin tocar nada, la herramienta usa la recordada o la recomendada.
+
+### Política (`planPreparation`, pura y probada en Node)
+
+- **JPEG**: pasa intacto si ya cabe en el tope y pesa pocos bytes por píxel (`keepBytesPerPixel`); si no, se reduce y reencoda, y solo se usa el resultado si pesa ≤ 85 % del original (si no, se conservan los bytes originales). Un JPEG con EXIF reencodado sale ya derecho (orientación horneada); uno conservado se dibuja con su matriz de orientación como antes.
+- **PNG**: pequeño (≤ 256 KB) o gráfico que ya cabe (≤ 0,8 B/px) → intacto sin decodificar. Si no: se decodifica ya reducido y se mira por bandas (memoria acotada) **foto o gráfico** (pocos colores en una muestra) y **alfa real o trivial**: foto sin alfa real → JPEG (con fondo **blanco** si había alfa trivial, < 0,1 % de píxeles); captura/gráfico o transparencia real → sigue PNG (solo se reduce si excede el tope y ahorra ≥ 15 %).
+- **WebP/AVIF/HEIC/GIF/BMP**: siempre se convierten (foto → JPEG, gráfico/alfa → PNG).
+- **Tope por celda** (varias fotos por hoja): los píxeles de cada foto se acotan a lo que su celda necesita a 300/250/200 ppp (Alta/Equilibrada/Compacta), con un mínimo de 640 px, sin superar nunca el tope del preset y sin ampliar. «Original» no se acota. Cuando la celda sí reduce la foto por debajo del tope, la calidad JPEG sube 0,07 (hasta 0,95): una foto de 2500 px reducida a 1000 px concentra más detalle por píxel y a la misma calidad pierde más (medido con fotos de referencia: SSIM mínimo 0,914 → 0,974 con 10 por hoja), y como ya es pequeña el peso extra son unos cientos de KB.
+
+### Cómo se decodifica y se reencoda (`prepareBackend.ts`, `prepareImage.worker.ts`, `prepareBrowser.ts`)
+
+- `createImageBitmap(blob, { imageOrientation: "from-image", resizeWidth, resizeQuality: "high" })`: el navegador gira y reduce mientras decodifica. Se pide **solo `resizeWidth`**: el alto lo calcula con la proporción de la imagen ya girada; si el tamaño devuelto no coincide con el esperado (el navegador ignoró la orientación o la reducción) se descarta y se usa el respaldo `<img>` + lienzo reducido **por pasos** (`planDownscaleSteps`: cada paso ≤ a la mitad y ningún lienzo pasa de 4096 px ni de 16 Mpx: un lienzo mayor puede salir en blanco en iOS/Safari).
+- **Secuencial** (una foto a la vez; 40 fotos de 48 Mpx no caben decodificadas a la vez), liberando bitmaps y lienzos (`close()`, `width = 0`).
+- **Web Worker + `OffscreenCanvas`** (Chromium, Firefox, Safari ≥ 16.4); si el worker no arranca o no puede con una foto, esa foto se procesa en el hilo principal cediendo el hilo antes y después (`scheduler.yield`/`setTimeout`). Cancelar (`AbortSignal`) termina el worker en el acto.
+- Se decodifica desde un `Blob` NUEVO (copia de los bytes ya leídos), no desde el `File` del usuario: WebKit guarda en caché la imagen decodificada de cada `Blob` mientras exista. (Se probó codificar el `ImageBitmap` desde un lienzo `bitmaprenderer`: en Chromium el bitmap conserva los píxeles sin girar y la orientación EXIF solo se aplica al dibujarlo, así que la foto salía sin girar; la prueba E2E de orientación lo detectó y se descartó.)
+- **Calibración del codificador JPEG** (`jpegCalibration.ts`): `toBlob("image/jpeg", q)` no significa lo mismo en cada motor. El WebKit de iPhone/iPad pesa 1,5–1,8× lo que Chromium con la misma calidad (calidad 0,6 en WebKit ≈ 0,8 en Chromium). Una vez por sesión se codifica una imagen de prueba determinista (la misma en todos los motores) y, si pesa más de un 12 % sobre lo medido en Chromium, se baja la calidad (bisección, mínimo 0,5) hasta igualarlo. Resultado medido: «Equilibrada» de 40 fotos pesa 38,0 MB en Chromium y 40,0 MB en WebKit, con PSNR ≥ 40 dB en ambos.
+- **Color**: el lienzo trabaja en sRGB. Una foto Display P3 del iPhone se **convierte a sRGB** al reducirla (los colores fuera de sRGB se recortan; a ojo es casi imperceptible) y el JPEG nuevo no lleva perfil. En «Original» no cambia nada: el JPEG viaja con sus bytes (y su perfil, que los visores de PDF suelen ignorar, como ya ocurría).
+
+### Varias fotos por hoja (`src/lib/pdf/photoGrid.ts`)
+
+Selector «Fotos por página»: 1 (por defecto), 2, 4, 6, 8, 10. Composición pura, la misma para el PDF, la estimación y la vista previa:
+
+- **2 por hoja**: una foto arriba y otra abajo, las dos a todo el ancho útil (o, si no caben a lo alto, las dos reducidas por igual), centradas y con el espacio libre repartido a partes iguales (arriba, entre ellas y abajo; nunca menos de 12 pt entre ellas). Una foto sola en la última hoja va en la mitad superior.
+- **4, 6, 8, 10**: cuadrícula de 2 columnas × N/2 filas (máx. 5), celdas iguales y simétricas respecto al eje vertical, margen opcional (los 3 de siempre) y *gutter* fijo de 12 pt. Cada foto se ajusta a su celda sin recortar ni deformar (contain, centrada). Última hoja incompleta: mismas celdas (no se agranda nada); una foto sola en la última fila se centra; las filas que faltan quedan vacías.
+- Orden de la lista, de izquierda a derecha y de arriba abajo. Orientación «Automática» = vertical con varias fotos. «Ajustar» usa A4 (con aviso). Con «Unir todas en un PDF» desactivado (ZIP) cada foto va sola y el selector queda inerte.
+- **Vista previa** antes de generar: miniaturas de hasta 3 hojas con las fotos en su sitio, «N hojas en total» y una descripción en texto por hoja («Hoja 1: fotos 1 a 4, 2 columnas × 2 filas»). Usa miniaturas de 360 px (hechas en cola, una vez por archivo, compartidas con la lista y la rejilla de orden), nunca las fotos enteras.
+
+### Estimación, progreso y resultado
+
+- **Antes de generar**: «Tamaño estimado del PDF: ≈ X frente a ≈ Y sin optimizar» (solo cabeceras: primeros 512 KB de cada archivo; mismo plan y misma composición que el motor, así que con varias fotos por hoja baja). Es una estimación: un JPEG se estima como `sizeRatio × peso × (píxeles nuevos / viejos)^0,75`, acotada a 0,08–0,45 B/px.
+- **Progreso** real foto a foto («Optimizando foto 12 de 39»), cancelable.
+- **Resultado**: «Tus fotos: 334,7 MB → PDF: 44,1 MB (87 % menos)» y, si el PDF final pasa de 25 MB o de 100 MB, un aviso honesto que sugiere «Compacta», más fotos por página o Dividir PDF.
+
+### Rutas auditadas (búsqueda de `embedJpg` / `embedPng` / `canvasToBlob` / `toBlob` / `toDataURL` en `src/lib/pdf/*` y `src/app/*`) y decisión
+
+| Ruta | Decisión |
+|---|---|
+| `imagesToPdf.ts` (Imágenes a PDF) | **Usa el módulo** (calidad, varias por hoja, estimación, progreso, resultado). |
+| `scanToPdf.ts` (Escanear a PDF) | **Usa el módulo** (selector de calidad, estimación, progreso y cancelación reales, resultado); solo una foto por hoja. |
+| PDF Pro «Nuevo PDF desde imágenes» (`create/fromImages.ts`) y «Insertar páginas desde imágenes» (`pageAssembly.ts`) | **Usan el módulo** con la calidad recordada en el dispositivo (Equilibrada por defecto), un solo worker por operación. |
+| Insertar imagen en Editar y en PDF Pro (`edit-pdf/editImages.ts`) | **Usa el módulo** con la calidad recordada: una foto grande se reduce si ahorra ≥ 15 %; **firmas, logos y PNG con transparencia pasan intactos**; y una foto con EXIF se hornea derecha (el motor de Editar incrusta los píxeles guardados y no sabía girarlos: la foto salía girada o deformada). |
+| Marca de agua con imagen (`watermark.ts`) | **Usa el módulo solo si la imagen pesa > 300 KB** (una foto, no un logo): tope de 1600 px y orientación horneada. Un logo/PNG con alfa o pequeño pasa intacto. |
+| Firmar (`sign.ts` `embedPng`), sellos y firmas guardadas | **No se tocan**: son trazos PNG con transparencia que deben conservarse. |
+| `compress.ts`, `redact.ts`, `repair.ts` (rasterizan páginas o recomprimen imágenes de un PDF a calidad fija) | **No se tocan**: trabajan sobre flujos de un PDF ya existente con sus propios presets y la misma regla «solo si pesa menos». `compress.ts` podría reutilizar `fitWithin`/`chooseOutcome`, pero cambiaría su comportamiento medido sin que nadie lo pida. |
+| `htmlToPdf.ts`, `editTextExport.ts`, `pageRaster.ts`, `core.ts`, `pdfToImages.ts`, `scan/perspective.ts` | **No se tocan**: rasterizan páginas/capturas a un tamaño y calidad fijos (no son fotos de usuario que incrustar tal cual). La captura de cámara y el recorte alimentan después el PDF, donde sí se optimizan. |
+| Word/Excel/PowerPoint → PDF | Fuera de alcance (las imágenes del documento las gestiona su motor, no `embedImage`). |
+
+### Mejora colateral: memoria de la lista de archivos
+
+`FileList` pintaba cada foto subida como `<img src=archivo>` a 72 px: el navegador decodificaba la foto entera (12–48 Mpx = 50–200 MB) para dibujar una miniatura, y la rejilla de orden hacía lo mismo otra vez. Ahora se hace **una miniatura de 360 px por archivo, en cola, con `createImageBitmap` reducido**, compartida por la lista, la rejilla y la vista previa de hojas. Con 40 fotos de 12 MP la memoria del navegador tras subirlas pasó de ≈ 1,1 GB a ≈ 0,5 GB (Chromium, medido).
+
+### Cifras medidas (fotos sintéticas equivalentes al caso real)
+
+39 fotos sintéticas de 24 y 48 MP con orientación EXIF mezclada, **389,8 MB en total (10 MB por foto)**, comparable al caso de 39 hojas / 334,7 MB. Generadas con `image-optimize-matrix.spec.ts` (Chromium 151 y WebKit 26.5 de Playwright, build de producción, un trabajador). Peso del PDF y, entre paréntesis, segundos en WebKit/iPad (Chromium: 5–9 s en «Equilibrada»):
+
+| Fotos por hoja | Original | Alta | Equilibrada | Compacta |
+|---|---|---|---|---|
+| 1 (39 hojas) | 389,8 MB | 77,6 MB (13,9 s) | **39,2 MB (13,0 s)** | 20,9 MB (12,9 s) |
+| 2 (20 hojas) | = | 42,1 MB | 29,5 MB | 14,6 MB |
+| 4 (10 hojas) | = | 19,2 MB | 14,1 MB | 6,7 MB |
+| 6 (7 hojas) | = | 17,7 MB | 12,7 MB | 6,0 MB |
+| 8 (5 hojas) | = | 15,1 MB | 10,6 MB | 5,3 MB |
+| 10 (4 hojas) | = | 10,4 MB | 7,5 MB | 4,3 MB |
+
+(En Chromium: «Equilibrada» 35,5 MB con 1 por hoja y 5,9 MB con 10.) **39 fotos: de 389,8 MB a 39,2 MB (−90 %) con la calidad por defecto, sin mover ningún ajuste.** Con las 40 fotos de 12/24/48 MP de `image-optimize.spec.ts` (91,9 MB): Alta 82 MB, Equilibrada 38,0 MB (WebKit 40,0), Compacta 18,8 MB (WebKit 21,3).
+
+Calidad medida con PSNR/SSIM de lo que el PDF incrusta frente al original reducido al mismo tamaño (foto sintética con textura y bordes): Alta ≥ 42,4 dB / SSIM ≥ 0,987; Equilibrada ≥ 39,7 dB / ≥ 0,979; Compacta ≥ 37,3 dB / ≥ 0,978 (12, 24 y 48 MP, Chromium y WebKit). Con una foto de estrés de alta frecuencia (grano 9) Equilibrada baja a 36,8 dB / 0,934 y pesa 1,25 MB (el límite de 1,5 MB se cumple). Con 9 fotos de referencia reales de ~2000–2600 px (15,9 MB): Alta 12,3 MB, Equilibrada 9,8 MB (−39 %), Compacta 6,4 MB (−60 %), SSIM mínimo 0,988 / 0,979 / 0,965; PSNR mínimo 38,7 / 35,8 / 32,6 dB en las fotos más detalladas; la estimación previa acertó dentro del ±10 % en todos los casos.
+
+**Memoria** (suma de procesos del navegador, `ps`): con 40 fotos de 12–48 MP el aumento del proceso de la página es de +144 MB («Equilibrada») a +274 MB («Alta») en Chromium (todos < 400 MB). En WebKit (macOS, el de Playwright) decodificar y codificar JPEG deja una meseta de ~350 MB entre el proceso de la página y el de GPU: página +260 MB («Compacta», < 400), +377 MB («Equilibrada») y +532 MB («Alta»), más +160/+170/+356 MB de GPU y ~+130–270 MB del proceso de red. **El objetivo de < 400 MB no se cumple en WebKit con «Alta» (ni con el total de procesos en ninguna calidad)**; se probó sin éxito renovar el worker cada N fotos, codificar con `bitmaprenderer` y lienzos por CPU (la meseta es del codificador/lienzos de WebKit). El hilo principal no se bloquea (hueco máximo 10 ms optimizando; hasta 45 ms al guardar el PDF) y el tiempo de 40 fotos es de 3–6 s (WebKit 3–5 s en el lote de 12 MP).
+
+### Pruebas
+
+- Vitest: `prepareForPdf.test.ts` (política, cabeceras, EXIF, alfa, gráfico/foto, regla del 15 %, no ampliar, topes de iOS, cancelación, 40 fotos en secuencia), `prepareForPdf.quality.test.ts` (PSNR/SSIM y pesos con fotos sintéticas de 12/24/48 MP), `jpegCalibration.test.ts`, `photoGrid.test.ts` (geometría exhaustiva), `imagesToPdf.quality.test.ts` (PDF real con backend de Node: píxeles incrustados, bytes de «Original», posiciones de cada foto).
+- E2E (Chromium y `webkit-ipad`): `image-optimize.spec.ts` (40 fotos de 12/24/48 MP con EXIF mezclado y los 4 presets), `image-optimize-matrix.spec.ts` (39 fotos × 1/2/4/6/8/10 por hoja × presets: tabla de pesos y tiempos), `photo-grid.spec.ts` (posiciones reales de cada imagen con pdf.js, vista previa), `image-optimize-a11y.spec.ts` (axe 0 violaciones a 320/375/393/744/834/1194 px, claro/oscuro, ES/EN, objetivos ≥ 44 px táctiles y ≥ 24 px siempre) y `quality-scan-to-pdf.spec.ts` (cámara falsa).
+- Mutaciones: `scripts/image-optimize-mutate.py` (27) y `scripts/photo-grid-mutate.py` (20).
+
+### Límites conocidos (no verificado en dispositivos reales)
+
+Safari/iPhone/iPad reales, HEIC real, fotos reales de 48 MP y la memoria real de un iPhone no se han probado: se usaron el WebKit de Playwright (macOS) y fotos sintéticas. En «Original» con un PDF de ~90 MB el pico de memoria es ≈ 4–5 × lo que pesan las fotos (bytes + documento + archivo guardado + Blob), inevitable con pdf-lib.

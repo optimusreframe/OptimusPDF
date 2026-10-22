@@ -1,5 +1,6 @@
 "use client";
 
+import { getThumbnailBlob } from "@/lib/image/thumbnail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Reorder, useDragControls } from "motion/react";
 import { ArrowDown, ArrowUp, FileText, GripVertical, X } from "lucide-react";
@@ -274,10 +275,12 @@ function FileThumbnail({ file }: { file: File }) {
     let objectUrl: string | null = null;
 
     if (file.type.startsWith("image/")) {
-      objectUrl = URL.createObjectURL(file);
-      const url = objectUrl;
-      queueMicrotask(() => {
-        if (!cancelled) setUrl(url);
+      // Una foto de 12-48 Mpx NO se decodifica entera para pintar 72 px: miniatura pequena hecha en cola (compartida con
+      // el resto de vistas previas). Sin ella (navegador sin `createImageBitmap`) se usa el archivo original, como siempre.
+      void getThumbnailBlob(file).then((thumbnail) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(thumbnail ?? file);
+        setUrl(objectUrl);
       });
     } else if (isPdfFile(file)) {
       void (async () => {

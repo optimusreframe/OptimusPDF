@@ -37,6 +37,11 @@ export type ReadImageResult =
 export type ImageDeps = {
   /** Dimensiones reales de la imagen, o `null` si no se puede descodificar. */
   measure: (dataUrl: string) => Promise<{ width: number; height: number } | null>;
+  /**
+   * Prepara la foto para el PDF (reduce una foto grande, hornea la orientacion EXIF; ver `src/lib/image/prepareForPdf.ts`).
+   * `null` = incrustar el archivo tal cual. Nunca lanza.
+   */
+  prepare: (file: Blob) => Promise<{ bytes: Uint8Array; mime: "image/png" | "image/jpeg" } | null>;
   /** Vista previa reducida; `null` = usar el original. */
   downscale: (
     dataUrl: string,
@@ -87,7 +92,33 @@ export async function downscalePreview(
   return url;
 }
 
-const DEFAULT_DEPS: ImageDeps = { measure: measureImageDimensions, downscale: downscalePreview };
+/**
+ * Politica por defecto de la imagen que se anade: la MISMA calidad de imagen que Imagenes a PDF (la recordada en este
+ * dispositivo, «Equilibrada» por defecto). Una foto grande se reduce y se reencoda solo si ahorra >= 15 %; una firma, un
+ * logo o un PNG con transparencia pasan intactos; y una foto de movil con orientacion EXIF se hornea derecha (el motor de
+ * Editar incrusta los pixeles guardados y no sabe girarlos). Con «Original» los bytes no cambian (salvo esa orientacion).
+ */
+export async function prepareImageForEditing(
+  file: Blob,
+): Promise<{ bytes: Uint8Array; mime: "image/png" | "image/jpeg" } | null> {
+  try {
+    const [{ prepareImageForPdf }, { readStoredImagePreset }] = await Promise.all([
+      import("@/lib/image/prepareBrowser"),
+      import("@/lib/image/imageQualityPref"),
+    ]);
+    const prepared = await prepareImageForPdf(file, readStoredImagePreset(), { bakeOrientation: true });
+    if (!prepared.changed) return null;
+    return { bytes: prepared.bytes, mime: prepared.format === "jpeg" ? "image/jpeg" : "image/png" };
+  } catch {
+    return null;
+  }
+}
+
+const DEFAULT_DEPS: ImageDeps = {
+  measure: measureImageDimensions,
+  downscale: downscalePreview,
+  prepare: prepareImageForEditing,
+};
 
 /**
  * Lee y valida un archivo de imagen. Nunca lanza: un fallo es un `reason` que la
@@ -97,7 +128,7 @@ export async function readImageFile(
   file: Blob,
   deps: Partial<ImageDeps> = {},
 ): Promise<ReadImageResult> {
-  const { measure, downscale } = { ...DEFAULT_DEPS, ...deps };
+  const { measure, downscale, prepare } = { ...DEFAULT_DEPS, ...deps };
   if (file.size === 0) return { ok: false, reason: "empty" };
   if (file.size > MAX_IMAGE_BYTES) return { ok: false, reason: "size" };
 
@@ -107,8 +138,15 @@ export async function readImageFile(
   } catch {
     return { ok: false, reason: "unreadable" };
   }
-  const mime = detectImageMime(bytes);
+  let mime = detectImageMime(bytes);
   if (!mime) return { ok: false, reason: "type" };
+
+  // Foto grande o con orientacion EXIF: version ligera y derecha (si ahorra); lo demas pasa tal cual.
+  const prepared = await prepare(file);
+  if (prepared) {
+    bytes = prepared.bytes;
+    mime = prepared.mime;
+  }
 
   // Data URL propia (no `FileReader`): usa el tipo REAL de los bytes y funciona igual fuera del navegador.
   let dataUrl: string;

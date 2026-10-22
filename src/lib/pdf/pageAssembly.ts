@@ -520,18 +520,32 @@ export async function applyPageAssembly(
     const imageLeaves = new Map<ImageEntry, PDFPage>();
     if (imageEntries.length > 0) {
       const { buildPdfFromImages, DEFAULT_IMAGE_LAYOUT } = await import("@/lib/pdf/imagesToPdf");
-      for (let index = 0; index < imageEntries.length; index += 1) {
-        throwIfAborted(signal);
-        const entry = imageEntries[index];
-        const raw = externals[entry.sourceId];
-        if (raw instanceof PDFDocument) throw new PdfError("invalidConfig");
-        const size = raw instanceof Uint8Array ? raw.byteLength : raw.size;
-        if (size > PAGE_ASSEMBLY_LIMITS.maxExternalBytes) throw new PdfError("tooLarge");
-        const blob = raw instanceof Uint8Array ? new Blob([raw as unknown as BlobPart]) : raw;
-        const imageDocument = await buildPdfFromImages([blob], { ...DEFAULT_IMAGE_LAYOUT, ...entry.layout });
-        const [page] = await document.copyPages(imageDocument, [0]);
-        imageLeaves.set(entry, page);
-        onProgress?.(0.38 + ((index + 1) / imageEntries.length) * 0.12);
+      // Las fotos se preparan con la calidad de imagen recordada en este dispositivo (la recomendada por defecto), con un
+      // solo worker para todas las de esta operacion.
+      const { createPrepareSession } = await import("@/lib/image/prepareBrowser");
+      const { readStoredImagePreset } = await import("@/lib/image/imageQualityPref");
+      const preset = readStoredImagePreset();
+      const session = createPrepareSession();
+      try {
+        for (let index = 0; index < imageEntries.length; index += 1) {
+          throwIfAborted(signal);
+          const entry = imageEntries[index];
+          const raw = externals[entry.sourceId];
+          if (raw instanceof PDFDocument) throw new PdfError("invalidConfig");
+          const size = raw instanceof Uint8Array ? raw.byteLength : raw.size;
+          if (size > PAGE_ASSEMBLY_LIMITS.maxExternalBytes) throw new PdfError("tooLarge");
+          const blob = raw instanceof Uint8Array ? new Blob([raw as unknown as BlobPart]) : raw;
+          const imageDocument = await buildPdfFromImages([blob], { ...DEFAULT_IMAGE_LAYOUT, ...entry.layout }, undefined, 1, {
+            preset,
+            signal,
+            session,
+          });
+          const [page] = await document.copyPages(imageDocument, [0]);
+          imageLeaves.set(entry, page);
+          onProgress?.(0.38 + ((index + 1) / imageEntries.length) * 0.12);
+        }
+      } finally {
+        session.dispose();
       }
     }
     throwIfAborted(signal);
