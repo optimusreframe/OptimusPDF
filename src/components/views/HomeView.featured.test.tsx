@@ -120,7 +120,8 @@ describe("Home — tarjeta destacada de PDF Pro", () => {
     renderHome();
     const live = TOOLS.filter((tool) => tool.status === "live").length;
     expect(screen.getByText(`${live} disponibles ahora`)).toBeTruthy();
-    expect(live).toBe(36);
+    // 37 desde «Extraer elementos» (`extract-assets`): 38 slugs menos `powerpoint-to-pdf`, que sigue «en camino».
+    expect(live).toBe(37);
   });
 
   it("la region tiene nombre accesible", () => {

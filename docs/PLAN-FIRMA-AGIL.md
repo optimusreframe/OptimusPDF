@@ -1946,3 +1946,53 @@ Safari e iPad reales (rebote, barra de direcciones y `dvh`, zona segura real, au
 4. El motor no escribe en `index.ts` ni enlaza con la interfaz: el orquestador (U7.3) debe enrutar `ref.engine === "image"` a `renderImageAsset`, tratar `AbortError` y decidir `includeAnnotations`.
 
 **Peticiones a otros dueños.** (a) `src/app/pdf-pro/viewer/openViewerDocument.ts`: aplicar `request-openViewerDocument.patch` (el visor por rangos no recibe `wasmUrl`). (b) Orquestador (`extractAssets/index.ts`): ver el punto 4 de arriba. (c) `playwright.config.ts`: añadir `extract-images` a `CROSS_SPECS` si se quiere que corra en los proyectos cruzados sin `PW_CROSS_FULL=1` (hoy se lanza con `PW_BROWSERS=webkit-ipad PW_CROSS_FULL=1 … --project=webkit-ipad`). (d) `docs/COMPATIBILIDAD-NAVEGADORES.md`: anotar el hallazgo del WebKit sin `relaxed-simd`.
+## U7.4 + U7.6 entregada — herramienta «Extraer elementos» (interfaz e integración contra el contrato)
+
+Construida contra `src/lib/pdf/extractAssets/types.ts` (sin tocarlo) y un **motor falso** determinista; la detección real (imágenes, anotaciones/OCG, clasificador, orquestador) la aportan U7.1-U7.3. El recorte manual (`cropRegion`) es **real** y no depende de ellas.
+
+### Qué hace
+
+- Registro: slug `extract-assets`, categoría `edit`, icono `ImageDown`, `accept: PDF`, `multiple: false` (justo tras «Comparar PDF»; `redact-pdf` sigue siendo el último). `TOOL_SLUGS` pasa de 37 a **38** (herramientas vivas 36 → **37**). No existe sitemap en el proyecto: nada que añadir.
+- Ruta `/extract-assets` (`page.tsx` con `metadata`: título, descripción, `alternates.canonical`) y cliente propio sobre las piezas de `ToolShell` (como `compare-pdf`: dropzone, `FileList`, comprobación de entrada, banner de error compartido, `ProcessingOverlay`, «Abrir en PDF Pro»). Textos ES/EN en `tools["extract-assets"]`, `filenames` y el bloque propio `extract.*` (205 claves, mismas en los dos idiomas; una prueba lo exige, y que los marcadores `{clave}` coincidan).
+- Nota estática de una línea («Úsalo solo con firmas propias o con autorización de su titular»): sin casilla, marca ni interacción.
+- Progreso cancelable «Página N de M · K encontrados»; resultado con foco en el título («Encontramos 10 elementos en 6 páginas.»); región viva ÚNICA (recuento, filtros, descargas, cancelación; solo se pinta si es un error).
+- Galería: lista (`ul`/`li`) con cuadrícula auto (1 columna en iPhone, 2-3 en iPad, 4 en escritorio), miniatura sobre damero, chip de tipo («probable» si la confianza < 0,9 y el tipo lo clasifica el motor; imágenes y fotos nunca), página(s), px y KB, detalle con los `reasons`. Nombre accesible de cada elemento y de su casilla: «Firma probable, página 3, 420 × 140 px». Casillas de 44 px, filtros con recuento (Firmas, Iniciales, Imágenes, Logos, Sellos, Marcas de agua, Otros), «Seleccionar todo» (casilla real con estado indeterminado) y pintado progresivo en lotes de 48 (500 elementos sin tareas largas).
+- Descargas: individual (PNG, JPG original, SVG, TXT de marcas de agua de texto; preferencia global «PNG / Original») y «Descargar seleccionados (.zip)» (jszip bajo demanda, cancelable) con nombres `p03-firma-01.png` (EN: `p03-signature-01.png`), estables y sin colisiones.
+- Avisos del motor en frases: páginas escaneadas (con salto a «Recortar región» en esa página), firma digital, imagen enorme, imagen no legible, cifrado, topes. Más de 300 páginas: aviso y formulario de rango (se vuelve a pedir al motor con `pageRange`).
+- Estado vacío («No encontramos elementos; prueba a recortar una región»); sin motor de detección (hoy, por defecto): lo explica y deja el recorte manual.
+- **Recortar región**: visor de página (pdf.js) con rectángulo táctil (arrastre, 4 asas de 44 px, un toque coloca el rectángulo; teclado: flechas mueven 1 %, Mayús + flechas redimensionan, anuncia el valor), calidad 300/600 ppp, «Quitar el fondo», vista previa sobre damero que se descarta al cambiar algo, descargar `p03-region-01.png` y guardar. Aviso «página escaneada» con `scannedPages`.
+- **Guardar en Firmas guardadas** (hoja única para detectados y recortes): TIPO (Firma / Iniciales, fichas de 44 px) y FIRMANTE (uno de los guardados, con nombre, cargo y lo que ya tiene, o «Nuevo firmante»: nombre obligatorio, cargo opcional); vista previa limpia sobre damero (`inkExtract`; los recortes ya vienen limpios y no se reprocesan; color de tinta Original/Negro/Azul). Una entrada = un firmante con firma e iniciales: guardar el tipo que falta COMPLETA la misma entrada (`saveVaultEntry` la amplía y conserva id); si ya tiene ese tipo hay que elegir «Reemplazar la actual» (`commitVaultImport`: borra y escribe en una transacción, no escribe si otra pestaña cambió la entrada) o «Guardar como otro firmante» (nombre distinto). Un nombre ya guardado se rechaza («elígelo en la lista»). Límites del baúl (30 firmas / 20 MB / 600 KB) con mensajes claros; el guardado espera a tener la lista del baúl. Paso de éxito con «Ver en Firmas guardadas» (enlace a Firmar PDF, donde el baúl ya la ofrece; no existe otro traspaso) y «Recortar otra». `origin: "extracted"` y el nombre del PDF SOLO en `sourceDocument`. **`VAULT_ORIGINS` ya incluía `"extracted"`: no se tocó `signVault*.ts` ni hubo migración.** Sin casilla de autorización.
+
+### API y punto de integración (para U7.3 / quien monte el orquestador)
+
+- La interfaz importa SOLO de `@/lib/pdf/extractAssets` (`index.ts`): `extractAssets`, `renderAsset`, `cropRegion`, `setExtractEngine`, `getExtractEngine`, `isExtractEngineAvailable`, `ExtractUnavailableError`/`isExtractUnavailable`, `unavailableEngine` y los tipos.
+- Por defecto `extractAssets`/`renderAsset` lanzan `ExtractUnavailableError` y `cropRegion` es el real de `region.ts`.
+- **Punto de integración exacto**: llamar UNA vez a `setExtractEngine({ extractAssets, renderAsset })` (o con la `ExtractAssetsApi` completa; lo que falte conserva el valor por defecto) al cargar el módulo del orquestador, antes de que se use la pantalla. `setExtractEngine(null)` restaura. No hay que tocar la interfaz.
+- Gancho de pruebas inerte: `globalThis.__optimusExtractEngine` (objeto con alguna de las tres funciones) manda sobre lo instalado. Los E2E lo crean con `addInitScript` + `e2e/helpers/extract-entry.ts` (IIFE de Vite, como los demás `*-entry.ts`); no hay rutas de prueba en el build.
+- `cropRegionWith(render, …)` (inyectable) y `planRegion` (ppp 300-600, tope 16 M px, enteros) están en `region.ts`; `buildAssetsZip` / `sanitizeZipName` en `zip.ts`.
+
+**Supuestos sobre el contrato que debe respetar el motor real** (contrato de pruebas de integración): `ExtractResult.pageCount` = páginas TOTALES del documento; `onProgress.pageIndex` = página (0-based) en curso o recién terminada; `pageRange` es 0-based e inclusivo; el aviso `too-many-pages` indica recorte a `maxPages` (la interfaz calcula el rango analizado); cancelar rechaza con `AbortError`, `PdfError("cancelled")` o `InkError("aborted")` (los tres se tratan como cancelación) o devuelve el aviso `cancelled`; los errores de PDF salen como `PdfError` (se reconocen por nombre y `code`, no por `instanceof`); `formats[0]` es el formato por defecto; `renderAsset(…, "png")` devuelve PNG con alfa si lo hay; `id` estable dentro de una extracción y `occurrences` puede estar vacío (nombre `documento-firma-01`). Prueba de integración recomendada: la misma batería de `e2e/specs/extract-ui*.spec.ts` sin `installFake` (o con el hook apuntando al motor real) sobre PDFs del corpus de U7.5.
+
+### Pruebas
+
+- Vitest (jsdom + node): **15 archivos nuevos, 207 pruebas** en `src/app/extract-assets` y `src/lib/pdf/extractAssets` (modelo puro, guardado en el baúl con `fake-indexeddb`, hoja de guardar, galería, tarjeta, rango, selector de región, panel de recorte, pantalla completa ES/EN, registro/textos/SEO, fachada, recorte con renderizador inyectado y píxeles reales vía `@napi-rs/canvas`, ZIP, motor falso). Suite completa `F2_REAL_PDFS=1 npx vitest run`: **572 archivos, 12 883 pruebas, 0 fallos** (antes 557 / 12 694).
+- Pruebas que cambian: `tools-registry.pro.test.ts` (38 slugs) y `HomeView.featured.test.tsx` (37 herramientas vivas); sin debilitar nada más.
+- E2E (build de producción, `CI=1`, headless, 2 trabajadores, sin reintentos): `extract-ui.spec.ts` (flujo, descargas, ZIP, detalle, avisos, errores, cancelación, rango, 500 elementos sin tareas largas > 100 ms, sin peticiones de red externas, EN), `extract-ui-save.spec.ts` (firmante nuevo, completar iniciales en la misma entrada, reemplazar, otro firmante, teclado, tope de 30), `extract-ui-region.spec.ts` (`cropRegion` REAL con pdf.js: píxeles del PNG, 300/600 ppp, sin tinta, teclado, asas), `extract-ui-a11y.spec.ts` (axe con `target-size` = 0 violaciones en 320/375/393/744/834/1194 × claro/oscuro × ES/EN sobre cada estado; sin desbordes, también con fuente ancha; objetivos de 44 px; lista de 30 firmantes). **Chromium: 52 pasan; `webkit-ipad`: 51 pasan y 1 omitida (la de tareas largas, solo Chromium).**
+- Mutaciones (`scripts/extract-ui-mutate.py`): **37 de 37 mueren** (una sobrevivió, la poda de la selección al volver a buscar, y se añadió su prueba).
+
+### Hallazgos de la integración
+
+- WebKit no enfoca un botón al tocarlo: las hojas abiertas desde una tarjeta enfocan antes el botón para que el foco vuelva a él al cerrarse.
+- `content-visibility:auto` en las tarjetas provocaba saltos de maquetación que hacían fallar toques en WebKit: se quitó y se pinta por lotes.
+- Playwright no desplaza la página al mover el ratón: las pruebas de arrastre llevan el rectángulo a la vista antes de medir.
+- El motor falso se empaqueta aparte, así que su `PdfError` no es el de la aplicación: la pantalla clasifica por nombre y `code`.
+
+### Peticiones a otros dueños
+
+- `playwright.config.ts`: añadir `extract-ui[\w-]*` a `CROSS_SPECS` para que `webkit-ipad` corra estas pruebas sin `PW_CROSS_FULL=1` (se ejecutaron con él).
+- `e2e/specs/focus-own-headers.spec.ts` / `tool-errors.spec.ts`: sumar `extract-assets` a sus listas de herramientas con cabecera propia (la pantalla usa `useOwnToolFocus`).
+- Firmar PDF: si se quiere preseleccionar la firma recién guardada, hace falta un traspaso (p. ej. id de la entrada); hoy «Ver en Firmas guardadas» solo navega.
+
+### No verificado
+
+Safari e iPad reales (se usó WebKit de Playwright emulando el iPad), VoiceOver, el motor de detección real (solo el falso), rendimiento de memoria con un PDF de 300 páginas, y el recorte con PDF escaneados reales (solo sintéticos).

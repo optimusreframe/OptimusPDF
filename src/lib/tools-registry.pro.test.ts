@@ -30,7 +30,8 @@ describe("registro — PDF Pro es la primera herramienta", () => {
     expect(TOOL_SLUGS[1]).toBe("merge-pdf");
     expect(TOOL_SLUGS[TOOL_SLUGS.length - 1]).toBe("redact-pdf");
     expect(new Set(TOOL_SLUGS).size).toBe(TOOL_SLUGS.length);
-    expect(TOOL_SLUGS).toHaveLength(37);
+    // 38 desde «Extraer elementos» (`extract-assets`, F7 · U7.4): las 37 anteriores + 1.
+    expect(TOOL_SLUGS).toHaveLength(38);
   });
 
   it("esta disponible (live), acepta PDF y un solo archivo", () => {

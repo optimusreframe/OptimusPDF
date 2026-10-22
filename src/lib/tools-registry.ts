@@ -18,6 +18,7 @@ import {
   GitCompare,
   Hash,
   Image,
+  ImageDown,
   Languages,
   Layers,
   LayoutGrid,
@@ -120,6 +121,7 @@ export const TOOL_SLUGS = [
   "edit-pdf",
   "sign-pdf",
   "compare-pdf",
+  "extract-assets",
   "pdf-summarizer",
   "translate-pdf",
   // Seguridad
@@ -462,6 +464,14 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: true,
+  },
+  "extract-assets": {
+    icon: ImageDown,
+    category: "edit",
+    status: "live",
+    accept: PDF_MIME,
+    extensions: PDF_EXT,
+    multiple: false,
   },
   "pdf-summarizer": {
     icon: Sparkles,
