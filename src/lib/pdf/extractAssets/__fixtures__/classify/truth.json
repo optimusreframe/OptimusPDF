@@ -1,0 +1,1043 @@
+[
+  {
+    "name": "optimus-1signer",
+    "description": "PDF firmado por signPdfMulti, un firmante: firma en la pagina 3 sobre la raya y las iniciales en el pie de las 3 paginas.",
+    "truth": [
+      {
+        "cls": "signature",
+        "tag": "firma del asegurado (OptimusPDF)",
+        "kind": "signature",
+        "pages": [
+          2
+        ],
+        "rect": {
+          "x": 0.130718954,
+          "y": 0.825757576,
+          "width": 0.3,
+          "height": 0.069545455
+        },
+        "minConfidence": 0.85,
+        "reasonIncludes": "cerca de"
+      },
+      {
+        "cls": "initials",
+        "tag": "iniciales en el pie de las 3 paginas",
+        "kind": "initials",
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "rect": {
+          "x": 0.85620915,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        },
+        "minConfidence": 0.85
+      }
+    ],
+    "embedded": [
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.130718954,
+          "y": 0.825757576,
+          "width": 0.3,
+          "height": 0.069545455
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.85620915,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.85620915,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      },
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.85620915,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      }
+    ]
+  },
+  {
+    "name": "optimus-2signers",
+    "description": "PDF firmado por signPdfMulti con DOS firmantes: dos firmas en la pagina 3 y dos juegos de iniciales en el pie de las 3 paginas.",
+    "truth": [
+      {
+        "cls": "signature",
+        "tag": "firma del asegurado",
+        "kind": "signature",
+        "pages": [
+          2
+        ],
+        "rect": {
+          "x": 0.114379085,
+          "y": 0.825757576,
+          "width": 0.3,
+          "height": 0.069545455
+        },
+        "minConfidence": 0.85
+      },
+      {
+        "cls": "signature",
+        "tag": "firma del co-asegurado",
+        "kind": "signature",
+        "pages": [
+          2
+        ],
+        "rect": {
+          "x": 0.571895425,
+          "y": 0.825757576,
+          "width": 0.3,
+          "height": 0.069545455
+        },
+        "minConfidence": 0.85
+      },
+      {
+        "cls": "initials",
+        "tag": "iniciales del asegurado",
+        "kind": "initials",
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "rect": {
+          "x": 0.261437908,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        },
+        "minConfidence": 0.85
+      },
+      {
+        "cls": "initials",
+        "tag": "iniciales del co-asegurado",
+        "kind": "initials",
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "rect": {
+          "x": 0.767973856,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        },
+        "minConfidence": 0.85
+      }
+    ],
+    "embedded": [
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.114379085,
+          "y": 0.825757576,
+          "width": 0.3,
+          "height": 0.069545455
+        }
+      },
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.571895425,
+          "y": 0.825757576,
+          "width": 0.3,
+          "height": 0.069545455
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.261437908,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.767973856,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.261437908,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.767973856,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      },
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.261437908,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      },
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.767973856,
+          "y": 0.914141414,
+          "width": 0.088235294,
+          "height": 0.054545455
+        }
+      }
+    ]
+  },
+  {
+    "name": "optimus-no-labels",
+    "description": "Firma de OptimusPDF en un documento sin etiqueta de firma cerca: se ofrece como posible (sin la etiqueta no llega a probable).",
+    "truth": [
+      {
+        "cls": "signature",
+        "tag": "firma sin etiqueta cerca",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "rect": {
+          "x": 0.490196078,
+          "y": 0.656565657,
+          "width": 0.3,
+          "height": 0.069545455
+        },
+        "minConfidence": 0.5,
+        "maxConfidence": 0.84
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.490196078,
+          "y": 0.656565657,
+          "width": 0.3,
+          "height": 0.069545455
+        }
+      }
+    ]
+  },
+  {
+    "name": "optimus-thick-initials",
+    "description": "Iniciales de rotulador grueso (mucho relleno) estampadas por signPdfMulti en el pie de 3 paginas, junto a «Iniciales:».",
+    "truth": [
+      {
+        "cls": "initials",
+        "tag": "iniciales gruesas con etiqueta",
+        "kind": "initials",
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "rect": {
+          "x": 0.85620915,
+          "y": 0.914141414,
+          "width": 0.08496732,
+          "height": 0.052525253
+        },
+        "minConfidence": 0.7
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.85620915,
+          "y": 0.914141414,
+          "width": 0.08496732,
+          "height": 0.052525253
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.85620915,
+          "y": 0.914141414,
+          "width": 0.08496732,
+          "height": 0.052525253
+        }
+      },
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.85620915,
+          "y": 0.914141414,
+          "width": 0.08496732,
+          "height": 0.052525253
+        }
+      }
+    ]
+  },
+  {
+    "name": "pasted-scans",
+    "description": "Dos escaneos de firma opacos (papel con ruido) pegados: junto a «Signature:» y encima de «Firma del cliente».",
+    "truth": [
+      {
+        "cls": "signature",
+        "tag": "escaneo junto a Signature:",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "rect": {
+          "x": 0.245098039,
+          "y": 0.803030303,
+          "width": 0.294117647,
+          "height": 0.068181818
+        },
+        "minConfidence": 0.85,
+        "reasonIncludes": "signature"
+      },
+      {
+        "cls": "signature",
+        "tag": "escaneo sobre Firma del cliente",
+        "kind": "signature",
+        "pages": [
+          1
+        ],
+        "rect": {
+          "x": 0.147058824,
+          "y": 0.757575758,
+          "width": 0.287581699,
+          "height": 0.066666667
+        },
+        "minConfidence": 0.8
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.245098039,
+          "y": 0.803030303,
+          "width": 0.294117647,
+          "height": 0.068181818
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.147058824,
+          "y": 0.757575758,
+          "width": 0.287581699,
+          "height": 0.066666667
+        }
+      }
+    ]
+  },
+  {
+    "name": "docusign-like",
+    "description": "Firmas transparentes (estilo DocuSign) junto a «Insured Signature», sobre «X ____» y iniciales junto a «Initials» en 2 paginas.",
+    "truth": [
+      {
+        "cls": "signature",
+        "tag": "firma junto a Insured Signature",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "rect": {
+          "x": 0.124183007,
+          "y": 0.797979798,
+          "width": 0.310457516,
+          "height": 0.07270202
+        },
+        "minConfidence": 0.85
+      },
+      {
+        "cls": "signature",
+        "tag": "firma sobre X ____",
+        "kind": "signature",
+        "pages": [
+          1
+        ],
+        "rect": {
+          "x": 0.156862745,
+          "y": 0.792929293,
+          "width": 0.277777778,
+          "height": 0.065050505
+        },
+        "minConfidence": 0.85
+      },
+      {
+        "cls": "initials",
+        "tag": "iniciales junto a Initials",
+        "kind": "initials",
+        "pages": [
+          0,
+          1
+        ],
+        "rect": {
+          "x": 0.866013072,
+          "y": 0.911616162,
+          "width": 0.08496732,
+          "height": 0.052525253
+        },
+        "minConfidence": 0.85
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.124183007,
+          "y": 0.797979798,
+          "width": 0.310457516,
+          "height": 0.07270202
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.866013072,
+          "y": 0.911616162,
+          "width": 0.08496732,
+          "height": 0.052525253
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.156862745,
+          "y": 0.792929293,
+          "width": 0.277777778,
+          "height": 0.065050505
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.866013072,
+          "y": 0.911616162,
+          "width": 0.08496732,
+          "height": 0.052525253
+        }
+      }
+    ]
+  },
+  {
+    "name": "logo-header-footer",
+    "description": "Logo de colores en la cabecera y logo pequeno en el pie de las 5 paginas; firma escaneada en la ultima.",
+    "truth": [
+      {
+        "cls": "logo",
+        "tag": "logo de cabecera",
+        "kind": "logo",
+        "pages": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.032828283,
+          "width": 0.215686275,
+          "height": 0.053030303
+        },
+        "minConfidence": 0.85
+      },
+      {
+        "cls": "logo",
+        "tag": "logo de pie",
+        "kind": "logo",
+        "pages": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.931818182,
+          "width": 0.147058824,
+          "height": 0.028409091
+        },
+        "minConfidence": 0.85
+      },
+      {
+        "cls": "signature",
+        "tag": "firma escaneada tras logos",
+        "kind": "signature",
+        "pages": [
+          4
+        ],
+        "rect": {
+          "x": 0.163398693,
+          "y": 0.744949495,
+          "width": 0.287581699,
+          "height": 0.066666667
+        },
+        "minConfidence": 0.8
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.032828283,
+          "width": 0.215686275,
+          "height": 0.053030303
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.931818182,
+          "width": 0.147058824,
+          "height": 0.028409091
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.032828283,
+          "width": 0.215686275,
+          "height": 0.053030303
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.931818182,
+          "width": 0.147058824,
+          "height": 0.028409091
+        }
+      },
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.032828283,
+          "width": 0.215686275,
+          "height": 0.053030303
+        }
+      },
+      {
+        "page": 2,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.931818182,
+          "width": 0.147058824,
+          "height": 0.028409091
+        }
+      },
+      {
+        "page": 3,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.032828283,
+          "width": 0.215686275,
+          "height": 0.053030303
+        }
+      },
+      {
+        "page": 3,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.931818182,
+          "width": 0.147058824,
+          "height": 0.028409091
+        }
+      },
+      {
+        "page": 4,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.032828283,
+          "width": 0.215686275,
+          "height": 0.053030303
+        }
+      },
+      {
+        "page": 4,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.931818182,
+          "width": 0.147058824,
+          "height": 0.028409091
+        }
+      },
+      {
+        "page": 4,
+        "rect": {
+          "x": 0.163398693,
+          "y": 0.744949495,
+          "width": 0.287581699,
+          "height": 0.066666667
+        }
+      }
+    ]
+  },
+  {
+    "name": "logo-first-page",
+    "description": "Logo solo arriba en la pagina 1.",
+    "truth": [
+      {
+        "cls": "logo",
+        "tag": "logo de la primera pagina",
+        "kind": "logo",
+        "pages": [
+          0
+        ],
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.037878788,
+          "width": 0.196078431,
+          "height": 0.050505051
+        },
+        "minConfidence": 0.4,
+        "maxConfidence": 0.84
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.037878788,
+          "width": 0.196078431,
+          "height": 0.050505051
+        }
+      }
+    ]
+  },
+  {
+    "name": "photo",
+    "description": "Foto sintetica opaca en la pagina 2 y un logo pequeno arriba de la 1.",
+    "truth": [
+      {
+        "cls": "photo",
+        "tag": "foto del siniestro",
+        "kind": "photo",
+        "pages": [
+          1
+        ],
+        "rect": {
+          "x": 0.179738562,
+          "y": 0.277777778,
+          "width": 0.490196078,
+          "height": 0.284090909
+        },
+        "minConfidence": 0.7
+      },
+      {
+        "cls": "logo",
+        "tag": "logo de la primera pagina",
+        "kind": "logo",
+        "pages": [
+          0
+        ],
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.042929293,
+          "width": 0.179738562,
+          "height": 0.041666667
+        },
+        "minConfidence": 0.4
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.042929293,
+          "width": 0.179738562,
+          "height": 0.041666667
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.179738562,
+          "y": 0.277777778,
+          "width": 0.490196078,
+          "height": 0.284090909
+        }
+      }
+    ]
+  },
+  {
+    "name": "stamp-images",
+    "description": "Sello circular rojo y sello rectangular azul, ambos como imagen con fondo transparente.",
+    "truth": [
+      {
+        "cls": "stamp",
+        "tag": "sello circular rojo",
+        "kind": "stamp",
+        "pages": [
+          0
+        ],
+        "rect": {
+          "x": 0.653594771,
+          "y": 0.681818182,
+          "width": 0.163398693,
+          "height": 0.126262626
+        },
+        "minConfidence": 0.5
+      },
+      {
+        "cls": "stamp",
+        "tag": "sello rectangular azul",
+        "kind": "stamp",
+        "pages": [
+          1
+        ],
+        "rect": {
+          "x": 0.114379085,
+          "y": 0.656565657,
+          "width": 0.245098039,
+          "height": 0.090909091
+        },
+        "minConfidence": 0.5
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.653594771,
+          "y": 0.681818182,
+          "width": 0.163398693,
+          "height": 0.126262626
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.114379085,
+          "y": 0.656565657,
+          "width": 0.245098039,
+          "height": 0.090909091
+        }
+      }
+    ]
+  },
+  {
+    "name": "vector-signatures",
+    "description": "Cuatro firmas dibujadas con trazos vectoriales: curvas sobre una raya con «Signature:», poli-linea de tinta digital junto a «Firma:», iniciales y contorno relleno.",
+    "truth": [
+      {
+        "cls": "vector",
+        "tag": "firma de curvas sobre raya",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "rect": {
+          "x": 0.245098039,
+          "y": 0.762626263,
+          "width": 0.277777778,
+          "height": 0.063131313
+        },
+        "minConfidence": 0.4,
+        "maxConfidence": 0.7,
+        "reasonIncludes": "beta"
+      },
+      {
+        "cls": "vector",
+        "tag": "firma de poli-linea junto a Firma:",
+        "kind": "signature",
+        "pages": [
+          1
+        ],
+        "rect": {
+          "x": 0.245098039,
+          "y": 0.755050505,
+          "width": 0.310457516,
+          "height": 0.065656566
+        },
+        "minConfidence": 0.4,
+        "maxConfidence": 0.7,
+        "reasonIncludes": "beta"
+      },
+      {
+        "cls": "vector",
+        "tag": "iniciales de curvas junto a Iniciales:",
+        "kind": "initials",
+        "pages": [
+          2
+        ],
+        "rect": {
+          "x": 0.212418301,
+          "y": 0.808080808,
+          "width": 0.091503268,
+          "height": 0.047979798
+        },
+        "minConfidence": 0.4,
+        "maxConfidence": 0.7,
+        "reasonIncludes": "beta"
+      },
+      {
+        "cls": "vector",
+        "tag": "firma de contorno relleno",
+        "kind": "signature",
+        "pages": [
+          3
+        ],
+        "rect": {
+          "x": 0.245098039,
+          "y": 0.757575758,
+          "width": 0.277777778,
+          "height": 0.063131313
+        },
+        "minConfidence": 0.4,
+        "maxConfidence": 0.7,
+        "reasonIncludes": "beta"
+      }
+    ],
+    "embedded": []
+  },
+  {
+    "name": "scanned-page",
+    "description": "Pagina escaneada de una sola imagen con una firma azul abajo a la derecha: no se detecta sola.",
+    "truth": [],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 1,
+          "height": 1
+        }
+      }
+    ],
+    "decoy": true,
+    "decoyElements": 1,
+    "scannedPages": [
+      0
+    ]
+  },
+  {
+    "name": "vector-decoys",
+    "description": "Tabla, graficos de barras, lineas, sectores y puntos, ornamento, linea de firma VACIA, casillas y un mapa de 7000 rutas: ninguna firma.",
+    "truth": [],
+    "embedded": [],
+    "decoy": true,
+    "decoyElements": 9
+  },
+  {
+    "name": "image-decoys",
+    "description": "Un logo de colores, un QR, un codigo de barras, un grafico y una foto junto a «Firma del cliente/asegurado»: ninguno es una firma.",
+    "truth": [
+      {
+        "cls": "photo",
+        "tag": "foto del anexo",
+        "kind": "photo",
+        "pages": [
+          1
+        ],
+        "rect": {
+          "x": 0.117647059,
+          "y": 0.353535354,
+          "width": 0.326797386,
+          "height": 0.16834596
+        },
+        "minConfidence": 0.7
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.245098039,
+          "y": 0.707070707,
+          "width": 0.212418301,
+          "height": 0.052525253
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.68627451,
+          "y": 0.681818182,
+          "width": 0.124183007,
+          "height": 0.095959596
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.117647059,
+          "y": 0.757575758,
+          "width": 0.245098039,
+          "height": 0.05510101
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.490196078,
+          "y": 0.707070707,
+          "width": 0.326797386,
+          "height": 0.147310606
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.117647059,
+          "y": 0.353535354,
+          "width": 0.326797386,
+          "height": 0.16834596
+        }
+      }
+    ],
+    "decoy": true,
+    "decoyElements": 5
+  },
+  {
+    "name": "hard-scans",
+    "description": "Escaneo con mucho ruido sobre papel gris, boligrafo morado y firma compacta casi cuadrada, con etiqueta.",
+    "truth": [
+      {
+        "cls": "signature",
+        "tag": "escaneo ruidoso junto a Firma:",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "rect": {
+          "x": 0.22875817,
+          "y": 0.803030303,
+          "width": 0.294117647,
+          "height": 0.068181818
+        },
+        "minConfidence": 0.7
+      },
+      {
+        "cls": "signature",
+        "tag": "firma morada compacta",
+        "kind": "signature",
+        "pages": [
+          1
+        ],
+        "rect": {
+          "x": 0.245098039,
+          "y": 0.77020202,
+          "width": 0.130718954,
+          "height": 0.075757576
+        },
+        "minConfidence": 0.7
+      }
+    ],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.22875817,
+          "y": 0.803030303,
+          "width": 0.294117647,
+          "height": 0.068181818
+        }
+      },
+      {
+        "page": 1,
+        "rect": {
+          "x": 0.245098039,
+          "y": 0.77020202,
+          "width": 0.130718954,
+          "height": 0.075757576
+        }
+      }
+    ]
+  },
+  {
+    "name": "icon-decoys",
+    "description": "Casilla circular y cuadrada vacias junto a las etiquetas, icono de sobre de trazo fino y cenefa ancha: ninguna es una firma.",
+    "truth": [],
+    "embedded": [
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.202614379,
+          "y": 0.79040404,
+          "width": 0.071895425,
+          "height": 0.055555556
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.326797386,
+          "y": 0.848484848,
+          "width": 0.245098039,
+          "height": 0.063131313
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.718954248,
+          "y": 0.631313131,
+          "width": 0.065359477,
+          "height": 0.037878788
+        }
+      },
+      {
+        "page": 0,
+        "rect": {
+          "x": 0.091503268,
+          "y": 0.593434343,
+          "width": 0.816993464,
+          "height": 0.023143939
+        }
+      }
+    ],
+    "decoy": true,
+    "decoyElements": 4
+  },
+  {
+    "name": "empty-form",
+    "description": "Formulario sin firmar: etiquetas y rayas, ninguna imagen ni trazo.",
+    "truth": [],
+    "embedded": [],
+    "decoy": true,
+    "decoyElements": 3
+  }
+]

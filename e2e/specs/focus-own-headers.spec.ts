@@ -161,6 +161,8 @@ type ToolCase = {
 const OWN_HEADERS: ToolCase[] = [
   { slug: "pdf-to-pdfa" },
   { slug: "compare-pdf" },
+  // «Extraer elementos»: cabecera propia con `useOwnToolFocus` (como compare-pdf), con su banner de error compartido.
+  { slug: "extract-assets" },
   {
     slug: "pdf-summarizer",
     prepare: async (page) => {

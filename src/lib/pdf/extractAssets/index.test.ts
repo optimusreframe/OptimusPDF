@@ -3,6 +3,7 @@ import {
   EXTRACT_ENGINE_TEST_HOOK,
   ExtractUnavailableError,
   cropRegion,
+  defaultEngine,
   extractAssets,
   getExtractEngine,
   isExtractEngineAvailable,
@@ -14,7 +15,7 @@ import {
 import { cropRegion as realCropRegion } from "@/lib/pdf/extractAssets/region";
 import type { ExtractResult, ExtractedAsset } from "@/lib/pdf/extractAssets/types";
 
-/** Fachada del motor (`index.ts`): por defecto «unavailable» con el recorte real; se sustituye con `setExtractEngine`; el gancho de pruebas manda. */
+/** Fachada del motor (`index.ts`): por defecto el orquestador REAL con el recorte real; `unavailableEngine` prueba el aviso «sin motor»; se sustituye con `setExtractEngine`; el gancho de pruebas manda. */
 
 const RESULT: ExtractResult = { pageCount: 1, assets: [], scannedPages: [], warnings: [], truncated: false };
 const file = new Uint8Array([1, 2, 3]);
@@ -25,7 +26,32 @@ afterEach(() => {
 });
 
 describe("motor por defecto", () => {
-  it("extractAssets y renderAsset lanzan un error claro y reconocible", async () => {
+  it("es el orquestador REAL (no el de «sin motor») y la deteccion esta disponible", () => {
+    expect(isExtractEngineAvailable()).toBe(true);
+    expect(getExtractEngine().extractAssets).toBe(defaultEngine.extractAssets);
+    expect(getExtractEngine().extractAssets).not.toBe(unavailableEngine.extractAssets);
+    expect(getExtractEngine().renderAsset).not.toBe(unavailableEngine.renderAsset);
+  });
+
+  it("extractAssets real: un archivo vacio rechaza con PdfError «empty» (se carga el orquestador bajo demanda)", async () => {
+    await expect(extractAssets(new Uint8Array(0))).rejects.toMatchObject({ name: "PdfError", code: "empty" });
+  });
+
+  it("renderAsset real: un elemento sin formatos rechaza con un codigo claro", async () => {
+    await expect(renderAsset(file, { formats: [], ref: { engine: "image", objectId: "x", pageIndex: 0 } } as unknown as ExtractedAsset)).rejects.toMatchObject({ name: "ExtractRenderError", code: "no-formats" });
+  });
+
+  it("cropRegion es el real (el de region.ts)", () => {
+    expect(defaultEngine.cropRegion).toBe(realCropRegion);
+    expect(unavailableEngine.cropRegion).toBe(realCropRegion);
+    expect(getExtractEngine().cropRegion).toBe(realCropRegion);
+  });
+});
+
+describe("motor «sin motor» (unavailableEngine)", () => {
+  it("extractAssets y renderAsset lanzan un error claro y reconocible; el recorte sigue siendo real", async () => {
+    setExtractEngine(unavailableEngine);
+    expect(isExtractEngineAvailable()).toBe(false);
     await expect(extractAssets(file)).rejects.toBeInstanceOf(ExtractUnavailableError);
     await expect(renderAsset(file, {} as ExtractedAsset)).rejects.toMatchObject({ code: "engine-unavailable", name: "ExtractUnavailableError" });
     const error = await extractAssets(file).catch((caught: unknown) => caught);
@@ -33,24 +59,19 @@ describe("motor por defecto", () => {
     expect(isExtractUnavailable(new Error("otro"))).toBe(false);
     expect(isExtractUnavailable("texto")).toBe(false);
     expect((error as Error).message.length).toBeGreaterThan(10);
-  });
-
-  it("cropRegion SI es real (el de region.ts) aunque el resto no este", () => {
-    expect(unavailableEngine.cropRegion).toBe(realCropRegion);
     expect(getExtractEngine().cropRegion).toBe(realCropRegion);
-    expect(isExtractEngineAvailable()).toBe(false);
   });
 });
 
 describe("setExtractEngine", () => {
-  it("instala la implementacion real y conserva el recorte por defecto si no trae uno", async () => {
+  it("instala la implementacion y conserva la real de lo que no trae", async () => {
     const extract = vi.fn(async () => RESULT);
     setExtractEngine({ extractAssets: extract });
-    expect(isExtractEngineAvailable()).toBe(true);
     const options = { maxPages: 5 };
     await expect(extractAssets(file, options)).resolves.toBe(RESULT);
     expect(extract).toHaveBeenCalledWith(file, options);
-    await expect(renderAsset(file, {} as ExtractedAsset)).rejects.toBeInstanceOf(ExtractUnavailableError);
+    // `renderAsset` sigue siendo el real.
+    expect(getExtractEngine().renderAsset).toBe(defaultEngine.renderAsset);
     expect(getExtractEngine().cropRegion).toBe(realCropRegion);
   });
 
@@ -61,11 +82,11 @@ describe("setExtractEngine", () => {
     expect(crop).toHaveBeenCalledWith(file, 2, { x: 0, y: 0, width: 1, height: 1 }, { dpi: 600 });
   });
 
-  it("null restaura la de por defecto", async () => {
+  it("null restaura la de por defecto (la real)", async () => {
     setExtractEngine({ extractAssets: async () => RESULT });
     setExtractEngine(null);
-    expect(isExtractEngineAvailable()).toBe(false);
-    await expect(extractAssets(file)).rejects.toBeInstanceOf(ExtractUnavailableError);
+    expect(getExtractEngine().extractAssets).toBe(defaultEngine.extractAssets);
+    await expect(extractAssets(new Uint8Array(0))).rejects.toMatchObject({ code: "empty" });
   });
 });
 
@@ -81,6 +102,7 @@ describe("gancho de pruebas (__optimusExtractEngine)", () => {
   });
 
   it("se lee en cada llamada (se puede definir despues) y se ignora si no es un objeto con funciones", async () => {
+    setExtractEngine(unavailableEngine);
     (globalThis as Record<string, unknown>)[EXTRACT_ENGINE_TEST_HOOK] = "no soy un motor";
     await expect(extractAssets(file)).rejects.toBeInstanceOf(ExtractUnavailableError);
     (globalThis as Record<string, unknown>)[EXTRACT_ENGINE_TEST_HOOK] = { extractAssets: "tampoco" };

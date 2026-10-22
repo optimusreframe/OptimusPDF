@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import JSZip from "jszip";
 import { es } from "@/lib/locales/es";
 import { PdfError } from "@/lib/pdf/core";
-import { setExtractEngine } from "@/lib/pdf/extractAssets";
+import { setExtractEngine, unavailableEngine } from "@/lib/pdf/extractAssets";
 import type { ExtractAssetsApi, ExtractResult } from "@/lib/pdf/extractAssets/types";
 import { ExtractToolClient } from "@/app/extract-assets/ExtractToolClient";
 import { mount, sampleAssets, setLanguage } from "@/app/extract-assets/testUtils";
@@ -314,8 +314,8 @@ describe("estados especiales", () => {
     expect(await screen.findByTestId("region-panel")).toBeTruthy();
   });
 
-  it("sin motor de deteccion (por defecto): lo explica y deja el recorte manual", async () => {
-    setExtractEngine(null);
+  it("sin motor de deteccion (unavailableEngine; el de por defecto ya es el real): lo explica y deja el recorte manual", async () => {
+    setExtractEngine(unavailableEngine);
     const view = mount(<ExtractToolClient />);
     fireEvent.change(view.container.querySelector('input[type="file"]')!, { target: { files: [pdf()] } });
     fireEvent.click(await screen.findByRole("button", { name: x.run }));

@@ -55,6 +55,21 @@ export async function installFake(page: Page, options: FakeEngineOptions = {}): 
   await page.addInitScript({ content: `${code}\n;ExtractLab.installFakeEngine(${JSON.stringify(options)});` });
 }
 
+/**
+ * Simula «sin motor de deteccion»: desde U7.3 el motor de por defecto es el REAL, asi que la pantalla de «la busqueda automatica
+ * aun no esta disponible» se prueba con un gancho cuyo `extractAssets` rechaza con el codigo que la interfaz reconoce
+ * (`engine-unavailable`). El recorte manual sigue siendo el real.
+ */
+export async function installUnavailable(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (globalThis as Record<string, unknown>).__optimusExtractEngine = {
+      extractAssets: async () => {
+        throw Object.assign(new Error("sin motor de deteccion"), { code: "engine-unavailable" });
+      },
+    };
+  });
+}
+
 /** Cambia el escenario del motor falso en caliente. */
 export async function configureFake(page: Page, options: FakeEngineOptions): Promise<void> {
   await page.evaluate((next) => (window as unknown as { __fakeExtract: { configure(o: unknown): void } }).__fakeExtract.configure(next), options);
@@ -72,12 +87,14 @@ export function pdfInput(page: Page): Locator {
   return page.locator('input[type="file"][accept*="pdf"]').first();
 }
 
-export type OpenOptions = { lang?: Lang; fake?: FakeEngineOptions | null; pages?: number; fileName?: string };
+/** `fake: null` = el motor REAL (sin gancho); `unavailable: true` = «sin motor de deteccion» (solo el recorte manual). */
+export type OpenOptions = { lang?: Lang; fake?: FakeEngineOptions | null; pages?: number; fileName?: string; unavailable?: boolean };
 
 /** Abre `/extract-assets` (con el motor falso) y sube un PDF sintetico; NO pulsa «Buscar elementos». */
 export async function openExtract(page: Page, options: OpenOptions = {}): Promise<PdfUpload> {
   await setLanguage(page, options.lang ?? "es");
-  if (options.fake !== null) await installFake(page, options.fake ?? {});
+  if (options.unavailable) await installUnavailable(page);
+  else if (options.fake !== null) await installFake(page, options.fake ?? {});
   await page.goto("/extract-assets");
   const upload = await syntheticPdf(options.pages ?? 6);
   if (options.fileName) upload.name = options.fileName;

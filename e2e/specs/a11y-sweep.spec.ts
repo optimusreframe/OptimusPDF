@@ -60,6 +60,8 @@ const ROUTES: Array<{ route: string; files: "pdf" | "two-pdf" | "image" | null }
   { route: "/add-watermark", files: "pdf" },
   { route: "/edit-pdf", files: "pdf" },
   { route: "/sign-pdf", files: "pdf" },
+  // F7 · «Extraer elementos»: cabecera propia, nota fija, zona de carga y, con un archivo, el boton «Buscar elementos».
+  { route: "/extract-assets", files: "pdf" },
   // N6: sus dos inputs de archivo ocultos no tenian nombre (axe `label` x2).
   { route: "/scan-to-pdf", files: null },
 ];
@@ -270,6 +272,8 @@ const TOUCH_ROUTES: Array<{ route: string; files: "pdf" | "two-pdf" | "image"; s
   { route: "/add-watermark", files: "pdf", sheet: true },
   { route: "/add-page-numbers", files: "pdf", sheet: true },
   { route: "/sign-pdf", files: "pdf" },
+  // F7 · «Extraer elementos»: cabecera propia, nota fija, zona de carga y, con un archivo, el boton «Buscar elementos».
+  { route: "/extract-assets", files: "pdf" },
 ];
 
 /** Mide el area tactil REAL de cada control (elementFromPoint en cruz desde su centro). */

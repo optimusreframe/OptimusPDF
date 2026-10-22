@@ -207,8 +207,8 @@ test.describe("extract-assets · avisos, errores y estados", () => {
     await expect(page.locator("[data-region-scanned]")).toContainText("Esta página es un escaneo: recorta la región donde está la firma.");
   });
 
-  test("sin motor de deteccion instalado se ofrece el recorte manual, que si funciona", async ({ page }) => {
-    await openAndRun(page, { fake: null });
+  test("sin motor de deteccion se ofrece el recorte manual, que si funciona (el motor por defecto ya es el real: se simula con el gancho)", async ({ page }) => {
+    await openAndRun(page, { unavailable: true });
     await expect(page.locator("[data-extract-heading]")).toContainText("La búsqueda automática aún no está disponible");
     await expect(page.getByRole("tab", { name: "Recortar región" })).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("[data-region-rect]")).toBeVisible();

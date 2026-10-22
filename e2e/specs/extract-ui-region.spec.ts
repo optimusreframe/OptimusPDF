@@ -2,13 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { downloadFile } from "../helpers/downloads";
 import { readVault } from "../helpers/sign-vault-flow";
-import { pdfInput, setLanguage, signaturePdf } from "../helpers/extract-ui-flow";
+import { installUnavailable, pdfInput, setLanguage, signaturePdf } from "../helpers/extract-ui-flow";
 
 /**
  * «Recortar región» (F7 · U7.4) con el `cropRegion` REAL: pdf.js renderiza solo la zona a 300-600 ppp en el navegador,
  * `inkExtract` quita el fondo y el PNG se comprueba PIXEL A PIXEL (alfa de las esquinas, color de la tinta, tamano). El PDF
- * es sintetico (pdf-lib): una firma de trazos azules junto a «Firma:». Sin motor de deteccion (es el estado por defecto en
- * produccion hasta integrar el real): solo el recorte manual. Headless siempre.
+ * es sintetico (pdf-lib): una firma de trazos azules junto a «Firma:». Sin motor de deteccion (se simula con el gancho: el motor
+ * por defecto ya es el real): solo el recorte manual. Headless siempre.
  */
 
 test.setTimeout(120_000);
@@ -49,6 +49,8 @@ async function pngStats(bytes: Buffer): Promise<Stats> {
 
 async function openRegion(page: Page, options: { lang?: "es" | "en" } = {}): Promise<void> {
   await setLanguage(page, options.lang ?? "es");
+  // Solo el recorte manual: el motor de deteccion de por defecto es el real, asi que se simula «sin motor» con el gancho.
+  await installUnavailable(page);
   await page.goto("/extract-assets");
   await pdfInput(page).setInputFiles(await signaturePdf());
   await page.getByRole("button", { name: options.lang === "en" ? "Find elements" : "Buscar elementos" }).click();

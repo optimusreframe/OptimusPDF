@@ -682,6 +682,63 @@ test.describe("el foco nunca cae a <body>", () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Herramientas con cabecera PROPIA y su propio boton de accion (no «Procesar»): «Extraer elementos» (F7)
+ * ------------------------------------------------------------------ */
+
+const OWN_ACTION_TOOLS = [{ slug: "extract-assets", action: "Buscar elementos" }] as const;
+
+test.describe("herramientas con boton propio · archivos malos y foco", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+  test.setTimeout(90_000);
+
+  for (const { slug, action } of OWN_ACTION_TOOLS) {
+    for (const kind of ["garbage", "truncated", "empty", "notPdf", "renamedPng"] as const) {
+      test(`${slug} · ${kind}: mismo mensaje, «${action}» desactivado con motivo, foco en el banner`, async ({ page }) => {
+        await open(page, slug);
+        await upload(page, await bad(kind));
+        const alert = banner(page);
+        await expect(alert).toBeVisible({ timeout: 30_000 });
+        await expect(alert).toContainText(T.fileProblemTitle);
+        await expect(alert).toContainText(EXPECTED[kind]);
+        await expect(alert.getByRole("button", { name: T.chooseAnother })).toBeVisible();
+        await expect(alert.getByRole("button", { name: T.removeFile })).toBeVisible();
+        const button = page.getByRole("button", { name: action, exact: true });
+        await expect(button).toHaveCount(1);
+        await expect(button).toBeDisabled();
+        const id = await button.getAttribute("aria-describedby");
+        expect(((await page.locator(`[id="${id}"]`).textContent()) ?? "").trim()).toBe(T.blockedRun.replace("{action}", action));
+        await expect.poll(() => focusInside(alert)).toBe(true);
+        await expectNoFailureScreen(page);
+      });
+    }
+
+    test(`${slug}: un PDF cifrado se rechaza con su salida a Desbloquear PDF`, async ({ page }) => {
+      await open(page, slug);
+      await upload(page, await bad("encrypted"));
+      const alert = banner(page);
+      await expect(alert).toBeVisible({ timeout: 30_000 });
+      await expect(alert.getByRole("link", { name: T.errors.encryptedAction })).toHaveAttribute("href", "/unlock-pdf");
+      await expect(page.getByRole("button", { name: action, exact: true })).toBeDisabled();
+      await expectNoFailureScreen(page);
+    });
+
+    test(`${slug}: tras «Elegir otro archivo» con un PDF bueno el foco esta en un control y el boton se activa`, async ({ page }) => {
+      await open(page, slug);
+      await upload(page, await bad("garbage"));
+      const chooser = page.waitForEvent("filechooser");
+      await banner(page).getByRole("button", { name: T.chooseAnother }).click();
+      (await chooser).setFiles({ name: "bueno.pdf", mimeType: "application/pdf", buffer: await buildGood(3) });
+      await expect(banner(page)).toHaveCount(0);
+      await expect(page.getByText("bueno.pdf")).toBeVisible();
+      await expect(page.getByRole("button", { name: action, exact: true })).toBeEnabled();
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement === document.body || document.activeElement === null), { timeout: 8000 })
+        .toBe(false);
+    });
+  }
+});
+
+/* ------------------------------------------------------------------ *
  * V-F — herramientas SIN panel: «Procesar» sticky; hoja movil: pie fijo
  * ------------------------------------------------------------------ */
 

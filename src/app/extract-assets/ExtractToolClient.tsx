@@ -449,7 +449,14 @@ export function ExtractToolClient() {
             ) : null}
           </div>
           {file ? (
-            <FileList files={[file]} onChange={(next) => setFile(next[0] ?? null)} />
+            <FileList
+              files={[file]}
+              onChange={(next) => {
+                setFile(next[0] ?? null);
+                // «Quitar» deja la zona de carga en el sitio del archivo: el foco va ahi (nunca a <body>), como en las demas herramientas.
+                if (!next[0]) ask("attention");
+              }}
+            />
           ) : (
             <FileDropzone tool={TOOL} files={[]} onFilesChange={(next) => setFile(next[0] ?? null)} onError={setError} />
           )}
