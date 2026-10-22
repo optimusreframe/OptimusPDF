@@ -6,6 +6,8 @@
 export function focusFallbackWhenIdle(target: () => HTMLElement | null | undefined, timeoutMs = 2500): void {
   const started = Date.now();
   const tick = () => {
+    // La pagina (o el entorno de pruebas) puede haberse ido mientras el temporizador esperaba.
+    if (typeof document === "undefined") return;
     if (document.querySelector('[role="dialog"][aria-modal="true"]')) {
       if (Date.now() - started < timeoutMs) window.setTimeout(tick, 60);
       return;
