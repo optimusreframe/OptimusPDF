@@ -1,0 +1,459 @@
+[
+  {
+    "name": "ink-multi",
+    "description": "4 anotaciones Ink: tres de proporcion de firma (azul con 2 trazos, roja, negra sin /AP) y un circulo grande (dibujo).",
+    "truth": [
+      {
+        "cls": "ink",
+        "tag": "ink azul 2 trazos",
+        "source": "ink-annot",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true,
+        "reasonIncludes": "2 trazos"
+      },
+      {
+        "cls": "ink",
+        "tag": "ink rojo",
+        "source": "ink-annot",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true
+      },
+      {
+        "cls": "ink",
+        "tag": "ink negro sin AP",
+        "source": "ink-annot",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true
+      },
+      {
+        "cls": "ink",
+        "tag": "ink circulo",
+        "source": "ink-annot",
+        "kind": "drawing",
+        "pages": [
+          1
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true
+      }
+    ]
+  },
+  {
+    "name": "stamp-annot",
+    "description": "2 anotaciones Stamp con apariencia: caja roja «APROBADO» y circulo azul.",
+    "truth": [
+      {
+        "cls": "stamp",
+        "tag": "stamp caja roja",
+        "source": "stamp-annot",
+        "kind": "stamp",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.85,
+        "downloadable": true
+      },
+      {
+        "cls": "stamp",
+        "tag": "stamp circulo azul (SignHere)",
+        "source": "stamp-annot",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.6,
+        "downloadable": true,
+        "reasonIncludes": "firma"
+      }
+    ]
+  },
+  {
+    "name": "sig-widgets",
+    "description": "4 campos /Sig: con apariencia de trazos, vacio, con /V (firma digital falsa) y trazos, y con /V con apariencia de texto.",
+    "truth": [
+      {
+        "cls": "sig",
+        "tag": "sig con apariencia",
+        "source": "sig-widget",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true
+      },
+      {
+        "cls": "sig",
+        "tag": "sig vacio",
+        "source": "sig-widget",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "maxConfidence": 0.2,
+        "downloadable": false,
+        "reasonIncludes": "vacío"
+      },
+      {
+        "cls": "sig",
+        "tag": "sig firmado /V",
+        "source": "sig-widget",
+        "kind": "signature",
+        "pages": [
+          1
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true,
+        "digitalSignature": true,
+        "reasonIncludes": "firmado digitalmente"
+      },
+      {
+        "cls": "sig",
+        "tag": "sig con /V y texto",
+        "source": "sig-widget",
+        "kind": "signature",
+        "pages": [
+          1
+        ],
+        "maxConfidence": 0.4,
+        "downloadable": true,
+        "digitalSignature": true,
+        "reasonIncludes": "texto"
+      }
+    ],
+    "digitalSignaturePages": [
+      1,
+      1
+    ]
+  },
+  {
+    "name": "ocg-watermark",
+    "description": "3 paginas con dos capas: «Watermark» (texto gris girado) y «Capa de notas» (rectangulo verde, no es marca de agua).",
+    "truth": [
+      {
+        "cls": "wm-ab",
+        "tag": "capa Watermark",
+        "source": "ocg",
+        "kind": "watermark",
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "layerName": "Watermark",
+        "minConfidence": 0.85,
+        "downloadable": true
+      }
+    ]
+  },
+  {
+    "name": "ocg-hidden",
+    "description": "1 capa «Marca de agua» apagada por defecto con el texto BORRADOR.",
+    "truth": [
+      {
+        "cls": "wm-ab",
+        "tag": "capa Marca de agua oculta",
+        "source": "ocg",
+        "kind": "watermark",
+        "pages": [
+          0
+        ],
+        "layerName": "Marca de agua",
+        "minConfidence": 0.85,
+        "downloadable": true,
+        "reasonIncludes": "oculta"
+      }
+    ]
+  },
+  {
+    "name": "watermark-annot",
+    "description": "1 anotacion /Subtype /Watermark con apariencia de texto gris.",
+    "truth": [
+      {
+        "cls": "wm-ab",
+        "tag": "anotacion Watermark",
+        "source": "stamp-annot",
+        "kind": "watermark",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.85,
+        "downloadable": true,
+        "reasonIncludes": "watermark"
+      }
+    ]
+  },
+  {
+    "name": "text-watermark-6",
+    "description": "6 paginas con «USO INTERNO» diagonal, translucido (ca=0,2) en todas.",
+    "truth": [
+      {
+        "cls": "wm-c",
+        "tag": "texto diagonal en 6/6",
+        "source": "text",
+        "kind": "watermark",
+        "pages": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "text": "USO INTERNO",
+        "minConfidence": 0.7,
+        "downloadable": true,
+        "reasonIncludes": "repetido en 6 de 6"
+      }
+    ]
+  },
+  {
+    "name": "text-watermark-tiled",
+    "description": "4 paginas con el texto «Muestra» en mosaico (3 veces por pagina), diagonal y translucido.",
+    "truth": [
+      {
+        "cls": "wm-c",
+        "tag": "mosaico en 4/4",
+        "source": "text",
+        "kind": "watermark",
+        "pages": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "text": "Muestra",
+        "minConfidence": 0.7,
+        "downloadable": true
+      }
+    ]
+  },
+  {
+    "name": "text-watermark-1of6",
+    "description": "6 paginas; texto diagonal translucido en una sola (no debe contar) y un titulo grande opaco.",
+    "truth": []
+  },
+  {
+    "name": "form-stamps",
+    "description": "Sello circular rojo «RECIBIDO» (Form XObject) repetido en 2 paginas, sello rectangular azul y dos senuelos sin color saturado.",
+    "truth": [
+      {
+        "cls": "stamp",
+        "tag": "sello circular rojo (x2)",
+        "source": "form",
+        "kind": "stamp",
+        "pages": [
+          0,
+          1
+        ],
+        "minConfidence": 0.5,
+        "maxConfidence": 0.75,
+        "downloadable": true,
+        "reasonIncludes": "circular"
+      },
+      {
+        "cls": "stamp",
+        "tag": "sello rectangular azul",
+        "source": "form",
+        "kind": "stamp",
+        "pages": [
+          2
+        ],
+        "minConfidence": 0.5,
+        "maxConfidence": 0.75,
+        "downloadable": true,
+        "reasonIncludes": "rectangular"
+      }
+    ]
+  },
+  {
+    "name": "decoys",
+    "description": "Enlace, resaltado, nota, texto libre, campo de texto y una Ink con la bandera Hidden: ninguno debe dar un elemento.",
+    "truth": []
+  },
+  {
+    "name": "translucent-image-6",
+    "description": "Imagen grande translucida (ca=0,2) repetida en 6 paginas: solo candidata (d); la imagen la entrega el motor de imagenes.",
+    "truth": [],
+    "translucentImagePages": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  {
+    "name": "mixed",
+    "description": "4 paginas con de todo: Ink, Stamp, /Sig firmado, sello de contenido y texto translucido repetido.",
+    "truth": [
+      {
+        "cls": "ink",
+        "tag": "ink mixto",
+        "source": "ink-annot",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true
+      },
+      {
+        "cls": "stamp",
+        "tag": "stamp mixto",
+        "source": "stamp-annot",
+        "kind": "stamp",
+        "pages": [
+          1
+        ],
+        "minConfidence": 0.85,
+        "downloadable": true
+      },
+      {
+        "cls": "sig",
+        "tag": "sig mixto firmado",
+        "source": "sig-widget",
+        "kind": "signature",
+        "pages": [
+          2
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true,
+        "digitalSignature": true
+      },
+      {
+        "cls": "stamp",
+        "tag": "sello de contenido mixto",
+        "source": "form",
+        "kind": "stamp",
+        "pages": [
+          3
+        ],
+        "minConfidence": 0.5,
+        "downloadable": true
+      },
+      {
+        "cls": "wm-c",
+        "tag": "texto mixto 4/4",
+        "source": "text",
+        "kind": "watermark",
+        "pages": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "text": "ESTADO DE CUENTA",
+        "minConfidence": 0.7,
+        "downloadable": true
+      }
+    ],
+    "digitalSignaturePages": [
+      2
+    ]
+  },
+  {
+    "name": "rotated-page",
+    "description": "Pagina con /Rotate 90: una Ink de proporcion de firma EN LA VISTA (alta en usuario) y un sello.",
+    "truth": [
+      {
+        "cls": "ink",
+        "tag": "ink en pagina girada",
+        "source": "ink-annot",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true
+      },
+      {
+        "cls": "stamp",
+        "tag": "stamp en pagina girada",
+        "source": "stamp-annot",
+        "kind": "stamp",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.85,
+        "downloadable": true
+      }
+    ]
+  },
+  {
+    "name": "watermark-edges",
+    "description": "6 paginas: «CONFIDENCIAL» en 3 (50 %, cuenta), «REVISADO POR LEGAL» en 2 (33 %, no), pie translucido pequeno y «COPIA FIEL» diagonal OPACO (no cuentan).",
+    "truth": [
+      {
+        "cls": "wm-c",
+        "tag": "justo el 50 %",
+        "source": "text",
+        "kind": "watermark",
+        "pages": [
+          0,
+          2,
+          4
+        ],
+        "text": "CONFIDENCIAL",
+        "minConfidence": 0.6,
+        "downloadable": true,
+        "reasonIncludes": "repetido en 3 de 6"
+      }
+    ]
+  },
+  {
+    "name": "stamp-decoys",
+    "description": "Form XObjects rojos que no son sellos (500 pt de lado, una linea, solo texto) y un Stamp sin /AP: nada que extraer.",
+    "truth": []
+  },
+  {
+    "name": "sig-kids",
+    "description": "Dos campos /Sig cuyos FT, T y /V estan en el padre: uno con /V (firmado) y otro sin valor.",
+    "truth": [
+      {
+        "cls": "sig",
+        "tag": "sig hijo firmado",
+        "source": "sig-widget",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true,
+        "digitalSignature": true
+      },
+      {
+        "cls": "sig",
+        "tag": "sig hijo sin valor",
+        "source": "sig-widget",
+        "kind": "signature",
+        "pages": [
+          0
+        ],
+        "minConfidence": 0.7,
+        "downloadable": true
+      }
+    ],
+    "digitalSignaturePages": [
+      0
+    ]
+  },
+  {
+    "name": "signed-by-optimus",
+    "description": "PDF firmado por signPdfMulti: las firmas son IMAGENES (las entrega el motor de imagenes), sin /Sig ni anotaciones.",
+    "truth": []
+  }
+]
