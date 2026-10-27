@@ -84,6 +84,7 @@ export function geometryOf(occurrences: ReadonlyArray<AssetOccurrence>, sizeOf: 
   return {
     aspect: height > 0 ? width / height : 0,
     heightFrac: main.rect.height,
+    longHeightFrac: height / Math.max(size.width, size.height, 1),
     areaFrac: main.rect.width * main.rect.height,
     widthFrac: main.rect.width,
     widthPt: width,

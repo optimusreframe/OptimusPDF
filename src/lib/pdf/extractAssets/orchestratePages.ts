@@ -18,6 +18,8 @@ export type FactsContext = {
   ops: VectorOps;
   signal?: AbortSignal;
   stepTimeoutMs?: number;
+  /** Lista de operadores de una pagina (compartida con las demas pasadas); por defecto, `page.getOperatorList`. */
+  getOperatorList?: (page: PdfPage, pageIndex: number) => Promise<{ fnArray: ArrayLike<number>; argsArray: ArrayLike<unknown> }>;
   /** Se llama tras cada pagina (0-based). */
   onPage?: (pageIndex: number) => void;
 };
@@ -42,7 +44,7 @@ export async function pageFactsOf(page: PdfPage, pageIndex: number, ctx: FactsCo
   }
   let vectors: PageVectors | null = null;
   try {
-    const list = await withTimeout(page.getOperatorList({ annotationMode: 0 } as never), timeout, ctx.signal, "operadores");
+    const list = await withTimeout(ctx.getOperatorList ? ctx.getOperatorList(page, pageIndex) : page.getOperatorList({ annotationMode: 0 } as never), timeout, ctx.signal, "operadores");
     const scan = scanVectors(
       list.fnArray as unknown as ArrayLike<number>,
       list.argsArray as unknown as ArrayLike<unknown>,

@@ -17,11 +17,14 @@ import {
   sizeText,
   typeLabel,
   type ExtractStrings,
+  type Ordinal,
 } from "@/app/extract-assets/model";
 import { CHECKER_STYLE, useBlobUrl } from "@/app/extract-assets/ui";
 
 export type AssetCardProps = {
   asset: ExtractedAsset;
+  /** Posicion entre los que se llaman igual («1 de 2»): lo distingue el lector de pantalla. */
+  ordinal?: Ordinal;
   strings: ExtractStrings;
   locale: string;
   selected: boolean;
@@ -42,6 +45,7 @@ export type AssetCardProps = {
  */
 export const AssetCard = memo(function AssetCard({
   asset,
+  ordinal,
   strings,
   locale,
   selected,
@@ -52,7 +56,7 @@ export const AssetCard = memo(function AssetCard({
   onDownload,
   onSave,
 }: AssetCardProps) {
-  const label = assetLabel(strings, asset);
+  const label = assetLabel(strings, asset, ordinal);
   const url = useBlobUrl(asset.thumb);
   const pages = assetPages(asset);
   const probable = isProbable(asset);
@@ -106,6 +110,7 @@ export const AssetCard = memo(function AssetCard({
       <div className="flex flex-1 flex-col gap-3 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={probable ? "neutral" : "signal"}>{typeLabel(strings, asset)}</Badge>
+          {ordinal ? <span className="text-footnote text-muted-foreground tabular-nums">{fill(strings.ordinalShort, ordinal)}</span> : null}
         </div>
         <p className="text-footnote text-muted-foreground tabular-nums">{meta.join(" · ")}</p>
         <div className="mt-auto flex flex-wrap gap-2">

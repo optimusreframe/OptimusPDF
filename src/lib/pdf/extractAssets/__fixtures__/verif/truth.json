@@ -1,0 +1,1977 @@
+[
+ {
+  "name": "s-label-00-signature",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Signature:"
+   }
+  ]
+ },
+ {
+  "name": "s-label-01-firma",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Firma:"
+   }
+  ]
+ },
+ {
+  "name": "s-label-02-firmadelcliente",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.114379085,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Firma del cliente"
+   }
+  ]
+ },
+ {
+  "name": "s-label-03-signedby",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Signed by:"
+   }
+  ]
+ },
+ {
+  "name": "s-label-04-firmadopor",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Firmado por:"
+   }
+  ]
+ },
+ {
+  "name": "s-label-05-signatory",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Signatory"
+   }
+  ]
+ },
+ {
+  "name": "s-label-06-authorizedsignature",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.114379085,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Authorized signature"
+   }
+  ]
+ },
+ {
+  "name": "s-label-07-firmaautorizada",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.114379085,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Firma autorizada"
+   }
+  ]
+ },
+ {
+  "name": "s-label-08-namesignature",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Name & Signature"
+   }
+  ]
+ },
+ {
+  "name": "s-label-09-nombreyfirma",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Nombre y firma"
+   }
+  ]
+ },
+ {
+  "name": "s-label-10-applicantssignature",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.114379085,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Applicant's signature"
+   }
+  ]
+ },
+ {
+  "name": "s-label-11-firmadeltitular",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Firma del titular"
+   }
+  ]
+ },
+ {
+  "name": "s-label-12-customersignature",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Customer Signature"
+   }
+  ]
+ },
+ {
+  "name": "s-label-13-signhere",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Sign here"
+   }
+  ]
+ },
+ {
+  "name": "s-label-14-rubrica",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Rubrica"
+   }
+  ]
+ },
+ {
+  "name": "s-label-15-datesignature",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.114379085,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Date / Signature"
+   }
+  ]
+ },
+ {
+  "name": "s-label-16-assinatura",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Assinatura"
+   }
+  ]
+ },
+ {
+  "name": "s-label-17-unterschrift",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Unterschrift"
+   }
+  ]
+ },
+ {
+  "name": "s-label-18-customer",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Customer:"
+   }
+  ]
+ },
+ {
+  "name": "s-label-19-witness",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "label:Witness"
+   }
+  ]
+ },
+ {
+  "name": "s-nolabel-0",
+  "group": "sig-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "no-label"
+   }
+  ]
+ },
+ {
+  "name": "s-nolabel-1",
+  "group": "sig-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "no-label"
+   }
+  ]
+ },
+ {
+  "name": "s-nolabel-2",
+  "group": "sig-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "no-label"
+   }
+  ]
+ },
+ {
+  "name": "s-nolabel-3",
+  "group": "sig-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "no-label"
+   }
+  ]
+ },
+ {
+  "name": "s-far-label",
+  "group": "sig-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "far-label"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-white-label",
+  "group": "sig-photo-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-white+label"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-white-nolabel",
+  "group": "sig-photo-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-white+nolabel"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-gray-scan-label",
+  "group": "sig-photo-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-gray-scan+label"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-gray-scan-nolabel",
+  "group": "sig-photo-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-gray-scan+nolabel"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-shadow-label",
+  "group": "sig-photo-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-shadow+label"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-shadow-nolabel",
+  "group": "sig-photo-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-shadow+nolabel"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-yellowish-label",
+  "group": "sig-photo-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-yellowish+label"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-yellowish-nolabel",
+  "group": "sig-photo-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-yellowish+nolabel"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-lowres-label",
+  "group": "sig-photo-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-lowres+label"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-lowres-nolabel",
+  "group": "sig-photo-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-lowres+nolabel"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-dark-photo-label",
+  "group": "sig-photo-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-dark-photo+label"
+   }
+  ]
+ },
+ {
+  "name": "s-photo-jpeg-dark-photo-nolabel",
+  "group": "sig-photo-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.539215686,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "jpeg-dark-photo+nolabel"
+   }
+  ]
+ },
+ {
+  "name": "s-png-opaque-white",
+  "group": "sig-photo-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "png-opaque-white+label"
+   }
+  ]
+ },
+ {
+  "name": "s-scribble-0",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "scribble0"
+   }
+  ]
+ },
+ {
+  "name": "s-scribble-1",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "scribble1"
+   }
+  ]
+ },
+ {
+  "name": "s-scribble-2",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "scribble2"
+   }
+  ]
+ },
+ {
+  "name": "s-large",
+  "group": "sig-large",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.631313131,
+     "width": 0.490196078,
+     "height": 0.126262626
+    },
+    "tag": "firma",
+    "cond": "large>8%height"
+   }
+  ]
+ },
+ {
+  "name": "s-x-line",
+  "group": "sig-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.147058824,
+     "y": 0.707070707,
+     "width": 0.245098039,
+     "height": 0.059343434
+    },
+    "tag": "firma",
+    "cond": "x-line-no-word"
+   }
+  ]
+ },
+ {
+  "name": "s-table-cell",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.147058824,
+     "y": 0.434343434,
+     "width": 0.245098039,
+     "height": 0.059343434
+    },
+    "tag": "firma",
+    "cond": "table-cell+label"
+   }
+  ]
+ },
+ {
+  "name": "s-typed-name-below",
+  "group": "sig-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.114379085,
+     "y": 0.707070707,
+     "width": 0.277777778,
+     "height": 0.06707702
+    },
+    "tag": "firma",
+    "cond": "below-line"
+   }
+  ]
+ },
+ {
+  "name": "s-rotate-90",
+  "group": "sig-rotate",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.164141414,
+     "y": 0.596405229,
+     "width": 0.214646465,
+     "height": 0.086601307
+    },
+    "tag": "firma",
+    "cond": "rotate90-upright"
+   }
+  ]
+ },
+ {
+  "name": "s-rotate-180",
+  "group": "sig-rotate",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.212418301,
+     "y": 0.460858586,
+     "width": 0.277777778,
+     "height": 0.066919192
+    },
+    "tag": "firma",
+    "cond": "rotate180-upright"
+   }
+  ]
+ },
+ {
+  "name": "s-rotate-270",
+  "group": "sig-rotate",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.164141414,
+     "y": 0.596405229,
+     "width": 0.214646465,
+     "height": 0.086601307
+    },
+    "tag": "firma",
+    "cond": "rotate270-upright"
+   }
+  ]
+ },
+ {
+  "name": "s-cropbox",
+  "group": "sig-rotate",
+  "decoys": 0,
+  "note": "expected rect normalised to CropBox",
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.211111111,
+     "y": 0.546666667,
+     "width": 0.259259259,
+     "height": 0.072916667
+    },
+    "tag": "firma",
+    "cond": "cropbox"
+   }
+  ]
+ },
+ {
+  "name": "s-optimus-4pages-2signers-mine",
+  "group": "sig-optimus",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 3,
+    "rect": {
+     "x": 0.098039216,
+     "y": 0.568181818,
+     "width": 0.277777778,
+     "height": 0.066919192
+    },
+    "tag": "firma A",
+    "cond": "signPdfMulti"
+   },
+   {
+    "cls": "signature",
+    "page": 3,
+    "rect": {
+     "x": 0.547385621,
+     "y": 0.568181818,
+     "width": 0.277777778,
+     "height": 0.066919192
+    },
+    "tag": "firma B",
+    "cond": "signPdfMulti"
+   },
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.849673203,
+     "y": 0.911616162,
+     "width": 0.065359477,
+     "height": 0.032828283
+    },
+    "pages": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "tag": "iniciales A",
+    "cond": "signPdfMulti-footer"
+   },
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.68627451,
+     "y": 0.911616162,
+     "width": 0.065359477,
+     "height": 0.032828283
+    },
+    "pages": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "tag": "iniciales B",
+    "cond": "signPdfMulti-footer"
+   }
+  ]
+ },
+ {
+  "name": "i-0-png-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales AB",
+    "cond": "png-label"
+   }
+  ]
+ },
+ {
+  "name": "i-0-jpg-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales AB",
+    "cond": "jpg-label"
+   }
+  ]
+ },
+ {
+  "name": "i-0-png-nolabel",
+  "group": "ini-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales AB",
+    "cond": "png-nolabel"
+   }
+  ]
+ },
+ {
+  "name": "i-1-png-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales MR",
+    "cond": "png-label"
+   }
+  ]
+ },
+ {
+  "name": "i-1-jpg-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales MR",
+    "cond": "jpg-label"
+   }
+  ]
+ },
+ {
+  "name": "i-1-png-nolabel",
+  "group": "ini-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales MR",
+    "cond": "png-nolabel"
+   }
+  ]
+ },
+ {
+  "name": "i-2-png-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales JS",
+    "cond": "png-label"
+   }
+  ]
+ },
+ {
+  "name": "i-2-jpg-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales JS",
+    "cond": "jpg-label"
+   }
+  ]
+ },
+ {
+  "name": "i-2-png-nolabel",
+  "group": "ini-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales JS",
+    "cond": "png-nolabel"
+   }
+  ]
+ },
+ {
+  "name": "i-3-png-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales LG",
+    "cond": "png-label"
+   }
+  ]
+ },
+ {
+  "name": "i-3-jpg-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales LG",
+    "cond": "jpg-label"
+   }
+  ]
+ },
+ {
+  "name": "i-3-png-nolabel",
+  "group": "ini-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales LG",
+    "cond": "png-nolabel"
+   }
+  ]
+ },
+ {
+  "name": "i-4-png-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales DK",
+    "cond": "png-label"
+   }
+  ]
+ },
+ {
+  "name": "i-4-jpg-label",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales DK",
+    "cond": "jpg-label"
+   }
+  ]
+ },
+ {
+  "name": "i-4-png-nolabel",
+  "group": "ini-nolabel",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.79248366,
+     "y": 0.919191919,
+     "width": 0.071895425,
+     "height": 0.035353535
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "iniciales DK",
+    "cond": "png-nolabel"
+   }
+  ]
+ },
+ {
+  "name": "i-single-page",
+  "group": "ini-label",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "initials",
+    "page": 0,
+    "rect": {
+     "x": 0.179738562,
+     "y": 0.366161616,
+     "width": 0.062091503,
+     "height": 0.031565657
+    },
+    "tag": "iniciales una pagina",
+    "cond": "single-page+label"
+   }
+  ]
+ },
+ {
+  "name": "l-header-4",
+  "group": "logo",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "logo",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.035353535,
+     "width": 0.212418301,
+     "height": 0.041035354
+    },
+    "pages": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "tag": "logo cabecera",
+    "cond": "header-x4"
+   }
+  ]
+ },
+ {
+  "name": "l-footer-5",
+  "group": "logo",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "logo",
+    "page": 0,
+    "rect": {
+     "x": 0.849673203,
+     "y": 0.936868687,
+     "width": 0.058823529,
+     "height": 0.045454545
+    },
+    "pages": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "tag": "logo pie",
+    "cond": "footer-x5"
+   }
+  ]
+ },
+ {
+  "name": "l-first-page",
+  "group": "logo",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "logo",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.045454545,
+     "width": 0.261437908,
+     "height": 0.053914141
+    },
+    "tag": "logo p1",
+    "cond": "first-page-only"
+   }
+  ]
+ },
+ {
+  "name": "l-two-logos",
+  "group": "logo",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "logo",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.03030303,
+     "width": 0.179738562,
+     "height": 0.036363636
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "logo izq",
+    "cond": "two-logos"
+   },
+   {
+    "cls": "logo",
+    "page": 0,
+    "rect": {
+     "x": 0.816993464,
+     "y": 0.025252525,
+     "width": 0.065359477,
+     "height": 0.050505051
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "logo der",
+    "cond": "two-logos"
+   }
+  ]
+ },
+ {
+  "name": "l-header-jpg",
+  "group": "logo",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "logo",
+    "page": 0,
+    "rect": {
+     "x": 0.091503268,
+     "y": 0.03030303,
+     "width": 0.179738562,
+     "height": 0.036363636
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "logo jpg",
+    "cond": "jpg-header"
+   }
+  ]
+ },
+ {
+  "name": "st-round-red",
+  "group": "stamp",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "stamp",
+    "page": 0,
+    "rect": {
+     "x": 0.620915033,
+     "y": 0.707070707,
+     "width": 0.163398693,
+     "height": 0.126262626
+    },
+    "tag": "sello redondo rojo",
+    "cond": "round-red"
+   }
+  ]
+ },
+ {
+  "name": "st-rect-blue",
+  "group": "stamp",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "stamp",
+    "page": 0,
+    "rect": {
+     "x": 0.490196078,
+     "y": 0.681818182,
+     "width": 0.261437908,
+     "height": 0.070707071
+    },
+    "tag": "sello rect azul",
+    "cond": "rect-blue"
+   }
+  ]
+ },
+ {
+  "name": "st-near-label",
+  "group": "stamp",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "stamp",
+    "page": 0,
+    "rect": {
+     "x": 0.522875817,
+     "y": 0.675505051,
+     "width": 0.147058824,
+     "height": 0.113636364
+    },
+    "tag": "sello junto a Signature",
+    "cond": "stamp-near-label"
+   }
+  ]
+ },
+ {
+  "name": "st-annot",
+  "group": "stamp",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "stamp",
+    "page": 0,
+    "rect": {
+     "x": 0.490196078,
+     "y": 0.570707071,
+     "width": 0.196078431,
+     "height": 0.050505051
+    },
+    "tag": "Stamp annot",
+    "cond": "annot"
+   }
+  ]
+ },
+ {
+  "name": "w-text-diagonal",
+  "group": "watermark",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "watermark",
+    "page": 0,
+    "tag": "CONFIDENTIAL",
+    "cond": "text-diag-all"
+   }
+  ]
+ },
+ {
+  "name": "w-text-horizontal",
+  "group": "watermark",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "watermark",
+    "page": 0,
+    "tag": "BORRADOR",
+    "cond": "text-horizontal-all"
+   }
+  ]
+ },
+ {
+  "name": "w-image",
+  "group": "watermark",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "watermark",
+    "page": 0,
+    "rect": {
+     "x": 0.173202614,
+     "y": 0.34760101,
+     "width": 0.653594771,
+     "height": 0.336742424
+    },
+    "tag": "imagen translucida",
+    "cond": "image-wm-all"
+   }
+  ]
+ },
+ {
+  "name": "w-decoy-1of6",
+  "group": "watermark-decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "w-xss-text",
+  "group": "watermark",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "watermark",
+    "page": 0,
+    "tag": "xss text",
+    "cond": "text-xss"
+   }
+  ]
+ },
+ {
+  "name": "a-ink-ap",
+  "group": "annot",
+  "decoys": 0,
+  "note": "kind may be 'drawing' by design",
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.163398693,
+     "y": 0.545454545,
+     "width": 0.294117647,
+     "height": 0.075757576
+    },
+    "tag": "ink annot (firma a mano)",
+    "cond": "ink-ap"
+   }
+  ]
+ },
+ {
+  "name": "a-ink-noap",
+  "group": "annot",
+  "decoys": 0,
+  "note": "kind may be 'drawing' by design",
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.163398693,
+     "y": 0.545454545,
+     "width": 0.294117647,
+     "height": 0.075757576
+    },
+    "tag": "ink annot sin AP",
+    "cond": "ink-noap"
+   }
+  ]
+ },
+ {
+  "name": "a-sig-widget",
+  "group": "annot",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.522875817,
+     "y": 0.545454545,
+     "width": 0.326797386,
+     "height": 0.075757576
+    },
+    "tag": "campo /Sig con apariencia",
+    "cond": "sig-widget"
+   }
+  ]
+ },
+ {
+  "name": "a-sig-widget-empty",
+  "group": "annot-decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "v-sig-label-0",
+  "group": "vector",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.212418301,
+     "y": 0.726010101,
+     "width": 0.294117647,
+     "height": 0.047979798
+    },
+    "tag": "firma vectorial",
+    "cond": "vector-label0"
+   }
+  ]
+ },
+ {
+  "name": "v-sig-label-1",
+  "group": "vector",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.22875817,
+     "y": 0.726010101,
+     "width": 0.294117647,
+     "height": 0.047979798
+    },
+    "tag": "firma vectorial",
+    "cond": "vector-label1"
+   }
+  ]
+ },
+ {
+  "name": "v-sig-label-2",
+  "group": "vector",
+  "decoys": 0,
+  "expected": [
+   {
+    "cls": "signature",
+    "page": 0,
+    "rect": {
+     "x": 0.245098039,
+     "y": 0.726010101,
+     "width": 0.294117647,
+     "height": 0.047979798
+    },
+    "tag": "firma vectorial",
+    "cond": "vector-label2"
+   }
+  ]
+ },
+ {
+  "name": "v-decoy-scribble-0",
+  "group": "vector-decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "v-decoy-scribble-1",
+  "group": "vector-decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "v-decoy-charts-with-label-elsewhere",
+  "group": "vector-decoy",
+  "decoys": 2,
+  "expected": []
+ },
+ {
+  "name": "d-table-grid-near-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-bar-chart-near-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-line-chart",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-qr",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-barcode",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-photo-near-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-empty-signature-line",
+  "group": "decoy",
+  "decoys": 2,
+  "expected": []
+ },
+ {
+  "name": "d-check-icon-near-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-arrow-sign-here",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-wide-banner",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-pie-near-initials",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-shaded-box-near-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-text-scan-near-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-logo-near-signature-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-checkbox-icons-near-initials",
+  "group": "decoy",
+  "decoys": 5,
+  "expected": []
+ },
+ {
+  "name": "d-gray-photo-jpg-no-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-qr-transparent-near-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-barcode-transparent-near-initials",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-swash-ornament-no-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-swash-ornament-near-label",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-pen-icon-sign-here",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "d-script-wordmark-header-x3",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": [
+   {
+    "cls": "logo",
+    "page": 0,
+    "rect": {
+     "x": 0.0915032679738562,
+     "y": 0.030303030303030304,
+     "width": 0.22875816993464052,
+     "height": 0.04040404040404041
+    },
+    "pages": [
+     0,
+     1,
+     2
+    ],
+    "tag": "logo manuscrito",
+    "cond": "script-wordmark-header-x3 (anadida: el verificador indico que debe ser logo, no firma)"
+   }
+  ]
+ },
+ {
+  "name": "d-gray-xbox-placeholder",
+  "group": "decoy",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "amb-typed-name-image",
+  "group": "ambiguous",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "amb-doodle",
+  "group": "ambiguous",
+  "decoys": 1,
+  "expected": []
+ },
+ {
+  "name": "sc-scanned-page",
+  "group": "scan",
+  "decoys": 0,
+  "note": "expect scannedPages=[0]",
+  "expected": [
+   {
+    "cls": "image",
+    "page": 0,
+    "tag": "pagina escaneada",
+    "cond": "scan"
+   }
+  ]
+ }
+]

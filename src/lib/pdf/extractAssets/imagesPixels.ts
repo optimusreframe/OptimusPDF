@@ -12,6 +12,7 @@
  */
 
 import { encodePngBytes } from "@/lib/image/inkPng";
+import { encodePngStream, hasStreamingPng } from "./imagesPngStream";
 import type { InkImage } from "@/lib/image/inkCore";
 
 const BAND_PIXELS = 500_000;
@@ -266,6 +267,64 @@ class BitmapSource implements PixelSource {
   }
 }
 
+/** Pixeles RGBA opacos ya en memoria (una version REDUCIDA de una foto grande): se leen por bandas como cualquier fuente. */
+export class ReducedSource implements PixelSource {
+  readonly opaque = true;
+  private data: Uint8ClampedArray | null;
+  constructor(
+    readonly width: number,
+    readonly height: number,
+    data: Uint8ClampedArray,
+  ) {
+    this.data = data;
+  }
+  rows(y0: number, y1: number): Uint8ClampedArray {
+    if (!this.data) throw new Error("source-closed");
+    return this.data.subarray(y0 * this.width * 4, y1 * this.width * 4);
+  }
+  close(): void {
+    this.data = null;
+  }
+}
+
+/** Version reducida (RGBA) de una imagen decodificada por el navegador: lo que se analiza en lugar de la foto entera. */
+export type ReducedImage = { width: number; height: number; data: Uint8ClampedArray };
+/** Decodifica un JPEG reducido a `maxSide` px de lado mayor, sin pasar por la imagen entera. `null` si no se puede. */
+export type JpegReducer = (jpeg: Uint8Array, source: { width: number; height: number }, maxSide: number) => Promise<ReducedImage | null>;
+
+/**
+ * Reductor del navegador: `createImageBitmap` con `resizeWidth/resizeHeight` decodifica el JPEG DIRECTAMENTE a tamano reducido (el
+ * decodificador del navegador baja la escala al decodificar: unos MB en vez de los 160 MB de una foto de 40 MP). Sin la orientacion
+ * EXIF ni la gestion de color: igual que un PDF, que no las aplica.
+ */
+export const browserJpegReducer: JpegReducer = async (jpeg, source, maxSide) => {
+  if (typeof createImageBitmap !== "function") return null;
+  const scale = Math.min(1, maxSide / Math.max(source.width, source.height));
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(new Blob([jpeg as unknown as BlobPart], { type: "image/jpeg" }), {
+      resizeWidth: width,
+      resizeHeight: height,
+      resizeQuality: "medium",
+      imageOrientation: "none",
+      colorSpaceConversion: "none",
+    });
+    const { canvas, ctx } = createCanvas(bitmap.width, bitmap.height);
+    ctx.drawImage(bitmap, 0, 0);
+    const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    const out = { width: bitmap.width, height: bitmap.height, data: new Uint8ClampedArray(data) };
+    canvas.width = 1;
+    canvas.height = 1;
+    return out;
+  } catch {
+    return null;
+  } finally {
+    bitmap?.close();
+  }
+};
+
 /** Recorte de otra fuente (una casilla del atlas de un grupo de imagenes en linea). */
 class CropSource implements PixelSource {
   readonly opaque: boolean;
@@ -501,6 +560,8 @@ export async function encodeSourceAsPng(source: PixelSource, slicer: Slicer): Pr
     }
     return canvasToPng(canvas);
   }
+  // Mas de lo que cabe en un canvas: se codifica por bandas (sin tener la imagen entera en memoria).
+  if (width * height > MAX_CANVAS_PIXELS && hasStreamingPng()) return encodePngStream(source, slicer);
   const data = new Uint8ClampedArray(width * height * 4);
   const bandRows = Math.max(1, Math.floor(BAND_PIXELS / width));
   for (let y0 = 0; y0 < height; y0 += bandRows) {

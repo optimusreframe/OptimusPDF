@@ -81,6 +81,8 @@ export type LabelFact = {
   box: { x: number; y: number; width: number; height: number };
   /** Alto de la linea de texto (puntos). */
   lineHeight: number;
+  /** «Rubrica»: cuenta como etiqueta de iniciales Y de firma (la geometria decide cual de las dos es la imagen). */
+  alsoSignature?: boolean;
 };
 
 /** Caracteristicas de los pixeles de una miniatura. */
@@ -120,6 +122,15 @@ export type PixelFeatures = {
   frameShare: number;
   /** Fraccion de columnas (o filas) de la caja de la tinta que son casi todo tinta: barras de un codigo de barras. */
   fullSpanShare: number;
+  /** Cuantas BARRAS distintas forman esas columnas (o filas) casi enteras: una «I» o una «T» tienen un trazo; un codigo de barras, muchos. */
+  fullSpanRuns: number;
+  /** Minima cobertura de los cuatro bordes de la caja de la tinta (0..1): un marco de verdad tiene los cuatro lados, unas iniciales al ras no. */
+  frameSides: number;
+  /**
+   * El fondo no es claro y uniforme en conjunto (sombra, foto oscura) pero SI lo es respecto a su entorno inmediato: papel con sombra
+   * o gris. Solo aplica a imagenes opacas; la tinta se separa con el fondo local.
+   */
+  localPaper: boolean;
   /** Caja de la tinta como fraccion de la imagen. */
   inkBox: { x: number; y: number; width: number; height: number };
   /** Opacidad media de los pixeles no transparentes (0..1). */
@@ -171,10 +182,14 @@ export const PROBABLE_CONFIDENCE = 0.85;
 export const SIGNATURE_ASPECT = { min: 1.5, max: 8 } as const;
 /** Iniciales: proporcion ancho/alto. */
 export const INITIALS_ASPECT = { min: 0.6, max: 2.5 } as const;
-/** Altura de una firma o unas iniciales respecto a la pagina (1-8 %). */
-export const SIGNATURE_HEIGHT = { min: 0.01, max: 0.08 } as const;
-/** Una firma no ocupa casi todo el ancho de la pagina (una cenefa o una raya ornamental si). */
+/**
+ * Altura de una firma o unas iniciales respecto al LADO LARGO de la pagina (1-8 %; hasta 15 % con una etiqueta de firma cerca: una firma
+ * grande). El lado largo y no el alto: una firma de 53 pt es el 6,7 % de una carta vertical pero el 8,7 % de la misma carta apaisada.
+ */
+export const SIGNATURE_HEIGHT = { min: 0.01, max: 0.08, maxLabelled: 0.15 } as const;
+/** Una firma no ocupa casi todo el ancho de la pagina (una cenefa o una raya ornamental si); con etiqueta de firma cerca, hasta el 60 %. */
 export const SIGNATURE_MAX_WIDTH = 0.45;
+export const SIGNATURE_MAX_WIDTH_LABELLED = 0.6;
 /** Unas iniciales son pequenas: area maxima respecto a la pagina. */
 export const INITIALS_MAX_AREA = 0.02;
 /** Franja superior/inferior de una pagina donde viven cabeceras y pies (20 %). */

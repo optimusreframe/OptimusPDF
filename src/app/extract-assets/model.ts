@@ -1,12 +1,13 @@
 import type { Dictionary } from "@/lib/locales/es";
 import type { PdfErrorCode } from "@/lib/pdf/core";
-import type {
-  AssetFormat,
-  AssetKind,
-  AssetSource,
-  ExtractResult,
-  ExtractWarning,
-  ExtractedAsset,
+import {
+  EXTRACT_LIMITS,
+  type AssetFormat,
+  type AssetKind,
+  type AssetSource,
+  type ExtractResult,
+  type ExtractWarning,
+  type ExtractedAsset,
 } from "@/lib/pdf/extractAssets/types";
 
 /**
@@ -16,6 +17,9 @@ import type {
  */
 
 export type ExtractStrings = Dictionary["extract"];
+
+/** Anotaciones que revisa el motor por pagina: el tope de `annotations.ts` (se dice en el aviso). */
+export const MAX_ANNOTATIONS_REVIEWED = EXTRACT_LIMITS.maxAnnotationsPerPage;
 
 /** Sustituye `{clave}` por su valor (las claves que no estan se dejan tal cual). */
 export function fill(template: string, values: Record<string, string | number>): string {
@@ -58,6 +62,19 @@ export function countByFilter(assets: readonly ExtractedAsset[]): Record<FilterI
 
 export function filterAssets(assets: readonly ExtractedAsset[], filter: FilterId): ExtractedAsset[] {
   return filter === "all" ? [...assets] : assets.filter((asset) => filterOfKind(asset.kind) === filter);
+}
+
+/** Un elemento sin ningun formato que descargar (un campo de firma vacio, o firmado sin apariencia visible): no hay nada que extraer. */
+export function hasNothingToExtract(asset: ExtractedAsset): boolean {
+  return asset.formats.length === 0;
+}
+
+/** Separa lo que se puede ofrecer de lo que no tiene nada que extraer (se cuenta aparte y se avisa en una linea). */
+export function splitExtractable(assets: readonly ExtractedAsset[]): { usable: ExtractedAsset[]; empty: ExtractedAsset[] } {
+  const usable: ExtractedAsset[] = [];
+  const empty: ExtractedAsset[] = [];
+  for (const asset of assets) (hasNothingToExtract(asset) ? empty : usable).push(asset);
+  return { usable, empty };
 }
 
 /** Primera pagina (0-based) donde aparece; `Infinity` si el motor no la dio. */
@@ -138,9 +155,33 @@ export function sizeText(strings: ExtractStrings, asset: ExtractedAsset): string
   return asset.source === "text" ? strings.labelText : strings.labelVector;
 }
 
-/** Nombre accesible: «Firma probable, página 3, 420 × 140 px». */
-export function assetLabel(strings: ExtractStrings, asset: ExtractedAsset): string {
-  return [typeLabel(strings, asset), pagesText(strings, assetPages(asset)), sizeText(strings, asset)].filter(Boolean).join(", ");
+/** Posicion de un elemento entre los que se llaman igual («1 de 2»). */
+export type Ordinal = { n: number; total: number };
+
+/** Nombre accesible: «Firma probable, página 3, 420 × 140 px»; con otro igual en la misma pagina, «Firma probable 1 de 2, página 3, 420 × 140 px». */
+export function assetLabel(strings: ExtractStrings, asset: ExtractedAsset, ordinal?: Ordinal): string {
+  const type = typeLabel(strings, asset);
+  return [ordinal ? fill(strings.ordinalOf, { label: type, n: ordinal.n, total: ordinal.total }) : type, pagesText(strings, assetPages(asset)), sizeText(strings, asset)].filter(Boolean).join(", ");
+}
+
+/**
+ * Ordinales de los elementos que tendrian el MISMO nombre accesible (mismo tipo, paginas y tamano: dos firmas de una pagina), en el
+ * orden dado. Un lector de pantalla no los distinguiria; los que tienen un nombre unico no aparecen en el mapa.
+ */
+export function ordinalsFor(strings: ExtractStrings, assets: readonly ExtractedAsset[]): Map<string, Ordinal> {
+  const groups = new Map<string, ExtractedAsset[]>();
+  for (const asset of assets) {
+    const key = assetLabel(strings, asset);
+    const list = groups.get(key);
+    if (list) list.push(asset);
+    else groups.set(key, [asset]);
+  }
+  const out = new Map<string, Ordinal>();
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    list.forEach((asset, index) => out.set(asset.id, { n: index + 1, total: list.length }));
+  }
+  return out;
 }
 
 export function confidencePercent(asset: ExtractedAsset): number {
@@ -200,9 +241,44 @@ export function resolveFormat(asset: ExtractedAsset, preference: FormatPreferenc
   return defaultFormat(asset);
 }
 
-/** `true` si algun elemento tiene un formato distinto de PNG: solo entonces se ofrece la preferencia. */
+/** Origenes cuya imagen es la INCRUSTADA tal cual (con margenes y, si es un JPEG, fondo opaco): hay que limpiarla para entregarla como firma. */
+const EMBEDDED_RASTER_SOURCES: ReadonlySet<AssetSource> = new Set<AssetSource>(["xobject", "inline", "mask"]);
+
+/**
+ * Las firmas e iniciales que salen de una imagen incrustada se entregan LIMPIAS al descargar (fondo transparente, tinta completa,
+ * recorte ajustado con un margen pequeno: `inkExtract`, igual que «Guardar»). Las demas clases conservan la imagen original, y los
+ * trazos, campos de firma y recortes de region ya salen limpios del motor.
+ */
+export function needsClean(asset: ExtractedAsset): boolean {
+  return (asset.kind === "signature" || asset.kind === "initials") && EMBEDDED_RASTER_SOURCES.has(asset.source) && asset.formats.includes("png") && asset.pixel !== null;
+}
+
+/** Que se pide al motor y si el resultado se limpia con `inkExtract` antes de entregarlo. */
+export type DownloadChoice = { format: AssetFormat; clean: boolean };
+
+/** Eleccion segun la preferencia global: «PNG» = firma limpia (o el PNG de siempre); «Original» = la imagen incrustada tal cual. */
+export function resolveChoice(asset: ExtractedAsset, preference: FormatPreference): DownloadChoice {
+  if (needsClean(asset)) {
+    if (preference === "png") return { format: "png", clean: true };
+    return { format: asset.formats.includes("jpg-original") ? "jpg-original" : "png", clean: false };
+  }
+  return { format: resolveFormat(asset, preference), clean: false };
+}
+
+export type ChoiceOption = { id: string; choice: DownloadChoice; label: keyof ExtractStrings };
+
+/** Botones de descarga del detalle: en una firma limpiable, el PNG limpio primero y el «Original» claramente rotulado. */
+export function choiceOptions(asset: ExtractedAsset): ChoiceOption[] {
+  if (!needsClean(asset)) return asset.formats.map((format) => ({ id: format, choice: { format, clean: false }, label: FORMAT_KEY[format] }));
+  const options: ChoiceOption[] = [{ id: "clean", choice: { format: "png", clean: true }, label: "formatPngCleanName" }];
+  if (!asset.formats.includes("jpg-original")) options.push({ id: "original", choice: { format: "png", clean: false }, label: "formatOriginalImageName" });
+  for (const format of asset.formats) if (format !== "png") options.push({ id: format, choice: { format, clean: false }, label: format === "jpg-original" ? "formatOriginalImageName" : FORMAT_KEY[format] });
+  return options;
+}
+
+/** `true` si algun elemento ofrece algo distinto del PNG de siempre: un formato original, o una firma limpiable (su «Original» es otra imagen). */
 export function offersOriginal(assets: readonly ExtractedAsset[]): boolean {
-  return assets.some((asset) => asset.formats.some((format) => format !== "png"));
+  return assets.some((asset) => needsClean(asset) || asset.formats.some((format) => format !== "png"));
 }
 
 export function fileExtension(format: AssetFormat): string {
@@ -247,6 +323,12 @@ export function planBaseNames(assets: readonly ExtractedAsset[], strings: Extrac
 
 export function withExtension(baseName: string, format: AssetFormat): string {
   return `${baseName}.${fileExtension(format)}`;
+}
+
+/** Nombre del archivo de una descarga: el PNG sin limpiar de una firma lleva `-original` (no se confunde con el limpio). */
+export function choiceFileName(baseName: string, asset: ExtractedAsset, choice: DownloadChoice): string {
+  const untouched = needsClean(asset) && !choice.clean && choice.format === "png";
+  return withExtension(untouched ? `${baseName}-original` : baseName, choice.format);
 }
 
 /* ------------------------------------------------------------------------------------------------------------ */
@@ -313,7 +395,7 @@ export function summaryText(strings: ExtractStrings, result: ExtractResult, anal
   return total === 1 ? fill(strings.foundOne, { pages }) : fill(strings.foundMany, { n: total, pages });
 }
 
-export type ExtractNotice = { id: string; code: ExtractWarning["code"]; text: string; action?: "region" | "range" };
+export type ExtractNotice = { id: string; code: ExtractWarning["code"] | "empty-sig-field"; text: string; action?: "region" | "range" };
 
 function pageList(pages: readonly number[]): string {
   return pages.length > 6 ? `${pages.slice(0, 6).join(", ")}…` : pages.join(", ");
@@ -349,6 +431,21 @@ export function noticesFor(
   }
   if (byCode("too-many-assets").length > 0) {
     notices.push({ id: "too-many-assets", code: "too-many-assets", text: fill(strings.warnTooManyAssets, { n: result.assets.length }), action: "range" });
+  }
+  for (const warning of byCode("too-many-annotations")) {
+    notices.push({
+      id: `annotations-${warning.pageIndex ?? "x"}`,
+      code: "too-many-annotations",
+      text: fill(strings.warnTooManyAnnotations, { page: (warning.pageIndex ?? 0) + 1, n: warning.detail ?? "", max: MAX_ANNOTATIONS_REVIEWED }),
+    });
+  }
+  const emptyFields = result.assets.filter(hasNothingToExtract).length;
+  if (emptyFields > 0) {
+    notices.push({
+      id: "empty-sig-field",
+      code: "empty-sig-field",
+      text: emptyFields === 1 ? strings.warnEmptySigFieldOne : fill(strings.warnEmptySigFieldMany, { n: emptyFields }),
+    });
   }
   for (const warning of byCode("digital-signature")) {
     notices.push({

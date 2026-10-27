@@ -5,18 +5,20 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { formatFileSize } from "@/lib/pdf/core";
-import type { AssetFormat, ExtractedAsset } from "@/lib/pdf/extractAssets/types";
+import type { ExtractedAsset } from "@/lib/pdf/extractAssets/types";
 import {
   assetLabel,
   assetPages,
   canSaveToVault,
+  choiceOptions,
   confidencePercent,
   fill,
-  formatName,
   isProbable,
   sourceName,
   typeLabel,
+  type ChoiceOption,
   type ExtractStrings,
+  type Ordinal,
 } from "@/app/extract-assets/model";
 import { CHECKER_STYLE, useBlobUrl } from "@/app/extract-assets/ui";
 
@@ -27,11 +29,12 @@ export type AssetDetailSheetProps = {
   locale: string;
   closeLabel: string;
   selected: boolean;
-  /** Formato que se esta preparando ahora (su boton se desactiva). */
-  busyFormat: AssetFormat | null;
+  /** Descarga que se esta preparando ahora (su boton se desactiva). */
+  busyChoice: string | null;
+  ordinal?: Ordinal;
   onClose: () => void;
   onToggle: (id: string) => void;
-  onDownload: (asset: ExtractedAsset, format: AssetFormat) => void;
+  onDownload: (asset: ExtractedAsset, option: ChoiceOption) => void;
   onSave: (asset: ExtractedAsset) => void;
 };
 
@@ -43,7 +46,8 @@ export function AssetDetailSheet({
   locale,
   closeLabel,
   selected,
-  busyFormat,
+  busyChoice,
+  ordinal,
   onClose,
   onToggle,
   onDownload,
@@ -57,7 +61,8 @@ export function AssetDetailSheet({
           strings={strings}
           locale={locale}
           selected={selected}
-          busyFormat={busyFormat}
+          busyChoice={busyChoice}
+          ordinal={ordinal}
           onToggle={onToggle}
           onDownload={onDownload}
           onSave={onSave}
@@ -72,7 +77,8 @@ function DetailBody({
   strings,
   locale,
   selected,
-  busyFormat,
+  busyChoice,
+  ordinal,
   onToggle,
   onDownload,
   onSave,
@@ -96,7 +102,7 @@ function DetailBody({
       >
         {url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={url} alt={assetLabel(strings, asset)} className="max-h-64 max-w-full object-contain" />
+          <img src={url} alt={assetLabel(strings, asset, ordinal)} className="max-h-64 max-w-full object-contain" />
         ) : textOnly !== null ? (
           <p className="text-center text-title-2 font-semibold break-words text-neutral-700">{textOnly}</p>
         ) : (
@@ -144,19 +150,20 @@ function DetailBody({
           {strings.formatsTitle}
         </h3>
         <div className="flex flex-wrap gap-2">
-          {asset.formats.map((format, index) => (
+          {choiceOptions(asset).map((option, index) => (
             <Button
-              key={format}
+              key={option.id}
               size="md"
               variant={index === 0 ? "primary" : "secondary"}
-              disabled={busyFormat !== null}
-              aria-busy={busyFormat === format}
-              onClick={() => onDownload(asset, format)}
+              disabled={busyChoice !== null}
+              aria-busy={busyChoice === option.id}
+              onClick={() => onDownload(asset, option)}
               data-detail-first={index === 0 ? "" : undefined}
-              data-format={format}
+              data-format={option.choice.format}
+              data-download-choice={option.id}
             >
               <Download aria-hidden="true" className="size-4" />
-              {busyFormat === format ? strings.downloading : formatName(strings, format)}
+              {busyChoice === option.id ? strings.downloading : strings[option.label]}
             </Button>
           ))}
         </div>

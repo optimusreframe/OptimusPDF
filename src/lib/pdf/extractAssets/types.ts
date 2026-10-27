@@ -54,6 +54,7 @@ export type ExtractWarningCode =
   | "scanned-page" // pagina que es una sola imagen: se ofrece recortar region
   | "too-many-pages" // se paso el tope de paginas: se uso un rango
   | "too-many-assets" // se alcanzo el tope de elementos
+  | "too-many-annotations" // una pagina trae mas anotaciones de las que se revisan (`detail` = cuantas trae)
   | "image-too-large" // imagen > 50 MP: solo original o se omite
   | "decode-failed" // una imagen no se pudo decodificar
   | "digital-signature" // /Sig con /V: «firmado digitalmente» (no se verifica criptograficamente)
@@ -88,6 +89,8 @@ export const EXTRACT_LIMITS = {
   maxAssets: 500,
   maxImageMegapixels: 50,
   thumbPx: 256,
+  /** Anotaciones que se revisan por pagina (mas: aviso `too-many-annotations`). */
+  maxAnnotationsPerPage: 300,
 } as const;
 
 /** Lo que un motor parcial devuelve al orquestador (`extractAssets`). */

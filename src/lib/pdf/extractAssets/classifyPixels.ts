@@ -60,9 +60,72 @@ const EMPTY: PixelFeatures = {
   centerShare: 0,
   frameShare: 0,
   fullSpanShare: 0,
+  fullSpanRuns: 0,
+  frameSides: 0,
+  localPaper: false,
   inkBox: { x: 0, y: 0, width: 0, height: 0 },
   meanAlpha: 0,
 };
+
+/** Luminancia minima del fondo LOCAL para contar como papel (una foto oscura o con sombra sigue siendo papel; un cuadro negro no). */
+const LOCAL_PAPER_MIN_LUMA = 110;
+/** Fraccion de los pixeles que ha de estar cerca de su fondo local para que la imagen cuente como papel con sombra. */
+const LOCAL_PAPER_MIN_SHARE = 0.6;
+/** Saturacion media maxima del fondo local: el papel es casi neutro (blanco, gris, amarillento); un cuadro de color liso no es papel. */
+const LOCAL_PAPER_MAX_SATURATION = 0.3;
+
+/**
+ * Fondo LOCAL de una imagen opaca: en cada celda (1/8 del lado mayor) el percentil 85 de la luminancia de sus pixeles visibles (la
+ * tinta ocupa poco), interpolado entre centros de celda. Sigue una sombra o un degradado de iluminacion que el percentil global no ve.
+ */
+function localBackground(lumas: Uint8Array, data: Uint8ClampedArray | Uint8Array, width: number, height: number): Float32Array {
+  const cell = Math.min(40, Math.max(8, Math.round(Math.max(width, height) / 8)));
+  const cols = Math.ceil(width / cell);
+  const rows = Math.ceil(height / cell);
+  const grid = new Float32Array(cols * rows).fill(255);
+  const hist = new Uint32Array(256);
+  for (let cy = 0; cy < rows; cy += 1) {
+    for (let cx = 0; cx < cols; cx += 1) {
+      hist.fill(0);
+      let n = 0;
+      for (let y = cy * cell; y < Math.min(height, (cy + 1) * cell); y += 1) {
+        for (let x = cx * cell; x < Math.min(width, (cx + 1) * cell); x += 1) {
+          const i = y * width + x;
+          if (data[i * 4 + 3] < TRANSPARENT_BELOW) continue;
+          hist[lumas[i]] += 1;
+          n += 1;
+        }
+      }
+      if (n === 0) continue;
+      let cumulative = 0;
+      const target = n * 0.85;
+      for (let l = 0; l < 256; l += 1) {
+        cumulative += hist[l];
+        if (cumulative >= target) {
+          grid[cy * cols + cx] = l;
+          break;
+        }
+      }
+    }
+  }
+  const out = new Float32Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    const gy = Math.min(rows - 1, Math.max(0, (y + 0.5) / cell - 0.5));
+    const y0 = Math.floor(gy);
+    const y1 = Math.min(rows - 1, y0 + 1);
+    const fy = gy - y0;
+    for (let x = 0; x < width; x += 1) {
+      const gx = Math.min(cols - 1, Math.max(0, (x + 0.5) / cell - 0.5));
+      const x0 = Math.floor(gx);
+      const x1 = Math.min(cols - 1, x0 + 1);
+      const fx = gx - x0;
+      const top = grid[y0 * cols + x0] * (1 - fx) + grid[y0 * cols + x1] * fx;
+      const bottom = grid[y1 * cols + x0] * (1 - fx) + grid[y1 * cols + x1] * fx;
+      out[y * width + x] = top * (1 - fy) + bottom * fy;
+    }
+  }
+  return out;
+}
 
 export function analyzePixels(image: RasterRGBA): PixelFeatures {
   const { width, height, data } = image;
@@ -94,6 +157,7 @@ export function analyzePixels(image: RasterRGBA): PixelFeatures {
 
   const mask = new Uint8Array(total);
   let lightBackground: boolean;
+  let localPaper = false;
   let backgroundLuma = 255;
   const transparentMode = transparent >= 0.15;
   if (transparentMode) {
@@ -118,8 +182,37 @@ export function analyzePixels(image: RasterRGBA): PixelFeatures {
       if (data[i * 4 + 3] >= TRANSPARENT_BELOW && Math.abs(lumas[i] - p92) <= BACKGROUND_TOLERANCE) near += 1;
     }
     lightBackground = p92 >= LIGHT_BACKGROUND_LUMA && near / visible >= BACKGROUND_MIN_SHARE;
-    for (let i = 0; i < total; i += 1) {
-      if (data[i * 4 + 3] >= INK_ALPHA && lumas[i] < backgroundLuma - INK_CONTRAST) mask[i] = 1;
+    let masked = false;
+    if (!lightBackground) {
+      // Foto con sombra o papel gris: el fondo no es claro en conjunto pero si respecto a su entorno. La tinta se separa con el fondo local.
+      const local = localBackground(lumas, data, width, height);
+      let nearLocal = 0;
+      let localSum = 0;
+      let saturationSum = 0;
+      for (let i = 0; i < total; i += 1) {
+        if (data[i * 4 + 3] < TRANSPARENT_BELOW) continue;
+        localSum += local[i];
+        if (Math.abs(lumas[i] - local[i]) <= BACKGROUND_TOLERANCE) {
+          nearLocal += 1;
+          const r = data[i * 4];
+          const g = data[i * 4 + 1];
+          const b = data[i * 4 + 2];
+          const max = Math.max(r, g, b);
+          if (max > 0) saturationSum += (max - Math.min(r, g, b)) / max;
+        }
+      }
+      if (nearLocal / visible >= LOCAL_PAPER_MIN_SHARE && localSum / visible >= LOCAL_PAPER_MIN_LUMA && saturationSum / Math.max(1, nearLocal) <= LOCAL_PAPER_MAX_SATURATION) {
+        localPaper = true;
+        masked = true;
+        for (let i = 0; i < total; i += 1) {
+          if (data[i * 4 + 3] >= INK_ALPHA && lumas[i] < local[i] - INK_CONTRAST) mask[i] = 1;
+        }
+      }
+    }
+    if (!masked) {
+      for (let i = 0; i < total; i += 1) {
+        if (data[i * 4 + 3] >= INK_ALPHA && lumas[i] < backgroundLuma - INK_CONTRAST) mask[i] = 1;
+      }
     }
   }
 
@@ -216,6 +309,8 @@ export function analyzePixels(image: RasterRGBA): PixelFeatures {
   let frame = 0;
   let inkBox = { x: 0, y: 0, width: 0, height: 0 };
   let fullSpan = 0;
+  let fullSpanRuns = 0;
+  let frameSides = 0;
   if (inkCount > 0) {
     const boxW = maxX - minX + 1;
     const boxH = maxY - minY + 1;
@@ -239,18 +334,62 @@ export function analyzePixels(image: RasterRGBA): PixelFeatures {
     inkBox = { x: minX / width, y: minY / height, width: boxW / width, height: boxH / height };
     // Barras (codigo de barras, rayas): columnas o filas casi enteras de tinta.
     let fullColumns = 0;
+    let columnRuns = 0;
+    let inColumnRun = false;
     for (let x = minX; x <= maxX; x += 1) {
       let count = 0;
       for (let y = minY; y <= maxY; y += 1) count += mask[y * width + x];
-      if (count >= boxH * 0.85) fullColumns += 1;
+      const full = count >= boxH * 0.85;
+      if (full) fullColumns += 1;
+      if (full && !inColumnRun) columnRuns += 1;
+      inColumnRun = full;
     }
     let fullRows = 0;
+    let rowRuns = 0;
+    let inRowRun = false;
     for (let y = minY; y <= maxY; y += 1) {
       let count = 0;
       for (let x = minX; x <= maxX; x += 1) count += mask[y * width + x];
-      if (count >= boxW * 0.85) fullRows += 1;
+      const full = count >= boxW * 0.85;
+      if (full) fullRows += 1;
+      if (full && !inRowRun) rowRuns += 1;
+      inRowRun = full;
     }
     fullSpan = Math.max(fullColumns / boxW, fullRows / boxH);
+    fullSpanRuns = Math.max(columnRuns, rowRuns);
+    // Cobertura de cada borde: fraccion de filas (o columnas) del lado que tienen tinta dentro de la franja del borde.
+    const bandX = Math.max(2, Math.round(edgeX));
+    const bandY = Math.max(2, Math.round(edgeY));
+    const rowHas = (xFrom: number, xTo: number): number => {
+      let n = 0;
+      for (let y = minY; y <= maxY; y += 1) {
+        for (let x = xFrom; x <= xTo; x += 1) {
+          if (mask[y * width + x]) {
+            n += 1;
+            break;
+          }
+        }
+      }
+      return n / boxH;
+    };
+    const colHas = (yFrom: number, yTo: number): number => {
+      let n = 0;
+      for (let x = minX; x <= maxX; x += 1) {
+        for (let y = yFrom; y <= yTo; y += 1) {
+          if (mask[y * width + x]) {
+            n += 1;
+            break;
+          }
+        }
+      }
+      return n / boxW;
+    };
+    frameSides = Math.min(
+      rowHas(minX, Math.min(maxX, minX + bandX - 1)),
+      rowHas(Math.max(minX, maxX - bandX + 1), maxX),
+      colHas(minY, Math.min(maxY, minY + bandY - 1)),
+      colHas(Math.max(minY, maxY - bandY + 1), maxY),
+    );
   }
 
   return {
@@ -273,6 +412,9 @@ export function analyzePixels(image: RasterRGBA): PixelFeatures {
     centerShare: inkCount > 0 ? center / inkCount : 0,
     frameShare: inkCount > 0 ? frame / inkCount : 0,
     fullSpanShare: fullSpan,
+    fullSpanRuns,
+    frameSides,
+    localPaper,
     inkBox,
     meanAlpha: alphaSum / visible / 255,
   };

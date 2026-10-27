@@ -45,8 +45,11 @@ describe("isInkLike", () => {
     expect(isInkLike(inkFeatures({ solidity: 0.7 }), true)).toBe(true);
     expect(isInkLike(inkFeatures({ solidity: 0.9 }), true)).toBe(true);
     expect(isInkLike(inkFeatures({ solidity: 0.91 }), true)).toBe(false);
-    expect(isInkLike(inkFeatures({ solidity: 0.7, colorBins: 7 }), true)).toBe(false);
-    expect(isInkLike(inkFeatures({ solidity: 0.7, colorBins: 6 }), true)).toBe(true);
+    // Las cubetas de color solo cuentan si la tinta NO es de un tono (el ruido de un JPEG las multiplica en unas iniciales de un color).
+    const multicolor = { chromaticShare: 0.4, dominantHueShare: 0.5 };
+    expect(isInkLike(inkFeatures({ solidity: 0.7, colorBins: 7, ...multicolor }), true)).toBe(false);
+    expect(isInkLike(inkFeatures({ solidity: 0.7, colorBins: 6, ...multicolor }), true)).toBe(true);
+    expect(isInkLike(inkFeatures({ solidity: 0.7, colorBins: 43 }), true)).toBe(true);
     expect(isInkLike(inkFeatures({ solidity: 0.7, inkFraction: 0.31 }), true)).toBe(false);
     expect(isInkLike(inkFeatures({ solidity: 0.7, inkFraction: 0.3 }), true)).toBe(true);
     // El modo laxo NO afloja los limites de colores y tinta cuando el trazo ya es fino.
@@ -56,9 +59,12 @@ describe("isInkLike", () => {
     expect(isInkLike(inkFeatures({ darkShare: 0.35, blueShare: 0.35 }))).toBe(true);
     expect(isInkLike(inkFeatures({ darkShare: 0.3, blueShare: 0.3 }))).toBe(false);
   });
-  it("las barras (codigo de barras) no", () => {
-    expect(isInkLike(inkFeatures({ fullSpanShare: 0.12 }))).toBe(true);
-    expect(isInkLike(inkFeatures({ fullSpanShare: 0.13 }))).toBe(false);
+  it("las barras (codigo de barras) no: muchas columnas casi enteras Y varias barras, o una banda ancha", () => {
+    expect(isInkLike(inkFeatures({ fullSpanShare: 0.12, fullSpanRuns: 8 }))).toBe(true);
+    expect(isInkLike(inkFeatures({ fullSpanShare: 0.13, fullSpanRuns: 6 }))).toBe(false);
+    expect(isInkLike(inkFeatures({ fullSpanShare: 0.13, fullSpanRuns: 5 }))).toBe(true);
+    expect(isInkLike(inkFeatures({ fullSpanShare: 0.3, fullSpanRuns: 1 }))).toBe(true);
+    expect(isInkLike(inkFeatures({ fullSpanShare: 0.31, fullSpanRuns: 1 }))).toBe(false);
   });
 });
 
@@ -70,9 +76,11 @@ describe("stampShape", () => {
     expect(stampShape(stamp({ centerShare: 0.46 }))).toBeNull();
     expect(stampShape(stamp({ centerShare: 0.45 }))).toBe("ring");
   });
-  it("marco: tinta pegada al borde de la caja (>= 45 %)", () => {
-    expect(stampShape(stamp({ ringShare: 0.3, frameShare: 0.45 }))).toBe("frame");
-    expect(stampShape(stamp({ ringShare: 0.3, frameShare: 0.44 }))).toBeNull();
+  it("marco: tinta pegada al borde de la caja (>= 45 %) Y con los cuatro lados (>= 85 %)", () => {
+    expect(stampShape(stamp({ ringShare: 0.3, frameShare: 0.45, frameSides: 0.85 }))).toBe("frame");
+    expect(stampShape(stamp({ ringShare: 0.3, frameShare: 0.44, frameSides: 1 }))).toBeNull();
+    // Unas iniciales al ras de la caja tienen tinta en el borde pero no los cuatro lados: no son un marco.
+    expect(stampShape(stamp({ ringShare: 0.3, frameShare: 0.53, frameSides: 0.84 }))).toBeNull();
   });
   it("exige color saturado, de un solo tono y cromatico", () => {
     expect(stampShape(stamp({ chromaticShare: 0.59 }))).toBeNull();
@@ -149,8 +157,10 @@ describe("judgeInkImage · firma", () => {
     expect(judgeInkImage(input({ features: inkFeatures({ ...black, ringShare: 0.55, centerShare: 0.3 }) }))).toBeNull();
     expect(judgeInkImage(input({ features: inkFeatures({ ...black, ringShare: 0.55, centerShare: 0.31 }) }))).not.toBeNull();
     expect(judgeInkImage(input({ features: inkFeatures({ ...black, ringShare: 0.54, centerShare: 0.1 }) }))).not.toBeNull();
-    expect(judgeInkImage(input({ features: inkFeatures({ ...black, frameShare: 0.6 }) }))).toBeNull();
-    expect(judgeInkImage(input({ features: inkFeatures({ ...black, frameShare: 0.59 }) }))).not.toBeNull();
+    expect(judgeInkImage(input({ features: inkFeatures({ ...black, frameShare: 0.6, frameSides: 0.9 }) }))).toBeNull();
+    expect(judgeInkImage(input({ features: inkFeatures({ ...black, frameShare: 0.59, frameSides: 0.9 }) }))).not.toBeNull();
+    // Con tinta al ras del borde pero sin los cuatro lados (unas iniciales recortadas al pixel) si lo es.
+    expect(judgeInkImage(input({ features: inkFeatures({ ...black, frameShare: 0.7, frameSides: 0.5 }) }))).not.toBeNull();
   });
   it("un sello de color saturado no se toma por firma", () => {
     const stamp = inkFeatures({ ringShare: 0.65, centerShare: 0.34, inkSaturation: 0.85 });
@@ -216,15 +226,17 @@ describe("judgeStampImage", () => {
     expect(d?.reasons).toEqual(["forma circular", "color saturado (rojo)", "fondo transparente"]);
   });
   it("sello rectangular azul: marco", () => {
-    const frame = inkFeatures({ ...stamp, ringShare: 0.3, frameShare: 0.5, dominantHue: 230 });
+    const frame = inkFeatures({ ...stamp, ringShare: 0.3, frameShare: 0.5, frameSides: 0.95, dominantHue: 230 });
     const d = judgeStampImage(input({ features: frame, geometry: signatureGeometry({ aspect: 2, areaFrac: 0.02 }) }));
     expect(d?.reasons[0]).toBe("marco rectangular");
     expect(d?.reasons[1]).toBe("color saturado (azul)");
     expect(d?.confidence).toBeLessThan(0.8);
   });
-  it("proporcion normal (0,45-2,6), area 0,05-25 % y sin barras de borde de pagina", () => {
+  it("proporcion normal (0,45-4: un sello rectangular de «APROBADO» llega a 3:1), area 0,05-25 % y sin barras de borde de pagina", () => {
     expect(judgeStampImage(input({ features: stamp, geometry: signatureGeometry({ aspect: 0.44, areaFrac: 0.02 }) }))).toBeNull();
-    expect(judgeStampImage(input({ features: stamp, geometry: signatureGeometry({ aspect: 2.7, areaFrac: 0.02 }) }))).toBeNull();
+    expect(judgeStampImage(input({ features: stamp, geometry: signatureGeometry({ aspect: 3, areaFrac: 0.02 }) }))?.kind).toBe("stamp");
+    expect(judgeStampImage(input({ features: stamp, geometry: signatureGeometry({ aspect: 4, areaFrac: 0.02 }) }))?.kind).toBe("stamp");
+    expect(judgeStampImage(input({ features: stamp, geometry: signatureGeometry({ aspect: 4.1, areaFrac: 0.02 }) }))).toBeNull();
     expect(judgeStampImage(input({ features: stamp, geometry: signatureGeometry({ aspect: 1, areaFrac: 0.26 }) }))).toBeNull();
     expect(judgeStampImage(input({ features: stamp, geometry: signatureGeometry({ aspect: 1, areaFrac: 0.0004 }) }))).toBeNull();
     expect(judgeStampImage(input({ features: { ...stamp, fullSpanShare: 0.31 }, geometry: geo }))).toBeNull();

@@ -28,11 +28,13 @@ import {
  * - `many`      `assetCount` (520 por defecto) elementos: se corta en `maxAssets` (500) con `truncated` y su aviso.
  * - `tooManyPages` documento de 450 paginas: analiza el rango pedido o las primeras 300 (aviso `too-many-pages`).
  * - `empty`     sin elementos y con una pagina escaneada.
+ * - `duplicates` dos firmas iguales en la misma pagina (mismo nombre accesible: llevan ordinal), unas iniciales, un campo de firma
+ *               VACIO (sin formatos: la interfaz no lo ofrece) y el aviso de mas de 300 anotaciones en una pagina.
  * Fallos: `failWith` hace que `extractAssets` rechace con ese `PdfError`; `failRender` que `renderAsset` rechace.
  * `delayMs` espera por pagina (para cancelar a mitad); cancelar rechaza con `AbortError`, como un motor de verdad.
  */
 
-export type FakeScenario = "mixed" | "signatures" | "warnings" | "many" | "tooManyPages" | "empty";
+export type FakeScenario = "mixed" | "signatures" | "warnings" | "many" | "tooManyPages" | "empty" | "duplicates";
 
 export type FakeEngineOptions = {
   scenario?: FakeScenario;
@@ -291,6 +293,16 @@ function mixedSpecs(pageCount: number): Spec[] {
   ];
 }
 
+function duplicateSpecs(pageCount: number): Spec[] {
+  const page = Math.min(Math.max(0, pageCount - 1), 2);
+  return [
+    { id: "fx-dup-1", kind: "signature", source: "xobject", confidence: 0.86, reasons: ["transparente", "cerca de “Signature”"], pages: [page], width: 420, height: 140, alpha: true, painter: "script", color: INK_BLUE, seed: 11, formats: ["png"] },
+    { id: "fx-dup-2", kind: "signature", source: "xobject", confidence: 0.86, reasons: ["transparente", "cerca de “Signature”"], pages: [page], width: 420, height: 140, alpha: true, painter: "script", color: INK_BLACK, seed: 12, formats: ["png"] },
+    { id: "fx-dup-ini", kind: "initials", source: "xobject", confidence: 0.82, reasons: ["pequeña y de tinta"], pages: [0], width: 160, height: 90, alpha: true, painter: "initials", color: INK_BLUE, seed: 13, formats: ["png"] },
+    { id: "fx-field-empty", kind: "signature", source: "sig-widget", confidence: 0.1, reasons: ["campo de firma (/Sig)", "campo de firma vacío (sin firmar)"], pages: [page], width: 0, height: 0, alpha: false, painter: "text", color: INK_BLACK, seed: 14, formats: [], text: "" },
+  ];
+}
+
 function signatureSpecs(pageCount: number): Spec[] {
   return mixedSpecs(pageCount).filter((spec) => spec.kind === "signature" || spec.kind === "initials");
 }
@@ -393,6 +405,7 @@ export function createFakeEngine(initial: FakeEngineOptions = {}): FakeExtractEn
     if (scenario === "empty") list = [];
     else if (scenario === "signatures") list = signatureSpecs(pageCount);
     else if (scenario === "many") list = manySpecs(opts.assetCount ?? 520, pageCount);
+    else if (scenario === "duplicates") list = duplicateSpecs(pageCount);
     else if (scenario === "tooManyPages") list = mixedSpecs(Math.min(pageCount, 6)).slice(0, 4);
     else list = mixedSpecs(pageCount);
     const truncated = list.length > maxAssets;
@@ -444,6 +457,7 @@ export function createFakeEngine(initial: FakeEngineOptions = {}): FakeExtractEn
         { code: "encrypted" },
       );
     }
+    if (scenario === "duplicates") warnings.push({ code: "too-many-annotations", pageIndex: 0, detail: "10000" });
     if (truncated || scenario === "many") warnings.push({ code: "too-many-assets" });
     if (tooMany) warnings.push({ code: "too-many-pages" });
     return { pageCount, assets, scannedPages, warnings, truncated: truncated || tooMany };

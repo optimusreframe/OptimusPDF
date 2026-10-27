@@ -135,7 +135,7 @@ test.describe("extract-assets · flujo principal (ES)", () => {
     await expect(dialog.getByText("cerca de “Firma”")).toBeVisible();
     await expect(dialog.getByText("Confianza: 64 %")).toBeVisible();
     await expect(dialog.getByText("Página 4")).toBeVisible();
-    const jpg = await downloadFile(page, () => dialog.getByRole("button", { name: "JPG original" }).click());
+    const jpg = await downloadFile(page, () => dialog.getByRole("button", { name: "Original (imagen tal cual)" }).click());
     expect(jpg.filename).toBe("p04-firma-01.jpg");
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();

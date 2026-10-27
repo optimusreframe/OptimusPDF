@@ -170,8 +170,10 @@ describe("formato de descarga y nombres de archivo", () => {
     expect(defaultFormat(fmt("svg", "png"))).toBe("svg");
   });
   it("la preferencia «Original» solo se ofrece si algun elemento tiene algo distinto de PNG", () => {
-    expect(offersOriginal([fmt("png"), fmt("png")])).toBe(false);
-    expect(offersOriginal([fmt("png"), fmt("png", "svg")])).toBe(true);
+    // (una firma de imagen incrustada tambien la ofrece: su «Original» es la imagen sin limpiar; ver `model.fixes.test.ts`)
+    const logo = (id: string) => asset({ id, kind: "logo", formats: ["png"] });
+    expect(offersOriginal([logo("a"), logo("b")])).toBe(false);
+    expect(offersOriginal([logo("a"), fmt("png", "svg")])).toBe(true);
     expect(offersOriginal([])).toBe(false);
   });
   it("extensiones", () => {

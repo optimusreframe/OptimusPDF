@@ -6,7 +6,7 @@ import { PdfError } from "@/lib/pdf/core";
 import { setExtractEngine, unavailableEngine } from "@/lib/pdf/extractAssets";
 import type { ExtractAssetsApi, ExtractResult } from "@/lib/pdf/extractAssets/types";
 import { ExtractToolClient } from "@/app/extract-assets/ExtractToolClient";
-import { mount, sampleAssets, setLanguage } from "@/app/extract-assets/testUtils";
+import { makeAsset, mount, sampleAssets, setLanguage } from "@/app/extract-assets/testUtils";
 
 /**
  * Pantalla de «Extraer elementos» en jsdom con un motor de pruebas MINIMO (sin pixeles): estados, filtros, seleccion,
@@ -19,6 +19,8 @@ vi.mock("@/lib/pdf/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pdf/core")>();
   return { ...actual, downloadBlob: (blob: Blob, name: string) => downloads.push({ name, blob }) };
 });
+// jsdom no decodifica imagenes: la limpieza de las firmas descargadas (`inkExtract`) se prueba con una version falsa (ver `withFakeInk`).
+vi.mock("@/lib/image/inkExtract", async (importOriginal) => (await import("@/app/extract-assets/testUtils")).withFakeInk(await importOriginal()));
 // El panel de recorte abre pdf.js (no corre en jsdom): se sustituye por un marcador (sus E2E usan el real).
 vi.mock("@/app/extract-assets/RegionPanel", () => ({
   RegionPanel: ({ page, scannedPages }: { page: number; scannedPages: number[] }) => (
@@ -144,22 +146,58 @@ describe("resultado", () => {
     expect(screen.getByText("Ninguno seleccionado")).toBeTruthy();
   });
 
-  it("descarga individual: nombre p03-firma-01.png y bytes del motor; el JPG original con «Original»", async () => {
+  it("descarga individual: la firma sale LIMPIA (inkExtract) con nombre p03-firma-01.png; el JPG original con «Original»; lo demas, tal cual", async () => {
     const { api } = await loadAndRun();
     await screen.findByRole("list", { name: x.listLabel });
     fireEvent.click(screen.getByRole("button", { name: /^Descargar: Firma, página 3/ }));
     await waitFor(() => expect(downloads).toHaveLength(1));
     expect(downloads[0].name).toBe("p03-firma-01.png");
-    expect(await downloads[0].blob.text()).toBe("sig-a:png");
+    // Lo que pidio al motor es el PNG incrustado; lo que se entrega es su version limpia (fondo transparente: sin igualar la iluminacion).
+    expect(vi.mocked(api.renderAsset).mock.calls.at(-1)![2]).toBe("png");
+    expect(await downloads[0].blob.text()).toBe('clean(sig-a:png)|{"ink":"original","evenLighting":false,"crop":"auto","margin":"auto"}');
     expect(status().textContent).toBe("Descargado: p03-firma-01.png");
     fireEvent.click(screen.getByRole("button", { name: "Original" }));
     fireEvent.click(screen.getByRole("button", { name: /^Descargar: Firma probable, página 4/ }));
     await waitFor(() => expect(downloads).toHaveLength(2));
     expect(downloads[1].name).toBe("p04-firma-01.jpg");
     expect(vi.mocked(api.renderAsset).mock.calls.at(-1)![2]).toBe("jpg-original");
+    expect(await downloads[1].blob.text()).toBe("sig-b:jpg-original");
     fireEvent.click(screen.getByRole("button", { name: /^Descargar: Marca de agua/ }));
     await waitFor(() => expect(downloads).toHaveLength(3));
     expect(downloads[2].name).toBe("p01-marca-de-agua-01.txt");
+  });
+
+  it("H8 · «PNG» limpia (con iluminacion pareja si la imagen no es transparente) y «Original» entrega la imagen incrustada tal cual, rotulada `-original`", async () => {
+    const api = engine({ extractAssets: vi.fn(async () => result({ assets: [makeAsset({ id: "sig-opaque", kind: "signature", confidence: 0.6, pixel: { width: 520, height: 180, hasAlpha: false }, formats: ["png"] }), makeAsset({ id: "logo-a", kind: "logo", confidence: 0.92 })], warnings: [], scannedPages: [] })) });
+    await loadAndRun(api);
+    await screen.findByRole("list", { name: x.listLabel });
+    fireEvent.click(screen.getByRole("button", { name: /^Descargar: Firma probable, página 3/ }));
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(await downloads[0].blob.text()).toBe('clean(sig-opaque:png)|{"ink":"original","evenLighting":true,"crop":"auto","margin":"auto"}');
+    // Un logo se queda como esta aunque la preferencia sea «PNG».
+    fireEvent.click(screen.getByRole("button", { name: /^Descargar: Logo/ }));
+    await waitFor(() => expect(downloads).toHaveLength(2));
+    expect(await downloads[1].blob.text()).toBe("logo-a:png");
+    expect(downloads[1].name).toBe("p03-logo-01.png");
+    fireEvent.click(screen.getByRole("button", { name: "Original" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Descargar: Firma probable, página 3/ }));
+    await waitFor(() => expect(downloads).toHaveLength(3));
+    expect(downloads[2].name).toBe("p03-firma-01-original.png");
+    expect(await downloads[2].blob.text()).toBe("sig-opaque:png");
+  });
+
+  it("H8 · si no se puede limpiar (sin tinta) se entrega la imagen original y se dice", async () => {
+    const api = engine({
+      extractAssets: vi.fn(async () => result({ assets: [makeAsset({ id: "sig-noink", kind: "signature", confidence: 0.95 })], warnings: [], scannedPages: [] })),
+      renderAsset: vi.fn(async (_f, asset) => new Blob([`${asset.id}:png`])),
+    });
+    await loadAndRun(api);
+    await screen.findByRole("list", { name: x.listLabel });
+    fireEvent.click(screen.getByRole("button", { name: /^Descargar: Firma, página 3/ }));
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(downloads[0].name).toBe("p03-firma-01-original.png");
+    expect(await downloads[0].blob.text()).toBe("sig-noink:png");
+    expect(status().textContent).toBe("Descargado: p03-firma-01-original.png No se pudo limpiar el fondo: se descargó la imagen original.");
   });
 
   it("un fallo al preparar una descarga lo dice y no deja el boton bloqueado", async () => {
@@ -184,7 +222,8 @@ describe("resultado", () => {
     expect(downloads[0].name).toBe("contrato-elementos.zip");
     const zip = await JSZip.loadAsync(new Uint8Array(await downloads[0].blob.arrayBuffer()));
     expect(Object.keys(zip.files).sort()).toEqual(["p03-firma-01.png", "p04-firma-01.png"]);
-    expect(await zip.files["p03-firma-01.png"].async("string")).toBe("sig-a:png");
+    // Las firmas del ZIP tambien salen limpias.
+    expect(await zip.files["p03-firma-01.png"].async("string")).toBe('clean(sig-a:png)|{"ink":"original","evenLighting":false,"crop":"auto","margin":"auto"}');
     await waitFor(() => expect(status().textContent).toBe("ZIP descargado con 2 archivos."));
   });
 
@@ -215,9 +254,9 @@ describe("resultado", () => {
     expect(within(dialog).getByText("fondo casi blanco")).toBeTruthy();
     expect(within(dialog).getByText("Confianza: 60 %")).toBeTruthy();
     expect(within(dialog).getByText("Página 4")).toBeTruthy();
-    expect(within(dialog).getByRole("button", { name: "PNG" })).toBeTruthy();
-    expect(within(dialog).getByRole("button", { name: "JPG original" })).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "JPG original" }));
+    expect(within(dialog).getByRole("button", { name: x.formatPngCleanName })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: x.formatOriginalImageName })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: x.formatOriginalImageName }));
     await waitFor(() => expect(downloads.at(-1)?.name).toBe("p04-firma-01.jpg"));
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: x.detailTitle })).toBeNull());

@@ -20,7 +20,11 @@ import type { PdfOps, SurfaceFactory, TranslucentImageCandidate } from "./annota
 import { classifyAssets, dedupeAssets, sortAssets } from "./classify";
 import type { RasterRGBA } from "./classifyTypes";
 import { cropRegion } from "./region";
-import { findImageAssets, renderImageAsset } from "./images";
+import { findImageAssets, imageObjectRef, isBigImageAsset, renderBigJpegAsPng, renderImageAsset } from "./images";
+import { prepareImages, prepareImagesFor, type ImagePrep } from "./imagesPrep";
+import { OperatorListCache } from "./opListCache";
+import { flateImageToPng } from "./imagesFlate";
+import { Slicer, type JpegReducer } from "./imagesPixels";
 import { collectPageFacts } from "./orchestratePages";
 import { buildVectorAsset, renderVectorAsset } from "./vectorsRender";
 import {
@@ -38,6 +42,8 @@ export type ExtractEnv = {
   closeDocument(doc: PDFDocumentProxy): Promise<void>;
   ops(): Promise<PdfOps>;
   createSurface(): SurfaceFactory;
+  /** Decodificador reducido de JPEG para las fotos grandes (por defecto el del navegador: `createImageBitmap` con `resize*`). */
+  reduceJpeg?: JpegReducer;
   /** Decodificador de miniaturas PNG (por defecto el propio del clasificador). */
   decodeThumb?: (thumb: Blob) => Promise<RasterRGBA | null>;
   /** Recorte manual (por defecto el real de `region.ts`). */
@@ -63,6 +69,11 @@ export class ExtractRenderError extends Error {
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+
+/** Preparacion de imagenes por archivo (la misma para la miniatura del selector, para buscar y para las descargas que siguen). */
+function prepareFor(file: File | Uint8Array, bytes: Uint8Array): Promise<ImagePrep> {
+  return prepareImagesFor(file, bytes, EXTRACT_LIMITS.maxImageMegapixels * 1_000_000);
+}
 
 function cancelled(): PdfError {
   return new PdfError("cancelled");
@@ -143,9 +154,14 @@ export async function extractWith(env: ExtractEnv, file: File | Uint8Array, opti
   if (bytes.byteLength === 0) throw new PdfError("empty");
   if (bytes.byteLength > MAX_SAFE_FILE_SIZE) throw new PdfError("tooLarge");
 
+  // Las fotos enormes se sustituyen por un punto en la COPIA con la que se busca (nada de decodificarlas enteras); `bytes` sigue siendo el original.
+  const prep = await prepareFor(file, bytes);
+  if (signal?.aborted) throw cancelled();
+
   let doc: PDFDocumentProxy;
+  const lists = new OperatorListCache();
   try {
-    doc = await env.openDocument(bytes);
+    doc = await env.openDocument(prep.analysisBytes);
   } catch (error) {
     throw toPdfError(error);
   }
@@ -179,6 +195,8 @@ export async function extractWith(env: ExtractEnv, file: File | Uint8Array, opti
     };
 
     const ops = await env.ops();
+    // Las tres pasadas leen la MISMA lista de operadores de cada pagina: pdf.js la construye (y decodifica las imagenes) una sola vez.
+    const getOperatorList = (page: { getOperatorList(options?: unknown): Promise<unknown> }, pageIndex: number) => lists.get(page, pageIndex);
     const engineOptions: ExtractOptions = { pageRange: { from, to }, maxPages, maxAssets, signal };
 
     let images: Awaited<ReturnType<typeof findImageAssets>>;
@@ -186,6 +204,10 @@ export async function extractWith(env: ExtractEnv, file: File | Uint8Array, opti
       images = await findImageAssets(doc, {
         ops: ops as never,
         bytes,
+        jpegIndex: prep.jpegIndex,
+        big: prep.big,
+        getOperatorList,
+        reduceJpeg: env.reduceJpeg,
         includeAnnotations: false,
         options: { ...engineOptions, onProgress: (progress) => report(0, progress.pageIndex - from + 1, progress.assetsSoFar) },
       });
@@ -203,6 +225,7 @@ export async function extractWith(env: ExtractEnv, file: File | Uint8Array, opti
         bytes,
         createSurface,
         assetsAlreadyFound: images.assets.length,
+        getOperatorList,
         options: { ...engineOptions, onProgress: (progress) => report(1, progress.pageIndex - from + 1, progress.assetsSoFar) },
       });
     } catch (error) {
@@ -215,6 +238,7 @@ export async function extractWith(env: ExtractEnv, file: File | Uint8Array, opti
     const facts = await collectPageFacts(doc, pageIndices, {
       ops,
       signal,
+      getOperatorList,
       onPage: (pageIndex) => report(2, pageIndex - from + 1, found),
     });
     if (signal?.aborted) throw cancelled();
@@ -264,9 +288,10 @@ export async function extractWith(env: ExtractEnv, file: File | Uint8Array, opti
     found = assets.length;
     lastReported = -1;
     options.onProgress?.({ pageIndex: to, pageCount, assetsSoFar: assets.length });
-    const truncated = warnings.some((warning) => warning.code === "too-many-pages" || warning.code === "too-many-assets");
+    const truncated = warnings.some((warning) => warning.code === "too-many-pages" || warning.code === "too-many-assets" || warning.code === "too-many-annotations");
     return { pageCount, assets, scannedPages, warnings, truncated };
   } finally {
+    lists.clear();
     await env.closeDocument(doc);
   }
 }
@@ -310,7 +335,8 @@ async function withDocument<T>(env: ExtractEnv, file: File | Uint8Array, run: (d
     const entry: Lease = {
       source: file,
       env,
-      doc: bytesOf(file).then((bytes) => env.openDocument(bytes)),
+      // El documento de las descargas lleva las fotos grandes sustituidas por un punto (como el de la busqueda): ver `renderBigImage`.
+      doc: bytesOf(file).then(async (bytes) => env.openDocument((await prepareFor(file, bytes)).analysisBytes)),
       users: 0,
       timer: null,
       closing: false,
@@ -340,6 +366,40 @@ async function withDocument<T>(env: ExtractEnv, file: File | Uint8Array, run: (d
   }
 }
 
+/**
+ * Foto grande (mas de `BIG_ANALYSIS_PX`): el JPEG original va tal cual y el PNG sale de decodificar ESE JPEG con el navegador (una
+ * imagen a la vez, sin pdf.js). Si no es un JPEG descargable tal cual (mascara, CMYK...) se abre el documento ORIGINAL (no el sustituido) y
+ * se regenera con pdf.js: es lo mas pesado y por eso solo ocurre al pedirlo.
+ */
+async function renderBigImage(env: ExtractEnv, file: File | Uint8Array, asset: ExtractedAsset, wanted: AssetFormat, ops: PdfOps): Promise<Blob> {
+  const bytes = await bytesOf(file);
+  try {
+    if (wanted === "jpg-original") return await renderImageAsset(bytes, asset, wanted, { ops: ops as never, bytes });
+    if (wanted === "png") {
+      const fast = await renderBigJpegAsPng(bytes, asset);
+      if (fast) return fast;
+      // Un RGB / gris con Flate se convierte a PNG sin decodificarlo (en streaming): memoria de unos MB, no de 160 MB.
+      const key = imageObjectRef(asset);
+      const flate = key ? (await prepareFor(file, bytes)).big.get(key)?.flate : null;
+      if (flate && asset.pixel) {
+        const png = await flateImageToPng(flate, asset.pixel, new Slicer());
+        if (png) return png;
+      }
+    }
+    // Se abre una copia donde SOLO esta imagen es real (las demas fotos grandes de la pagina siguen siendo un punto): de una en una.
+    const only = await prepareImages(bytes, EXTRACT_LIMITS.maxImageMegapixels * 1_000_000, { keep: imageObjectRef(asset) ?? undefined });
+    const doc = await env.openDocument(only.analysisBytes);
+    try {
+      return await renderImageAsset(doc, asset, wanted, { ops: ops as never, bytes });
+    } finally {
+      await env.closeDocument(doc);
+    }
+  } catch (error) {
+    if (isCancellation(error)) throw cancelled();
+    throw error;
+  }
+}
+
 /** Bytes del elemento en el formato pedido (el primero de `asset.formats` por defecto). */
 export async function renderWith(env: ExtractEnv, file: File | Uint8Array, asset: ExtractedAsset, format?: AssetFormat): Promise<Blob> {
   if (asset.formats.length === 0) throw new ExtractRenderError("no-formats", "Este elemento no tiene nada que descargar.");
@@ -355,6 +415,7 @@ export async function renderWith(env: ExtractEnv, file: File | Uint8Array, asset
 
   const ops = await env.ops();
   const createSurface = env.createSurface();
+  if (ref.engine === "image" && isBigImageAsset(asset)) return renderBigImage(env, file, asset, wanted, ops);
   return withDocument(env, file, async (doc) => {
     try {
       if (ref.engine === "image") return await renderImageAsset(doc, asset, wanted, { ops: ops as never });

@@ -225,6 +225,8 @@ for (const cell of CELLS) {
       await page.getByText(cell.language === "es" ? "Quitar el fondo" : "Remove the background", { exact: true }).click();
       await page.locator("[data-region-crop]").click();
       await expect(page.locator("[data-region-preview]")).toBeVisible({ timeout: 60_000 });
+      // La pagina baja hasta el resultado: las asas de arriba quedan bajo la cabecera fija (un objetivo tapado por ella lo marca axe). Se vuelve a ellas.
+      await page.evaluate(() => document.querySelector("[data-region-rect]")!.scrollIntoView({ block: "center" }));
       await expectClean(page, page.locator("main"), `${label} · recorte con vista previa`);
       await expectNoHorizontalScroll(page, `${label} · recorte`);
     } finally {

@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { es } from "@/lib/locales/es";
-import { RegionSelector, regionPercent } from "@/app/extract-assets/RegionSelector";
+import { EDGE_HANDLE_MIN_PX, RegionSelector, regionPercent } from "@/app/extract-assets/RegionSelector";
 import type { CropFraction } from "@/app/sign-pdf/inkImportModel";
 import { useState } from "react";
 
 /** Rectangulo de recorte: teclado (flechas mueven, Mayus + flechas redimensionan), asas de 44 px y puntero. */
 
 const START: CropFraction = { x: 0.2, y: 0.4, width: 0.3, height: 0.1 };
+/** Un rectangulo grande (400 x 200 px en el marco de 1000 x 500): caben las OCHO asas. */
+const BIG: CropFraction = { x: 0.2, y: 0.3, width: 0.4, height: 0.4 };
 
-function Harness({ onChange, onAnnounce }: { onChange?: (rect: CropFraction) => void; onAnnounce?: (text: string) => void }) {
-  const [rect, setRect] = useState(START);
+function Harness({ onChange, onAnnounce, start = START }: { onChange?: (rect: CropFraction) => void; onAnnounce?: (text: string) => void; start?: CropFraction }) {
+  const [rect, setRect] = useState(start);
   return (
     <div data-testid="page" style={{ position: "relative", width: 1000, height: 500 }}>
       <RegionSelector
@@ -95,15 +97,37 @@ describe("RegionSelector · teclado", () => {
 });
 
 describe("RegionSelector · puntero", () => {
-  it("cuatro asas de 44 px (clases del objetivo tactil) y ocultas para los lectores", () => {
-    render(<Harness />);
+  it("ocho asas (cuatro esquinas y cuatro bordes) de 44 px, tactiles y con nombre para los lectores", () => {
+    render(<Harness start={BIG} />);
     const handles = document.querySelectorAll("[data-region-handle]");
-    expect(handles).toHaveLength(4);
+    expect(handles).toHaveLength(8);
+    expect([...handles].map((handle) => handle.getAttribute("data-region-handle"))).toEqual(["nw", "n", "ne", "e", "se", "s", "sw", "w"]);
     for (const handle of handles) {
-      expect(handle.getAttribute("aria-hidden")).toBe("true");
+      expect(handle.tagName).toBe("BUTTON");
+      expect(handle.getAttribute("aria-hidden")).toBeNull();
+      expect(handle.getAttribute("aria-label")).toMatch(/^Cambiar el tamaño desde la (esquina|borde)/);
       expect(handle.className).toContain("size-11");
       expect(handle.className).toContain("touch-none");
     }
+    expect(screen.getByRole("button", { name: /^Cambiar el tamaño desde la esquina superior izquierda\./ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Cambiar el tamaño desde la borde derecho\./ })).toBeTruthy();
+  });
+
+  it("en un rectangulo pequeno los bordes cortos no llevan asa (sus zonas de toque taparian las de las esquinas): quedan las esquinas y los bordes largos", () => {
+    render(<Harness />);
+    // 300 x 50 px: el borde superior e inferior miden 300 (caben), los laterales 50 (no).
+    expect([...document.querySelectorAll("[data-region-handle]")].map((handle) => handle.getAttribute("data-region-handle"))).toEqual(["nw", "n", "ne", "se", "s", "sw"]);
+    expect(EDGE_HANDLE_MIN_PX).toBe(96);
+  });
+  it("con un rectangulo de 90 x 40 px solo quedan las cuatro esquinas; y al llegar a 96 px aparece el asa del borde", () => {
+    render(<Harness start={{ x: 0.2, y: 0.3, width: 0.09, height: 0.08 }} />);
+    expect(document.querySelectorAll("[data-region-handle]")).toHaveLength(4);
+    cleanup();
+    render(<Harness start={{ x: 0.2, y: 0.3, width: 0.096, height: 0.08 }} />);
+    expect(document.querySelectorAll('[data-region-handle="n"], [data-region-handle="s"]')).toHaveLength(2);
+    cleanup();
+    render(<Harness start={{ x: 0.2, y: 0.3, width: 0.0959, height: 0.08 }} />);
+    expect(document.querySelectorAll('[data-region-handle="n"]')).toHaveLength(0);
   });
 
   it("arrastrar una asa mueve SOLO esa esquina (la opuesta no se mueve)", () => {
@@ -143,6 +167,111 @@ describe("RegionSelector · puntero", () => {
     // Cerca del borde: se detiene dentro de la pagina.
     fireEvent.click(frame, { clientX: 1000, clientY: 500 });
     expect(label()).toContain("izquierda 70 %, arriba 90 %");
+  });
+});
+
+describe("RegionSelector · cualquier asa con el teclado (H13)", () => {
+  const handle = (name: string) => document.querySelector(`[data-region-handle="${name}"]`) as HTMLElement;
+  it("con el foco en un asa, las flechas mueven ESA esquina o borde (1 %) y la opuesta no se mueve", () => {
+    const onAnnounce = vi.fn();
+    render(<Harness start={BIG} onAnnounce={onAnnounce} />);
+    fireEvent.keyDown(handle("nw"), { key: "ArrowLeft" });
+    fireEvent.keyDown(handle("nw"), { key: "ArrowUp" });
+    expect(label()).toContain("izquierda 19 %, arriba 29 %, ancho 41 %, alto 41 %");
+    fireEvent.keyDown(handle("e"), { key: "ArrowRight" });
+    expect(label()).toContain("izquierda 19 %, arriba 29 %, ancho 42 %, alto 41 %");
+    // Un asa de borde ignora el eje que no es suyo.
+    fireEvent.keyDown(handle("e"), { key: "ArrowDown" });
+    expect(label()).toContain("ancho 42 %, alto 41 %");
+    fireEvent.keyDown(handle("s"), { key: "ArrowDown" });
+    fireEvent.keyDown(handle("w"), { key: "ArrowRight" });
+    expect(label()).toContain("izquierda 20 %, arriba 29 %, ancho 41 %, alto 42 %");
+    fireEvent.keyDown(handle("sw"), { key: "ArrowLeft" });
+    fireEvent.keyDown(handle("ne"), { key: "ArrowUp" });
+    expect(label()).toContain("izquierda 19 %, arriba 28 %, ancho 42 %, alto 43 %");
+    expect(onAnnounce).toHaveBeenLastCalledWith("Región: izquierda 19 %, arriba 28 %, ancho 42 %, alto 43 %");
+  });
+  it("Mayus + flechas: saltos de 5 %", () => {
+    render(<Harness />);
+    fireEvent.keyDown(handle("se"), { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(handle("se"), { key: "ArrowDown", shiftKey: true });
+    expect(label()).toContain("izquierda 20 %, arriba 40 %, ancho 35 %, alto 15 %");
+  });
+  it("las flechas de un asa no mueven todo el rectangulo (no sube el evento) ni desplazan la pagina; otras teclas no se tragan", () => {
+    render(<Harness />);
+    expect(fireEvent.keyDown(handle("se"), { key: "ArrowDown" })).toBe(false);
+    expect(label()).toContain("izquierda 20 %, arriba 40 %, ancho 30 %, alto 11 %");
+    expect(fireEvent.keyDown(handle("se"), { key: "Tab" })).toBe(true);
+  });
+  it("no se sale de la pagina ni baja del minimo desde ningun asa", () => {
+    render(<Harness start={BIG} />);
+    for (let i = 0; i < 40; i += 1) fireEvent.keyDown(handle("w"), { key: "ArrowRight", shiftKey: true });
+    expect(label()).toContain("ancho 5 %");
+    expect(document.querySelector('[data-region-handle="w"]')).not.toBeNull();
+    for (let i = 0; i < 40; i += 1) fireEvent.keyDown(handle("nw"), { key: "ArrowLeft", shiftKey: true });
+    expect(label()).toMatch(/izquierda 0 %/);
+  });
+});
+
+describe("RegionSelector · UN solo puntero (H13)", () => {
+  const handle = (name: string) => document.querySelector(`[data-region-handle="${name}"]`) as HTMLElement;
+  const frame = () => document.querySelector("[data-region-frame]") as HTMLElement;
+  it("tocar un asa (sin arrastrar) la elige; el siguiente toque en la pagina la coloca ahi", () => {
+    const onAnnounce = vi.fn();
+    render(<Harness onAnnounce={onAnnounce} />);
+    fireEvent.pointerDown(handle("se"), { pointerId: 1, clientX: 500, clientY: 250 });
+    fireEvent.pointerUp(handle("se"), { pointerId: 1, clientX: 502, clientY: 251 });
+    expect(handle("se").getAttribute("aria-pressed")).toBe("true");
+    expect(frame().getAttribute("data-region-picked")).toBe("se");
+    expect(onAnnounce).toHaveBeenLastCalledWith("Elegida: esquina inferior derecha. Toca la página donde quieres colocarla.");
+    fireEvent.click(frame(), { clientX: 800, clientY: 350 });
+    expect(label()).toContain("izquierda 20 %, arriba 40 %, ancho 60 %, alto 30 %");
+    expect(handle("se").getAttribute("aria-pressed")).toBe("false");
+    expect(frame().getAttribute("data-region-picked")).toBeNull();
+    // Un segundo toque en la pagina, sin asa elegida, vuelve a colocar el CENTRO (no cambia el tamano).
+    fireEvent.click(frame(), { clientX: 500, clientY: 150 });
+    expect(label()).toContain("ancho 60 %, alto 30 %");
+    expect(label()).toContain("izquierda 20 %, arriba 15 %");
+  });
+  it("sirve con un asa de borde: solo cambia su lado", () => {
+    render(<Harness start={BIG} />);
+    fireEvent.pointerDown(handle("w"), { pointerId: 1, clientX: 200, clientY: 250 });
+    fireEvent.pointerUp(handle("w"), { pointerId: 1, clientX: 200, clientY: 250 });
+    fireEvent.click(frame(), { clientX: 100, clientY: 10 });
+    expect(label()).toContain("izquierda 10 %, arriba 30 %, ancho 50 %, alto 40 %");
+  });
+  it("tocar otra vez el asa elegida la suelta; elegir otra cambia la eleccion; Escape tambien suelta", () => {
+    render(<Harness start={BIG} />);
+    const tap = (name: string) => {
+      fireEvent.pointerDown(handle(name), { pointerId: 1, clientX: 10, clientY: 10 });
+      fireEvent.pointerUp(handle(name), { pointerId: 1, clientX: 10, clientY: 10 });
+    };
+    tap("nw");
+    expect(handle("nw").getAttribute("aria-pressed")).toBe("true");
+    tap("nw");
+    expect(handle("nw").getAttribute("aria-pressed")).toBe("false");
+    tap("nw");
+    tap("sw");
+    expect(handle("nw").getAttribute("aria-pressed")).toBe("false");
+    expect(handle("sw").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.keyDown(handle("sw"), { key: "Escape" });
+    expect(handle("sw").getAttribute("aria-pressed")).toBe("false");
+  });
+  it("un ARRASTRE (se mueve mas de unos pixeles) no elige el asa y sigue moviendo solo esa esquina", () => {
+    render(<Harness />);
+    fireEvent.pointerDown(handle("ne"), { pointerId: 1, clientX: 500, clientY: 200 });
+    fireEvent.pointerMove(handle("ne"), { pointerId: 1, clientX: 700, clientY: 100 });
+    fireEvent.pointerUp(handle("ne"), { pointerId: 1, clientX: 700, clientY: 100 });
+    expect(label()).toContain("izquierda 20 %, arriba 20 %, ancho 50 %, alto 30 %");
+    expect(handle("ne").getAttribute("aria-pressed")).toBe("false");
+  });
+  it("un movimiento de pocos pixeles sigue siendo un toque (6 px de holgura)", () => {
+    render(<Harness />);
+    fireEvent.pointerDown(handle("n"), { pointerId: 1, clientX: 350, clientY: 200 });
+    fireEvent.pointerMove(handle("n"), { pointerId: 1, clientX: 353, clientY: 202 });
+    fireEvent.pointerUp(handle("n"), { pointerId: 1, clientX: 353, clientY: 202 });
+    expect(handle("n").getAttribute("aria-pressed")).toBe("true");
+    expect(label()).toContain("izquierda 20 %, arriba 40 %, ancho 30 %, alto 10 %");
   });
 });
 

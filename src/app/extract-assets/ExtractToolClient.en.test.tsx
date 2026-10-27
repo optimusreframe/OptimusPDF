@@ -12,6 +12,7 @@ vi.mock("@/lib/pdf/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pdf/core")>();
   return { ...actual, downloadBlob: (_blob: Blob, name: string) => downloads.push({ name }) };
 });
+vi.mock("@/lib/image/inkExtract", async (importOriginal) => (await import("@/app/extract-assets/testUtils")).withFakeInk(await importOriginal()));
 vi.mock("@/app/extract-assets/RegionPanel", () => ({ RegionPanel: () => <div data-testid="region-panel" /> }));
 
 beforeAll(() => {

@@ -37,18 +37,25 @@ import {
   type PartialExtraction,
 } from "./types";
 import { buildJpegIndex, readJpegHeader, type JpegIndex } from "./imagesJpeg";
+import { reduceFlateImage } from "./imagesFlate";
+import { BIG_ANALYSIS_PX, type BigImage } from "./imagesPrep";
 import { imageRect, unionCoverage, walkImagePaints, type ImageOpNumbers, type ImagePaintEvent } from "./imagesOps";
 import {
+  ReducedSource,
   Slicer,
   abortError,
   analyzeSource,
   cropSource,
   encodeSourceAsJpeg,
+  browserJpegReducer,
   encodeSourceAsPng,
   estimatePngBytes,
   isAbortError,
   pixelSourceFor,
   pngBlob,
+  type ImageAnalysis,
+  type JpegReducer,
+  type ReducedImage,
   type PixelSource,
 } from "./imagesPixels";
 import { encodePngBytes } from "@/lib/image/inkPng";
@@ -58,6 +65,8 @@ export { isAbortError } from "./imagesPixels";
 /** `AnnotationMode` de pdf.js: `DISABLE` = solo el contenido de la pagina (las anotaciones son de otro motor); `ENABLE` = con ellas. */
 const ANNOTATION_MODE_DISABLE = 0;
 const ANNOTATION_MODE_ENABLE = 1;
+/** Lado mayor (px) de la version reducida con que se analiza una foto grande. */
+export const REDUCED_MAX_SIDE = 1024;
 /** Pinturas de imagen que se recorren como mucho por pagina. */
 const MAX_PAINTS_PER_PAGE = 5000;
 /** Apariciones que se guardan como mucho por elemento (una imagen pintada 10 000 veces no debe agotar la memoria). */
@@ -85,6 +94,15 @@ export type ImageEngineContext = {
    * defecto NO: las anotaciones las trata `annotations.ts` (U7.2) y una imagen dentro de un sello saldria dos veces.
    */
   includeAnnotations?: boolean;
+  /** Lista de operadores de una pagina SIN anotaciones (compartida con las demas pasadas): por defecto, `page.getOperatorList`. */
+  getOperatorList?: (page: PDFPageProxy, pageIndex: number) => Promise<{ fnArray: ArrayLike<number>; argsArray: ArrayLike<unknown> }>;
+  /**
+   * Fotos grandes sustituidas por un punto en el documento de analisis (`imagesPrep.ts`), por referencia de objeto. Su miniatura y su
+   * clasificacion salen de una version reducida (<= `REDUCED_MAX_SIDE` px) que decodifica `reduceJpeg` del JPEG original.
+   */
+  big?: ReadonlyMap<string, BigImage>;
+  /** Decodificador reducido de JPEG (por defecto el del navegador: `createImageBitmap` con `resizeWidth/resizeHeight`). */
+  reduceJpeg?: JpegReducer;
   /** Solo para pruebas: limite de megapixeles. */
   maxMegapixels?: number;
   /** Plazo (ms) para que pdf.js entregue un objeto de imagen; por defecto 20 s (y 3 s tras el primero que no llega). */
@@ -291,7 +309,7 @@ export async function findImageAssets(doc: PDFDocumentProxy, ctx: ImageEngineCon
     const pageRects: NormRect[] = [];
     try {
       page = await doc.getPage(pageIndex + 1);
-      const list = await pageOperatorList(page, withAnnotations);
+      const list = !withAnnotations && ctx.getOperatorList ? await ctx.getOperatorList(page, pageIndex) : await pageOperatorList(page, withAnnotations);
       const { events } = walkImagePaints(list.fnArray, list.argsArray, ops, MAX_PAINTS_PER_PAGE);
       const view = page.getViewport({ scale: 1 });
 
@@ -336,9 +354,11 @@ export async function findImageAssets(doc: PDFDocumentProxy, ctx: ImageEngineCon
             }
           }
 
-          const decodedW = event.atlas ? event.atlas.w : Number(decoded.width);
-          const decodedH = event.atlas ? event.atlas.h : Number(decoded.height);
-          const declared = event.width && event.height ? { width: event.width, height: event.height } : null;
+          // Una foto grande sustituida por un punto en el documento de analisis: sus medidas son las reales del PDF, no las del punto.
+          const big = ref && event.kind === "xobject" ? ctx.big?.get(ref) : undefined;
+          const decodedW = big ? big.width : event.atlas ? event.atlas.w : Number(decoded.width);
+          const decodedH = big ? big.height : event.atlas ? event.atlas.h : Number(decoded.height);
+          const declared = big ? { width: big.width, height: big.height } : event.width && event.height ? { width: event.width, height: event.height } : null;
           const biggest = Math.max(decodedW * decodedH, declared ? declared.width * declared.height : 0);
 
           if (biggest > maxPixels) {
@@ -354,7 +374,13 @@ export async function findImageAssets(doc: PDFDocumentProxy, ctx: ImageEngineCon
             continue;
           }
 
-          if (event.atlas) {
+          if (big) {
+            // Foto grande: se analiza una version reducida decodificada del JPEG original (nunca la imagen entera).
+            let reduced: ReducedImage | null = null;
+            if (big.jpeg) reduced = await (ctx.reduceJpeg ?? browserJpegReducer)(big.jpeg, big, REDUCED_MAX_SIDE).catch(() => null);
+            else if (big.flate) reduced = await reduceFlateImage(big.flate, big, REDUCED_MAX_SIDE, slicer);
+            source = reduced ? new ReducedSource(reduced.width, reduced.height, reduced.data) : null;
+          } else if (event.atlas) {
             let parent = atlases.get(event.inline);
             if (parent === undefined) {
               parent = pixelSourceFor(event.inline, { kind: "image" });
@@ -364,13 +390,21 @@ export async function findImageAssets(doc: PDFDocumentProxy, ctx: ImageEngineCon
           } else {
             source = pixelSourceFor(imgData, { kind: event.kind === "mask" ? "mask" : "image", fill: event.fill });
           }
-          if (!source) {
+          if (!source && !big) {
             byObjId.set(objKey, null);
             warnings.push({ code: "decode-failed", pageIndex, detail: event.objId ?? "inline" });
             continue;
           }
 
-          const analysis = await analyzeSource(source, EXTRACT_LIMITS.thumbPx, slicer);
+          // Una foto grande que no se pudo reducir (sin `createImageBitmap`, JPEG ilegible) se ofrece igual, sin miniatura.
+          const analysis: Omit<ImageAnalysis, "thumb"> & { thumb: ImageAnalysis["thumb"] | null } = source
+            ? await analyzeSource(source, EXTRACT_LIMITS.thumbPx, slicer)
+            : { width: big!.width, height: big!.height, hasAlpha: false, thumb: null, hash: `big-${big!.key}`, complexity: 0.5 };
+          // Las medidas son las REALES de la imagen aunque el analisis se hiciera sobre una version reducida.
+          if (big) {
+            analysis.width = big.width;
+            analysis.height = big.height;
+          }
           const hashKey = `${analysis.hash}`;
           const duplicate = byHash.get(hashKey);
           if (duplicate) {
@@ -380,7 +414,7 @@ export async function findImageAssets(doc: PDFDocumentProxy, ctx: ImageEngineCon
             continue;
           }
 
-          const thumb = pngBlob(await encodePngBytes(analysis.thumb));
+          const thumb = analysis.thumb ? pngBlob(await encodePngBytes(analysis.thumb)) : null;
           let jpegOriginal = false;
           if (ref) {
             const index = await getJpegIndex();
@@ -594,6 +628,46 @@ export async function renderImageAsset(
       // ya liberada
     }
     if (owned) await closePdfDocument(doc);
+  }
+}
+
+/** Referencia de objeto (`12R`) del XObject de una imagen del motor; `null` si es en linea o una mascara. */
+export function imageObjectRef(asset: ExtractedAsset): string | null {
+  if (asset.ref.engine !== "image") return null;
+  const parsed = parseObjectId(asset.ref.objectId);
+  return parsed && parsed.kind === "xobject" ? parsed.ref : null;
+}
+
+/** `true` si la imagen es de las que se analizan reducidas y se regeneran aparte (`BIG_ANALYSIS_PX`). */
+export function isBigImageAsset(asset: ExtractedAsset): boolean {
+  return asset.ref.engine === "image" && asset.source === "xobject" && !!asset.pixel && asset.pixel.width * asset.pixel.height > BIG_ANALYSIS_PX;
+}
+
+/**
+ * PNG de una foto GRANDE sin pasar por pdf.js: el JPEG original se decodifica con el navegador (`createImageBitmap`, una sola imagen a
+ * la vez) y se codifica por bandas. `null` si no se puede (la imagen no es un JPEG descargable tal cual, o el entorno no tiene
+ * `createImageBitmap`): el llamador cae al camino de pdf.js. La memoria es la de UNA imagen (160 MB para 40 MP), no la de todas las de la pagina.
+ */
+export async function renderBigJpegAsPng(bytes: Uint8Array, asset: ExtractedAsset, options: { signal?: AbortSignal } = {}): Promise<Blob | null> {
+  if (asset.ref.engine !== "image" || typeof createImageBitmap !== "function") return null;
+  const parsed = parseObjectId(asset.ref.objectId);
+  if (!parsed?.ref || parsed.kind !== "xobject") return null;
+  const jpeg = (await buildJpegIndex(bytes)).get(parsed.ref);
+  if (!jpeg || !readJpegHeader(jpeg.bytes)) return null;
+  const slicer = new Slicer(options.signal);
+  let bitmap: ImageBitmap | null = null;
+  let pixels: PixelSource | null = null;
+  try {
+    bitmap = await createImageBitmap(new Blob([jpeg.bytes as unknown as BlobPart], { type: "image/jpeg" }), { imageOrientation: "none", colorSpaceConversion: "none" });
+    pixels = pixelSourceFor({ width: bitmap.width, height: bitmap.height, bitmap }, { kind: "image" });
+    if (!pixels) return null;
+    return await encodeSourceAsPng(pixels, slicer);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
+  } finally {
+    pixels?.close();
+    bitmap?.close();
   }
 }
 

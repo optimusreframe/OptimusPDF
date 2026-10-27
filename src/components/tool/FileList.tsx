@@ -24,6 +24,11 @@ export type FileListProps = {
   /** Permite reordenar (relevante en herramientas multi-archivo). */
   reorderable?: boolean;
   className?: string;
+  /**
+   * No rasteriza la primera pagina de un PDF que trae fotos enormes (mas de 12 MP): pdf.js las decodificaria enteras (160 MB cada
+   * una de 40 MP) solo para pintar una miniatura de 72 px. Queda el icono generico. Lo usa «Extraer elementos».
+   */
+  lightThumbnails?: boolean;
 };
 
 /*
@@ -55,6 +60,7 @@ export function FileList({
   onChange,
   reorderable = false,
   className,
+  lightThumbnails = false,
 }: FileListProps) {
   const { t, language } = useI18n();
   const locale = localeTag(language);
@@ -108,6 +114,7 @@ export function FileList({
           count={files.length}
           locale={locale}
           canReorder={canReorder}
+          lightThumbnails={lightThumbnails}
           labels={{
             moveUp: t.tool.moveUp,
             moveDown: t.tool.moveDown,
@@ -132,11 +139,13 @@ function FileRow({
   count,
   locale,
   canReorder,
+  lightThumbnails,
   labels,
   onMove,
   onRemove,
   removeRef,
 }: {
+  lightThumbnails: boolean;
   file: File;
   index: number;
   count: number;
@@ -173,7 +182,7 @@ function FileRow({
       className="relative flex items-center gap-3 bg-surface py-2.5 pr-1.5 pl-3"
     >
       <span className="h-12 w-9 shrink-0 overflow-hidden rounded-[6px] bg-white/6">
-        <FileThumbnail file={file} />
+        <FileThumbnail file={file} light={lightThumbnails} />
       </span>
 
       <div className="min-w-0 flex-1">
@@ -267,7 +276,7 @@ const THUMB_MAX_WIDTH = 72;
  * una foto, o el icono generico como respaldo (formatos no soportados o
  * archivo dañado/cifrado que no se puede rasterizar aqui).
  */
-function FileThumbnail({ file }: { file: File }) {
+function FileThumbnail({ file, light = false }: { file: File; light?: boolean }) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -287,6 +296,12 @@ function FileThumbnail({ file }: { file: File }) {
         let document: Awaited<ReturnType<typeof openPdfDocument>> | null =
           null;
         try {
+          if (light) {
+            // Con fotos enormes se queda el icono: la preparacion se guarda por archivo y la reutiliza la busqueda.
+            const { prepareImagesFor, MAX_IMAGE_PIXELS } = await import("@/lib/pdf/extractAssets/imagesPrep");
+            const prep = await prepareImagesFor(file, new Uint8Array(await file.arrayBuffer()), MAX_IMAGE_PIXELS);
+            if (cancelled || prep.big.size > 0) return;
+          }
           document = await openPdfDocument(file);
           if (cancelled) return;
           const page = await document.getPage(1);
@@ -307,7 +322,7 @@ function FileThumbnail({ file }: { file: File }) {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [file]);
+  }, [file, light]);
 
   if (url) {
     return (

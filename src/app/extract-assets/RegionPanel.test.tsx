@@ -60,6 +60,31 @@ const cropButton = () => screen.getByRole("button", { name: x.regionCrop }) as H
 const pageInput = () => document.querySelector("[data-region-page]") as HTMLInputElement;
 const rect = () => document.querySelector("[data-region-rect]") as HTMLElement;
 
+describe("H13 · ajustar sin arrastrar y desde cualquier asa", () => {
+  it("el panel trae los botones de ajuste (un toque cada uno) y el recorte los sigue: la region viva y el rectangulo cambian", async () => {
+    const onStatus = vi.fn();
+    await open({ onStatus });
+    const before = rect().getAttribute("aria-label");
+    fireEvent.click(screen.getByRole("button", { name: x.regionNudgeRight }));
+    fireEvent.click(screen.getByRole("button", { name: x.regionNudgeWider }));
+    expect(rect().getAttribute("aria-label")).not.toBe(before);
+    expect(rect().getAttribute("aria-label")).toContain("izquierda 13 %, arriba 66 %, ancho 42 %, alto 12 %");
+    expect(onStatus).toHaveBeenLastCalledWith("Región: izquierda 13 %, arriba 66 %, ancho 42 %, alto 12 %");
+  });
+  it("las asas con nombre (esquinas y bordes con sitio); cualquiera se maneja con el teclado y el recorte parte de la region ajustada", async () => {
+    await open();
+    // En la pagina de 600 x 800 del doble, la region por defecto mide 240 x 96 px: caben las ocho asas (96 px = el minimo de un borde).
+    await waitFor(() => expect(document.querySelectorAll("[data-region-handle]")).toHaveLength(8));
+    fireEvent.keyDown(document.querySelector('[data-region-handle="w"]')!, { key: "ArrowLeft" });
+    expect(rect().getAttribute("aria-label")).toContain("izquierda 11 %, arriba 66 %, ancho 41 %");
+    fireEvent.click(cropButton());
+    await waitFor(() => expect(crop).toHaveBeenCalled());
+    const rectArg = crop.mock.calls[0][2];
+    expect(rectArg.x).toBeCloseTo(0.11, 6);
+    expect(rectArg.width).toBeCloseTo(0.41, 6);
+  });
+});
+
 describe("visor", () => {
   it("abre el documento, dice la pagina y el total y empieza en la pagina pedida", async () => {
     await open({ initialPage: 4 });

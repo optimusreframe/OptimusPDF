@@ -40,8 +40,9 @@ function trackRequests(page: Page): { external: string[]; nonGet: string[] } {
   return seen;
 }
 
-const SIGNATURE_NAME = /^Firma probable, página 3, \d+ × \d+ px$/;
-const INITIALS_NAME = /^Iniciales probables, páginas 1, 2, 3, \d+ × \d+ px$/;
+// Dos firmas con el mismo nombre en la misma pagina llevan su ordinal («Firma probable 1 de 2, página 3, ...»).
+const SIGNATURE_NAME = /^Firma probable( \d de \d)?, página 3, \d+ × \d+ px$/;
+const INITIALS_NAME = /^Iniciales probables( \d de \d)?, páginas 1, 2, 3, \d+ × \d+ px$/;
 
 test.describe("extract-assets · motor real · PDF firmado por signPdfMulti", () => {
   test("la galeria muestra 2 firmas y 2 iniciales como «probable» con sus motivos, y no sale nada a la red", async ({ page }) => {
@@ -55,7 +56,7 @@ test.describe("extract-assets · motor real · PDF firmado por signPdfMulti", ()
     await expect(page.getByRole("button", { name: /^Firmas\s*2$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Iniciales\s*2$/ })).toBeVisible();
     // El detalle enseña por que: fondo transparente, proporcion de firma y la etiqueta cercana.
-    await page.getByRole("button", { name: /^Ver detalles: Firma probable, página 3/ }).first().click();
+    await page.getByRole("button", { name: /^Ver detalles: Firma probable( \d de \d)?, página 3/ }).first().click();
     const dialog = page.getByRole("dialog", { name: "Detalles del elemento" });
     await expect(dialog).toContainText("cerca de «Firma del");
     await expect(dialog).toContainText("fondo transparente");
@@ -68,7 +69,7 @@ test.describe("extract-assets · motor real · PDF firmado por signPdfMulti", ()
     await openRealEngine(page, await corpusUpload("optimus-2signers"), "en");
     await runSearch(page, "en");
     await expect(page.locator("[data-extract-heading]")).toHaveText("We found 4 elements in 3 pages.");
-    await expect(page.getByRole("list", { name: /Elements found/ }).getByRole("listitem", { name: /^Probable signature, page 3, \d+ × \d+ px$/ })).toHaveCount(2);
+    await expect(page.getByRole("list", { name: /Elements found/ }).getByRole("listitem", { name: /^Probable signature( \d of \d)?, page 3, \d+ × \d+ px$/ })).toHaveCount(2);
   });
 
   test("firmas pegadas como escaneo, estilo DocuSign y logos repetidos en cabecera y pie", async ({ page }) => {
@@ -108,7 +109,7 @@ test.describe("extract-assets · motor real · guardar en Firmas guardadas", () 
     await runSearch(page);
     const embedded = await embeddedImages(upload.buffer);
 
-    await page.getByRole("button", { name: /^Guardar en Firmas guardadas: Firma probable, página 3/ }).first().click();
+    await page.getByRole("button", { name: /^Guardar en Firmas guardadas: Firma probable( \d de \d)?, página 3/ }).first().click();
     const sheet = page.getByRole("dialog", { name: "Guardar en Firmas guardadas" });
     await expect(sheet.locator("[data-extract-save-preview]")).toBeVisible({ timeout: 30_000 });
     await expect(sheet.getByRole("radio", { name: "Firma", exact: true })).toBeChecked();
@@ -152,7 +153,7 @@ test.describe("extract-assets · motor real · guardar en Firmas guardadas", () 
   test("la segunda firma a OTRO firmante nuevo crea una segunda entrada y deja la primera intacta", async ({ page }) => {
     await openRealEngine(page, await corpusUpload("optimus-2signers"));
     await runSearch(page);
-    const cards = page.getByRole("button", { name: /^Guardar en Firmas guardadas: Firma probable, página 3/ });
+    const cards = page.getByRole("button", { name: /^Guardar en Firmas guardadas: Firma probable( \d de \d)?, página 3/ });
     for (const [index, name] of ["Ana Pérez", "Luis Gómez"].entries()) {
       await cards.nth(index).click();
       const sheet = page.getByRole("dialog", { name: "Guardar en Firmas guardadas" });

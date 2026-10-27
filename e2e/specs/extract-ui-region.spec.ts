@@ -94,8 +94,13 @@ test.describe("extract-assets · recortar region (cropRegion real)", () => {
   test("arrastrar el cuerpo y una asa (puntero) mueve y redimensiona; las asas miden 44 px", async ({ page }) => {
     await openRegion(page);
     const handles = page.locator("[data-region-handle]");
-    await expect(handles).toHaveCount(4);
-    for (const index of [0, 1, 2, 3]) {
+    // Las cuatro esquinas y los bordes largos siempre; las asas de los laterales solo si el borde mide 96 px o mas (a 1280 px la region por
+    // defecto mide 84 px de alto: seis asas; en un iPad, mas grande, ya salen las ocho)...
+    await expect.poll(() => handles.count()).toBeGreaterThanOrEqual(6);
+    // ... y al hacerlo mas alto aparecen las ocho: esquinas y bordes.
+    for (let i = 0; i < 3; i += 1) await page.getByRole("button", { name: "Más alto" }).click();
+    await expect(handles).toHaveCount(8);
+    for (let index = 0; index < 8; index += 1) {
       const box = (await handles.nth(index).boundingBox())!;
       expect(box.width).toBeGreaterThanOrEqual(43.5);
       expect(box.height).toBeGreaterThanOrEqual(43.5);
@@ -111,7 +116,7 @@ test.describe("extract-assets · recortar region (cropRegion real)", () => {
     await page.mouse.up();
     const moved = await rectLabel(page);
     expect(moved).not.toBe(before);
-    const se = (await handles.nth(3).boundingBox())!;
+    const se = (await page.locator('[data-region-handle="se"]').boundingBox())!;
     await page.mouse.move(se.x + se.width / 2, se.y + se.height / 2);
     await page.mouse.down();
     await page.mouse.move(se.x + se.width / 2 + 60, se.y + se.height / 2 + 30, { steps: 5 });
@@ -119,6 +124,63 @@ test.describe("extract-assets · recortar region (cropRegion real)", () => {
     const resized = await rectLabel(page);
     const width = (label: string): number => Number(/ancho (\d+) %/.exec(label)![1]);
     expect(width(resized)).toBeGreaterThan(width(moved));
+  });
+
+  test("H13 · cualquier asa con el teclado: las flechas mueven ESA esquina o borde y el foco se ve", async ({ page }) => {
+    await openRegion(page);
+    await page.locator("[data-region-rect]").scrollIntoViewIfNeeded();
+    // Con la region mas alta (alto 18 %) caben las asas de los bordes laterales.
+    for (let i = 0; i < 3; i += 1) await page.getByRole("button", { name: "Más alto" }).click();
+    expect(await rectLabel(page)).toContain("izquierda 12 %, arriba 63 %, ancho 40 %, alto 18 %");
+    const nw = page.locator('[data-region-handle="nw"]');
+    await nw.focus();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowUp");
+    expect(await rectLabel(page)).toContain("izquierda 11 %, arriba 62 %, ancho 41 %, alto 19 %");
+    await page.locator('[data-region-handle="e"]').focus();
+    await page.keyboard.press("Shift+ArrowRight");
+    expect(await rectLabel(page)).toContain("izquierda 11 %, arriba 62 %, ancho 46 %, alto 19 %");
+    await page.locator('[data-region-handle="s"]').focus();
+    await page.keyboard.press("ArrowDown");
+    expect(await rectLabel(page)).toContain("alto 20 %");
+    await expect(page.locator("[data-extract-status]")).toContainText("Región: izquierda 11 %");
+  });
+
+  test("H13 · UN solo puntero: tocar un asa y luego tocar la pagina la coloca ahi (sin arrastrar)", async ({ page }) => {
+    await openRegion(page);
+    await page.evaluate(() => document.querySelector("[data-region-rect]")!.scrollIntoView({ block: "center" }));
+    const se = page.locator('[data-region-handle="se"]');
+    const seBox = (await se.boundingBox())!;
+    // Un toque sin movimiento elige el asa...
+    await page.mouse.click(seBox.x + seBox.width / 2, seBox.y + seBox.height / 2);
+    await expect(se).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("[data-extract-status]")).toContainText("Elegida: esquina inferior derecha");
+    // ... y el siguiente toque en la pagina la coloca ahi: la region crece hacia ese punto.
+    const frame = (await page.locator("[data-region-frame]").boundingBox())!;
+    await page.mouse.click(frame.x + frame.width * 0.8, frame.y + frame.height * 0.9);
+    await expect(se).toHaveAttribute("aria-pressed", "false");
+    const label = await rectLabel(page);
+    expect(Number(/ancho (\d+) %/.exec(label)![1])).toBeGreaterThanOrEqual(65);
+    expect(Number(/alto (\d+) %/.exec(label)![1])).toBeGreaterThanOrEqual(23);
+    expect(label).toContain("izquierda 12 %, arriba 66 %");
+  });
+
+  test("H13 · «Ajustar sin arrastrar»: ocho botones de 44 px mueven y cambian el ancho y el alto con un toque cada uno", async ({ page }) => {
+    await openRegion(page);
+    const group = page.locator("[data-region-nudge]");
+    await group.scrollIntoViewIfNeeded();
+    const buttons = group.locator("button");
+    await expect(buttons).toHaveCount(8);
+    for (let index = 0; index < 8; index += 1) {
+      const box = (await buttons.nth(index).boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(43.5);
+      expect(box.width).toBeGreaterThanOrEqual(43.5);
+    }
+    await page.getByRole("button", { name: "Mover a la derecha" }).click();
+    await page.getByRole("button", { name: "Más ancho" }).click();
+    await page.getByRole("button", { name: "Más alto" }).click();
+    expect(await rectLabel(page)).toContain("izquierda 13 %, arriba 65 %, ancho 42 %, alto 14 %");
+    await expect(page.locator("[data-extract-status]")).toContainText("Región: izquierda 13 %");
   });
 
   test("recorta la firma: PNG con transparencia, tinta azul, esquinas transparentes y tamano de 300 ppp; vista previa y descarga p01-region-01.png", async ({ page }) => {

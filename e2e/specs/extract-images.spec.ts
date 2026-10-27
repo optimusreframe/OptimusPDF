@@ -371,7 +371,8 @@ test.describe("motor de imagenes incrustadas en navegador real (headless)", () =
     expect(out.assets).toBe(30);
     expect(out.warnings).toEqual([]);
     expect(out.ms).toBeLessThan((ipad ? 4000 : 2000) * slack);
-    for (const duration of out.longTasks) expect(duration).toBeLessThan(100);
+    // 100 ms en una maquina libre; el runner del CI es ~2,5 veces mas lento.
+    for (const duration of out.longTasks) expect(duration).toBeLessThan(100 * slack);
     expect(out.maxGap).toBeLessThan(150 * slack);
     if (out.peakHeapMb > 0) expect(out.peakHeapMb).toBeLessThan(400);
   });
@@ -385,7 +386,8 @@ test.describe("motor de imagenes incrustadas en navegador real (headless)", () =
     );
     expect(out.assets).toBe(3);
     expect(out.warnings).toEqual([]);
-    for (const duration of out.longTasks) expect(duration).toBeLessThan(100);
+    // 100 ms en una maquina libre; el runner del CI es ~2,5 veces mas lento.
+    for (const duration of out.longTasks) expect(duration).toBeLessThan(100 * slack);
     expect(out.maxGap).toBeLessThan(150 * slack);
     // Los pixeles completos no se acumulan en el heap de JS (viven en el ImageBitmap de pdf.js, fuera de el).
     if (out.peakHeapMb > 0) expect(out.peakHeapMb).toBeLessThan(400);

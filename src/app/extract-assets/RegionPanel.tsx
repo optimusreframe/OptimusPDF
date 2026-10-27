@@ -10,6 +10,7 @@ import { closePdfDocument, downloadBlob, openPdfDocument, renderPageToCanvas } f
 import { cropRegion } from "@/lib/pdf/extractAssets";
 import { inkErrorKey, isAbortError, type CropFraction } from "@/app/sign-pdf/inkImportModel";
 import { RadioChips } from "@/app/extract-assets/RadioChips";
+import { RegionNudge } from "@/app/extract-assets/RegionNudge";
 import { RegionSelector, regionPercent } from "@/app/extract-assets/RegionSelector";
 import { SaveSignatureSheet } from "@/app/extract-assets/SaveSignatureSheet";
 import { fill, isCancellation, type ExtractStrings } from "@/app/extract-assets/model";
@@ -295,6 +296,7 @@ export function RegionPanel({ file, page, onPageChange, scannedPages, strings, c
           </div>
         </div>
         <p className="text-footnote text-muted-foreground">{strings.regionTapHint}</p>
+        <RegionNudge rect={rect} onChange={setRect} strings={strings} onAnnounce={(text) => onStatus(text)} />
       </div>
 
       <div className="min-w-0 space-y-4">
@@ -321,11 +323,11 @@ export function RegionPanel({ file, page, onPageChange, scannedPages, strings, c
             </div>
             <p className="text-footnote text-muted-foreground tabular-nums">{fill(strings.regionResultInfo, { w: fresh.width, h: fresh.height })}</p>
             <div className="flex flex-wrap gap-2">
-              <Button size="md" variant="secondary" onClick={download} data-region-download>
+              <Button size="md" variant="secondary" wrap onClick={download} data-region-download>
                 <Download aria-hidden="true" className="size-4" />
                 {strings.regionDownload}
               </Button>
-              <Button size="md" variant="secondary" onClick={(event) => {
+              <Button size="md" variant="secondary" wrap onClick={(event) => {
                   event.currentTarget.focus();
                   openSave();
                 }}

@@ -70,20 +70,9 @@ function singleFilterIsDct(filter: unknown): boolean {
   return false;
 }
 
-/**
- * Indice de los JPEG originales aprovechables de un PDF. Nunca lanza: si pdf-lib no puede abrirlo (cifrado, dañado,
- * enorme) devuelve un indice vacio y el motor simplemente no ofrece `jpg-original`.
- */
-export async function buildJpegIndex(pdfBytes: Uint8Array): Promise<JpegIndex> {
+/** Indice de los JPEG originales de un documento de pdf-lib ya abierto (sin lanzar: un objeto raro no tira la extraccion). */
+export function indexImageObjects(doc: PDFDocument): JpegIndex {
   const index: JpegIndex = new Map();
-  if (pdfBytes.byteLength > MAX_JPEG_SCAN_BYTES) return index;
-  let doc: PDFDocument;
-  try {
-    doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false, warnOnInvalidObjects: false });
-  } catch {
-    return index;
-  }
-  if (doc.isEncrypted) return index;
   try {
     for (const [ref, object] of doc.context.enumerateIndirectObjects()) {
       if (!(object instanceof PDFRawStream)) continue;
@@ -104,4 +93,20 @@ export async function buildJpegIndex(pdfBytes: Uint8Array): Promise<JpegIndex> {
     // Un objeto raro no debe tirar abajo la extraccion: lo ya indexado se queda.
   }
   return index;
+}
+
+/**
+ * Indice de los JPEG originales aprovechables de un PDF. Nunca lanza: si pdf-lib no puede abrirlo (cifrado, dañado,
+ * enorme) devuelve un indice vacio y el motor simplemente no ofrece `jpg-original`.
+ */
+export async function buildJpegIndex(pdfBytes: Uint8Array): Promise<JpegIndex> {
+  if (pdfBytes.byteLength > MAX_JPEG_SCAN_BYTES) return new Map();
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false, warnOnInvalidObjects: false });
+  } catch {
+    return new Map();
+  }
+  if (doc.isEncrypted) return new Map();
+  return indexImageObjects(doc);
 }

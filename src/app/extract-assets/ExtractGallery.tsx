@@ -14,6 +14,7 @@ import {
   type ExtractStrings,
   type FilterId,
   type FormatPreference,
+  type Ordinal,
 } from "@/app/extract-assets/model";
 
 export type ZipState = { phase: "idle" } | { phase: "working"; done: number; total: number };
@@ -22,6 +23,8 @@ export type ExtractGalleryProps = {
   strings: ExtractStrings;
   locale: string;
   assets: readonly ExtractedAsset[];
+  /** Ordinales de los que tienen el mismo nombre accesible. */
+  ordinals?: ReadonlyMap<string, Ordinal>;
   visible: readonly ExtractedAsset[];
   counts: Record<FilterId, number>;
   filter: FilterId;
@@ -78,6 +81,7 @@ export function ExtractGallery(props: ExtractGalleryProps) {
     strings,
     locale,
     visible,
+    ordinals,
     counts,
     filter,
     selected,
@@ -93,8 +97,14 @@ export function ExtractGallery(props: ExtractGalleryProps) {
   const selectedCount = selected.size;
 
   return (
-    <div className="space-y-4">
-      <div role="group" aria-label={strings.filtersLabel} className="flex flex-wrap gap-2">
+    <div className="space-y-2 md:space-y-4">
+      {/* Una sola fila desplazable de chips: en el movil los 8 filtros no se apilan en 4 filas delante de la primera tarjeta. */}
+      <div
+        role="group"
+        aria-label={strings.filtersLabel}
+        data-filter-row
+        className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0 md:pb-0 [&::-webkit-scrollbar]:hidden"
+      >
         {FILTER_ORDER.filter((id) => id === "all" || counts[id] > 0 || id === filter).map((id) => {
           const active = id === filter;
           return (
@@ -105,7 +115,7 @@ export function ExtractGallery(props: ExtractGalleryProps) {
               onClick={() => props.onFilter(id)}
               data-filter={id}
               className={cn(
-                "inline-flex h-11 items-center gap-2 rounded-full border px-4 text-subheadline font-semibold transition-colors pointer-fine:h-9",
+                "inline-flex h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-subheadline font-semibold transition-colors pointer-fine:h-9",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
                 active
                   ? "border-signal bg-signal/15 text-foreground"
@@ -152,14 +162,14 @@ export function ExtractGallery(props: ExtractGalleryProps) {
             {strings.clearSelection}
           </Button>
         ) : null}
-        <span className="text-footnote text-muted-foreground tabular-nums sm:ml-auto">
+        <span className="text-footnote text-muted-foreground tabular-nums max-md:sr-only sm:ml-auto">
           {fill(strings.shown, { n: visible.length, total: counts.all })}
         </span>
       </div>
 
       {offersOriginal ? (
         <div role="group" aria-label={strings.formatLabel} className="flex flex-wrap items-center gap-2">
-          <span className="text-footnote text-muted-foreground">{strings.formatLabel}</span>
+          <span className="text-footnote text-muted-foreground max-md:sr-only">{strings.formatLabel}</span>
           {(["png", "original"] as const).map((preference) => (
             <button
               key={preference}
@@ -176,6 +186,10 @@ export function ExtractGallery(props: ExtractGalleryProps) {
               {preference === "png" ? strings.formatPng : strings.formatOriginal}
             </button>
           ))}
+          {/* En el movil la explicacion solo la leen los lectores de pantalla: no cabe antes de la primera tarjeta. */}
+          <span className="max-md:sr-only basis-full text-footnote text-muted-foreground" data-format-hint>
+            {formatPreference === "png" ? strings.formatCleanHint : strings.formatOriginalHint}
+          </span>
         </div>
       ) : null}
 
@@ -185,12 +199,14 @@ export function ExtractGallery(props: ExtractGalleryProps) {
         <ul
           role="list"
           aria-label={strings.listLabel}
-          className="grid list-none grid-cols-[repeat(auto-fill,minmax(min(15rem,100%),1fr))] gap-3 p-0"
+          data-extract-grid
+          className="grid list-none grid-cols-1 gap-3 p-0 min-[520px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"
         >
           {visible.slice(0, rendered).map((asset) => (
             <AssetCard
               key={asset.id}
               asset={asset}
+              ordinal={ordinals?.get(asset.id)}
               strings={strings}
               locale={locale}
               selected={selected.has(asset.id)}

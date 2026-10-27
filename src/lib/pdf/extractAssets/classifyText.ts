@@ -58,6 +58,16 @@ const X_LINE = /(^|\s)x\s*(?:_{2,}|\.{3,}|-{3,})/i;
 /** Roles que firman: una etiqueta DEBIL (solo cuentan en una linea corta). */
 const ROLE_LABEL = /\b(?:insured|assured|asegurad[oa]|contratante|tomador|policy ?holder|signer|firmante)\b/;
 const ROLE_MAX_WORDS = 5;
+/** «Autografo» / «autograph»: otra forma de decir firma (el diccionario del automapeo solo conoce «firma autografa» por la palabra «firma»). */
+const AUTOGRAPH = /\bautograf[oa]s?\b|\bautograph\b/;
+/** «Paraf» / «paraphe» / «parafo»: las iniciales en otros idiomas. */
+const PARAF = /\b(?:paraphe?|parafo?|parafe)\b/;
+/** «Firmado por:» / «Firmada por»: el diccionario del automapeo solo conoce «signed by» (con «by»). */
+const FIRMADO_POR = /\bfirmad[oa] por\b/;
+/** «Rubrica» es el rasgo que cierra la firma: unas iniciales para unos y la firma entera para otros. Se admite como las dos cosas. */
+const RUBRICA = /\brubrica\b/;
+/** Estas etiquetas cortas valen por si solas hasta esta longitud (una frase larga con «autografo» es prosa). */
+const WORD_LABEL_MAX_WORDS = 5;
 
 /** Etiquetas de firma o iniciales de las lineas de una pagina. */
 export function findLabels(lines: ReadonlyArray<TextLine>): LabelFact[] {
@@ -82,10 +92,23 @@ export function findLabels(lines: ReadonlyArray<TextLine>): LabelFact[] {
       kind = "signature";
       strength = 0.5;
     }
+    if (!kind && phraseWords <= ROLE_MAX_WORDS && FIRMADO_POR.test(folded)) {
+      kind = "signature";
+      strength = 0.9;
+    }
+    if (!kind && phraseWords <= WORD_LABEL_MAX_WORDS && AUTOGRAPH.test(folded)) {
+      kind = "signature";
+      strength = 0.8;
+    }
+    if (!kind && phraseWords <= WORD_LABEL_MAX_WORDS && PARAF.test(folded)) {
+      kind = "initials";
+      strength = 0.8;
+    }
     if (!kind) continue;
     found.push({
       kind,
       strength,
+      ...(kind === "initials" && RUBRICA.test(folded) ? { alsoSignature: true } : {}),
       text: displayLabel(line.text) || line.text,
       box: { x: line.x, y: line.y, width: line.width, height: line.height },
       lineHeight: Math.max(4, line.height * LEADING),
@@ -110,7 +133,7 @@ export function nearestLabel(
   let best: NearLabel | null = null;
   const maxDx = NEAR_LABEL_MAX_DX_PT * Math.max(0.5, pageWidth / 612);
   for (const label of labels) {
-    if (kind && label.kind !== kind) continue;
+    if (kind && label.kind !== kind && !(kind === "signature" && label.alsoSignature)) continue;
     const lb = label.box;
     const dy = Math.max(0, lb.y - (box.y + box.height), box.y - (lb.y + lb.height));
     const dx = Math.max(0, lb.x - (box.x + box.width), box.x - (lb.x + lb.width));

@@ -211,12 +211,20 @@ describe("classifyAssets · imagenes", () => {
     expect(asset.confidence).toBeLessThanOrEqual(0.8);
   });
 
-  it("iniciales negras gruesas SIN etiqueta repetidas en el pie son un logo de poca certeza (limite conocido)", async () => {
+  it("iniciales negras gruesas SIN etiqueta repetidas en el pie son unas iniciales POSIBLES (<= 0,65) que avisan de que podrian ser un logo", async () => {
     const thick = makeAsset({ thumb: await pngBlobOf(initialsRaster({ seed: 3, size: 120, ink: BLACK_PEN, thickness: 6 })), rect: { x: 0.86, y: 0.91, width: 0.08, height: 0.04 }, pages: [0, 1, 2] });
     const [asset] = (await classifyAssets(input({ assets: [thick], pages: [0, 1, 2].map((i) => page(i)), analyzedPages: 3 }))).assets;
-    expect(asset.kind).toBe("logo");
-    expect(asset.confidence).toBeLessThanOrEqual(0.7);
-    expect(asset.reasons.join(" ")).toContain("iniciales");
+    expect(asset.kind).toBe("initials");
+    expect(asset.confidence).toBeLessThanOrEqual(0.65);
+    expect(asset.reasons.join(" ")).toContain("tambien podria ser un logo");
+  });
+
+  it("las MISMAS iniciales gruesas solo en la cabecera (no en el pie) o en una sola pagina siguen siendo un logo / imagen", async () => {
+    const thickRaster = initialsRaster({ seed: 3, size: 120, ink: BLACK_PEN, thickness: 6 });
+    const header = makeAsset({ thumb: await pngBlobOf(thickRaster), rect: { x: 0.86, y: 0.03, width: 0.08, height: 0.04 }, pages: [0, 1, 2] });
+    expect((await classifyAssets(input({ assets: [header], pages: [0, 1, 2].map((i) => page(i)), analyzedPages: 3 }))).assets[0].kind).toBe("logo");
+    const once = makeAsset({ thumb: await pngBlobOf(thickRaster), rect: { x: 0.86, y: 0.91, width: 0.08, height: 0.04 } });
+    expect((await classifyAssets(input({ assets: [once] }))).assets[0].kind).not.toBe("initials");
   });
 
   it("una firma de mas del 8 % de la altura es una imagen (limite conocido del plan: 1-8 %)", async () => {

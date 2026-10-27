@@ -88,6 +88,16 @@ describe("otros escenarios", () => {
     expect(result.scannedPages).toEqual([]);
   });
 
+  it("duplicates: dos firmas iguales en la misma pagina, unas iniciales, un campo de firma VACIO (sin formatos) y el aviso de mas de 300 anotaciones", async () => {
+    const result = await createFakeEngine({ scenario: "duplicates" }).extractAssets(file);
+    expect(result.assets.map((asset) => asset.id)).toEqual(["fx-dup-1", "fx-dup-2", "fx-dup-ini", "fx-field-empty"]);
+    const [one, two, , field] = result.assets;
+    expect(one.occurrences[0].pageIndex).toBe(two.occurrences[0].pageIndex);
+    expect(one.pixel).toEqual(two.pixel);
+    expect(field).toMatchObject({ kind: "signature", source: "sig-widget", formats: [], pixel: null, thumb: null });
+    expect(result.warnings).toContainEqual({ code: "too-many-annotations", pageIndex: 0, detail: "10000" });
+  });
+
   it("empty: sin elementos y con una pagina escaneada", async () => {
     const result = await createFakeEngine({ scenario: "empty" }).extractAssets(file);
     expect(result.assets).toEqual([]);

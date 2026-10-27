@@ -41,3 +41,22 @@ export function sampleAssets(): ExtractedAsset[] {
     makeAsset({ id: "img-a", kind: "image", confidence: 0.99, occurrences: [{ pageIndex: 4, rect: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 } }], pixel: { width: 800, height: 600, hasAlpha: false } }),
   ];
 }
+
+/**
+ * `inkExtract` FALSO para las pruebas de la interfaz en jsdom (que no decodifica imagenes): `decodeImageFile` lee el texto del Blob,
+ * `extractInkAsync` lo envuelve en `clean(<texto>)|<opciones>` (o falla con «no-ink» si el texto contiene `noink`) y `encodePngBytes` lo
+ * escribe como bytes. Asi se prueba QUE se limpia, con que opciones y que pasa si no se puede, sin pixeles. Uso:
+ * `vi.mock("@/lib/image/inkExtract", async (importOriginal) => (await import("@/app/extract-assets/testUtils")).withFakeInk(await importOriginal()))`.
+ */
+export function withFakeInk<T extends object>(actual: T): T {
+  const original = actual as unknown as { InkError: new (code: string, message?: string) => Error };
+  return {
+    ...actual,
+    decodeImageFile: async (blob: Blob) => ({ width: 2, height: 1, data: new Uint8ClampedArray(8), source: await blob.text() }),
+    extractInkAsync: async (decoded: { source: string }, options: unknown) => {
+      if (decoded.source.includes("noink")) throw new original.InkError("no-ink");
+      return { image: { width: 1, height: 1, data: new Uint8ClampedArray(4), tag: `clean(${decoded.source})|${JSON.stringify(options)}` } };
+    },
+    encodePngBytes: async (image: { tag: string }) => new TextEncoder().encode(image.tag),
+  } as T;
+}

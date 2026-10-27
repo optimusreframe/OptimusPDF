@@ -19,16 +19,18 @@ import { localeTag, useI18n } from "@/lib/i18n";
 import { addRecentEntry } from "@/lib/recent";
 import { downloadBlob, toPdfError, withSuffix, type PdfErrorCode } from "@/lib/pdf/core";
 import { extractAssets, isExtractUnavailable, renderAsset } from "@/lib/pdf/extractAssets";
-import { EXTRACT_LIMITS, type AssetFormat, type ExtractResult, type ExtractedAsset } from "@/lib/pdf/extractAssets/types";
+import { EXTRACT_LIMITS, type ExtractResult, type ExtractedAsset } from "@/lib/pdf/extractAssets/types";
 import { buildAssetsZip, type ZipEntry } from "@/lib/pdf/extractAssets/zip";
 import { ACCENT_BG_SOFT, ACCENT_TEXT, getTool, toolHref } from "@/lib/tools-registry";
 import { AssetDetailSheet } from "@/app/extract-assets/AssetDetailSheet";
+import { prepareDownload } from "@/app/extract-assets/cleanDownload";
 import { ExtractGallery, type ZipState } from "@/app/extract-assets/ExtractGallery";
 import { RangeNotice } from "@/app/extract-assets/RangeNotice";
 import { RegionPanel } from "@/app/extract-assets/RegionPanel";
 import { SaveSignatureSheet } from "@/app/extract-assets/SaveSignatureSheet";
 import {
   analyzedRange,
+  choiceFileName,
   countByFilter,
   defaultVaultKind,
   fill,
@@ -37,14 +39,16 @@ import {
   isCancellation,
   noticesFor,
   offersOriginal,
+  ordinalsFor,
   planBaseNames,
   pruneSelection,
-  resolveFormat,
+  resolveChoice,
   sortAssets,
+  splitExtractable,
   summaryText,
   toggleAllVisible,
   toggleSelection,
-  withExtension,
+  type DownloadChoice,
   type FilterId,
   type FormatPreference,
 } from "@/app/extract-assets/model";
@@ -90,7 +94,7 @@ export function ExtractToolClient() {
   const [status, setStatus] = useState<Status>({ text: "", error: false });
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailAsset, setDetailAsset] = useState<ExtractedAsset | null>(null);
-  const [busy, setBusy] = useState<{ id: string; format: AssetFormat } | null>(null);
+  const [busy, setBusy] = useState<{ id: string; choice: string } | null>(null);
   const [zip, setZip] = useState<ZipState>({ phase: "idle" });
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveKey, setSaveKey] = useState(0);
@@ -122,16 +126,19 @@ export function ExtractToolClient() {
 
   /* ---- Resultado derivado ------------------------------------------------------------------------------------ */
 
-  const sorted = useMemo(() => sortAssets(result?.assets ?? []), [result]);
+  // Un campo de firma vacio (o sin apariencia) no tiene nada que descargar: no es una tarjeta, solo un aviso de una linea.
+  const sorted = useMemo(() => sortAssets(splitExtractable(result?.assets ?? []).usable), [result]);
   const counts = useMemo(() => countByFilter(sorted), [sorted]);
   const visible = useMemo(() => filterAssets(sorted, filter), [sorted, filter]);
   const names = useMemo(() => planBaseNames(sorted, x), [sorted, x]);
+  const ordinals = useMemo(() => ordinalsFor(x, sorted), [sorted, x]);
   const originalOffered = useMemo(() => offersOriginal(sorted), [sorted]);
   const range = useMemo(
     () => (result ? analyzedRange(result.pageCount, requested, EXTRACT_LIMITS.maxPages) : { from: 1, to: 1 }),
     [result, requested],
   );
   const notices = useMemo(() => (result ? noticesFor(x, result, range) : []), [result, range, x]);
+  const shownResult = useMemo(() => (result ? { ...result, assets: sorted } : null), [result, sorted]);
 
   /* ---- Buscar ------------------------------------------------------------------------------------------------ */
 
@@ -188,7 +195,7 @@ export function ExtractToolClient() {
         setTab("items");
         const shown = analyzedRange(output.pageCount, next, EXTRACT_LIMITS.maxPages);
         const analyzed = shown.to - shown.from + 1;
-        setStatus({ text: summaryText(x, output, analyzed), error: false });
+        setStatus({ text: summaryText(x, { ...output, assets: splitExtractable(output.assets).usable }, analyzed), error: false });
         addRecentEntry("extract-assets", file.name);
         setPhase("done");
       } catch (caught) {
@@ -230,16 +237,16 @@ export function ExtractToolClient() {
   /* ---- Descargas --------------------------------------------------------------------------------------------- */
 
   const downloadOne = useCallback(
-    async (asset: ExtractedAsset, format?: AssetFormat) => {
+    async (asset: ExtractedAsset, option?: { id: string; choice: DownloadChoice }) => {
       if (!file || busy) return;
-      const chosen = format ?? resolveFormat(asset, formatPreference);
-      setBusy({ id: asset.id, format: chosen });
+      const choice = option?.choice ?? resolveChoice(asset, formatPreference);
+      setBusy({ id: asset.id, choice: option?.id ?? `${choice.format}${choice.clean ? "-clean" : ""}` });
       try {
-        const blob = await renderAsset(file, asset, chosen);
+        const prepared = await prepareDownload(file, asset, choice);
         if (!aliveRef.current) return;
-        const name = withExtension(names.get(asset.id) ?? asset.id, chosen);
-        downloadBlob(blob, name);
-        say(fill(x.downloaded, { name }));
+        const name = choiceFileName(names.get(asset.id) ?? asset.id, asset, prepared.fellBack ? { format: choice.format, clean: false } : choice);
+        downloadBlob(prepared.blob, name);
+        say(prepared.fellBack ? `${fill(x.downloaded, { name })} ${x.downloadCleanFallback}` : fill(x.downloaded, { name }));
       } catch {
         if (aliveRef.current) say(x.downloadFailed, true);
       } finally {
@@ -266,9 +273,11 @@ export function ExtractToolClient() {
       for (let index = 0; index < picked.length; index += 1) {
         if (controller.signal.aborted) return;
         const asset = picked[index];
-        const format = resolveFormat(asset, formatPreference);
+        const choice = resolveChoice(asset, formatPreference);
         try {
-          entries.push({ name: withExtension(names.get(asset.id) ?? asset.id, format), blob: await renderAsset(file, asset, format) });
+          const prepared = await prepareDownload(file, asset, choice, controller.signal);
+          const delivered: DownloadChoice = prepared.fellBack ? { format: choice.format, clean: false } : choice;
+          entries.push({ name: choiceFileName(names.get(asset.id) ?? asset.id, asset, delivered), blob: prepared.blob });
         } catch {
           failed += 1;
         }
@@ -386,19 +395,20 @@ export function ExtractToolClient() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-4 pt-8 pb-24 md:px-6 md:pt-12 md:pb-16">
-      <header className="mb-4 flex items-start gap-4">
-        <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-ios", ACCENT_BG_SOFT[TOOL.accent])}>
+    <div className={cn("mx-auto w-full max-w-[1200px] px-4 pb-24 md:px-6 md:pt-12 md:pb-16", phase === "done" ? "pt-4" : "pt-8")}>
+      {/* Con el resultado a la vista, en el movil la cabecera se queda en titulo y nota: la primera tarjeta ha de verse sin desplazar. */}
+      <header className={cn("flex items-start gap-4", phase === "done" ? "mb-2 md:mb-4" : "mb-4")}>
+        <span className={cn("flex shrink-0 items-center justify-center rounded-ios", ACCENT_BG_SOFT[TOOL.accent], phase === "done" ? "size-10 md:size-12" : "size-12")}>
           <Icon aria-hidden="true" className={cn("size-6", ACCENT_TEXT[TOOL.accent])} />
         </span>
-        <div className="min-w-0">
-          <h1 className="text-title-1 text-foreground">{copy.name}</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{copy.description}</p>
+        <div className="min-w-0 self-center md:self-start">
+          <h1 className={cn("text-foreground", phase === "done" ? "text-title-3 md:text-title-1" : "text-title-1")}>{copy.name}</h1>
+          <p className={cn("mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground", phase === "done" && "hidden md:block")}>{copy.description}</p>
         </div>
       </header>
 
       {/* Nota fija de una linea: sin casilla ni marca, sin interaccion obligatoria. */}
-      <p className="mb-6 flex items-start gap-2 text-footnote text-muted-foreground" data-extract-note>
+      <p className={cn("flex items-start gap-2 text-footnote text-muted-foreground", phase === "done" ? "mb-3 md:mb-6" : "mb-6")} data-extract-note>
         <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
         <span>{x.note}</span>
       </p>
@@ -451,6 +461,7 @@ export function ExtractToolClient() {
           {file ? (
             <FileList
               files={[file]}
+              lightThumbnails
               onChange={(next) => {
                 setFile(next[0] ?? null);
                 // «Quitar» deja la zona de carga en el sitio del archivo: el foco va ahi (nunca a <body>), como en las demas herramientas.
@@ -497,26 +508,27 @@ export function ExtractToolClient() {
       ) : null}
 
       {phase === "done" && result && file ? (
-        <div className="animate-rise-in space-y-6">
-          <section className="surface-card rounded-ios p-5">
+        <div className="animate-rise-in space-y-2 md:space-y-6">
+          <section className="surface-card rounded-ios p-3 md:p-5" data-extract-summary>
             <h2 ref={headingRef} tabIndex={-1} className="scroll-mt-24 text-headline text-foreground outline-none" data-extract-heading>
-              {autoUnavailable ? x.autoUnavailable : summaryText(x, result, range.to - range.from + 1)}
+              {autoUnavailable || !shownResult ? x.autoUnavailable : summaryText(x, shownResult, range.to - range.from + 1)}
             </h2>
-            <p className="mt-1 text-footnote break-words text-muted-foreground">
-              {x.fileLabel}: {file.name}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            {/* Movil: nombre del archivo y las dos acciones en UNA fila (solo iconos); escritorio: el nombre debajo y las acciones con texto. */}
+            <div className="mt-1 flex items-center gap-2 md:mt-3 md:flex-wrap">
+              <p className="min-w-0 flex-1 truncate text-footnote text-muted-foreground md:order-first md:basis-full md:break-words md:whitespace-normal" title={file.name}>
+                {x.fileLabel}: {file.name}
+              </p>
               <Link
                 href={toolHref("pdf-pro")}
                 onClick={() => setHandoff(file, "extract-assets", 1)}
-                className={buttonClasses("secondary", "sm")}
+                className={buttonClasses("secondary", "sm", "shrink-0 max-md:px-0 max-md:w-11")}
               >
                 <Layers aria-hidden="true" className="size-4" />
-                {t.tool.openInPro}
+                <span className="max-md:sr-only">{t.tool.openInPro}</span>
               </Link>
-              <Button variant="ghost" size="sm" onClick={reset}>
+              <Button variant="ghost" size="sm" onClick={reset} className="shrink-0 max-md:px-0 max-md:w-11">
                 <RotateCcw aria-hidden="true" className="size-3.5" />
-                {x.startOver}
+                <span className="max-md:sr-only">{x.startOver}</span>
               </Button>
             </div>
           </section>
@@ -524,12 +536,12 @@ export function ExtractToolClient() {
           {notices.length > 0 ? (
             <ul className="space-y-2" aria-label={x.noticesLabel} data-extract-notices>
               {notices.map((notice) => (
-                <li key={notice.id} className="surface-card flex flex-wrap items-center gap-3 rounded-ios p-3 text-subheadline text-foreground" data-notice={notice.code}>
-                  <span className="min-w-0 flex-1 basis-60">{notice.text}</span>
+                <li key={notice.id} className="surface-card flex items-center gap-3 rounded-ios p-3 text-footnote text-foreground md:flex-wrap md:text-subheadline" data-notice={notice.code}>
+                  <span className="min-w-0 flex-1 md:basis-60">{notice.text}</span>
                   {notice.action === "region" ? (
-                    <Button size="sm" variant="secondary" onClick={() => goRegion(firstScanned)}>
+                    <Button size="sm" variant="secondary" onClick={() => goRegion(firstScanned)} className="shrink-0 max-md:px-0 max-md:w-11">
                       <Crop aria-hidden="true" className="size-4" />
-                      {x.warnScannedAction}
+                      <span className="max-md:sr-only">{x.warnScannedAction}</span>
                     </Button>
                   ) : null}
                 </li>
@@ -547,14 +559,14 @@ export function ExtractToolClient() {
             value={tab}
             onChange={onTab}
             options={[
-              { value: "items" as const, label: autoUnavailable ? x.tabItems : `${x.tabItems} (${result.assets.length})` },
+              { value: "items" as const, label: autoUnavailable ? x.tabItems : `${x.tabItems} (${sorted.length})` },
               { value: "region" as const, label: x.tabRegion },
             ]}
           />
 
           <div role="tabpanel" aria-label={x.panelItems} hidden={tab !== "items"}>
             {tab === "items" ? (
-              result.assets.length === 0 ? (
+              sorted.length === 0 ? (
                 <div className="surface-card space-y-3 rounded-ios p-5" data-extract-empty>
                   <p className="text-headline text-foreground">{autoUnavailable ? x.autoUnavailable : x.foundNone}</p>
                   {autoUnavailable ? null : <p className="text-subheadline text-muted-foreground">{x.emptyBody}</p>}
@@ -568,6 +580,7 @@ export function ExtractToolClient() {
                   strings={x}
                   locale={locale}
                   assets={sorted}
+                  ordinals={ordinals}
                   visible={visible}
                   counts={counts}
                   filter={filter}
@@ -617,10 +630,11 @@ export function ExtractToolClient() {
             locale={locale}
             closeLabel={t.common.close}
             selected={detailAsset ? selected.has(detailAsset.id) : false}
-            busyFormat={busy && detailAsset && busy.id === detailAsset.id ? busy.format : null}
+            busyChoice={busy && detailAsset && busy.id === detailAsset.id ? busy.choice : null}
+            ordinal={detailAsset ? ordinals.get(detailAsset.id) : undefined}
             onClose={() => setDetailOpen(false)}
             onToggle={toggle}
-            onDownload={(asset, format) => void downloadOne(asset, format)}
+            onDownload={(asset, option) => void downloadOne(asset, option)}
             onSave={openSave}
           />
           <SaveSignatureSheet

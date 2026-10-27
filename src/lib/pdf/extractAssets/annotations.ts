@@ -49,7 +49,7 @@ export { renderAnnotationAsset, ownsAnnotationAsset } from "./annotationsRender"
 /** Maximo de grupos de sellos de Form XObject que se materializan (cada uno cuesta un render). */
 const MAX_FORM_STAMP_GROUPS = 40;
 /** Maximo de anotaciones de una pagina que se procesan. */
-const MAX_ANNOTATIONS_PER_PAGE = 300;
+const MAX_ANNOTATIONS_PER_PAGE = EXTRACT_LIMITS.maxAnnotationsPerPage;
 /** Una imagen cuenta como «grande» si cubre al menos esta fraccion de la pagina. */
 const BIG_IMAGE_AREA = 0.2;
 
@@ -131,7 +131,12 @@ export async function findAnnotationAssets(doc: PdfDocument, ctx: AnnotationCont
       /* ---------------- Anotaciones ---------------- */
       let annotations: PdfJsAnnotation[] = [];
       try {
-        annotations = ((await guard(page.getAnnotations(), "anotaciones")) as unknown as PdfJsAnnotation[]).slice(0, MAX_ANNOTATIONS_PER_PAGE);
+        const all = (await guard(page.getAnnotations(), "anotaciones")) as unknown as PdfJsAnnotation[];
+        annotations = all.slice(0, MAX_ANNOTATIONS_PER_PAGE);
+        // Recortar sin decirlo hacia creer que no hay mas: se avisa (una vez por pagina) con cuantas trae.
+        if (all.length > MAX_ANNOTATIONS_PER_PAGE) {
+          warnings.push({ code: "too-many-annotations", pageIndex, detail: String(all.length) });
+        }
       } catch (error) {
         if (isCancellation(error, signal)) throw new PdfError("cancelled");
         warnings.push({ code: "decode-failed", pageIndex, detail: `anotaciones: ${message(error)}` });
