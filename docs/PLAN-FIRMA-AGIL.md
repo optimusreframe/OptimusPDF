@@ -2241,3 +2241,74 @@ Tareas largas (CDP con CPU ×2,5, como el CI): 3 × 40 MP, ninguna ≥ 100 ms (u
 - `h-q-unbalanced-50000` (50 000 `q` sin `Q`) tarda ≈ 70 s dentro del worker de pdf.js (no bloquea el hilo principal; se puede cancelar): no se tocó.
 - Fotos de firma opacas sin etiqueta, escaneo de texto cerca de «Firma» y la imagen del nombre impreso junto a «Signature» siguen fuera/ambiguas: son límites de diseño documentados.
 - El generador del corpus independiente solo corre en macOS (fuentes del sistema): los PDF están guardados.
+# Escanear a PDF · motor y sesión persistente (E1)
+
+Motor REAL del Escáner (`src/lib/scan/`) y su persistencia. La interfaz (`src/app/scan-to-pdf/*`) solo importa de
+`@/lib/scan/engine` (fachada) y de `@/lib/scan/sessionStore`. Todo es local: ninguna petición de red (el OCR opcional descarga
+el modelo de idioma de tesseract.js la primera vez, como el resto de herramientas de OCR del proyecto).
+
+## Arquitectura
+
+| Capa | Archivos | Qué hace |
+|---|---|---|
+| Fachada | `engine.ts` | `getScanEngine()` = real < `setScanEngine(api)` < gancho `globalThis.__optimusScanEngine`. `analyzeFrame` y `estimateSize` son síncronos y estáticos; el resto se carga con `import()` al primer uso. `unavailableEngine` sigue exportado. |
+| En vivo | `liveDetect.ts`, `liveFrame.ts` | Detector síncrono (umbral de Otsu → mayor componente → casco → cuadrilátero circunscrito; papel claro, oscuro o por color del borde), estabilidad temporal (esquinas + movimiento), enfoque, brillo, cobertura por modo y una sola guía priorizada. ~5 ms por fotograma de 320 px. |
+| Pixeles (puro) | `pixels.ts`, `filters.ts`, `renderCore.ts`, `quality.ts`, `orientation.ts`, `similarity.ts`, `spine.ts`, `naming.ts`, `geometry.ts` | Aritmética sobre buffers RGBA, sin canvas: se prueba en Node y corre igual en worker o en el hilo principal. |
+| Navegador | `renderIO.ts`, `renderTasks.ts`, `renderWorker.ts`, `renderBrowser.ts` | Decodifica con `createBrowserBackend` (EXIF, límites de iOS), cola de UNA tarea a la vez en un Web Worker con `OffscreenCanvas` y respaldo al hilo principal (cediendo el hilo entre bandas), cancelable con `AbortSignal`. |
+| Motor | `realEngine.ts`, `documentDetection.ts`, `buildPdf.ts`, `textLayer.ts`, `estimate.ts`, `ocr.ts` | `ScanEngineApi` real: scanic + detector ligero combinados por apoyo de borde, PDF con presets `src/lib/image/*`, capa de texto invisible, OCR perezoso y compartido. |
+| Sesión | `sessionStore.ts` | IndexedDB `optimuspdf-scan-sessions`, guardado incremental, varias pestañas, expiración. |
+
+## Contrato (cambios aditivos en `types.ts`)
+
+`ScanPage.mode?`, `ScanPage.processedSize?`, `ScanSession.lostPages?`, `nameSuggested.name?` (nombre completo saneado),
+`analyzeFrame(..., options?: { mode })`, `splitSpread?(page)` (modo libro: dos páginas), `save()` → `{ ok: true; forkedAs?; rev? }`.
+`detectOrientation` devuelve el valor ABSOLUTO de `ScanPage.rotation` (se calcula sobre el recorte sin girar).
+`renderPage(page, { maxSide ≤ 480 })` solo recalcula la miniatura (deja `processed = null`); sin `maxSide`, resultado completo (≤ 3508 px).
+`createPage` devuelve la miniatura de 360 px (sin `processed`); `buildPdf` renderiza lo que falte.
+
+## Sesión persistente
+
+Ids: `newScanSessionId()` (`sc-<tiempo>-<azar>`; vale cualquier `[a-z0-9-]{8,64}`, p. ej. un UUID). Enlace: `?resume=scan:<id>`
+(`resumeLinks.ts`, tipo `scan` → herramienta `scan-to-pdf`; la herramienta lo lee con `readResumeFromSearch(search, resumeKindsOfTool("scan-to-pdf"))`).
+
+* Tres almacenes (`meta`, `pages`, `originals`). El original viaja como `Blob` (respaldado por disco; cargar una sesión no mete 100 fotos en RAM). Si el navegador rechaza
+  Blob en IndexedDB (WebKit sin almacenamiento persistente / Safari privado) se repite UNA vez con bytes (`ArrayBuffer`) y se sigue así.
+* Incremental: cada pagina se vigila por separado la fila (parámetros + miniatura) y su original; girar una página escribe solo su fila + la ficha; sin cambios no se abre ni la transacción.
+  Guardados de una misma sesión en fila (cola). Resultado tipado: `quota` (por `navigator.storage.estimate()` y por `QuotaExceededError`), `tooBig` (> 600 MB), `unavailable`.
+* Varias pestañas: `rev` + `writerId` + BroadcastChannel (`optimuspdf.scan-sessions`). Si otra pestaña escribió con una revisión que esta no conoce, no se pisa: se guarda aparte (`forkedAs`).
+  `load` primero para continuar el trabajo de otra pestaña.
+* Integridad: filas validadas; sesión corrupta no rompe `list`; página sin original o dañada se descarta y cuenta en `lostPages`.
+* 14 días desde el último guardado: `purgeExpired(now)`; `listScanSessionSummaries()` purga antes de listar.
+* «Recientes»: `useUnfinishedWork` lista las sesiones; fila con miniatura de portada, «Continuar» (`?resume=scan:<id>`) y «Descartar» (borra la sesión).
+* PENDIENTE: módulo de borradores del paquete de respaldo (`src/lib/backup/modules/drafts.ts`, 1 600 líneas con esquema y pruebas hostiles): no es trivial; la sesión de escaneo no entra aún en el respaldo.
+  Tampoco está enlazada la sesión a «Borrar mis datos» (`clearScanSessions()` existe para ello). La fila de Recientes no muestra aún «N páginas» (hace falta una cadena i18n; el dato viaja en `UnfinishedItem.pages`).
+
+## Pruebas
+
+* Vitest: `src/lib/scan/*.test.ts` (+ `scan.metrics.test.ts`, el informe reproducible), `src/app/recent/unfinishedWork.scan.test.ts`.
+  Corpus sintético en `src/lib/scan/__fixtures__/` (semillas fijas, fuentes Liberation del proyecto): 137 fotos con ruido, sombras, perspectiva, giros 0/90/180/270, brillo, desenfoque, hojas en blanco con sello, formularios casi idénticos, tarjetas, recibos, libros, pizarras, fotos.
+* E2E headless: `e2e/specs/scan-engine.spec.ts` (motor) y `scan-engine-persist.spec.ts` (sesión + Recientes), patrón de `extract-images.spec.ts` (motor empaquetado con Vite e inyectado en `/privacy`; el worker, desde un `blob:`).
+  Chromium: `PW_PORT=… PW_REUSE_SERVER=1 npx playwright test scan-engine --project=chromium`. iPad: `PW_BROWSERS=webkit-ipad PW_CROSS_FULL=1 … --project=webkit-ipad` (build con `CSP_SKIP_UPGRADE_INSECURE=1`).
+  Para que corran sin `PW_CROSS_FULL`, añadir `scan-engine(-persist)?` a `CROSS_SPECS` de `playwright.config.ts`.
+* Mutaciones: `python3 scripts/scan-engine-mutate.py` (34 mutantes; `--check`, `--fast`).
+
+## Métricas (corpus sintético; `scan.metrics.test.ts`)
+
+| Métrica | Objetivo | Resultado |
+|---|---|---|
+| Orientación (heurística): acierto de las confiadas / giros erróneos confiados | ≥ 0,9 / ≤ 2 % | 1,00 / 0 % (73 casos; 100 % confiadas) |
+| Hojas en blanco (sello pequeño y nº de página cuentan como blancas): precisión / recall | ≥ 0,95 / ≥ 0,9 | 1,00 / 1,00 (118 casos) |
+| Repetidas: precisión / recall; mismo formulario con otros datos marcados | ≥ 0,9 | 1,00 / 1,00; 0 de 105 pares |
+| Detección de documento IoU ≥ 0,9: scanic solo / combinada (la de `createPage`) / en vivo | ≥ 0,9 | 0,985 / 0,993 / 0,985 |
+| Calidad: borrosa, reflejo, poca luz (recall / falsos positivos) | — | 1,00 / 0 en las tres |
+| Captura automática en vivo: nítidas aceptadas / malas rechazadas | — | 1,00 / 1,00 |
+| Filtro `auto` (proxy de OCR: F1 de la tinta): no peor que el original; con poca luz y umbral fijo 128: auto / original | — | 12 de 12; 1,00 / 0,00 |
+| Nombre sugerido (título correcto, con 3 % de letras mal leídas) | ≥ 0,8 | 0,915 (47 casos) |
+| Lomo del libro | < 3 % | error < 0,1 % |
+| Capturar → miniatura (E2E Chromium headless) / WebKit iPad | < 300 ms | mediana 66-71 ms, peor ≤ 103 ms / mediana 56 ms, peor 76 ms |
+| Mayor pausa del hilo principal procesando 8 páginas + 4 completas | ≤ 100 ms | 45-65 ms (Chromium), 36 ms (WebKit) |
+| 100 páginas seguidas, heap de JS (Chromium) | < 400 MB, sin crecer | 42 MB, plano |
+
+**No medido (límites honestos):** (1) el modelo de idioma de tesseract.js necesita red y no hay `traineddata` en el equipo: el OCR real (título, orientación por OCR, texto
+buscable) se prueba con un lector de mentira; la lógica sí (cajas, posiciones en el PDF con pdf.js, progreso, cancelación), el reconocimiento real no. (2) La heurística de orientación
+está calibrada con la fuente Liberation y texto latino: otras fuentes, mayúsculas o cifras dan `null` (no gira). (3) Safari/iPhone reales y cámara real sin probar (solo WebKit de Playwright).

@@ -25,9 +25,10 @@ export const RESUME_PARAM = "resume";
  *  - `sign`: Firmar con UN documento (borrador v1, id = huella del PDF);
  *  - `session`: Firmar con VARIOS documentos (id de sesion `s-...`);
  *  - `edit`: Editar PDF (id = huella del PDF);
- *  - `pro`: PDF Pro (id = huella del PDF original abierto).
+ *  - `pro`: PDF Pro (id = huella del PDF original abierto);
+ *  - `scan`: Escanear a PDF (id de sesion de escaneo: minusculas, cifras y guiones; ver `newScanSessionId`).
  */
-export const RESUME_KINDS = ["sign", "session", "edit", "pro"] as const;
+export const RESUME_KINDS = ["sign", "session", "edit", "pro", "scan"] as const;
 export type ResumeKind = (typeof RESUME_KINDS)[number];
 
 export type ResumeTarget = { kind: ResumeKind; id: string };
@@ -37,11 +38,15 @@ const FINGERPRINT = /^[0-9a-f]{64}$/;
 /** Id de sesion de Firmar (`newSessionId`: `s-<tiempo>-<contador><azar>`, solo [a-z0-9-]). */
 const SESSION_ID = /^s-[a-z0-9]{1,16}-[a-z0-9]{1,24}$/;
 
+/** Id de una sesion de escaneo (`sc-<tiempo>-<azar>`, o un UUID): [a-z0-9-], 8-64 caracteres, sin nada que escapar. */
+const SCAN_SESSION_ID = /^[a-z0-9][a-z0-9-]{7,63}$/;
+
 const ID_PATTERNS: Readonly<Record<ResumeKind, RegExp>> = {
   sign: FINGERPRINT,
   session: SESSION_ID,
   edit: FINGERPRINT,
   pro: FINGERPRINT,
+  scan: SCAN_SESSION_ID,
 };
 
 const TOOL_OF_KIND: Readonly<Record<ResumeKind, ToolSlug>> = {
@@ -49,6 +54,7 @@ const TOOL_OF_KIND: Readonly<Record<ResumeKind, ToolSlug>> = {
   session: "sign-pdf",
   edit: "edit-pdf",
   pro: "pdf-pro",
+  scan: "scan-to-pdf",
 };
 
 /** Un valor mas largo que esto no puede ser un enlace nuestro (tipo + `:` + id mas largo): ni se examina. */

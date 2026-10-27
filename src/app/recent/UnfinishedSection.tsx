@@ -6,12 +6,39 @@ import { FileText, Trash2 } from "lucide-react";
 import { useDraftThumbnails } from "@/app/pdf-pro/session/useDraftThumbnails";
 import { discardItem } from "@/app/recent/discardDraft";
 import type { RecentRow } from "@/app/recent/recentIndex";
+import type { UnfinishedItem } from "@/app/recent/unfinishedWork";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { HIT_44 } from "@/components/ui/touchTarget";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { formatDateTime } from "@/lib/formatDate";
+
+/** Portadas de las sesiones de escaneo: URL locales (blob:) de su primera miniatura, revocadas al cambiar la lista o salir. */
+function useCoverUrls(items: readonly UnfinishedItem[]): Record<string, string> {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const created: Record<string, string> = {};
+    for (const item of items) {
+      if (!item.scanCover) continue;
+      try {
+        created[item.key] = URL.createObjectURL(item.scanCover);
+      } catch {
+        // Sin URL.createObjectURL: la fila sale con el icono de siempre.
+      }
+    }
+    let active = true;
+    // Fuera del cuerpo del efecto (React no admite setState sincrono ahi): una microtarea.
+    void Promise.resolve().then(() => {
+      if (active) setUrls(created);
+    });
+    return () => {
+      active = false;
+      for (const url of Object.values(created)) URL.revokeObjectURL(url);
+    };
+  }, [items]);
+  return urls;
+}
 
 /** Miniaturas: solo de las primeras (leer cada borrador entero para dibujar un icono no compensa en una lista larga). */
 const THUMBNAIL_LIMIT = 4;
@@ -45,6 +72,7 @@ export function UnfinishedSection({
     [items],
   );
   const thumbs = useDraftThumbnails(proDrafts);
+  const covers = useCoverUrls(items);
   const toDiscard = items.find((item) => item.key === confirmKey) ?? null;
 
   useEffect(() => {
@@ -68,7 +96,7 @@ export function UnfinishedSection({
       <ul ref={listRef} className="space-y-2">
         {items.map((item) => {
           const infoId = `${baseId}-${item.key.replace(/[^a-z0-9-]/gi, "_")}`;
-          const thumb = item.pro ? thumbs[item.pro.id] : null;
+          const thumb = item.pro ? thumbs[item.pro.id] : (covers[item.key] ?? null);
           const meta = [
             t.tools[item.slug].name,
             formatDateTime(item.savedAt, locale),

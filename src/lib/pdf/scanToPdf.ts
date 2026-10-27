@@ -1,6 +1,7 @@
 import { PdfError, savePdfToBlob, throwIfAborted, toPdfError } from "@/lib/pdf/core";
 import { DEFAULT_IMAGE_PRESET, type ImagePresetId } from "@/lib/image/prepareForPdf";
 import type { ProgressCallback } from "@/lib/pdf/core";
+import { toBlackAndWhite, toEnhanced, toGrayscale } from "@/lib/scan/filters";
 import {
   buildPdfFromImages,
   canvasToBlob,
@@ -192,101 +193,11 @@ export async function normalizeImageOrientation(
 
 export type ScanFilter = "color" | "grayscale" | "bw" | "enhance";
 
-/** Contraste aplicado en modo blanco y negro. */
-const BW_CONTRAST = 1.35;
-const BW_BRIGHTNESS = 8;
-
-/** Percentil recortado en cada extremo al estirar el histograma. */
-const ENHANCE_CLIP = 0.005;
-/** Recorrido minimo entre los percentiles para que estirar tenga sentido. */
-const ENHANCE_MIN_RANGE = 8;
-
-function luminanceOf(data: Uint8ClampedArray, index: number): number {
-  return (
-    data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114
-  );
-}
-
-function clampByte(value: number): number {
-  return value < 0 ? 0 : value > 255 ? 255 : value;
-}
-
-/** Escala de grises pura: solo luminancia, sin tocar el contraste. */
-function toGrayscale(data: Uint8ClampedArray): void {
-  for (let index = 0; index < data.length; index += 4) {
-    const value = clampByte(luminanceOf(data, index));
-    data[index] = value;
-    data[index + 1] = value;
-    data[index + 2] = value;
-  }
-}
-
-/** Blanco y negro de escaner: luminancia + curva de contraste fija. */
-function toBlackAndWhite(data: Uint8ClampedArray): void {
-  for (let index = 0; index < data.length; index += 4) {
-    const adjusted =
-      (luminanceOf(data, index) - 128) * BW_CONTRAST + 128 + BW_BRIGHTNESS;
-    const value = clampByte(adjusted);
-    data[index] = value;
-    data[index + 1] = value;
-    data[index + 2] = value;
-  }
-}
-
-/**
- * Auto-contraste: estira el histograma de luminancia entre sus
- * percentiles extremos y aplica el mismo mapeo a los tres canales, para
- * que la foto gane cuerpo sin virar de color. Si la imagen ya usa todo el
- * rango (o es plana) se deja intacta.
- */
-function toEnhanced(data: Uint8ClampedArray): void {
-  const histogram = new Uint32Array(256);
-  let pixels = 0;
-  for (let index = 0; index < data.length; index += 4) {
-    histogram[clampByte(luminanceOf(data, index)) | 0] += 1;
-    pixels += 1;
-  }
-  if (pixels === 0) return;
-
-  const cut = Math.floor(pixels * ENHANCE_CLIP);
-  let low = 0;
-  let high = 255;
-  let seen = 0;
-  for (let value = 0; value < 256; value += 1) {
-    seen += histogram[value];
-    if (seen > cut) {
-      low = value;
-      break;
-    }
-  }
-  seen = 0;
-  for (let value = 255; value >= 0; value -= 1) {
-    seen += histogram[value];
-    if (seen > cut) {
-      high = value;
-      break;
-    }
-  }
-
-  if (high - low < ENHANCE_MIN_RANGE) return;
-
-  const scale = 255 / (high - low);
-  const lookup = new Uint8ClampedArray(256);
-  for (let value = 0; value < 256; value += 1) {
-    lookup[value] = clampByte((value - low) * scale);
-  }
-
-  for (let index = 0; index < data.length; index += 4) {
-    data[index] = lookup[data[index]];
-    data[index + 1] = lookup[data[index + 1]];
-    data[index + 2] = lookup[data[index + 2]];
-  }
-}
-
 /**
  * Aplica el aspecto elegido. Se hace pixel a pixel en vez de con
  * `ctx.filter` para no depender del soporte de filtros de cada navegador.
- * `"color"` no toca nada y devuelve el mismo Blob.
+ * `"color"` no toca nada y devuelve el mismo Blob. Los filtros pixel a pixel viven en `src/lib/scan/filters.ts` (los comparte
+ * con el motor del Escaner: `auto`, `original`, correccion de fondo, pizarra, brillo/contraste).
  */
 export async function applyScanFilter(
   source: Blob,

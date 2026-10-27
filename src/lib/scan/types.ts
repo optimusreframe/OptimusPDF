@@ -51,6 +51,13 @@ export type ScanPage = {
   flags: ScanPageFlags;
   /** Texto reconocido si se pidio PDF con texto buscable. */
   ocrText?: string;
+  /**
+   * ADITIVO (motor real). Modo con el que se creo la pagina (`createPage`): `renderPage`, la orientacion y el tamano lo
+   * usan (una sesion puede mezclar documentos, tarjetas y fotos). Sin el, se asume `document`.
+   */
+  mode?: ScanMode;
+  /** ADITIVO. Dimensiones (px) de `processed`, para estimar el tamano del PDF sin decodificar. */
+  processedSize?: { width: number; height: number };
 };
 
 export type ScanSettings = {
@@ -79,9 +86,19 @@ export type ScanSession = {
   updatedAt: string;
   /** Nombre del documento (editable); se propone uno inteligente. */
   name: string;
-  nameSuggested?: { title: string | null; date: string | null; source: "ocr" | "date" };
+  /**
+   * `title`: primer texto reconocible (o `null`); `date`: AAAA-MM-DD (la del documento si es creible, si no la del
+   * escaneo); `source`: `ocr` si hay titulo, `date` si solo hay fecha. ADITIVO: `name` es el nombre COMPLETO ya saneado
+   * para archivo («Contrato de servicio · 2026-10-26» o «Escaneo 2026-10-26 14.32»).
+   */
+  nameSuggested?: { title: string | null; date: string | null; source: "ocr" | "date"; name?: string };
   pages: ScanPage[];
   settings: ScanSettings;
+  /**
+   * ADITIVO. Paginas que NO se pudieron recuperar al cargar una sesion guardada (su original falto o estaba danado):
+   * la interfaz puede avisar «N paginas no se recuperaron». Solo lo rellena `ScanSessionStore.load`.
+   */
+  lostPages?: number;
 };
 
 export type FrameVerdict = {
@@ -110,14 +127,27 @@ export type ScanSizeEstimate = { bytes: number; low: number; high: number };
  */
 export interface ScanEngineApi {
   /** Analiza un fotograma de camara (muestra reducida) y decide guia y captura automatica. Barato: se llama ~5-10 veces/s. */
-  analyzeFrame(frame: ImageData, previous?: { quad: QuadCorners | null; at: number }, now?: number): FrameVerdict;
+  analyzeFrame(
+    frame: ImageData,
+    previous?: { quad: QuadCorners | null; at: number },
+    now?: number,
+    /** ADITIVO: el modo ajusta la cobertura esperada (tarjeta, recibo) y en `photo` no se busca documento. */
+    options?: { mode?: ScanMode },
+  ): FrameVerdict;
   /** Crea una pagina a partir de una foto: corrige orientacion EXIF, detecta documento y calidad, aplica el filtro por defecto. */
   createPage(source: Blob, info: { source: ScanPageSource; mode: ScanMode; settings: ScanSettings; signal?: AbortSignal }): Promise<ScanPage>;
-  /** Recalcula `processed`/`thumb` tras cambiar esquinas, giro, filtro o ajustes. Siempre parte del original. */
+  /**
+   * Recalcula `processed`/`thumb` tras cambiar esquinas, giro, filtro o ajustes. Siempre parte del original.
+   * `maxSide <= 480` (miniatura rapida) solo recalcula `thumb` y deja `processed` en `null` (queda por recalcular);
+   * sin `maxSide` se calcula el resultado completo (lado largo <= 3508 px) y la miniatura.
+   */
   renderPage(page: ScanPage, options?: { signal?: AbortSignal; maxSide?: number }): Promise<ScanPage>;
   /** Marca hojas en blanco y paginas repetidas dentro de la sesion. */
   analyzeSession(pages: ScanPage[]): Promise<Record<string, ScanPageFlags>>;
-  /** Orientacion que deja el texto derecho (0/90/180/270) o `null` si no se puede saber. */
+  /**
+   * Valor de `ScanPage.rotation` (ABSOLUTO, 0/90/180/270) que deja el texto derecho, calculado sobre el recorte sin girar de
+   * la pagina; `null` si no se puede saber (no se gira a ciegas).
+   */
   detectOrientation(page: ScanPage, signal?: AbortSignal): Promise<ScanRotation | null>;
   /** Propone nombre del documento (titulo del primer texto reconocible + fecha) sin enviar nada a la red. */
   suggestName(pages: ScanPage[], locale: "es" | "en", signal?: AbortSignal): Promise<ScanSession["nameSuggested"]>;
@@ -128,11 +158,21 @@ export interface ScanEngineApi {
     session: ScanSession,
     options: { preset: string; pageSize: "a4" | "letter" | "fit"; margin: "none" | "small" | "large"; signal?: AbortSignal; onProgress?: (done: number, total: number) => void },
   ): Promise<Blob>;
+  /**
+   * ADITIVO (modo `book`): parte la foto de un libro abierto en DOS paginas (izquierda, derecha) por el lomo detectado o por
+   * el centro. Cada una comparte el mismo original y lleva sus esquinas; ids nuevos. Opcional: un motor sin el no parte.
+   */
+  splitSpread?(source: ScanPage, options?: { signal?: AbortSignal }): Promise<[ScanPage, ScanPage]>;
 }
 
 /** Persistencia de la sesion (IndexedDB `optimuspdf-scan-sessions`): nunca se pierde un escaneo (recarga, cierre, BACK). */
 export interface ScanSessionStore {
-  save(session: ScanSession): Promise<{ ok: true } | { ok: false; reason: "quota" | "unavailable" | "tooBig" }>;
+  /**
+   * Guarda la sesion (solo escribe lo que cambio: paginas nuevas/modificadas y el orden). ADITIVO en el resultado:
+   * `forkedAs` = otra pestana modifico esta misma sesion mas recientemente y NO se piso: la copia de esta pestana se guardo
+   * con ese id (la interfaz puede seguir con el); `rev` = revision guardada.
+   */
+  save(session: ScanSession): Promise<{ ok: true; forkedAs?: string; rev?: number } | { ok: false; reason: "quota" | "unavailable" | "tooBig" }>;
   load(id: string): Promise<ScanSession | null>;
   list(): Promise<Array<{ id: string; name: string; updatedAt: string; pageCount: number; thumb: Blob | null }>>;
   remove(id: string): Promise<void>;

@@ -298,6 +298,28 @@ function sampleBilinear(
   }
 }
 
+/**
+ * Rellena las filas `[fromRow, toRow)` de `target` (ancho `outputWidth`) muestreando el origen con la homografia. Permite
+ * enderezar por bandas, cediendo el hilo entre ellas, sin que una foto de 12 Mpx bloquee la pantalla.
+ */
+export function warpRowsInto(
+  source: RgbaImage,
+  homography: Homography,
+  outputWidth: number,
+  fromRow: number,
+  toRow: number,
+  target: Uint8ClampedArray,
+): void {
+  // Se muestrea el centro de cada pixel de destino, no su esquina: con la
+  // esquina la salida queda desplazada medio pixel hacia arriba/izquierda.
+  for (let y = fromRow; y < toRow; y += 1) {
+    for (let x = 0; x < outputWidth; x += 1) {
+      const point = projectPoint(homography, x + 0.5, y + 0.5);
+      sampleBilinear(source, point.x - 0.5, point.y - 0.5, target as Uint8ClampedArray<ArrayBuffer>, (y * outputWidth + x) * 4);
+    }
+  }
+}
+
 export type WarpResult = RgbaImage;
 
 /**
@@ -324,14 +346,7 @@ export function warpImageData(
   if (!homography) return null;
 
   const data = new Uint8ClampedArray(width * height * 4);
-  // Se muestrea el centro de cada pixel de destino, no su esquina: con la
-  // esquina la salida queda desplazada medio pixel hacia arriba/izquierda.
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const point = projectPoint(homography, x + 0.5, y + 0.5);
-      sampleBilinear(source, point.x - 0.5, point.y - 0.5, data, (y * width + x) * 4);
-    }
-  }
+  warpRowsInto(source, homography, width, 0, height, data);
 
   return { data, width, height };
 }

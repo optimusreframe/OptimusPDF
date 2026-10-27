@@ -2,6 +2,7 @@ import type { EditDraftSummary } from "@/app/edit-pdf/editDrafts";
 import type { ProDraftSummary } from "@/app/pdf-pro/proDrafts";
 import type { DraftEntry } from "@/app/sign-pdf/signDrafts";
 import { isValidResumeId, resumeHref, type ResumeTarget } from "@/lib/resumeLinks";
+import type { ScanSessionSummary } from "@/lib/scan/sessionStore";
 import type { ToolSlug } from "@/lib/tools-registry";
 
 /**
@@ -28,12 +29,17 @@ export type UnfinishedItem = {
   href: string;
   /** PDF Pro: el borrador del que sale la miniatura. */
   pro?: ProDraftSummary;
+  /** Escanear a PDF: paginas de la sesion y miniatura de portada (la primera pagina). */
+  pages?: number;
+  scanCover?: Blob | null;
 };
 
 export type DraftSources = {
   sign: readonly DraftEntry[];
   edit: readonly EditDraftSummary[];
   pro: readonly ProDraftSummary[];
+  /** Escanear a PDF: sesiones de escaneo sin terminar (opcional: las fuentes anteriores no lo traen). */
+  scan?: readonly ScanSessionSummary[];
 };
 
 function make(target: ResumeTarget, rest: Omit<UnfinishedItem, "key" | "target" | "href">): UnfinishedItem {
@@ -91,7 +97,16 @@ export function buildUnfinishedItems(sources: DraftSources): UnfinishedItem[] {
     );
   }
 
-  // Misma fecha: el orden de llegada (Firmar, Editar, PDF Pro) se conserva (`sort` es estable).
+  for (const session of sources.scan ?? []) {
+    const target: ResumeTarget = { kind: "scan", id: session.id };
+    // Una sesion sin paginas no tiene nada que continuar.
+    if (!isValidResumeId("scan", session.id) || session.pageCount <= 0) continue;
+    items.push(
+      make(target, { slug: "scan-to-pdf", fileName: text(session.name), savedAt: session.savedAt, pages: session.pageCount, scanCover: session.thumb }),
+    );
+  }
+
+  // Misma fecha: el orden de llegada (Firmar, Editar, PDF Pro, Escanear) se conserva (`sort` es estable).
   return items.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
 

@@ -5,8 +5,9 @@ import { listEditDrafts, subscribeToEditDrafts, type EditDraftSummary } from "@/
 import { listProDrafts, subscribeToProDrafts, type ProDraftSummary } from "@/app/pdf-pro/proDrafts";
 import { buildUnfinishedItems, type UnfinishedItem } from "@/app/recent/unfinishedWork";
 import { listAllDrafts, subscribeToDrafts, type DraftEntry } from "@/app/sign-pdf/signDrafts";
+import { listScanSessionSummaries, subscribeToScanSessions, type ScanSessionSummary } from "@/lib/scan/sessionStore";
 
-type Sources = { sign: DraftEntry[]; edit: EditDraftSummary[]; pro: ProDraftSummary[] };
+type Sources = { sign: DraftEntry[]; edit: EditDraftSummary[]; pro: ProDraftSummary[]; scan: ScanSessionSummary[] };
 
 /** Ninguna lista lanza (los almacenes tragan sus errores), pero un fallo inesperado nunca debe romper Recientes. */
 async function settled<T>(read: () => Promise<T[]>): Promise<T[]> {
@@ -18,19 +19,20 @@ async function settled<T>(read: () => Promise<T[]>): Promise<T[]> {
 }
 
 /**
- * Lee los borradores reales de Firmar, Editar PDF y PDF Pro y los mantiene al dia: se refresca cuando cambian (esta
+ * Lee los borradores reales de Firmar, Editar PDF, PDF Pro y las sesiones de Escanear a PDF y los mantiene al dia: se refresca cuando cambian (esta
  * pestana u otra: cada almacen avisa por su `BroadcastChannel`). `loaded` = ya se leyeron los tres.
  */
 export function useUnfinishedWork(): { items: UnfinishedItem[]; loaded: boolean; refresh: () => Promise<void> } {
   const [sources, setSources] = useState<Sources | null>(null);
 
   const read = useCallback(async (): Promise<Sources> => {
-    const [sign, edit, pro] = await Promise.all([
+    const [sign, edit, pro, scan] = await Promise.all([
       settled(listAllDrafts),
       settled(listEditDrafts),
       settled(listProDrafts),
+      settled(() => listScanSessionSummaries()),
     ]);
-    return { sign, edit, pro };
+    return { sign, edit, pro, scan };
   }, []);
 
   const refresh = useCallback(async () => {
@@ -45,7 +47,7 @@ export function useUnfinishedWork(): { items: UnfinishedItem[]; loaded: boolean;
       });
     };
     run();
-    const unsubscribes = [subscribeToDrafts(run), subscribeToEditDrafts(run), subscribeToProDrafts(run)];
+    const unsubscribes = [subscribeToDrafts(run), subscribeToEditDrafts(run), subscribeToProDrafts(run), subscribeToScanSessions(run)];
     return () => {
       cancelled = true;
       for (const unsubscribe of unsubscribes) unsubscribe();
