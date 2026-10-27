@@ -1,5 +1,5 @@
 import { applyFilterTo, backgroundMapsFor } from "@/lib/scan/filters";
-import { decodeToRgba, encodeRgba, readDisplaySize } from "@/lib/scan/renderIO";
+import { decodeToRgba, encodeRgba, readDisplaySize, reencodedSizes } from "@/lib/scan/renderIO";
 import { abortIfNeeded, cropAndRotate, needsWarp, renderRgba, thumbnailOf, type RenderHooks, type RenderJob } from "@/lib/scan/renderCore";
 import { detectTextOrientation, type OrientationReading } from "@/lib/scan/orientation";
 import { resolveFilter, type ResolvedFilter } from "@/lib/scan/filters";
@@ -63,7 +63,7 @@ export type TaskResult =
       sourceSize: { width: number; height: number };
       /** El resultado es el propio original (sin recodificar). `processed` viene `null`: el motor usa el original. */
       passthrough: boolean;
-      jpegSample: { side: number; bytesPerPixel: number } | null;
+      jpegSample: JpegSample | null;
     }
   | { kind: "ingest"; blob: Blob }
   | { kind: "orientation"; reading: OrientationReading | null }
@@ -80,21 +80,26 @@ export function clearTaskCache(): void {
 const PEEK_SIDE = 1280;
 /** Lado del parche a resolucion nativa con el que se mide el peso del resultado. */
 export const PATCH_SIDE = 128;
-/** Cuadricula 5 x 5 de parches pequenos sobre el documento: margenes y centro pesan lo que ocupan (un parche central sobrestima). */
-const GRID = [0.1, 0.3, 0.5, 0.7, 0.9];
+/** Cuadricula 7 x 7 de parches pequenos sobre el documento: margenes y centro pesan lo que ocupan (un parche central sobrestima). */
+const GRID = [0.07, 0.21, 0.36, 0.5, 0.64, 0.79, 0.93];
 const PATCH_SPOTS: ReadonlyArray<[number, number]> = GRID.flatMap((fy) => GRID.map((fx): [number, number] => [fx, fy]));
 /** Mayor lado al que se decodifica el original para medir (resolucion nativa hasta aqui). */
 const NATIVE_SAMPLE_MAX_SIDE = 4096;
 const THUMB_QUALITY = 0.8;
 const PROCESSED_QUALITY = 0.9;
+/** Calidades JPEG de los presets (Alta, Equilibrada, Compacta): se miden en los mismos parches para estimar cada preset con el peso REAL de este contenido. */
+const PRESET_QUALITIES = [0.92, 0.87, 0.8] as const;
+/** Uno de cada tantos parches mide tambien la recodificacion a las calidades de los presets. */
+const RATIO_EVERY = 4;
+type JpegSample = { side: number; bytesPerPixel: number; qualityRatio?: Record<string, number> };
 
 /**
- * Mide el peso por pixel del resultado con parches del original a su resolucion NATIVA (veinticinco, en cuadricula sobre el documento, con
+ * Mide el peso por pixel del resultado con parches del original a su resolucion NATIVA (cuarenta y nueve, en cuadricula sobre el documento, con
  * el filtro y el ajuste de la pagina), codificados a la calidad del resultado. Reducir la foto para medirla perderia el ruido y
  * subestimaria el peso real (sobre todo con filtros que lo realzan); un solo parche central sobrestima las hojas con texto solo
  * en el centro.
  */
-async function measureNativeSample(source: Blob, job: RenderJob, resolved: ResolvedFilter, hooks: RenderHooks): Promise<{ side: number; bytesPerPixel: number } | null> {
+async function measureNativeSample(source: Blob, job: RenderJob, resolved: ResolvedFilter, hooks: RenderHooks): Promise<JpegSample | null> {
   let native: Rgba;
   try {
     native = await decodeToRgba(source, NATIVE_SAMPLE_MAX_SIDE, hooks.signal);
@@ -115,8 +120,13 @@ async function measureNativeSample(source: Blob, job: RenderJob, resolved: Resol
   const maps = backgroundMapsFor(native.width > 1280 || native.height > 1280 ? downscaleRgba(native, 1280) : native, native.width, native.height);
   // Cabeceras y tablas de un JPEG pequeno: se miden con un parche liso y se restan (en parches pequenos pesan casi como el contenido).
   const blank: Rgba = { data: new Uint8ClampedArray(side * side * 4).fill(255), width: side, height: side };
-  const overhead = (await encodeRgba(blank, "image/jpeg", PROCESSED_QUALITY)).size;
-  let bytes = 0;
+  const qualities = [PROCESSED_QUALITY, ...PRESET_QUALITIES];
+  const overhead = new Map<number, number>();
+  for (const quality of qualities) overhead.set(quality, (await encodeRgba(blank, "image/jpeg", quality)).size);
+  const bytes = new Map<number, number>(qualities.map((quality) => [quality, 0]));
+  const ratioBytes = new Map<number, number>();
+  let ratioBase = 0;
+  let spot = 0;
   let pixels = 0;
   for (const [fx, fy] of PATCH_SPOTS) {
     abortIfNeeded(hooks.signal);
@@ -126,10 +136,33 @@ async function measureNativeSample(source: Blob, job: RenderJob, resolved: Resol
     const patch = cropRgba(native, left, top, side, side);
     // El filtro usa el FONDO de toda la hoja (no el del parche): un parche solo de texto no tiene papel de referencia.
     await applyFilterTo(patch, resolved, job.adjust, { background: { maps, x: left, y: top } });
-    bytes += Math.max(0, (await encodeRgba(patch, "image/jpeg", PROCESSED_QUALITY)).size - overhead);
+    // El peso del resultado procesado (calidad 0,9) y, para cada preset, lo que pesaria RECODIFICARLO (lo que hace `prepareForPdf`
+    // con el JPEG ya procesado: decodificarlo y volver a codificar). Recodificar un JPEG ya comprimido ahorra mas que comprimir
+    // pixeles sin tocar, y cuanto mas depende del codificador de cada navegador: por eso se mide, no se supone.
+    const first = await encodeRgba(patch, "image/jpeg", PROCESSED_QUALITY);
+    bytes.set(PROCESSED_QUALITY, (bytes.get(PROCESSED_QUALITY) ?? 0) + Math.max(0, first.size - (overhead.get(PROCESSED_QUALITY) ?? 0)));
+    // La relacion entre calidades es estable de un parche a otro: se mide solo en uno de cada RATIO_EVERY (cuatro recodificaciones por
+    // parche pesan en WebKit) y se compara con el peso a 0,9 de ESOS mismos parches.
+    if (spot % RATIO_EVERY === 0) {
+      const sizes = await reencodedSizes(first, PRESET_QUALITIES, hooks.signal);
+      if (sizes) {
+        ratioBase += Math.max(0, first.size - (overhead.get(PROCESSED_QUALITY) ?? 0));
+        PRESET_QUALITIES.forEach((quality, index) => ratioBytes.set(quality, (ratioBytes.get(quality) ?? 0) + Math.max(0, sizes[index] - (overhead.get(quality) ?? 0))));
+      }
+    }
+    spot += 1;
     pixels += patch.width * patch.height;
   }
-  return pixels > 0 ? { side, bytesPerPixel: bytes / pixels } : null;
+  const base = bytes.get(PROCESSED_QUALITY) ?? 0;
+  if (pixels > 0 && base > 0) {
+    if (ratioBase > 0) {
+      const qualityRatio: Record<string, number> = {};
+      for (const quality of PRESET_QUALITIES) qualityRatio[String(quality)] = Math.max(0.2, Math.min(2, (ratioBytes.get(quality) ?? 0) / ratioBase));
+      return { side, bytesPerPixel: base / pixels, qualityRatio };
+    }
+    return { side, bytesPerPixel: base / pixels };
+  }
+  return pixels > 0 ? { side, bytesPerPixel: base / pixels } : null;
 }
 
 export async function runTask(request: TaskRequest, hooks: RenderHooks = {}): Promise<TaskResult> {
@@ -168,7 +201,7 @@ export async function runTask(request: TaskRequest, hooks: RenderHooks = {}): Pr
       abortIfNeeded(hooks.signal);
       const processed = request.encodeProcessed && !passthrough ? await encodeRgba(output.image, "image/jpeg", PROCESSED_QUALITY) : null;
       const thumb = request.thumbSide ? await encodeRgba(thumbnailOf(output.image, request.thumbSide), "image/jpeg", THUMB_QUALITY) : null;
-      let jpegSample: { side: number; bytesPerPixel: number } | null = null;
+      let jpegSample: JpegSample | null = null;
       // Una pagina que sera su propio original (sin recorte, giro, ajuste ni filtro que toque pixeles) se estima por los bytes del archivo.
       const identityLike = !needsWarp(request.job.corners, request.job.rotation, request.job.mode) && zeroAdjust && (output.resolved === "original" || output.resolved === "color");
       if (request.sampleBytes && !passthrough && !identityLike) {

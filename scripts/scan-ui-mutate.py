@@ -43,6 +43,10 @@ T_PIECES = [DIR + "pieces.test.tsx"]
 T_CLIENT = [DIR + "ScanToPdfClient.test.tsx"]
 T_FAKES = ["src/lib/scan/testing/fakes.test.ts"]
 T_PROBLEMS = [DIR + "importProblems.test.ts"]
+T_RECENT = ["src/app/recent/UnfinishedSection.preload.test.tsx"]
+UNFINISHED = "src/app/recent/UnfinishedSection.tsx"
+GRIDFILE = DIR + "PageGrid.tsx"
+CLIENT = DIR + "ScanToPdfClient.tsx"
 
 # (id, archivo, texto original, texto mutado, descripcion, pruebas que deben matarla). El original debe aparecer.
 MUTATIONS = [
@@ -88,12 +92,20 @@ MUTATIONS = [
     ("M40", SAVE, "onWarning: (warning) => warnings.push(warning),", "", "texto buscable: el aviso del motor (`onWarning`) llega al resultado", T_CLIENT),
     ("M41", SESSION, "if (current !== \"\" && !current.endsWith(label))", "if (false)", "bifurcacion: la copia se distingue en Recientes", T_CLIENT),
     ("M42", SAVE, "      setModelReady(true);\n      setModel({ phase: \"idle\" });", "      setModel({ phase: \"idle\" });", "texto buscable: tras descargar el modelo ya no se ofrece", T_CLIENT),
-    ("M43", SESSION, "reportImportProblems([classifyImportFailure(blob)]);", "void blob;", "fotos no anadidas: la que falla al procesarse se nombra", T_CLIENT),
+    ("M43", SESSION, "reportImportProblems([classifyImportFailure(blob, isEngineUnavailableError(error))]);", "void blob;", "fotos no anadidas: la que falla al procesarse se nombra", T_CLIENT),
     ("M44", SHELL, "const ROOMY_LIST = 240;", "const ROOMY_LIST = 24;", "pantalla: la cabecera fija solo si queda sitio para la lista", T_PIECES),
     ("M45", SHELL, "const FLOW_BELOW = 140;", "const FLOW_BELOW = 14;", "pantalla: aprieto = la pagina se desplaza y la barra queda pegada", T_PIECES),
     ("M46", SESSION, "    stageRef.current(next);\n  });", "  });", "guardado inmediato: cada cambio se apunta con `stage`", T_CLIENT),
     ("M47", SESSION, "        void resolveScanStore()?.flush?.();", "", "guardado inmediato: al salir de la herramienta se vuelca lo apuntado", T_CLIENT),
     ("M48", REVIEW, "else if (kind === \"noDocument\") onCorners(id);", "else if (kind === \"noDocument\") onEdit(id);", "chip «Sin documento detectado» abre el ajuste de esquinas", T_CLIENT),
+    ("M50", STATE, "    .replace(/(?:\\s*\\.pdf)+$/i, \"\")\n", "", "nombre de archivo: no se duplica la extension .pdf", T_STATE),
+    ("M51", CLIENT, " || api.saveStatus === \"unsaved\", pages", ", pages", "salida: un cambio pendiente del autoguardado no se anuncia como «se perderan»", T_CLIENT),
+    ("M52", SESSION, "reportImportProblems([classifyImportFailure(blob, isEngineUnavailableError(error))]);", "reportImportProblems([classifyImportFailure(blob, false)]);", "motor no cargado: la foto no se llama «dañada»", T_CLIENT),
+    ("M53", SERVICES, "dynamically imported module|", "", "motor no cargado: se reconoce el error de un chunk que no carga", T_PROBLEMS),
+    ("M54", SAVE, "useMemo(() => estimateSize(effective), [estimateSize, effective, pages, searchable])", "estimateSize(effective)", "guardar: la estimacion no se repite con cada cuadro del progreso", T_CLIENT),
+    ("M55", SAVE, "?.focus({ preventScroll: true }));\n    return () => cancelAnimationFrame(frame);", "?.blur());\n    return () => cancelAnimationFrame(frame);", "guardar: el foco va a «Cancelar» durante la creacion", T_CLIENT),
+    ("M56", UNFINISHED, "if (!hasScan) return;", "if (false) return;", "Recientes: precarga el motor solo si hay un escaneo", T_RECENT),
+    ("M57", GRIDFILE, '"on-media pointer-events-none absolute top-1.5 left-1.5', '"pointer-events-none absolute top-1.5 left-1.5', "insignia del numero con texto claro sobre fondo oscuro en ambos temas", ["src/app/scan-to-pdf/pieces.test.tsx"]),
     ("M49", SAVE, "    if (!searchable) return;\n    let live = true;", "    let live = true;", "texto buscable: no se consulta el modelo mientras esta desactivado", T_CLIENT),
 ]
 

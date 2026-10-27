@@ -121,7 +121,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
           ) : null}
         </button>
 
-        <span aria-hidden="true" className="pointer-events-none absolute top-1.5 left-1.5 rounded-full bg-black/70 px-2 py-0.5 text-caption font-semibold text-white tabular-nums">
+        <span aria-hidden="true" className="on-media pointer-events-none absolute top-1.5 left-1.5 rounded-full bg-black/70 px-2 py-0.5 text-caption font-semibold text-white tabular-nums">
           {number}
         </span>
 
@@ -129,7 +129,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
           <span
             aria-hidden="true"
             className={cn(
-              "pointer-events-none absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-full border-2",
+              "on-media pointer-events-none absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-full border-2",
               selected ? "border-signal bg-signal text-[var(--color-on-signal)]" : "border-white bg-black/40",
             )}
           >
@@ -143,7 +143,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
             title={s.dragHandleHint}
             onPointerDown={(event) => cb.handleDown(event, page.id)}
             onKeyDown={(event) => cb.handleKey(event, page.id)}
-            className="absolute top-0 right-0 flex size-[44px] items-center justify-center text-white outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
+            className="on-media absolute top-0 right-0 flex size-[44px] items-center justify-center text-white outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
             style={{ touchAction: "none" }}
           >
             <span className="flex size-[32px] items-center justify-center rounded-full bg-black/65">

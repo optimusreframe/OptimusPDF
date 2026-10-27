@@ -38,6 +38,8 @@ export type StartScreenProps = {
   resumeNotice: string | null;
   importProblems: ImportProblem[];
   onDismissProblems: () => void;
+  onRetryProblems: () => void;
+  onReloadProblems?: () => void;
   resuming: boolean;
   onResume: (id: string) => void;
   onDiscardSaved: (id: string) => void;
@@ -48,7 +50,7 @@ export type StartScreenProps = {
 };
 
 /** Inicio: retomar lo guardado, elegir el tipo de documento y UN camino principal (activar la camara), con las fotos como alternativa. */
-export function StartScreen({ s, mode, onMode, saved, resumeNotice, importProblems, onDismissProblems, resuming, onResume, onDiscardSaved, onCamera, onPhotos, onNative, closeLabel }: StartScreenProps) {
+export function StartScreen({ s, mode, onMode, saved, resumeNotice, importProblems, onDismissProblems, onRetryProblems, onReloadProblems, resuming, onResume, onDiscardSaved, onCamera, onPhotos, onNative, closeLabel }: StartScreenProps) {
   const { t, language } = useI18n();
   const Icon = TOOL.icon;
   const thumbUrl = useBlobUrl(saved?.thumb ?? null);
@@ -67,7 +69,7 @@ export function StartScreen({ s, mode, onMode, saved, resumeNotice, importProble
       </header>
 
       <div className="mb-4 empty:hidden">
-        <ImportProblemsBanner s={s} problems={importProblems} onDismiss={onDismissProblems} />
+        <ImportProblemsBanner s={s} problems={importProblems} onDismiss={onDismissProblems} onRetry={onRetryProblems} onReload={onReloadProblems} />
       </div>
 
       {resumeNotice ? (

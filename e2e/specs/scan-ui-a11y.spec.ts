@@ -191,6 +191,14 @@ async function tour(page: Page, language: Language, wide = false, camera = true,
   await page.waitForTimeout(300);
   await check(page, problems, "revisar (final de la lista)", null);
   await coverage(page, problems, "revisar (final de la lista)");
+  // A medio desplazamiento: una hoja queda PARCIALMENTE bajo la cabecera pegajosa. Lo que se ve de cada control debe seguir midiendo
+  // >= 24 px (axe `target-size`) o estar del todo oculto, y nada debe quedar tapado por la barra inferior.
+  for (const offset of [90, 170, 330]) {
+    await page.locator("[data-shell-scroll]").evaluate((node, y) => node.scrollTo(0, y), offset);
+    await page.waitForTimeout(250);
+    await check(page, problems, `revisar (desplazada ${offset})`, null);
+    await coverage(page, problems, `revisar (desplazada ${offset})`);
+  }
   await page.locator("[data-shell-scroll]").evaluate((node) => node.scrollTo(0, 0));
   if (onlyReview) return problems;
 
@@ -366,4 +374,30 @@ test("una sola region viva y el foco nunca cae en <body> al abrir y cerrar cada 
   await expect.poll(notBody).toBe(true);
   expect(await page.locator("[role=status][aria-live]").count()).toBe(1);
   await context.close();
+});
+
+test.describe("contraste con muchas miniaturas (insignia del numero y asa de arrastre sobre fondo oscuro)", () => {
+  for (const theme of ["light", "dark"] as const) {
+    for (const language of ["es", "en"] as const) {
+      for (const width of [320, 375, 768] as const) {
+        test(`axe color-contrast con 14 miniaturas · ${theme} · ${language} · ${width}px`, async ({ browser }) => {
+          const context = await newContext(browser, { width, theme, language });
+          const page = await context.newPage();
+          const problems: Problems = [];
+          await installScanFakes(page);
+          await page.goto("/scan-to-pdf");
+          await expect(page.locator("[data-start]")).toBeVisible();
+          await importPhotos(page, scanFiles(Array.from({ length: 14 }, (_, index) => `p${index + 1}.jpg`)));
+          await expect(page.locator("[data-page-grid] [data-page-id]")).toHaveCount(14, { timeout: 60_000 });
+          await waitIdle(page);
+          await check(page, problems, "14 miniaturas", null);
+          // Con la lista al final (lo que el verificador midio: fallaba a partir de ~11 hojas).
+          await page.locator("[data-shell-scroll]").evaluate((node) => node.scrollTo(0, node.scrollHeight));
+          await check(page, problems, "14 miniaturas (final)", null);
+          await context.close();
+          expect(problems, problems.join("\n")).toEqual([]);
+        });
+      }
+    }
+  }
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areDuplicates, comparePages, comparePagesBothWays, computeSignature, dHashOf, hamming } from "@/lib/scan/similarity";
+import { areDuplicates, areDuplicatesYielding, comparePages, comparePagesBothWays, computeSignature, dHashOf, hamming } from "@/lib/scan/similarity";
 import type { Rgba } from "@/lib/scan/pixels";
 
 /** Pagina de texto sintetica: lineas de «palabras» cuya distribucion depende de la semilla. */
@@ -92,5 +92,31 @@ describe("similitud de paginas — src/lib/scan/similarity.ts", () => {
     expect(sig.ink.length).toBe(384 * 512);
     expect(sig.inkCount).toBeGreaterThan(1000);
     expect(JSON.parse(JSON.stringify({ aspect: sig.aspect, blank: sig.blank })).blank).toBe(false);
+  });
+});
+
+describe("comparacion que reparte el trabajo — areDuplicatesYielding", () => {
+  it("da el MISMO resultado que areDuplicates (repetidas, distintas y con desplazamiento) y cede el hilo muchas veces (cada pocos miles de operaciones)", async () => {
+    const pairs: Array<[Rgba, Rgba]> = [
+      [sheet(1), sheet(1, { shiftX: 3, shiftY: 2, noise: 6 })],
+      [sheet(2), sheet(3)],
+      [sheet(4), sheet(4)],
+      [sheet(5), sheet(6, { shiftX: 2 })],
+    ];
+    let pauses = 0;
+    for (const [left, right] of pairs) {
+      const a = computeSignature(left);
+      const b = computeSignature(right);
+      expect(await areDuplicatesYielding(a, b, async () => { pauses += 1; })).toBe(areDuplicates(a, b));
+    }
+    // Una pareja parecida pasa por decenas de bloques y cada bloque cede varias veces: nunca es UNA sola tarea larga.
+    expect(pauses).toBeGreaterThan(100);
+  });
+
+  it("si no hay nada que comparar (en blanco, otro formato) no cede ni una vez", async () => {
+    const blank = computeSignature({ data: new Uint8ClampedArray(420 * 560 * 4).fill(255), width: 420, height: 560 });
+    let pauses = 0;
+    expect(await areDuplicatesYielding(blank, computeSignature(sheet(1)), async () => { pauses += 1; })).toBe(false);
+    expect(pauses).toBe(0);
   });
 });

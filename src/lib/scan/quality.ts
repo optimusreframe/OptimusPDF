@@ -20,8 +20,20 @@ export const BLUR_ACUTANCE_THRESHOLD = 0.3;
 /** Por debajo de esto el borde apenas cambia al desenfocarlo: ya estaba borroso (corpus: borrosas <= 0,32; nitidas >= 0,39; fotos reales nitidas >= 0,31). */
 export const BLUR_REBLUR_THRESHOLD = 0.27;
 
+/** Sin bordes que re-desenfocar, por debajo de esta acutancia (con contenido) la hoja esta borrosa (corpus y fotos reales nitidas >= 0,13). */
+export const VERY_BLURRY_ACUTANCE = 0.11;
+/** La nitidez se mide con mas resolucion que el resto (lado largo): a 480 px un texto de 12 MP desenfocado ilegible aun parecia nitido. */
+export const SHARPNESS_SIDE = 960;
+/** Bloques fuera de la superficie de luz: una hoja con menos de esta fraccion es de verdad una hoja vacia. */
+export const LAYOUT_DEVIATION = 4;
+/** Margen exterior (fraccion del lado) que no cuenta como contenido. */
+export const LAYOUT_MARGIN = 0.06;
+export const LAYOUT_BLANK_MAX_SHARE = 0.12;
+
 /** Luminancia mediana del papel por debajo de la cual falta luz. */
 export const DARK_PAPER_THRESHOLD = 95;
+/** ...y ademas lo mas claro (percentil 85) tampoco llega a esto: si hay una hoja clara, aunque ocupe poco, la luz es buena. */
+export const DARK_BRIGHT_THRESHOLD = 130;
 
 /** Fraccion del papel saturada (suavizada) a partir de la cual hay un reflejo. */
 export const GLARE_FRACTION_THRESHOLD = 0.02;
@@ -105,9 +117,87 @@ export function reblurRatio(gray: Gray, radius = 2): number | null {
   return edges < 200 ? null : loss / edges;
 }
 
-/** Borrosa segun las dos medidas (cada una `null` = sin evidencia: no se marca). */
-export function isBlurry(sharpness: number | null, reblur: number | null): boolean {
-  return sharpness !== null && reblur !== null && sharpness < BLUR_ACUTANCE_THRESHOLD && reblur < BLUR_REBLUR_THRESHOLD;
+/**
+ * Contenido a gran escala: fraccion de bloques cuya luminancia se aparta mas de `LAYOUT_DEVIATION` niveles de una superficie de
+ * segundo grado ajustada al conjunto (luz desigual, vineta, sombra suave). Una hoja en blanco, aunque tenga un degradado, un numero
+ * de pagina o un sello, deja casi todos los bloques sobre la superficie (< 1 %); un texto desenfocado hasta no leerse sigue siendo
+ * un bloque mas oscuro que los margenes (decenas de %).
+ */
+export function layoutShare(gray: Gray, grid = 24): number {
+  const { data, width, height } = gray;
+  // Sin el margen exterior: la sombra o un resto de mesa en el borde de un recorte no es contenido de la hoja.
+  const mx = Math.round(width * LAYOUT_MARGIN);
+  const my = Math.round(height * LAYOUT_MARGIN);
+  const innerW = width - 2 * mx;
+  const innerH = height - 2 * my;
+  const cols = grid;
+  const rows = Math.max(8, Math.round((grid * innerH) / innerW));
+  const cell: number[] = [];
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      const x0 = mx + Math.floor((c * innerW) / cols);
+      const x1 = Math.max(x0 + 1, mx + Math.floor(((c + 1) * innerW) / cols));
+      const y0 = my + Math.floor((r * innerH) / rows);
+      const y1 = Math.max(y0 + 1, my + Math.floor(((r + 1) * innerH) / rows));
+      let sum = 0;
+      let n = 0;
+      for (let y = y0; y < y1; y += 1) for (let x = x0; x < x1; x += 1) { sum += data[y * width + x]; n += 1; }
+      cell.push(sum / Math.max(1, n));
+    }
+  }
+  // Ajuste por minimos cuadrados de z = a + bx + cy + dx^2 + exy + fy^2 sobre las medias de bloque (x, y en [-1, 1]), repetido sin
+  // los bloques muy fuera (una franja de borde o un sello no deben torcer la superficie).
+  const terms = (x: number, y: number): number[] => [1, x, y, x * x, x * y, y * y];
+  const size = 6;
+  const pos = (i: number): { x: number; y: number } => ({ x: (((i % cols) + 0.5) / cols) * 2 - 1, y: ((Math.floor(i / cols) + 0.5) / rows) * 2 - 1 });
+  const fitSurface = (use: boolean[]): number[] => {
+    const normal = Array.from({ length: size }, () => new Array<number>(size + 1).fill(0));
+    for (let i = 0; i < cell.length; i += 1) {
+      if (!use[i]) continue;
+      const { x, y } = pos(i);
+      const t = terms(x, y);
+      for (let a = 0; a < size; a += 1) {
+        for (let b = 0; b < size; b += 1) normal[a][b] += t[a] * t[b];
+        normal[a][size] += t[a] * cell[i];
+      }
+    }
+    for (let col = 0; col < size; col += 1) {
+      let pivot = col;
+      for (let r = col + 1; r < size; r += 1) if (Math.abs(normal[r][col]) > Math.abs(normal[pivot][col])) pivot = r;
+      [normal[col], normal[pivot]] = [normal[pivot], normal[col]];
+      const d = normal[col][col] || 1e-9;
+      for (let r = col + 1; r < size; r += 1) {
+        const f = normal[r][col] / d;
+        for (let k = col; k <= size; k += 1) normal[r][k] -= f * normal[col][k];
+      }
+    }
+    const coef = new Array<number>(size).fill(0);
+    for (let r = size - 1; r >= 0; r -= 1) {
+      let acc = normal[r][size];
+      for (let k = r + 1; k < size; k += 1) acc -= normal[r][k] * coef[k];
+      coef[r] = acc / (normal[r][r] || 1e-9);
+    }
+    return coef;
+  };
+  const residual = (coef: number[], i: number): number => {
+    const { x, y } = pos(i);
+    return cell[i] - terms(x, y).reduce((acc, t, k) => acc + t * coef[k], 0);
+  };
+  let coef = fitSurface(cell.map(() => true));
+  for (let pass = 0; pass < 2; pass += 1) coef = fitSurface(cell.map((_, i) => Math.abs(residual(coef, i)) < LAYOUT_DEVIATION * 2));
+  let off = 0;
+  for (let i = 0; i < cell.length; i += 1) if (Math.abs(residual(coef, i)) >= LAYOUT_DEVIATION) off += 1;
+  return off / cell.length;
+}
+
+/**
+ * Borrosa segun las dos medidas. Sin bordes fuertes que re-desenfocar (`reblur` null: un texto desenfocado hasta no leerse ya no
+ * tiene ninguno) basta una acutancia muy baja, SI hay contenido (`content`): una pagina sin nada no se marca.
+ */
+export function isBlurry(sharpness: number | null, reblur: number | null, content = false): boolean {
+  if (sharpness === null) return false;
+  if (reblur === null) return content && sharpness < VERY_BLURRY_ACUTANCE;
+  return sharpness < BLUR_ACUTANCE_THRESHOLD && reblur < BLUR_REBLUR_THRESHOLD;
 }
 
 /** Mediana de la luminancia (papel), opcionalmente solo dentro de `mask`. */
@@ -169,6 +259,9 @@ export const GLARE_MAX_FRACTION = 0.6;
 /** El papel de alrededor del reflejo (lo no quemado) debe verse y no ser ya casi blanco. */
 export const GLARE_PAPER_MIN = 150;
 export const GLARE_PAPER_MAX = 242;
+/** Papel «liso» alrededor de un reflejo: la luminancia suavizada cambia como mucho GLARE_FLAT_SLOPE niveles (suma de dos diferencias) entre dos puntos a +-GLARE_FLAT_SPAN px (el borde antialias de un texto cambia mucho mas). */
+export const GLARE_FLAT_SLOPE = 6;
+export const GLARE_FLAT_SPAN = 1;
 
 /**
  * Reflejo: zona extensa de papel quemado (tras suavizar el ruido) RODEADA de papel que si se ve (claro pero no blanco). Un
@@ -187,6 +280,12 @@ export function glareOf(gray: Gray, mask?: Uint8Array, radius = 3): GlareReading
     if (smooth[index] >= GLARE_LEVEL) {
       burnt += 1;
     } else if (smooth[index] >= GLARE_PAPER_MIN) {
+      // Papel de verdad = claro Y LISO: el borde antialias de un texto digital tiene los mismos grises pero cambia deprisa.
+      const x = index % width;
+      const y = (index - x) / width;
+      if (x < GLARE_FLAT_SPAN || y < GLARE_FLAT_SPAN || x >= width - GLARE_FLAT_SPAN || y >= height - GLARE_FLAT_SPAN) continue;
+      const slope = Math.abs(smooth[index + GLARE_FLAT_SPAN] - smooth[index - GLARE_FLAT_SPAN]) + Math.abs(smooth[index + GLARE_FLAT_SPAN * width] - smooth[index - GLARE_FLAT_SPAN * width]);
+      if (slope > GLARE_FLAT_SLOPE) continue;
       hist[Math.min(255, Math.round(smooth[index]))] += 1;
       paper += 1;
     }
@@ -292,26 +391,36 @@ export type PageQuality = {
   dark: boolean;
   paperLevel: number;
   blank: boolean;
+  /** Fraccion de bloques fuera de la superficie de luz (ver `layoutShare`). */
+  layout: number;
   ink: InkStats;
 };
 
 /** Lectura completa de una hoja ya recortada. */
-export function measurePage(image: Rgba): PageQuality {
-  const gray = analysisGray(image);
-  const sharpness = sharpnessOf(gray);
-  const reblur = reblurRatio(gray);
+export function measurePage(image: Rgba, options: { width?: number; sharpSide?: number } = {}): PageQuality {
+  const gray = analysisGray(image, options.width ?? QUALITY_WIDTH);
+  // Nitidez con mas resolucion (si la imagen la tiene): un desenfoque grande solo se ve en los pixeles del original.
+  const wide = image.width > gray.width || image.height > gray.height ? analysisGray(image, options.sharpSide ?? SHARPNESS_SIDE) : gray;
+  const sharpness = sharpnessOf(wide);
+  const reblur = reblurRatio(wide);
   const glare = glareOf(gray);
   const paperLevel = medianLevel(gray);
+  const brightLevel = percentileOf(histogram256(gray.data), 0.85);
   const ink = inkStatsOf(gray);
+  const layout = layoutShare(gray);
+  // En blanco = sin tinta Y sin estructura a gran escala: un texto desenfocado hasta no leerse no es una hoja vacia.
+  const blank = isBlankPage(ink) && layout < LAYOUT_BLANK_MAX_SHARE;
   return {
     sharpness,
     reblur,
-    blurry: !isBlankPage(ink) && isBlurry(sharpness, reblur),
+    blurry: !blank && isBlurry(sharpness, reblur, !isBlankPage(ink) || layout >= LAYOUT_BLANK_MAX_SHARE),
     glare: glare.glare,
     glareFraction: glare.fraction,
-    dark: paperLevel < DARK_PAPER_THRESHOLD,
+    // Oscura = falta luz en lo mas claro de la imagen: una hoja bien iluminada sobre una mesa oscura (pagina sin recortar) no lo esta.
+    dark: paperLevel < DARK_PAPER_THRESHOLD && brightLevel < DARK_BRIGHT_THRESHOLD,
     paperLevel,
-    blank: isBlankPage(ink),
+    blank,
+    layout,
     ink,
   };
 }

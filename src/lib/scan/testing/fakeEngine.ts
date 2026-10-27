@@ -53,6 +53,8 @@ export type FakeControls = {
   peakConcurrent: number;
   /** `buildPdf` rechaza con este mensaje. */
   buildError: string | null;
+  /** `createPage` y `buildPdf` fallan como el motor real cuando su chunk no carga (sin red): `code === "engine-unavailable"`. */
+  engineUnavailable: boolean;
   /** Solo `splitSpread`: sin lomo detectable. */
   noSplit: boolean;
   /** El modelo de texto buscable ya esta en este dispositivo (`ocrModelAvailable`). */
@@ -75,6 +77,7 @@ export function newControls(): FakeControls {
     createLog: [],
     peakConcurrent: 0,
     buildError: null,
+    engineUnavailable: false,
     noSplit: false,
     ocrAvailable: false,
     ocrPrepare: "ok",
@@ -236,6 +239,14 @@ export type FakeEngine = ScanEngineApi & {
   splitSpread: (source: ScanPage, options?: { signal?: AbortSignal }) => Promise<[ScanPage, ScanPage]>;
 };
 
+/** El error del motor real cuando su chunk no carga (`ScanEngineUnavailableError`, `code === "engine-unavailable"`). */
+function unavailableError(): Error {
+  const error = new Error("El motor del escaner no se pudo cargar");
+  error.name = "ScanEngineUnavailableError";
+  (error as Error & { code: string }).code = "engine-unavailable";
+  return error;
+}
+
 /** Doble de `ocrModelAvailable` / `prepareOcrModel` del motor (se instala en `globalThis.__optimusScanOcr`). */
 export function createFakeOcr(controls: FakeControls): NonNullable<typeof globalThis.__optimusScanOcr> {
   return {
@@ -346,6 +357,7 @@ export function createFakeEngine(controls: FakeControls = newControls()): FakeEn
 
     async createPage(source, info): Promise<ScanPage> {
       call("createPage");
+      if (controls.engineUnavailable) throw unavailableError();
       const label = nameOf(source) || "frame";
       controls.createLog.push(label);
       enter();
@@ -464,6 +476,7 @@ export function createFakeEngine(controls: FakeControls = newControls()): FakeEn
 
     async buildPdf(session, options): Promise<Blob> {
       call("buildPdf");
+      if (controls.engineUnavailable) throw unavailableError();
       if (controls.buildError) throw new Error(controls.buildError);
       const pdf = await PDFDocument.create();
       const total = session.pages.length;

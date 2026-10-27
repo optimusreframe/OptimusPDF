@@ -1,5 +1,6 @@
 import { decideAutoFilter } from "@/lib/scan/filters";
 import { quadArea } from "@/lib/scan/geometry";
+import { refineCrop } from "@/lib/scan/cropRefine";
 import { chooseCorners, edgeSupport } from "@/lib/scan/documentDetection";
 import { quadMask } from "@/lib/scan/liveFrame";
 import { quadOutputSize, warpImageData, type QuadCorners } from "@/lib/scan/perspective";
@@ -17,7 +18,9 @@ import type { ScanMode } from "@/lib/scan/types";
  *  4. por dentro parece PAPEL (claro, sin color, uniforme) —salvo en tarjetas, que pueden ser de colores— y no un objeto o
  *     un fragmento de una foto, y
  *  5. por fuera es OTRA cosa (el escritorio): si fuera igual que el interior, la foto ya es toda documento y recortar solo
- *     quitaria contenido.
+ *     quitaria contenido, y
+ *  6. el recorte abarca TODO el objeto: los lados se empujan hasta el borde real del papel y, si detras de alguno hay otro borde
+ *     nitido y paralelo (un membrete oscuro o de color), no se recorta (`cropRefine.ts`).
  */
 
 export type CropGateFeatures = {
@@ -33,7 +36,7 @@ export type CropGateFeatures = {
   colorGap: number;
 };
 
-export type CropVerdict = { accept: boolean; reason: "ok" | "area" | "aspect" | "edges" | "not-paper" | "same-as-outside"; features: CropGateFeatures };
+export type CropVerdict = { accept: boolean; reason: "ok" | "area" | "aspect" | "edges" | "not-paper" | "same-as-outside" | "content-beyond" | "paper-continues"; features: CropGateFeatures };
 
 /** Cobertura minima del encuadre y rango de proporcion (ancho/alto de la hoja enderezada, en cualquier orientacion) por modo. */
 export function gateLimits(mode: ScanMode): { minArea: number; aspect: [number, number]; paper: boolean } {
@@ -141,5 +144,10 @@ export function selectCrop(scanic: QuadCorners | null, live: QuadCorners | null,
   const candidate = chooseCorners(scanic, live, image, liveConfidence);
   if (!candidate) return { quad: null, verdict: null };
   const verdict = evaluateCrop(image, candidate, mode);
-  return { quad: verdict.accept ? candidate : null, verdict };
+  if (!verdict.accept) return { quad: null, verdict };
+  // Ultima comprobacion: los lados se empujan hasta el borde real del papel y, si detras hay otro borde (un membrete oscuro o de
+  // color que el detector dejo fuera) o el papel no acaba, no se recorta.
+  const refined = refineCrop(image, candidate);
+  if (!refined.ok) return { quad: null, verdict: { accept: false, reason: refined.reason, features: verdict.features } };
+  return { quad: refined.quad, verdict };
 }

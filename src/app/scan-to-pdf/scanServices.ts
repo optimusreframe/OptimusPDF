@@ -100,5 +100,17 @@ export function preloadEngine(): void {
   }
 }
 
+/**
+ * ¿El fallo es «el motor no se pudo CARGAR» (el chunk no llego por la red, sin conexion) y no un defecto de la foto? El motor lo marca
+ * con `code === "engine-unavailable"` (`ScanEngineUnavailableError`); se acepta tambien por nombre y por los errores tipicos de carga de
+ * un chunk (`ChunkLoadError`, «Failed to fetch dynamically imported module») para no depender de que cada via lo envuelva.
+ */
+export function isEngineUnavailableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const { code, name, message } = error as { code?: unknown; name?: unknown; message?: unknown };
+  if (code === "engine-unavailable" || name === "ScanEngineUnavailableError" || name === "ChunkLoadError") return true;
+  return typeof message === "string" && /dynamically imported module|Loading chunk|Importing a module script failed|ChunkLoadError/i.test(message);
+}
+
 /** Mensaje de un aviso de `buildPdf` (`onWarning`): lo que el PDF NO lleva y por que. */
 export type { ScanBuildWarning } from "@/lib/scan/types";

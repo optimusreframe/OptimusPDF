@@ -21,6 +21,23 @@ export class ScanDecodeError extends Error {
   }
 }
 
+/**
+ * Cuanto pesa un JPEG al RECODIFICARLO a cada calidad con EL MISMO codificador que `prepareForPdf` (calibrado por navegador: en
+ * WebKit la misma calidad pesa distinto que en Chromium, y la calibracion lo compensa). Devuelve los bytes de cada calidad en el
+ * mismo orden. `null` si no se pudo decodificar.
+ */
+export async function reencodedSizes(source: Blob, qualities: readonly number[], signal?: AbortSignal): Promise<number[] | null> {
+  const raster = await getBackend().decode(source, { maxSide: 4096, maxPixels: CANVAS_SAFE_MAX_PIXELS, hint: null, orientation: 1, willRead: true }, signal);
+  if (!raster) return null;
+  try {
+    const sizes: number[] = [];
+    for (const quality of qualities) sizes.push((await raster.encode("jpeg", quality, false)).byteLength);
+    return sizes;
+  } finally {
+    raster.release();
+  }
+}
+
 /** Dimensiones (con la orientacion EXIF aplicada) leidas de la cabecera, sin decodificar. */
 export async function readDisplaySize(source: Blob): Promise<{ width: number; height: number; orientation: number } | null> {
   try {

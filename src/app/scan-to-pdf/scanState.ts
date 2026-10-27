@@ -383,6 +383,9 @@ export function fileNameFor(name: string, fallback: string): string {
     .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+    // Si la persona ya escribio la extension («Contrato.pdf») no se duplica («Contrato.pdf.pdf»).
+    .replace(/(?:\s*\.pdf)+$/i, "")
+    .trim()
     .slice(0, 120);
   return `${cleaned || fallback}.pdf`;
 }

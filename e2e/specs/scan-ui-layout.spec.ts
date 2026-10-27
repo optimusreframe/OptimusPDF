@@ -1,5 +1,5 @@
 import { test, type Page } from "@playwright/test";
-import { expect, importPhotos, installScanFakes, scanFiles, waitIdle, TEST_TIMEOUT } from "../helpers/scan-ui";
+import { docFilesOnDisk, expect, FAKE_ONLY_REASON, importPhotos, installScanFakes, scanFiles, USE_REAL_ENGINE, waitIdle, TEST_TIMEOUT } from "../helpers/scan-ui";
 
 /**
  * Escaner · maquetacion de los pasos Revisar y Guardar en el movil (defectos medidos con el motor REAL):
@@ -129,4 +129,49 @@ test("letra al 150 % a 320 px: nada se sale por los lados, el boton principal no
       .map((item) => `${item.label} ${item.box.width.toFixed(1)}x${item.box.height.toFixed(1)}`),
   );
   expect(small, small.join("\n")).toEqual([]);
+});
+
+test("crear el PDF con 40 hojas: el overlay responde, «Cancelar» tiene el foco, mide >= 44 px y cancela al instante (sin tareas largas de la interfaz)", async ({ page }) => {
+  // Con el motor falso (retardo por hoja) se aisla lo que hace LA INTERFAZ durante la creacion; la cesion al hilo del motor real es del motor.
+  test.skip(USE_REAL_ENGINE, FAKE_ONLY_REASON);
+  test.setTimeout(180_000);
+  await installScanFakes(page, { controls: { buildDelayMs: 150 } });
+  await page.addInitScript(() => {
+    const w = window as unknown as { __long: number[] };
+    w.__long = [];
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) w.__long.push(entry.duration);
+      }).observe({ type: "longtask", buffered: true });
+    } catch {
+      /* sin longtask */
+    }
+  });
+  await page.goto("/scan-to-pdf");
+  const disk = docFilesOnDisk("guardar40", 40, { width: 360, height: 480 });
+  await page.locator('input[data-scan-input="library"]').setInputFiles(disk.paths);
+  await expect(page.locator('[data-review-action="save"]')).toContainText("(40)", { timeout: 90_000 });
+  await waitIdle(page, 90_000);
+  disk.cleanup();
+  await page.locator('[data-review-action="save"]').click();
+  await expect(page.locator("[data-save-screen]")).toBeVisible();
+  await page.evaluate(() => ((window as unknown as { __long: number[] }).__long.length = 0));
+  await page.locator('[data-save-action="create"]').click();
+  const overlay = page.locator("[data-processing-overlay]");
+  await expect(overlay).toBeVisible();
+  const cancel = overlay.getByRole("button", { name: /cancelar|cancel/i });
+  await expect(cancel).toBeFocused();
+  // La tarjeta «materializa» (escala 0,96 → 1): se mide cuando termina la animacion.
+  await expect.poll(async () => (await cancel.boundingBox())!.height, { timeout: 5_000 }).toBeGreaterThanOrEqual(43.5);
+  // El progreso avanza de verdad (no se queda en 0) mientras se crean las hojas.
+  await expect.poll(() => overlay.getByRole("progressbar").first().getAttribute("aria-valuenow").then((value) => Number(value ?? 0)), { timeout: 20_000 }).toBeGreaterThan(5);
+  const started = Date.now();
+  await cancel.click();
+  await expect(overlay).toHaveCount(0, { timeout: 3_000 });
+  expect(Date.now() - started).toBeLessThan(3_000);
+  await expect(page.locator("[data-save-error]")).toBeVisible();
+  // La interfaz no bloqueo el hilo: ninguna tarea larga seria durante la creacion.
+  const long = await page.evaluate(() => (window as unknown as { __long: number[] }).__long);
+  const slack = process.env.CI ? 2.5 : 1;
+  expect(Math.max(0, ...long), `tareas largas (ms): ${long.join(", ")}`).toBeLessThan(250 * slack);
 });

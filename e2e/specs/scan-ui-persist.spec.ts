@@ -97,7 +97,7 @@ test("BACK con paginas: pregunta antes de salir; «Seguir escaneando» se queda 
   await page.goBack();
   const sheet = page.getByRole("dialog", { name: "¿Salir del escaneo?" });
   await expect(sheet).toBeVisible();
-  await expect(sheet).toContainText("está guardado en este dispositivo");
+  await expect(sheet).toContainText("quedan guardadas en este dispositivo");
   await sheet.getByRole("button", { name: "Seguir escaneando" }).click();
   await expect(sheet).toHaveCount(0);
   await expect(tiles(page)).toHaveCount(2);
@@ -127,7 +127,7 @@ test("cierre de pestaña: solo avisa si hay algo SIN guardar", async ({ page }) 
   expect(await blocked()).toBe(true);
   // Y la hoja de salida dice la verdad: no esta guardado.
   await page.goBack();
-  await expect(page.getByRole("dialog", { name: "¿Salir del escaneo?" })).toContainText("no está guardado");
+  await expect(page.getByRole("dialog", { name: "¿Salir del escaneo?" })).toContainText("No se pudo guardar");
 });
 
 test("cuota llena: avisa con un mensaje claro y se puede seguir creando el PDF", async ({ page }) => {
@@ -225,4 +225,43 @@ test("con el almacen falso cada cambio se apunta con `stage` al instante y se vu
   await page.getByRole("button", { name: "Girar la página 1" }).click();
   const after = await page.evaluate(() => (globalThis as unknown as { __scanFake: { store: { controls: { stageLog: unknown[] } } } }).__scanFake.store.controls.stageLog.length);
   expect(after).toBeGreaterThan(before);
+});
+
+test("el escaner no se pudo CARGAR (sin red): un mensaje claro con «Reintentar», nunca «dañada», y al volver la red las fotos entran", async ({ page, context }) => {
+  let blocked = false;
+  if (USE_REAL_ENGINE) {
+    // Motor REAL: despues de cargar la pagina se cortan los trozos de JS que aun no llegaron (el motor se carga bajo demanda): el
+    // `import()` falla como con un movil sin cobertura. Se corta con `route` (no `setOffline`: rompe las URL `blob:` en WebKit/Linux).
+    await context.route(/\/_next\/static\/.*\.js/, (route) => (blocked ? route.abort("internetdisconnected") : route.continue()));
+    await page.goto("/scan-to-pdf");
+    await page.waitForLoadState("load");
+    blocked = true;
+  } else {
+    await installScanFakes(page, { controls: { engineUnavailable: true } });
+    await page.goto("/scan-to-pdf");
+  }
+  await importPhotos(page, widthCodedFiles(2));
+  const banner = page.locator('[data-banner="import-problems"]');
+  await expect(banner).toBeVisible({ timeout: 30_000 });
+  await expect(banner).toContainText("No se pudo cargar el escáner. Revisa tu conexión y vuelve a intentarlo");
+  await expect(banner).not.toContainText(/dañada|incompleta/i);
+  await expect(banner.locator("[data-import-problem]")).toHaveCount(0);
+  await expect(tiles(page)).toHaveCount(0);
+  // Vuelve la red.
+  if (USE_REAL_ENGINE) blocked = false;
+  else await fakeControls(page, (c) => (c.engineUnavailable = false));
+  await banner.getByRole("button", { name: "Reintentar" }).click();
+  // El empaquetador puede guardar el fallo de carga de un trozo hasta recargar la pagina: si el reintento tambien falla, el aviso lo
+  // dice y ofrece «Recargar la página»; tras recargar, las fotos entran.
+  const reload = page.locator('[data-import-action="reload"]');
+  await expect(tiles(page).first().or(reload)).toBeVisible({ timeout: 60_000 });
+  if (await reload.isVisible()) {
+    await expect(page.locator("[data-import-reload-hint]")).toBeVisible();
+    await expect(banner).not.toContainText(/dañada|incompleta/i);
+    await reload.click();
+    await page.waitForLoadState("load");
+    await importPhotos(page, widthCodedFiles(2));
+  }
+  await expect(tiles(page)).toHaveCount(2, { timeout: 60_000 });
+  await expect(banner).toHaveCount(0);
 });

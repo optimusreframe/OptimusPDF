@@ -279,6 +279,12 @@ describe("nombre propuesto", () => {
   it("nombre de archivo seguro", () => {
     expect(fileNameFor("Contrato / servicio: 2026?", "Escaneo")).toBe("Contrato servicio 2026.pdf");
     expect(fileNameFor("   ", "Escaneo")).toBe("Escaneo.pdf");
+    // Sin doble extension: la persona ya la escribio (en cualquier mayuscula) o el nombre solo era «.pdf».
+    expect(fileNameFor("Contrato.pdf", "Escaneo")).toBe("Contrato.pdf");
+    expect(fileNameFor("Contrato.PDF ", "Escaneo")).toBe("Contrato.pdf");
+    expect(fileNameFor("Contrato.pdf.pdf", "Escaneo")).toBe("Contrato.pdf");
+    expect(fileNameFor(".pdf", "Escaneo")).toBe("Escaneo.pdf");
+    expect(fileNameFor("informe.pdfx", "Escaneo")).toBe("informe.pdfx.pdf");
     expect(fileNameFor("a".repeat(300), "x").length).toBe(124);
   });
 });

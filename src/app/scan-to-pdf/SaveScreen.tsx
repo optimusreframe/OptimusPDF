@@ -21,7 +21,7 @@ import { downloadBlob, formatFileSize } from "@/lib/pdf/core";
 import { addRecentEntry } from "@/lib/recent";
 import { toolHref } from "@/lib/tools-registry";
 import { fileNameFor } from "@/app/scan-to-pdf/scanState";
-import { ocrModelAvailable, prepareOcrModel } from "@/app/scan-to-pdf/scanServices";
+import { isEngineUnavailableError, ocrModelAvailable, preloadEngine, prepareOcrModel } from "@/app/scan-to-pdf/scanServices";
 import { ScreenShell } from "@/app/scan-to-pdf/ScreenShell";
 import { useAnnounce } from "@/app/scan-to-pdf/ScanLive";
 import { OCR_MODEL_MB, type ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
@@ -68,6 +68,7 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
   // (`ocrModelAvailable`, sin red) y, si no, hay una accion EXPLICITA para bajarlo. Sin el modelo el PDF sale normal y el aviso del
   // motor (`onWarning`) se muestra en el resultado: nunca es un error.
   const [failedWhileSearchable, setFailedWhileSearchable] = useState(false);
+  const [engineFailed, setEngineFailed] = useState(false);
   const [modelReady, setModelReady] = useState<boolean | null>(null);
   const [model, setModel] = useState<{ phase: "idle" | "downloading" | "failed"; reason?: "offline" | "network" | "engine" }>({ phase: "idle" });
   const modelAbort = useRef<AbortController | null>(null);
@@ -121,7 +122,11 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
     void proposeNameNow();
   }, [proposeNameNow]);
 
-  const raw = api.estimate(effective);
+  // La estimacion recorre TODAS las paginas del motor: no se repite en cada cuadro del progreso (con 40 fotos, cada `setProgress` la
+  // recalculaba y el overlay y «Cancelar» tardaban en responder). Solo cambia con las paginas, la calidad o el texto buscable.
+  const { estimate: estimateSize } = api;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `pages` y `searchable` son las entradas reales (`estimateSize` lee el estado vigente)
+  const raw = useMemo(() => estimateSize(effective), [estimateSize, effective, pages, searchable]);
   const sourceBytes = useMemo(() => pages.reduce((sum, page) => sum + page.original.size, 0), [pages]);
   const estimate: PdfSizeEstimate | null = pages.length
     ? { photos: pages.length, sourceBytes, optimizedBytes: raw.bytes, unoptimizedBytes: Math.max(raw.high, sourceBytes) }
@@ -136,6 +141,7 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
     runRef.current = run;
     setError(null);
     setFailedWhileSearchable(false);
+    setEngineFailed(false);
     setProgress(0);
     setProgressText(s.buildProgress(1, pages.length));
     setPhase("building");
@@ -169,13 +175,23 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
       if (runRef.current !== run) return;
       const aborted = (caught as Error)?.name === "AbortError" || controller.signal.aborted;
       setPhase("form");
-      const message = aborted ? s.buildCancelled : wantsText ? s.searchableFailed : s.buildFailed;
-      setFailedWhileSearchable(!aborted && wantsText);
+      // El escaner no se pudo CARGAR (sin red): mensaje propio con «Reintentar», no «no se pudo crear el PDF» ni nada de fotos dañadas.
+      const unavailable = !aborted && isEngineUnavailableError(caught);
+      const message = aborted ? s.buildCancelled : unavailable ? s.importProblems.engineUnavailable : wantsText ? s.searchableFailed : s.buildFailed;
+      setFailedWhileSearchable(!aborted && !unavailable && wantsText);
+      setEngineFailed(unavailable);
       // El aviso recibe el foco: el lector lo lee al llegar (anunciarlo ademas por la region viva lo diria dos veces).
       setError(message);
       requestAnimationFrame(() => errorRef.current?.focus({ preventScroll: false }));
     }
   };
+
+  // Mientras se crea el PDF el foco va a «Cancelar» (el overlay es modal): Intro / Espacio cancelan sin buscar el boton.
+  useEffect(() => {
+    if (phase !== "building") return;
+    const frame = requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-processing-overlay] button")?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [phase]);
 
   const cancel = () => {
     runRef.current += 1;
@@ -312,6 +328,14 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
           {error}
         </p>
       ) : null}
+
+        {error && engineFailed ? (
+          <div className="mt-3 pb-6">
+            <Button variant="secondary" size="md" fullWidth wrap data-save-action="retry" onClick={() => { preloadEngine(); void build(); }}>
+              {s.importProblems.retry}
+            </Button>
+          </div>
+        ) : null}
 
         {error && searchable && failedWhileSearchable ? (
           <div className="mt-3 pb-6">

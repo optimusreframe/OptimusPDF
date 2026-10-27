@@ -75,6 +75,14 @@ export function UnfinishedSection({
   const covers = useCoverUrls(items);
   const toDiscard = items.find((item) => item.key === confirmKey) ?? null;
 
+  // Hay un escaneo para retomar: se precarga el motor del Escaner (chunk, detector y worker) ahora, con conexion, para que «Continuar»
+  // funcione aunque despues se pierda la red. Nunca lanza ni bloquea.
+  const hasScan = items.some((item) => item.slug === "scan-to-pdf");
+  useEffect(() => {
+    if (!hasScan) return;
+    void import("@/lib/scan/engine").then((module) => module.preloadScanEngine()).catch(() => {});
+  }, [hasScan]);
+
   useEffect(() => {
     if (!refocusRef.current) return;
     refocusRef.current = false;

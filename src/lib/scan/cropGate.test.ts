@@ -102,9 +102,32 @@ describe("puerta del recorte automatico — src/lib/scan/cropGate.ts", () => {
     const quad = quadOf(box);
     expect(selectCrop(quad, null, image, "photo")).toEqual({ quad: null, verdict: null });
     expect(selectCrop(null, null, image, "document")).toEqual({ quad: null, verdict: null });
-    expect(selectCrop(quad, null, image, "document").quad).toBe(quad);
+    const accepted = selectCrop(quad, null, image, "document").quad;
+    expect(accepted).not.toBeNull();
+    // Se aplica el recorte propuesto con los lados empujados unos pixeles hacia fuera (margen de seguridad), nunca hacia dentro.
+    expect(accepted?.topLeft.x).toBeLessThanOrEqual(quad.topLeft.x);
+    expect(accepted?.topLeft.x).toBeGreaterThan(quad.topLeft.x - 0.03);
+    expect(accepted?.bottomRight.y).toBeGreaterThanOrEqual(quad.bottomRight.y);
     const rejected = selectCrop(quadOf([30, 10, 250, 270]), null, image, "document");
     expect(rejected.quad).toBeNull();
     expect(rejected.verdict?.accept).toBe(false);
+  });
+
+  it("un membrete oscuro que el detector dejo FUERA del recorte: selectCrop devuelve null (pagina completa) y dice por que", () => {
+    // Papel claro 90..310 x 100..270 y, pegado arriba, una banda oscura de 40 px sobre una mesa clara (borde nitido paralelo).
+    const width = 400;
+    const height = 300;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        let c: [number, number, number] = [170, 150, 120];
+        if (x >= 90 && x < 310 && y >= 60 && y < 100) c = [20, 24, 32];
+        if (x >= 90 && x < 310 && y >= 100 && y < 270) c = [238, 236, 230];
+        data.set([...c, 255], (y * width + x) * 4);
+      }
+    }
+    const result = selectCrop(quadOf([90, 100, 310, 270]), null, { data, width, height }, "document");
+    expect(result.quad).toBeNull();
+    expect(result.verdict).toMatchObject({ accept: false, reason: "content-beyond" });
   });
 });

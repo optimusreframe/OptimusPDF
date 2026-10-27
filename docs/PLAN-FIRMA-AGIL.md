@@ -2682,3 +2682,139 @@ Cuando `page.flags.noDocument` (el motor dejo la pagina ENTERA porque el recorte
 - `tsc --noEmit`, `eslint src e2e` (0 errores) y Vitest completo (665 archivos, 14319 pruebas) en verde; 49 mutaciones de `scan-ui-mutate.py`, las 49 mueren.
 - Docker Linux (Playwright 1.62 noble + DejaVu, `CI=1`, 2 trabajadores, sin reintentos, build de produccion): `e2e/specs/scan-ui-*` con motor falso **104 de 104 (+1 que se salta: solo motor real)** y con `SCAN_REAL=1` **97 de 97 (+8 que se saltan con motivo explicito)**. Incluye el contrato real (`SCAN_REAL=1 scan-ui-contract`), las celdas 320 px y letra al 150 % en ES/EN, y el giro + recarga inmediata con el motor real. Esa corrida uso el arreglo de `tx.commit()` del motor (arriba) aplicado SOLO en el arbol de verificacion; sin el, la prueba de recarga inmediata falla de forma intermitente bajo carga.
 - Ajuste visual derivado: el chip largo «Sin documento detectado» muestra «Ajustar» como accion visible (el nombre accesible y el `title` llevan «Ajusta el recorte») y su rotulo se limita a dos lineas, para que con letra grande no tape el centro de la miniatura.
+
+## Escanear a PDF · interfaz y flujo (unidad E2) · ronda tras la verificacion independiente (scan-ui-fix4)
+
+Correcciones de la INTERFAZ (la parte del motor la hace otro agente; no se toca `src/lib/scan` salvo `testing/`).
+
+### P2 · Contraste con muchas miniaturas
+
+La insignia del numero y el asa de arrastre (`PageGrid.tsx`) usaban `text-white` sin `on-media`: el tema claro redefine `--color-white` a oscuro y quedaba texto #161616 sobre `bg-black/70` (1,97:1). Ahora llevan `on-media` (el patron del sitio para texto sobre fondos oscuros, ya usado por los chips): texto claro sobre su fondo oscuro en AMBOS temas. Tambien el circulo de «seleccionar». Spec nuevo `scan-ui-a11y.spec.ts` › «contraste con muchas miniaturas»: axe con 14 miniaturas, claro/oscuro × ES/EN × 320/375/768, en la parte alta y con la lista al final (comprobado: FALLA sin el arreglo en las 6 celdas de tema claro y pasa con el). Prueba unitaria (`pieces.test.tsx`) y mutacion M57.
+
+### P2 · «No se pudo cargar el escaner» (sin red) ≠ «dañada»
+
+`scanServices.isEngineUnavailableError` reconoce el fallo de CARGA del motor por `code === "engine-unavailable"` (el del motor, `ScanEngineUnavailableError`), por nombre y por los errores tipicos de un chunk que no llega («Failed to fetch dynamically imported module», `ChunkLoadError`...). Con el: la foto NO se clasifica como dañada (`kind: "engine"`, conserva la foto), se muestra UN mensaje «No se pudo cargar el escáner. Revisa tu conexión y vuelve a intentarlo.» (+EN) con **Reintentar** (reprocesa las fotos) en Revisar, Inicio y al crear el PDF (`SaveScreen`, con su propio «Reintentar»). Se anuncia UNA vez, no una por foto. El doble (`controls.engineUnavailable`) y el motor REAL (se cortan los chunks con `route`) tienen su E2E.
+
+**Hallazgo con el motor real**: tras cortar la red a un chunk, un reintento sin recargar NO vuelve a pedirlo (el empaquetador de produccion guarda el fallo de carga: 0 peticiones nuevas). Por eso, si el reintento tambien falla, el aviso añade «Sigue sin cargar… recarga la página (tus páginas ya añadidas se conservan)» + **Recargar la página**; tras recargar, las fotos entran. Cuando el motor consiga reintentar solo, el boton de recargar no llegara a aparecer.
+
+### P2/UX · Precarga del motor
+
+`preloadScanEngine()` ya se llamaba al abrir la herramienta (cubre Inicio y `?resume=`). Ademas, Recientes (`UnfinishedSection`) lo precarga cuando hay un escaneo para retomar (solo si lo hay), para que «Continuar» funcione aunque despues se pierda la red. El aviso de fallo es el de arriba. Prueba: `UnfinishedSection.preload.test.tsx` + M56.
+
+### P2 · Congelacion al guardar (36–40 fotos)
+
+Lo que hacia la interfaz: `SaveScreen` recalculaba `api.estimate()` (recorre TODAS las paginas del motor) en cada render, y el progreso renderiza por pagina. Ahora la estimacion esta memoizada (cambia solo con paginas, calidad y texto buscable). Durante la creacion el foco va a «Cancelar» (overlay modal; Intro/Espacio cancelan). Verificado con el doble (retardo por hoja): el overlay aparece, «Cancelar» tiene el foco, mide ≥ 44 px, el progreso avanza, cancelar responde en < 3 s y no hay tareas largas de la interfaz > 250 ms (`scan-ui-layout.spec.ts`). La cesion al hilo del trabajo pesado es del motor. Pruebas: unitaria (la estimacion no sube con los cuadros del progreso; foco) + M54, M55.
+
+### P3
+
+- **Hoja de salida honesta**: «Tus páginas (N) quedan guardadas en este dispositivo para retomarlas…» cuando el cambio solo esta pendiente del autoguardado (`stage` lo escribe al salir; antes decia «se perderán N páginas»). «No se pudo guardar este escaneo en el dispositivo. Si sales, se perderán N páginas.» solo con cuota llena / sin almacen / demasiado grande. Prueba + M51.
+- **`.pdf.pdf`**: `fileNameFor` quita la extension que la persona ya escribio (cualquier mayuscula, repetida). Prueba + M50.
+- **`target-size` tras el desplazamiento**: la matriz a11y ahora pasa axe y la comprobacion `[tapado]` con la lista desplazada a 90 / 170 / 330 px (hojas parcialmente bajo la cabecera pegajosa), ademas de arriba y al final: 0 violaciones en 320/375/393/744/834/1194, claro/oscuro, ES/EN, 150 % y fuente ancha.
+- **Desborde de 83 px a 1024×768 con letra al 150 %**: viene SOLO del pie del sitio (`footer`), fuera de la herramienta; no se toca (anotado). Sigue sin tocar la cabecera / barra de pestañas del sitio a 150 %/320 px de la ronda anterior.
+
+### Verificacion (base: main 8217d73; `git apply --check` limpio)
+
+- `tsc`, `eslint src e2e` (0 errores) y `F2_REAL_PDFS=1 npx vitest run` (667 archivos, 14337 pruebas) en verde; `scan-ui-mutate.py`: **57 de 57 mutaciones mueren** (las 49 anteriores y 8 nuevas: M50–M57).
+- Docker Linux (Playwright 1.62 noble + DejaVu, `CI=1`, 2 trabajadores, sin reintentos, build de produccion): `scan-ui-*` con motor falso **118 de 118 (+1 que se salta: solo motor real)** y con `SCAN_REAL=1` **110 de 110 (+9 que se saltan con motivo explicito)**.
+
+## Segunda ronda de correcciones del motor (E1 · fix 2)
+
+Defectos del segundo informe del verificador. Todo lo nuevo de contrato es ADITIVO (ver «Contrato» al final); `types.ts` no pierde ni cambia nada.
+
+### P1 · El recorte automático abarca TODO el papel (`cropRefine.ts`, `cropGate.ts`)
+
+Después de `evaluateCrop` (cobertura, proporción, bordes, aspecto de papel, exterior distinto del interior), `selectCrop` pasa el cuadrilátero
+por `refineCrop`, que trabaja sobre la imagen de detección (hasta 800 px), no sobre una miniatura:
+
+1. **Empuja cada lado hacia fuera** mientras lo de justo detrás siga siendo papel (color del papel medido junto al lado; tolerancia
+   `PAPER_TOLERANCE`), ajustando una recta por los puntos de borde medidos si el lado está girado respecto al borde real (una cuña de papel
+   queda fuera en un extremo), y suma un margen de seguridad (`SAFETY_MARGIN_PX`). Un lado que haya que empujar más del 4 % del lado menor
+   (`MAX_SHIFT_FRACTION`) o un papel que no acaba → no se recorta (`paper-continues`).
+2. **Rechaza el recorte si detrás de un lado queda otra cosa del objeto**: un borde nitido y paralelo (el final de un membrete oscuro o de
+   color; una sombra suave NO cuenta) o contenido ajeno al fondo repartido por el lado (texto o logo blanco de un membrete del MISMO color
+   que la mesa, que no tiene borde que ver). Motivo: `content-beyond`. Resultado: página completa y `flags.noDocument` (la interfaz ya
+   muestra «sin documento detectado, ajusta el recorte»).
+
+Motivos de rechazo de `CropVerdict.reason` (interno): `area`, `aspect`, `edges`, `not-paper`, `same-as-outside`, `content-beyond`, `paper-continues`.
+
+Límite conocido (no detectable con píxeles): un membrete liso y sin texto del mismo color que la mesa en el tramo que se pierde.
+
+### P2 · Estimación del tamaño del PDF (`estimate.ts`, `renderTasks.ts`, `renderIO.ts`)
+
+- `ScanPage.jpegSample` trae ahora `qualityRatio` (opcional): cuánto pesa RECODIFICAR el resultado procesado a la calidad de cada preset
+  (`"0.92"`, `"0.87"`, `"0.8"`) frente al peso a 0,9, medido en parches de la propia página con el MISMO codificador (calibrado por
+  navegador) que `prepareForPdf` (`reencodedSizes` en `renderIO.ts`). En WebKit la misma calidad pesa distinto que en Chromium; esto lo compensa.
+- Las páginas procesadas se estiman reproduciendo `prepareForPdf` con esa medida (reducir si pasa del lado máximo, recodificar, y quedarse
+  con lo nuevo solo si ahorra ≥ 15 %). Si un preset no reduce nada para ese contenido, la estimación da el MISMO número que Original (y es
+  lo que sale en el PDF). La estimación se inclina hacia arriba (`SAMPLE_BIAS`) y cerca del umbral del 15 % da el valor esperado.
+- Muestreo: 7 × 7 parches de 128 px; la relación entre calidades solo en uno de cada cuatro (`RATIO_EVERY`) para no pesar en WebKit.
+
+### P2 · Carga del motor (`engine.ts`)
+
+`ScanEngineUnavailableError` (ya existente, `code === "engine-unavailable"`, `isScanEngineUnavailable(error)`) gana dos campos:
+
+- `reason: "not-installed" | "load-failed"`. **`load-failed`** = el trozo de código del motor no se pudo descargar (sin conexión al abrir la
+  herramienta): NO es una foto dañada. La interfaz debe decir algo como «No se pudo cargar el escáner. Comprueba la conexión» y NO «dañada o incompleta».
+- `needsReload: boolean`. `true` cuando la conexión ya volvió y aun así falla: el cargador de la aplicación (Turbopack) recuerda un trozo
+  fallido hasta recargar. La interfaz debe ofrecer «Recargar» (lo ya guardado en Recientes se conserva).
+
+El motor reintenta solo 2 veces (250 ms y 900 ms, `ENGINE_LOAD_BACKOFF_MS`) y no cachea el fallo.
+
+### P2 · Borrosa y en blanco a mayor resolución (`quality.ts`, `renderCore.ts`)
+
+- La nitidez se mide a `SHARPNESS_SIDE = 960` px (recortando a 1280 y reduciendo por promedio de bloques); el resto de medidas siguen a 480.
+- Sin bordes que re-desenfocar (texto desenfocado hasta no leerse) basta una acutancia muy baja (`VERY_BLURRY_ACUTANCE`) si hay contenido.
+- «En blanco» exige además que casi todos los bloques de la hoja sigan una superficie de luz suave (`layoutShare < LAYOUT_BLANK_MAX_SHARE`): un
+  texto muy desenfocado ya NO se confunde con una hoja vacía (quitar las blancas no borra páginas con contenido); degradado de luz, número de
+  página o sello siguen siendo «en blanco».
+
+### P2 · Congelación al guardar (`realEngine.ts`, `similarity.ts`)
+
+El tirón de 1,7-3,3 s con 36 fotos era el análisis de la sesión (comparar hojas repetidas en el hilo principal), no el PDF. Ahora la
+comparación cede el hilo cada `DUPLICATE_SLICE_MS = 8` ms (`areDuplicatesYielding`, el resultado es idéntico) y cada par comparado se recuerda.
+
+### P3
+
+- «Brillo» falso en blanco digital: el borde antialias de un texto digital ya no cuenta como «papel que rodea el reflejo» (hace falta papel liso).
+- «Oscura» ya no tapa «Sin documento» cuando la hoja está bien iluminada sobre una mesa oscura: además de la mediana, lo más claro (percentil 85) tampoco debe llegar a `DARK_BRIGHT_THRESHOLD`.
+
+### Almacén (`sessionStore.ts`) — volcado al irse la página
+
+- El volcado inmediato en modo `blob` solo se arriesga si ya terminó un guardado normal con Blob en esta carga (`blobVerified`); en WebKit una
+  transacción con Blob que no termina dejaba colgada la base para la página siguiente.
+- Si en esta pestaña ya se vio que no se guardan Blob, al recargar el almacén EMPIEZA en modo `bytes` (pista en el almacenamiento de sesión).
+- En modo `bytes`, una página con miniatura nueva sin leer se escribe sin miniatura (la interfaz la vuelve a generar al restaurar) en vez de perder el cambio.
+- `stage` NO lee Blob de antemano (hacerlo dejaba colgado el guardado en WebKit).
+
+### Contrato: lo ADITIVO que la interfaz debe conocer
+
+| Qué | Dónde | Para qué |
+|---|---|---|
+| `ScanEngineUnavailableError.reason` (`"not-installed" \| "load-failed"`) y `.needsReload` | `engine.ts` | Mensaje correcto cuando el motor no carga (ver arriba). Códigos: `code === "engine-unavailable"`. |
+| `ScanPage.jpegSample.qualityRatio?` | `types.ts` | Interno del motor (persiste con la sesión); la interfaz no lo usa. |
+| `flags.noDocument` (ya existía) | `types.ts` | Ahora también cuando detrás del recorte queda un membrete u otro contenido: mismo chip. |
+
+Sin cambios para la interfaz: `estimateSize`, `buildPdf`, `analyzeSession`, `stage`, `flush`, `onWarning`, `ocrModelAvailable`, `prepareOcrModel`.
+
+### Antes / después (cifras agregadas; fotos y documentos reales solo se midieron en local, nunca se guardan)
+
+| Métrica | Antes | Después |
+|---|---|---|
+| Recorte, 200 escenas sintéticas por semilla (6 semillas = 1200 escenas: membretes, giros 0-30°, mesas, sombras, tarjetas) | 19 de 110 recortes con > 1 % de papel perdido en 160 escenas (peor 86,5 %) | 3 de 808 recortes con > 1 % perdido (peor 97,0 %): dos membretes del color de la mesa y uno liso al 98 % |
+| Recorte, 36 páginas de contratos reales × 5 mesas/giros | 127 recortes, 40 con < 99 % del papel (peor 97,3 %) | 127 recortes, 0 con < 99 % (peor 100,0 %) |
+| Fotos reales de techos (13) | — | 0 recortadas, 0 borrosas, 0 brillo, 13 de 13 desenfocadas detectadas |
+| Estimación, escenas procesadas de 12 MP, Chromium | −17 a −22 % (Equilibrada y Compacta) | −3,4 a +4,1 % |
+| Estimación, 10 páginas de contratos reales, Chromium | −22,6 y −23,5 % (Equilibrada igual a Original en el PDF) | +1,5 a +4,6 % (Equilibrada = Original, estimado igual que lo real) |
+| Estimación en WebKit (iPad) | +40 a +55 % tras el primer ajuste | −9,6 a +3,8 % |
+| Estimación, 13 fotos reales, total por preset | hasta ±12 % | Chromium −1,6 a +8,4 %; WebKit −8,2 a +11,4 % |
+| Texto 1200×1600 con σ = 10 px | «En blanco» | «Borrosa» |
+| Texto de 12 MP con σ = 20 px | 0 «Borrosa» | «Borrosa» |
+| Falsos «Borrosa» / «En blanco» en 36 páginas reales | 0 / 0 | 0 / 0 |
+| «Brillo» falso en 36 páginas digitales reales | 6 | 0 |
+| Mayor tarea larga del hilo al guardar 36 fotos de 12 MP (Chromium) | 1744 ms (3265 ms con perfilador) | 0 tareas largas (en perfilador: sin tareas > 50 ms) |
+| Tarea larga residual al importar | ≈ 110 ms | ≈ 110 ms (detector scanic de la primera página; sin cambio) |
+| Corpus sintético: recorte IoU ≥ 0,9 / recortes erróneos / falsos recortes | 0,993 / 0 / 0 | 0,993 / 0 / 0 |
+| Corpus: en blanco (precisión/recuerdo), borrosa, brillo, oscura | 1/1, 1/0, 1/0, 1/0 | 1/1, 1/0, 1/0, 1/0 |
+
+Límites conocidos: (1) el membrete sin texto del color de la mesa; (2) en Linux con WebKit (Playwright) el almacén REAL no termina de guardar con la
+interfaz (`scan-ui-persist` con `SCAN_REAL=1`): ocurre igual en el HEAD anterior y no se debe a esta ronda; (3) sin probar en Safari/iPhone reales.

@@ -118,7 +118,7 @@ type PageRow = {
   ocrText?: string;
   mode?: ScanMode;
   resolvedFilter?: ScanResolvedFilter;
-  jpegSample?: { side: number; bytesPerPixel: number };
+  jpegSample?: { side: number; bytesPerPixel: number; qualityRatio?: Record<string, number> };
   thumb: Blob | null;
   thumbBytes?: ArrayBuffer;
   thumbType?: string;
@@ -152,8 +152,10 @@ const RESOLVED: readonly string[] = ["color", "grayscale", "bw", "enhance", "ori
 function isResolvedFilter(value: unknown): value is ScanResolvedFilter {
   return typeof value === "string" && RESOLVED.includes(value);
 }
-function isJpegSample(value: unknown): value is { side: number; bytesPerPixel: number } {
-  return isRecord(value) && isFiniteNumber(value.side) && isFiniteNumber(value.bytesPerPixel) && value.side > 0 && value.bytesPerPixel > 0;
+function isJpegSample(value: unknown): value is { side: number; bytesPerPixel: number; qualityRatio?: Record<string, number> } {
+  if (!isRecord(value) || !isFiniteNumber(value.side) || !isFiniteNumber(value.bytesPerPixel) || value.side <= 0 || value.bytesPerPixel <= 0) return false;
+  if (value.qualityRatio === undefined) return true;
+  return isRecord(value.qualityRatio) && Object.values(value.qualityRatio).every((ratio) => isFiniteNumber(ratio) && ratio > 0);
 }
 
 function isCorners(value: unknown): value is QuadCorners {
@@ -475,7 +477,28 @@ function forkId(id: string): string {
  * rechazan Blob en IndexedDB (Safari en ventanas privadas, algunos WebKit sin almacenamiento persistente): si la escritura
  * falla por algo que no es la cuota se repite UNA vez con bytes y, si funciona, se sigue asi (nunca se pierde el escaneo).
  */
-let storageMode: "blob" | "bytes" = "blob";
+/** Pista (sesion de la pestana, sobrevive a recargar) de que este navegador no guarda Blob: la recarga empieza ya en `bytes`. */
+const MODE_HINT_KEY = "optimuspdf.scan.bytesMode";
+
+function readModeHint(): "blob" | "bytes" {
+  try {
+    return typeof sessionStorage !== "undefined" && sessionStorage.getItem(MODE_HINT_KEY) === "1" ? "bytes" : "blob";
+  } catch {
+    return "blob";
+  }
+}
+
+function writeModeHint(): void {
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(MODE_HINT_KEY, "1");
+  } catch {
+    // Sin almacenamiento de sesion: se vuelve a averiguar al primer guardado.
+  }
+}
+
+let storageMode: "blob" | "bytes" = readModeHint();
+/** Un guardado NORMAL con Blob ya termino bien en esta carga: solo entonces se arriesga el volcado al irse en modo `blob` (en WebKit una transaccion con Blob que no termina deja colgada la base para la pagina siguiente). */
+let blobVerified = false;
 
 /** Solo para tests: fija el modo de almacenamiento. */
 export function __setScanStorageModeForTests(mode: "blob" | "bytes"): void {
@@ -575,6 +598,7 @@ async function saveSessionNow(input: ScanSession): Promise<SaveResult> {
     }
     tx.objectStore(META_STORE).put(meta);
     await txDone(tx);
+    if (storageMode === "blob") blobVerified = true;
     // Lo apuntado ya esta escrito (si no cambio mientras tanto).
     if (staged.get(input.id) === input) staged.delete(input.id);
 
@@ -591,7 +615,8 @@ async function saveSessionNow(input: ScanSession): Promise<SaveResult> {
       // Puede ser un navegador que no admite Blob en IndexedDB: se reintenta con bytes (una vez) antes de rendirse.
       storageMode = "bytes";
       const retry = await saveSessionNow(input);
-      if (!retry.ok) storageMode = "blob";
+      if (retry.ok) writeModeHint();
+      else storageMode = "blob";
       // El reintento ya escribe en la copia (el conflicto se detecto en el primer intento): se sigue avisando.
       return retry.ok && forkedAs && !retry.forkedAs ? { ...retry, forkedAs } : retry;
     }
@@ -621,6 +646,9 @@ function saveSession(input: ScanSession): Promise<SaveResult> {
 
 async function loadSession(id: string): Promise<ScanSession | null> {
   if (!isValidScanSessionId(id)) return null;
+  // Abrir la conexion de volcado YA (al restaurar una sesion): el primer cambio tras recargar puede ir seguido de otra recarga.
+  void warmConnection();
+  installLeaveHooks();
   let db: IDBDatabase;
   try {
     db = await openDb();
@@ -760,6 +788,7 @@ async function purge(now: number): Promise<number> {
 
 /** Sesiones vigentes (sin las caducadas ni las corruptas), de la mas reciente a la mas antigua. Nunca lanza. */
 export async function listScanSessionSummaries(now: number = Date.now()): Promise<ScanSessionSummary[]> {
+  void warmConnection();
   await purge(now);
   let db: IDBDatabase;
   try {
@@ -855,6 +884,7 @@ function warmConnection(): Promise<void> {
 
 /** Solo para tests: cierra y olvida la conexion de volcado y lo apuntado. */
 export function __resetScanStagingForTests(): void {
+  blobVerified = false;
   if (warmDb) dropWarm(warmDb);
   staged.clear();
 }
@@ -867,6 +897,7 @@ function writeNow(session: ScanSession): boolean {
   const db = warmDb;
   if (!db || !validSession(session)) return false;
   const asBytes = storageMode === "bytes";
+  if (!asBytes && !blobVerified) return false;
   const targetId = forks.get(session.id) ?? session.id;
   const written = writtenBySession.get(targetId) ?? new Map<string, WrittenPage>();
   const keep = new Set(session.pages.map((page) => page.id));
@@ -874,12 +905,13 @@ function writeNow(session: ScanSession): boolean {
   const dirtyOriginals = new Set(session.pages.filter((page) => written.get(page.id)?.original !== blobId(page.original)).map((page) => page.id));
   const removed = [...written.keys()].filter((id) => !keep.has(id));
   if (dirtyPages.length === 0 && removed.length === 0 && metaSignatureBySession.get(targetId) === metaSignature(session)) return true;
-  // En modo `bytes` solo se puede empezar ya si no hay fotos nuevas y las miniaturas ya se leyeron (si no, guardado normal).
-  const cachedThumb = (page: ScanPage | undefined): ArrayBuffer | undefined => (page?.thumb ? thumbBytesCache.get(page.thumb) : undefined);
+  // En modo `bytes` solo se puede empezar ya si no hay fotos nuevas. Las miniaturas que ya se leyeron en un guardado normal se
+  // escriben; las demas (p. ej. la que acaba de regenerar un giro) quedan SIN miniatura: al restaurar, la interfaz la vuelve a
+  // generar, y es mejor que perder el cambio. (No se leen de antemano: leer un Blob mientras IndexedDB trabaja con otro dejaba
+  // colgadas las transacciones en WebKit.)
+  const cachedThumb = (page: ScanPage | undefined): ArrayBuffer | undefined => (page?.thumb ? thumbBytesCache.get(page.thumb)?.slice(0) : undefined);
   if (asBytes) {
     if (dirtyOriginals.size > 0) return false;
-    if (session.pages[0]?.thumb && !cachedThumb(session.pages[0])) return false;
-    if (dirtyPages.some((page) => page.thumb && !cachedThumb(page))) return false;
   }
   const rev = (tab.knownRevs.get(targetId) ?? 0) + 1;
   const now = Date.now();
@@ -900,18 +932,23 @@ function writeNow(session: ScanSession): boolean {
     rev,
     writerId: tab.id,
   };
-  const coverBytes = asBytes ? cachedThumb(session.pages[0]) : undefined;
-  if (coverBytes) {
+  if (asBytes) {
+    // Sin Blob en IndexedDB: la portada va en bytes si ya se leyo, y si no, sin portada hasta el siguiente guardado normal.
     meta.cover = null;
-    meta.coverBytes = coverBytes;
-    meta.coverType = session.pages[0].thumb?.type ?? "";
+    const coverBytes = cachedThumb(session.pages[0]);
+    if (coverBytes) {
+      meta.coverBytes = coverBytes;
+      meta.coverType = session.pages[0].thumb?.type ?? "";
+    }
   }
   try {
     const tx = db.transaction([META_STORE, PAGES_STORE, ORIGINALS_STORE], "readwrite");
     const pages = tx.objectStore(PAGES_STORE);
     const originals = tx.objectStore(ORIGINALS_STORE);
     for (const page of dirtyPages) {
-      pages.put(pageRowOf(targetId, page, asBytes ? cachedThumb(page) : undefined));
+      const row = pageRowOf(targetId, page, asBytes ? cachedThumb(page) : undefined);
+      if (asBytes && !row.thumbBytes) row.thumb = null;
+      pages.put(row);
       if (dirtyOriginals.has(page.id)) originals.put({ key: rowKey(targetId, page.id), sid: targetId, pid: page.id, blob: page.original } satisfies OriginalRow);
     }
     for (const pid of removed) {
@@ -958,12 +995,6 @@ function stageSession(session: ScanSession): void {
   staged.set(session.id, session);
   installLeaveHooks();
   void warmConnection();
-  // Sin Blob en IndexedDB (modo `bytes`) el volcado al irse necesita las miniaturas ya leidas: se leen de antemano.
-  if (storageMode === "bytes") {
-    for (const page of session.pages) {
-      if (isBlobLike(page?.thumb) && !thumbBytesCache.has(page.thumb)) void thumbBytesOf(page.thumb).catch(() => {});
-    }
-  }
 }
 
 async function flushStaged(): Promise<void> {

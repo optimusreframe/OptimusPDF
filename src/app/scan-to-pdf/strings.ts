@@ -105,6 +105,12 @@ export type ScanToPdfStrings = {
     more: (count: number) => string;
     rest: string;
     dismiss: string;
+    /** El escaner no se pudo CARGAR (sin red): no es un defecto de las fotos. */
+    engineUnavailable: string;
+    retry: string;
+    /** Tras un reintento que tambien falla: el navegador puede guardar el fallo de carga hasta recargar la pagina. */
+    reload: string;
+    reloadHint: string;
   };
   orientationUndo: string;
   lostPages: (count: number) => string;
@@ -390,7 +396,12 @@ const ES: ScanToPdfStrings = {
       notImage: "no es una imagen",
       heic: "formato HEIC, que este navegador no lee (expórtala como JPG)",
       damaged: "está dañada o incompleta",
+      engine: "el escáner no se pudo cargar",
     },
+    engineUnavailable: "No se pudo cargar el escáner. Revisa tu conexión y vuelve a intentarlo.",
+    retry: "Reintentar",
+    reload: "Recargar la página",
+    reloadHint: "Sigue sin cargar. Si ya tienes conexión, recarga la página (tus páginas ya añadidas se conservan).",
     camera: "Foto de la cámara",
     more: (count) => `y ${count} más`,
     rest: "Las demás siguen en la lista.",
@@ -459,7 +470,7 @@ const ES: ScanToPdfStrings = {
     blanksRemoved: (count) => `${count} ${count === 1 ? "hoja en blanco quitada" : "hojas en blanco quitadas"}. Puedes deshacerlo.`,
     createFailed: "No se pudo procesar la foto. No se añadió.",
     forked: "Otra pestaña había cambiado este escaneo: tus cambios se guardaron aparte, como una copia.",
-    photoFailed: (name, kind) => `No se añadió ${name || "una foto"}: ${kind === "notImage" ? "no es una imagen" : kind === "heic" ? "formato HEIC no compatible" : "está dañada o incompleta"}.`,
+    photoFailed: (name, kind) => `No se añadió ${name || "una foto"}: ${kind === "notImage" ? "no es una imagen" : kind === "heic" ? "formato HEIC no compatible" : kind === "engine" ? "no se pudo cargar el escáner (revisa tu conexión)" : "está dañada o incompleta"}.`,
     saved: "Escaneo guardado",
     retaken: (n) => `Página ${n} sustituida`,
     inserted: (n) => `Página insertada en la posición ${n}`,
@@ -566,9 +577,9 @@ const ES: ScanToPdfStrings = {
   newScanHint: "Cierra este escaneo y empieza uno nuevo.",
   leaveTitle: "¿Salir del escaneo?",
   leaveBodySaved: (count) =>
-    `Tu escaneo (${count} ${count === 1 ? "página" : "páginas"}) está guardado en este dispositivo. Al volver podrás retomarlo durante 14 días.`,
+    `Tus páginas (${count}) quedan guardadas en este dispositivo para retomarlas: al volver podrás continuar durante 14 días.`,
   leaveBodyUnsaved: (count) =>
-    `Este escaneo no está guardado en el dispositivo. Si sales, se perderán ${count} ${count === 1 ? "página" : "páginas"}.`,
+    `No se pudo guardar este escaneo en el dispositivo. Si sales, se perderán ${count} ${count === 1 ? "página" : "páginas"}.`,
   leaveStay: "Seguir escaneando",
   leaveLeave: "Salir",
   noFiles: "Elige al menos una foto.",
@@ -695,7 +706,12 @@ const EN: ScanToPdfStrings = {
       notImage: "not an image",
       heic: "HEIC format, which this browser cannot read (export it as JPG)",
       damaged: "damaged or incomplete",
+      engine: "the scanner could not be loaded",
     },
+    engineUnavailable: "The scanner could not be loaded. Check your connection and try again.",
+    retry: "Try again",
+    reload: "Reload the page",
+    reloadHint: "It still does not load. If you are back online, reload the page (the pages you already added are kept).",
     camera: "Camera photo",
     more: (count) => `and ${count} more`,
     rest: "The rest are still in the list.",
@@ -764,7 +780,7 @@ const EN: ScanToPdfStrings = {
     blanksRemoved: (count) => `${count} ${count === 1 ? "blank sheet removed" : "blank sheets removed"}. You can undo it.`,
     createFailed: "The photo could not be processed. It was not added.",
     forked: "Another tab had changed this scan: your changes were saved separately, as a copy.",
-    photoFailed: (name, kind) => `${name || "A photo"} was not added: ${kind === "notImage" ? "not an image" : kind === "heic" ? "unsupported HEIC format" : "damaged or incomplete"}.`,
+    photoFailed: (name, kind) => `${name || "A photo"} was not added: ${kind === "notImage" ? "not an image" : kind === "heic" ? "unsupported HEIC format" : kind === "engine" ? "the scanner could not be loaded (check your connection)" : "damaged or incomplete"}.`,
     saved: "Scan saved",
     retaken: (n) => `Page ${n} replaced`,
     inserted: (n) => `Page inserted at position ${n}`,
@@ -871,9 +887,9 @@ const EN: ScanToPdfStrings = {
   newScanHint: "Closes this scan and starts a new one.",
   leaveTitle: "Leave the scan?",
   leaveBodySaved: (count) =>
-    `Your scan (${count} ${count === 1 ? "page" : "pages"}) is saved on this device. When you come back you can resume it for 14 days.`,
+    `Your pages (${count}) stay saved on this device so you can pick them up again: you can continue for 14 days.`,
   leaveBodyUnsaved: (count) =>
-    `This scan is not saved on the device. If you leave, ${count} ${count === 1 ? "page" : "pages"} will be lost.`,
+    `This scan could not be saved on the device. If you leave, ${count} ${count === 1 ? "page" : "pages"} will be lost.`,
   leaveStay: "Keep scanning",
   leaveLeave: "Leave",
   noFiles: "Choose at least one photo.",

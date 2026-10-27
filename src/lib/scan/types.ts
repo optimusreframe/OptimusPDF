@@ -68,7 +68,7 @@ export type ScanPage = {
    * filtro y el ajuste de la pagina): permite estimar el PDF antes de procesar la pagina entera sin que el ruido de la foto
    * se pierda por reducirla. `side` = lado del parche (px).
    */
-  jpegSample?: { side: number; bytesPerPixel: number };
+  jpegSample?: { side: number; bytesPerPixel: number; qualityRatio?: Record<string, number> };
 };
 
 /** Filtro ya resuelto (lo que se aplico de verdad). */

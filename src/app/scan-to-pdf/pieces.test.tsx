@@ -214,6 +214,16 @@ describe("PageGrid", () => {
     URL.revokeObjectURL = () => {};
   });
 
+  it("el numero y el asa de arrastre llevan `on-media`: texto claro sobre su fondo oscuro tambien con el tema claro (contraste >= 4,5:1)", () => {
+    const { container } = grid(2, { selecting: false });
+    const badge = container.querySelector("[data-page-id] .top-1\\.5.left-1\\.5");
+    expect(badge?.className).toContain("on-media");
+    const handle = container.querySelector("[data-drag-handle]");
+    expect(handle?.className).toContain("on-media");
+    const selecting = grid(1, { selecting: true });
+    expect(selecting.container.querySelector("[data-page-id] .top-1\\.5.right-1\\.5")?.className).toContain("on-media");
+  });
+
   it("menos de 30 paginas: se pintan todas; es una lista con posicion y tamano para lectores de pantalla", () => {
     grid(VIRTUALIZE_FROM - 1);
     const items = screen.getAllByRole("listitem");

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_SCAN_SETTINGS, type ScanFilterMode, type ScanMode, type ScanPage, type ScanPageSource, type ScanSettings } from "@/lib/scan/types";
 import type { QuadCorners } from "@/lib/scan/perspective";
-import { forkedAsOf, lostPagesOf, resolveScanEngine, resolveScanStore, splitSpreadOf, suggestedFullName } from "@/app/scan-to-pdf/scanServices";
+import { forkedAsOf, isEngineUnavailableError, lostPagesOf, preloadEngine, resolveScanEngine, resolveScanStore, splitSpreadOf, suggestedFullName } from "@/app/scan-to-pdf/scanServices";
 import {
   blankPageIds,
   canRedo,
@@ -235,12 +235,19 @@ export function useScanSession({ language, strings: s, announce, autosave = true
   const [orientationNotice, setOrientationNotice] = useState<{ ids: string[]; deltas: Record<string, number> } | null>(null);
   /** Fotos que no se pudieron anadir (por nombre y motivo); el aviso las lista y el resto de la lista sigue. */
   const [importProblems, setImportProblems] = useState<ImportProblem[]>([]);
+  /** Ya se reintento tras «no se pudo cargar el escaner»: si vuelve a fallar se ofrece recargar la pagina. */
+  const [engineRetried, setEngineRetried] = useState(false);
   const reportImportProblems = useCallback((problems: ImportProblem[]) => {
     if (problems.length === 0) return;
     setImportProblems((current) => mergeProblems(current, problems));
-    for (const problem of problems) announceRef.current(sRef.current.said.photoFailed(problem.name, problem.kind));
+    // «No se pudo cargar el escaner» se dice UNA vez (no una por foto): no es un defecto de las fotos.
+    if (problems.some((problem) => problem.kind === "engine")) announceRef.current(sRef.current.importProblems.engineUnavailable);
+    for (const problem of problems) if (problem.kind !== "engine") announceRef.current(sRef.current.said.photoFailed(problem.name, problem.kind));
   }, []);
-  const dismissImportProblems = useCallback(() => setImportProblems([]), []);
+  const dismissImportProblems = useCallback(() => {
+    setImportProblems([]);
+    setEngineRetried(false);
+  }, []);
 
   /* ---------------- altas de paginas ---------------- */
   const createInto = useCallback(
@@ -252,16 +259,18 @@ export function useScanSession({ language, strings: s, announce, autosave = true
           let created: ScanPage;
           try {
             created = await resolveScanEngine().createPage(blob, { source, mode, settings, signal: abortRef.current.signal });
-          } catch {
+          } catch (error) {
             if (epoch !== epochRef.current || !mountedRef.current) return;
             dispatchRef.current({ type: "discard", id: pending.id });
-            reportImportProblems([classifyImportFailure(blob)]);
+            reportImportProblems([classifyImportFailure(blob, isEngineUnavailableError(error))]);
             return;
           }
           if (epoch !== epochRef.current || !mountedRef.current) return;
           if (created.thumb) thumbKeys.current.set(created.thumb, renderKeyOf({ ...created, id: pending.id }));
           if (created.processed) processedKeys.current.set(created.processed, renderKeyOf({ ...created, id: pending.id }));
           dispatchRef.current({ type: "resolve", id: pending.id, page: created });
+          // El motor cargo: ya no hace falta insistir en recargar la pagina.
+          setEngineRetried(false);
           scheduleAnalysis();
           if (opts.orient && mode !== "photo") {
             enqueue({
@@ -307,6 +316,15 @@ export function useScanSession({ language, strings: s, announce, autosave = true
     },
     [createInto],
   );
+
+  /** «Reintentar» tras «No se pudo cargar el escaner»: vuelve a precargar el motor y a importar las fotos que se quedaron sin procesar. */
+  const retryEngineProblems = useCallback(() => {
+    setEngineRetried(true);
+    const retry = importProblems.flatMap((problem) => (problem.kind === "engine" && problem.blob ? [problem.blob] : []));
+    setImportProblems((current) => current.filter((problem) => problem.kind !== "engine"));
+    preloadEngine();
+    if (retry.length > 0) addBlobs(retry, { source: "library" });
+  }, [importProblems, addBlobs]);
 
   /* Identificacion: dos capturas -> UNA hoja */
   const idFrontRef = useRef<Blob | null>(null);
@@ -354,10 +372,11 @@ export function useScanSession({ language, strings: s, announce, autosave = true
               if (created.processed) processedKeys.current.set(created.processed, renderKeyOf({ ...created, id: holder.id }));
               dispatchRef.current({ type: "resolve", id: holder.id, page: created });
               scheduleAnalysis();
-            } catch {
+            } catch (error) {
               if (epoch !== epochRef.current || !mountedRef.current) return;
               dispatchRef.current({ type: "discard", id: holder.id });
-              announceRef.current(sRef.current.said.createFailed);
+              if (isEngineUnavailableError(error)) reportImportProblems([{ name: "", kind: "engine" }]);
+              else announceRef.current(sRef.current.said.createFailed);
             }
           },
         });
@@ -399,10 +418,11 @@ export function useScanSession({ language, strings: s, announce, autosave = true
                 dispatchRef.current({ type: "resolve", id: holders[index].id, page: created });
               }
               scheduleAnalysis();
-            } catch {
+            } catch (error) {
               if (epoch !== epochRef.current || !mountedRef.current) return;
               for (const holder of holders) dispatchRef.current({ type: "discard", id: holder.id });
-              announceRef.current(sRef.current.said.createFailed);
+              if (isEngineUnavailableError(error)) reportImportProblems([{ name: "", kind: "engine" }]);
+              else announceRef.current(sRef.current.said.createFailed);
             }
           },
         });
@@ -410,7 +430,7 @@ export function useScanSession({ language, strings: s, announce, autosave = true
       }
       return { kind: "pages", ids: addBlobs([blob], { source: "camera", at: opts.at }) };
     },
-    [addBlobs, enqueue, scheduleAnalysis],
+    [addBlobs, enqueue, scheduleAnalysis, reportImportProblems],
   );
 
   /** Repetir captura: la pagina `id` se sustituye EN EL MISMO SITIO por la nueva foto. */
@@ -863,6 +883,8 @@ export function useScanSession({ language, strings: s, announce, autosave = true
     importProblems,
     reportImportProblems,
     dismissImportProblems,
+    retryEngineProblems,
+    engineRetried,
     lostPages,
     dismissLostPages: () => setLostPages(0),
     undoOrientation,

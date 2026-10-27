@@ -106,6 +106,9 @@ export async function cropAndRotate(source: Rgba, job: Pick<RenderJob, "corners"
   return { data: new Uint8ClampedArray(source.data), width: source.width, height: source.height };
 }
 
+/** Lado largo del recorte con el que se mide la nitidez (el motor decodifica el original a 1280). */
+const MEASURE_CROP_SIDE = 1280;
+
 /** Procesado completo de una pagina a partir de los pixeles del original. */
 export async function renderRgba(
   source: Rgba,
@@ -114,7 +117,13 @@ export async function renderRgba(
   options: { measure?: boolean; onCrop?: (crop: Rgba) => void } = {},
 ): Promise<RenderOutput> {
   const image = await cropAndRotate(source, job, hooks);
-  const quality = options.measure ? measurePage(image) : null;
+  let quality: PageQuality | null = null;
+  if (options.measure) {
+    // La nitidez se mide con mas resolucion que la que se guarda: si la hoja sale de un original mayor, se recorta tambien a MEASURE_CROP_SIDE.
+    // (se recorta a MEASURE_CROP_SIDE y `measurePage` lo reduce por promedio de bloques a SHARPNESS_SIDE: un remuestreo directo conserva bordes mas duros).
+    const wide = job.maxSide < MEASURE_CROP_SIDE && Math.max(source.width, source.height) > job.maxSide * 1.15 ? await cropAndRotate(source, { ...job, maxSide: MEASURE_CROP_SIDE }, hooks) : image;
+    quality = measurePage(wide);
+  }
   options.onCrop?.(image);
   abortIfNeeded(hooks.signal);
   const resolved = resolveFilter(job.filter, job.mode, image);

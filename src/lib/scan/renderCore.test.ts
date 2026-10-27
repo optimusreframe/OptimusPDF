@@ -135,4 +135,14 @@ describe("renderCore — src/lib/scan/renderCore.ts", () => {
     const t = thumbnailOf({ data: new Uint8ClampedArray(800 * 400 * 4), width: 800, height: 400 }, 360);
     expect([t.width, t.height]).toEqual([360, 180]);
   });
+
+  it("la nitidez se mide con MAS resolucion que la miniatura de la pagina: un texto muy desenfocado se ve borroso aunque la salida sea de 640 px", async () => {
+    const { decodedLikeEngine, textDocument } = await import("@/lib/scan/__fixtures__/blurDocs");
+    const blurred = decodedLikeEngine(textDocument(3, 10));
+    const out = await renderRgba(blurred, job({ corners: null, maxSide: 640 }), {}, { measure: true });
+    expect(Math.max(out.image.width, out.image.height)).toBeLessThanOrEqual(640);
+    expect(out.quality?.blurry).toBe(true);
+    const sharp = await renderRgba(decodedLikeEngine(textDocument(3, 0)), job({ corners: null, maxSide: 640 }), {}, { measure: true });
+    expect(sharp.quality?.blurry).toBe(false);
+  }, 60_000);
 });

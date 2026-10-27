@@ -6,8 +6,9 @@ import { estimateScanSize, PROCESSED_MAX_SIDE } from "@/lib/scan/estimate";
 import { buildNameSuggestion, dominantMode, fallbackName, sanitizeFileName, isoDate } from "@/lib/scan/naming";
 import { isOcrReady, ocrModelAvailable, withRecognizer } from "@/lib/scan/ocr";
 import { ocrOrientation } from "@/lib/scan/orientation";
-import { areDuplicates, type PageSignature } from "@/lib/scan/similarity";
+import { areDuplicatesYielding, type PageSignature } from "@/lib/scan/similarity";
 import { findSpine } from "@/lib/scan/spine";
+import { yieldToMain } from "@/lib/image/prepareBrowser";
 import { enqueueTask, ScanCancelled } from "@/lib/scan/renderBrowser";
 import { readDisplaySize } from "@/lib/scan/renderIO";
 import { inverseHomography, isDegenerateQuad, projectPoint, DEFAULT_QUAD, type QuadCorners } from "@/lib/scan/perspective";
@@ -32,6 +33,22 @@ export const THUMB_SIDE = 360;
 const THUMB_ONLY_MAX_SIDE = 480;
 /** Cuantas paginas hacia atras se compara una pagina para marcar repetidas. */
 const DUPLICATE_WINDOW = 12;
+/** Trozo maximo de comparaciones seguidas en el hilo principal (ms) antes de ceder el hilo. */
+export const DUPLICATE_SLICE_MS = 8;
+const PAIR_CACHE_MAX = 4000;
+const pairCache = new Map<string, boolean>();
+function rememberPair(key: string, value: boolean): void {
+  pairCache.set(key, value);
+  if (pairCache.size > PAIR_CACHE_MAX) {
+    const oldest = pairCache.keys().next().value;
+    if (oldest !== undefined) pairCache.delete(oldest);
+  }
+}
+
+/** Solo para pruebas: olvida los pares ya comparados. */
+export function __clearPairCacheForTests(): void {
+  pairCache.clear();
+}
 
 function newPageId(): string {
   const random = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "").slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -241,7 +258,17 @@ export const realEngine: ScanEngineApi = {
       signatures.push({ page, cached });
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
-    signatures.forEach(({ page, cached }, index) => {
+    // Comparar paginas es trabajo del hilo principal (cada comparacion de dos hojas parecidas pesa varios ms): se reparte en trozos de
+    // ~DUPLICATE_SLICE_MS cediendo el hilo entre ellos, para no congelar la pantalla con decenas de fotos (36 fotos de 12 MP
+    // sumaban una tarea de ~3 s), y cada par se recuerda: volver a analizar no repite las comparaciones.
+    let sliceStart = performance.now();
+    const slice = async (): Promise<void> => {
+      if (performance.now() - sliceStart < DUPLICATE_SLICE_MS) return;
+      await yieldToMain();
+      sliceStart = performance.now();
+    };
+    for (let index = 0; index < signatures.length; index += 1) {
+      const { page, cached } = signatures[index];
       const mode = pageMode(page);
       const flags: ScanPageFlags = {};
       if (page.flags.noDocument) flags.noDocument = true;
@@ -249,14 +276,21 @@ export const realEngine: ScanEngineApi = {
       if (cached && mode !== "photo" && !flags.blank) {
         for (let back = 1; back <= DUPLICATE_WINDOW && index - back >= 0; back += 1) {
           const other = signatures[index - back];
-          if (other.cached && pageMode(other.page) === mode && areDuplicates(cached.signature, other.cached.signature)) {
+          if (!other.cached || pageMode(other.page) !== mode) continue;
+          const pairKey = `${analysisKey(page)}>${analysisKey(other.page)}`;
+          let duplicate = pairCache.get(pairKey);
+          if (duplicate === undefined) {
+            duplicate = await areDuplicatesYielding(cached.signature, other.cached.signature, slice);
+            rememberPair(pairKey, duplicate);
+          }
+          if (duplicate) {
             flags.duplicateOf = other.page.id;
             break;
           }
         }
       }
       flagsById[page.id] = flags;
-    });
+    }
     return flagsById;
   },
 

@@ -59,12 +59,14 @@ describe.skipIf(!DIR)("fotos reales sin documento (local)", () => {
         const live = detectLiveQuad(small);
         const { quad } = selectCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, small, "document", live?.confidence ?? 0);
         if (quad) cropped += 1;
-        const quality = measurePage(downscaleRgba(full, 640));
+        const quality = measurePage(downscaleRgba(full, 1280));
         if (quality.blurry) blurry += 1;
         if (quality.glare) glare += 1;
-        if (measurePage(blurred(downscaleRgba(full, 640), 4)).blurry) blurredDetected += 1;
+        if (measurePage(blurred(downscaleRgba(full, 1280), 8)).blurry) blurredDetected += 1;
       }
-      console.log(`[scan-real] fotos=${files.length} recortadas=${cropped} borrosas=${blurry} brillo=${glare} desenfocadas-detectadas=${blurredDetected}`);
+      const line = `fotos=${files.length} recortadas=${cropped} borrosas=${blurry} brillo=${glare} desenfocadas-detectadas=${blurredDetected}`;
+      console.log(`[scan-real] ${line}`);
+      if (process.env.REAL_OUT) fs.appendFileSync(process.env.REAL_OUT, `photos ${line}\n`);
       expect(cropped).toBe(0);
       expect(blurry).toBe(0);
       expect(glare).toBe(0);

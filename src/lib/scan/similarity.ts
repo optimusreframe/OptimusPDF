@@ -120,7 +120,19 @@ function dilatedOf(signature: PageSignature): Uint8Array {
 /** Mejor coincidencia local de un bloque de `a` dentro de `b` (busqueda +-SEARCH px). Devuelve 0..1 o `null` sin tinta. */
 type BlockMatch = { forwardHits: number; forwardTotal: number; backHits: number; backTotal: number; score: number };
 
-function matchBlock(a: PageSignature, b: PageSignature, x0: number, y0: number, w: number, h: number): BlockMatch | null {
+/**
+ * Las comparaciones son generadores que ceden (`yield`) cada pocos miles de operaciones: las usa tal cual la version sincrona
+ * (`comparePages`, `areDuplicates`: se agotan de una vez) y la que reparte el trabajo en el tiempo (`areDuplicatesYielding`).
+ */
+type Steps<T> = Generator<void, T, void>;
+
+function drain<T>(steps: Steps<T>): T {
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+function* matchBlock(a: PageSignature, b: PageSignature, x0: number, y0: number, w: number, h: number): Steps<BlockMatch | null> {
   const dilatedB = dilatedOf(b);
   const dilatedA = dilatedOf(a);
   const cells: number[] = [];
@@ -144,6 +156,7 @@ function matchBlock(a: PageSignature, b: PageSignature, x0: number, y0: number, 
         bestDy = dy;
       }
     }
+    yield;
   }
   const forward = best / cells.length;
   // Sentido inverso en la mejor alineacion: la tinta de `b` en ese sitio debe caer sobre la de `a`.
@@ -167,7 +180,7 @@ function matchBlock(a: PageSignature, b: PageSignature, x0: number, y0: number, 
 export type PageSimilarity = { matched: number; considered: number; fraction: number; /** Bloques claramente distintos (coincidencia < 0,75). */ bad: number; /** Tinta de cada hoja explicada por la otra (menor de los dos sentidos), 0..1. */ explained: number };
 
 /** Compara dos hojas bloque a bloque (alineacion local por bloque: tolera la perspectiva residual de dos capturas). */
-export function comparePages(a: PageSignature, b: PageSignature): PageSimilarity {
+function* comparePagesSteps(a: PageSignature, b: PageSignature): Steps<PageSimilarity> {
   const innerX = Math.round(CANON_W * MARGIN);
   const innerY = Math.round(CANON_H * MARGIN);
   const bw = Math.floor((CANON_W - 2 * innerX) / BLOCKS_X);
@@ -191,7 +204,7 @@ export function comparePages(a: PageSignature, b: PageSignature): PageSimilarity
     explained: Math.min(fTotal > 0 ? fHits / fTotal : 0, bTotal > 0 ? bHits / bTotal : 0),
   });
   for (const [c, r] of order) {
-    const block = matchBlock(a, b, innerX + c * bw, innerY + r * bh, bw, bh);
+    const block = yield* matchBlock(a, b, innerX + c * bw, innerY + r * bh, bw, bh);
     if (block === null) continue;
     considered += 1;
     if (block.score >= BLOCK_MATCH) matched += 1;
@@ -206,15 +219,19 @@ export function comparePages(a: PageSignature, b: PageSignature): PageSimilarity
   return result();
 }
 
+export function comparePages(a: PageSignature, b: PageSignature): PageSimilarity {
+  return drain(comparePagesSteps(a, b));
+}
+
 /**
  * Lectura independiente del orden: la busqueda de alineacion parte de una hoja y no es exactamente reversible, asi que se mira
  * en los dos sentidos y se toma el PEOR (una repeticion de verdad se reconoce en ambos). Solo se calcula el segundo sentido si
  * el primero ya pasa (la mayoria de las parejas distintas se descartan al primer vistazo).
  */
-export function comparePagesBothWays(a: PageSignature, b: PageSignature): PageSimilarity {
-  const forward = comparePages(a, b);
+function* bothWaysSteps(a: PageSignature, b: PageSignature): Steps<PageSimilarity> {
+  const forward = yield* comparePagesSteps(a, b);
   if (!isDuplicateReading(forward)) return forward;
-  const backward = comparePages(b, a);
+  const backward = yield* comparePagesSteps(b, a);
   return {
     matched: Math.min(forward.matched, backward.matched),
     considered: Math.min(forward.considered, backward.considered),
@@ -222,6 +239,10 @@ export function comparePagesBothWays(a: PageSignature, b: PageSignature): PageSi
     bad: Math.max(forward.bad, backward.bad),
     explained: Math.min(forward.explained, backward.explained),
   };
+}
+
+export function comparePagesBothWays(a: PageSignature, b: PageSignature): PageSimilarity {
+  return drain(bothWaysSteps(a, b));
 }
 
 function isDuplicateReading(similarity: PageSimilarity): boolean {
@@ -234,10 +255,28 @@ function isDuplicateReading(similarity: PageSimilarity): boolean {
 
 /** `true` si las dos hojas son la misma captura repetida. Las hojas en blanco nunca se comparan (tienen su propio aviso). */
 export function areDuplicates(a: PageSignature, b: PageSignature): boolean {
+  return drain(areDuplicatesSteps(a, b));
+}
+
+function* areDuplicatesSteps(a: PageSignature, b: PageSignature): Steps<boolean> {
   if (a.blank || b.blank) return false;
   if (Math.abs(a.aspect - b.aspect) / Math.max(a.aspect, b.aspect) > 0.12) return false;
   if (hamming(a.dhash, b.dhash) > DHASH_MAX_DISTANCE) return false;
   const ratio = a.inkCount / Math.max(1, b.inkCount);
   if (ratio < 0.6 || ratio > 1.67) return false;
-  return isDuplicateReading(comparePagesBothWays(a, b));
+  return isDuplicateReading(yield* bothWaysSteps(a, b));
+}
+
+/**
+ * Lo mismo que `areDuplicates` pero llamando a `pause()` cada pocos miles de operaciones: quien la llama decide si cede el hilo
+ * (p. ej. cada ~8 ms), asi comparar hojas densas no bloquea la pantalla. El resultado es identico.
+ */
+export async function areDuplicatesYielding(a: PageSignature, b: PageSignature, pause: () => Promise<void>): Promise<boolean> {
+  const steps = areDuplicatesSteps(a, b);
+  let step = steps.next();
+  while (!step.done) {
+    await pause();
+    step = steps.next();
+  }
+  return step.value;
 }

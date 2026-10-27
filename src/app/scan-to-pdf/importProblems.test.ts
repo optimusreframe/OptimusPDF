@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { blobName, classifyImportFailure, mergeProblems, rejectedFile } from "@/app/scan-to-pdf/importProblems";
 import { orientationCounts } from "@/app/scan-to-pdf/scanState";
+import { isEngineUnavailableError } from "@/app/scan-to-pdf/scanServices";
 import { STRINGS } from "@/app/scan-to-pdf/strings";
 
 const { es, en } = STRINGS;
@@ -68,5 +69,28 @@ describe("textos del aviso", () => {
     expect(en.importProblems.title(1)).toBe("1 photo could not be added");
     expect(en.importProblems.title(2)).toBe("2 photos could not be added");
     expect(es.said.photoFailed("a.heic", "heic")).toContain("a.heic");
+  });
+});
+
+describe("motor no disponible", () => {
+  it("se reconoce por codigo, por nombre y por los errores tipicos de un chunk que no carga", () => {
+    expect(isEngineUnavailableError(Object.assign(new Error("x"), { code: "engine-unavailable" }))).toBe(true);
+    expect(isEngineUnavailableError(Object.assign(new Error("x"), { name: "ScanEngineUnavailableError" }))).toBe(true);
+    expect(isEngineUnavailableError(new Error("Failed to fetch dynamically imported module: /_next/static/x.js"))).toBe(true);
+    expect(isEngineUnavailableError(Object.assign(new Error("Loading chunk 12 failed"), { name: "ChunkLoadError" }))).toBe(true);
+    expect(isEngineUnavailableError(new Error("no se pudo decodificar"))).toBe(false);
+    expect(isEngineUnavailableError(Object.assign(new Error("x"), { name: "ScanDecodeError" }))).toBe(false);
+    expect(isEngineUnavailableError(null)).toBe(false);
+  });
+
+  it("una foto cuyo fallo es del motor no se clasifica como danada y guarda la foto para reintentar", () => {
+    const file = new File(["x"], "a.jpg", { type: "image/jpeg" });
+    expect(classifyImportFailure(file, true)).toEqual({ name: "a.jpg", kind: "engine", blob: file });
+    expect(classifyImportFailure(file, false).kind).toBe("damaged");
+  });
+
+  it("textos ES y EN", () => {
+    expect(es.importProblems.engineUnavailable).toBe("No se pudo cargar el escáner. Revisa tu conexión y vuelve a intentarlo.");
+    expect(en.importProblems.engineUnavailable).toContain("Check your connection");
   });
 });

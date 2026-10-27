@@ -303,6 +303,40 @@ describe("guardado inmediato (stage / flush)", () => {
   });
 });
 
+describe("el escaner no se pudo cargar (sin red)", () => {
+  it("importar: UN mensaje claro con «Reintentar», nunca «dañada», y al reintentar las fotos entran", async () => {
+    engine.controls.engineUnavailable = true;
+    mount();
+    fireEvent.change(libraryInput(), { target: { files: [tinyJpegFile("a.jpg", 64, 80, 1), tinyJpegFile("b.jpg", 64, 80, 2)] } });
+    const banner = await waitFor(() => {
+      const found = document.querySelector('[data-banner="import-problems"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    }, { timeout: 8000 });
+    expect(banner.textContent).toContain(es.importProblems.engineUnavailable);
+    expect(banner.textContent).not.toMatch(/dañada|incompleta/i);
+    expect(banner.querySelector('[data-import-problem]')).toBeNull();
+    expect(tiles()).toHaveLength(0);
+    // Vuelve la red: Reintentar procesa las DOS fotos.
+    engine.controls.engineUnavailable = false;
+    fireEvent.click(within(banner).getByRole("button", { name: es.importProblems.retry }));
+    await waitFor(() => expect(tiles()).toHaveLength(2), { timeout: 8000 });
+    expect(document.querySelector('[data-banner="import-problems"]')).toBeNull();
+  });
+
+  it("crear el PDF: mismo mensaje con «Reintentar» (no «No se pudo crear el PDF») y el reintento lo crea", async () => {
+    mount();
+    await importFiles(["a.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
+    engine.controls.engineUnavailable = true;
+    fireEvent.click(await screen.findByRole("button", { name: es.create }));
+    await waitFor(() => expect(document.querySelector("[data-save-error]")?.textContent).toBe(es.importProblems.engineUnavailable));
+    engine.controls.engineUnavailable = false;
+    fireEvent.click(screen.getByRole("button", { name: es.importProblems.retry }));
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+  });
+});
+
 describe("persistencia", () => {
   it("se guarda sola: la sesion esta en el almacen con sus paginas y «Guardado ✓» es visible", async () => {
     mount();
@@ -396,6 +430,20 @@ describe("persistencia", () => {
     });
     const dialog = await screen.findByRole("dialog", { name: es.leaveTitle });
     expect(dialog.textContent).toContain(es.leaveBodyUnsaved(2));
+  });
+
+  it("salir con un cambio pendiente del autoguardado: la hoja dice que las paginas quedan guardadas (no «se perderan»)", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: "Girar la página 1" }));
+    // El cambio aun no llego al disco (autoguardado en 500 ms) pero `stage` lo apunta y se escribe al salir.
+    expect(document.querySelector("[data-save-status]")?.getAttribute("data-save-status")).toBe("unsaved");
+    act(() => {
+      interceptNavigation("/merge-pdf", () => {});
+    });
+    const dialog = await screen.findByRole("dialog", { name: es.leaveTitle });
+    expect(dialog.textContent).toContain(es.leaveBodySaved(2));
+    expect(dialog.textContent).not.toMatch(/perder/);
   });
 
   it("al salir con todo guardado, la hoja lo dice y la opcion segura (seguir) es la primaria", async () => {
@@ -549,6 +597,25 @@ describe("camara y guardar", () => {
     engine.controls.buildError = null;
     fireEvent.click(screen.getByRole("button", { name: es.createWithoutText }));
     await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+  });
+
+  it("crear el PDF: la estimacion no se recalcula con cada cuadro del progreso y el foco va a «Cancelar»", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg", "c.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: es.save(3) }));
+    const create = await screen.findByRole("button", { name: es.create });
+    engine.controls.buildDelayMs = 60;
+    const before = engine.controls.calls.estimateSize ?? 0;
+    fireEvent.click(create);
+    const cancel = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>("[data-processing-overlay] button");
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    await waitFor(() => expect(document.activeElement).toBe(cancel));
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+    // Tres hojas = tres cuadros de progreso: sin memoizar, la estimacion se repetia en cada uno.
+    expect((engine.controls.calls.estimateSize ?? 0) - before).toBe(0);
   });
 
   it("un fallo del motor al crear el PDF deja las paginas y lo dice", async () => {

@@ -160,4 +160,34 @@ describe("quality — src/lib/scan/quality.ts", () => {
     })();
     void soft;
   });
+
+  it("una hoja bien iluminada sobre una mesa oscura (pagina sin recortar) NO es «oscura»; una foto entera oscura si", () => {
+    const tableWithPaper = gray(300, 400, (x, y) => (x > 90 && x < 270 && y > 60 && y < 340 ? 235 : 38));
+    const dark = measurePage(rgba(tableWithPaper));
+    expect(dark.paperLevel).toBeLessThan(95);
+    expect(dark.dark).toBe(false);
+    const underexposed = gray(300, 400, (x, y) => (x > 90 && x < 270 && y > 60 && y < 340 ? 80 : 30));
+    expect(measurePage(rgba(underexposed)).dark).toBe(true);
+  });
+
+  it("un documento DIGITAL (blanco exacto, texto con bordes antialias, sin ruido) no es un reflejo; una mancha quemada sobre papel de foto si", () => {
+    // Texto digital: blanco 255 y lineas con rampas de gris (como un PDF a pantalla).
+    const digital = gray(480, 640, (x, y) => {
+      const row = y % 18;
+      if (row < 4 || row > 13 || x < 40 || x > 440) return 255;
+      return 255 - Math.round(200 * Math.sin(((row - 4) / 10) * Math.PI) ** 2 * (0.5 + 0.5 * Math.sin(x * 0.7) ** 2));
+    });
+    expect(glareOf(digital).glare).toBe(false);
+    // Papel de foto (liso, 225) con una mancha quemada suave: reflejo.
+    const photo = gray(480, 640, (x, y) => {
+      const d = Math.hypot(x - 240, y - 320);
+      return d < 70 ? 255 : d < 120 ? 255 - ((d - 70) / 50) * 30 : 225;
+    });
+    expect(glareOf(photo).glare).toBe(true);
+  });
+
+  it("una hoja sin tono de papel dentro de un marco blanco a sangre (el blanco rodea toda la hoja) NO es un reflejo", () => {
+    const framed = gray(480, 640, (x, y) => (x < 60 || y < 80 || x > 420 || y > 560 ? 255 : 225 - ((x * 7 + y * 3) % 5)));
+    expect(glareOf(framed).glare).toBe(false);
+  });
 });

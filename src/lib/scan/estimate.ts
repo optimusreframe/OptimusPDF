@@ -1,4 +1,4 @@
-import { DEFAULT_IMAGE_PRESET, IMAGE_PRESETS, estimatePreparedBytes, isImagePresetId, type ImageHeader } from "@/lib/image/prepareForPdf";
+import { DEFAULT_IMAGE_PRESET, IMAGE_PRESETS, MIN_SAVING, estimatePreparedBytes, fitWithin, isImagePresetId, planPreparation, type ImageHeader, type ImagePreset } from "@/lib/image/prepareForPdf";
 import { fitSide } from "@/lib/scan/pixels";
 import { isDegenerateQuad, isFullFrameQuad, quadOutputSize } from "@/lib/scan/perspective";
 import { rotateQuad } from "@/lib/scan/renderCore";
@@ -18,13 +18,14 @@ const SEARCHABLE_BYTES_PER_PAGE = 2500;
 /** Correccion del modelo de recodificado de JPEG (estimado / real medio = 0,91 con 13 fotos reales y los presets Alta, Equilibrada y Compacta). */
 export const TRANSCODE_BIAS = 1.09;
 /**
- * Regla del 15 % de `prepareForPdf`: se recodifica solo si el resultado pesa >= 15 % menos; si no, se conserva el archivo. Cuando
- * el ahorro previsto cae cerca de ese umbral (Alta: ~18-22 %), el resultado REAL depende del codificador del navegador (en
- * Chromium sale recodificado, en WebKit suele quedar el original): la estimacion da el valor esperado, no un extremo.
+ * Banda alrededor del umbral del 15 % (relacion recodificado / original) donde el resultado real es incierto: por debajo de
+ * `below` se estima lo recodificado, por encima de `above` el original, y entre medias una mezcla. Con la medida de la propia pagina
+ * (`SAMPLE_KEEP_BAND`) la banda es estrecha; con el modelo aproximado de una foto sin medir (`MODEL_KEEP_BAND`) es ancha y sesgada
+ * hacia el original (mejor decir de mas que de menos).
  */
-export const KEEP_RULE_START = 0.7;
-export const KEEP_RULE_SPAN = 0.15;
-export const KEEP_RULE_MAX_WEIGHT = 0.8;
+export type KeepBand = { below: number; above: number };
+export const SAMPLE_KEEP_BAND: KeepBand = { below: 0.04, above: 0.04 };
+export const MODEL_KEEP_BAND: KeepBand = { below: 0.15, above: 0.02 };
 const LOW = 0.8;
 const HIGH = 1.3;
 
@@ -40,6 +41,8 @@ function headerFor(width: number, height: number, kind: ImageHeader["kind"] = "j
 
 /** Exponente con el que baja el peso por pixel al subir la resolucion (calibrado con documentos y fotos en Chromium y WebKit). */
 export const SAMPLE_BPP_EXPONENT = 0.5;
+/** Sesgo hacia arriba de la muestra (49 parches): con documentos reales y sinteticos queda entre -7 % y +9 %; mejor decir de mas que de menos. */
+export const SAMPLE_BIAS = 1.08;
 
 /**
  * ¿El resultado de esta pagina ES su original (sin recodificar)? Sin recorte, sin giro, sin ajuste y con un filtro que no
@@ -55,7 +58,7 @@ export function isIdentityPage(page: ScanPage): boolean {
 }
 
 /** Dimensiones y peso previstos del resultado de esta pagina (el que se incrustara en el PDF). */
-export function expectedProcessed(page: ScanPage): { width: number; height: number; bytes: number; kind: ImageHeader["kind"] } {
+export function expectedProcessed(page: ScanPage): { width: number; height: number; bytes: number; kind: ImageHeader["kind"]; qualityRatio?: Record<string, number> } {
   if (page.processed && page.processedSize) return { ...page.processedSize, bytes: page.processed.size, kind: kindOf(page.processed) };
   const full = { width: Math.max(1, page.originalWidth), height: Math.max(1, page.originalHeight) };
   if (isIdentityPage(page)) return { ...full, bytes: page.original.size, kind: kindOf(page.original) };
@@ -73,13 +76,46 @@ export function expectedProcessed(page: ScanPage): { width: number; height: numb
   if (page.jpegSample) {
     // Peso por pixel medido a resolucion NATIVA en un parche del resultado (con su filtro): al reducir (`scale` < 1) el detalle se
     // concentra y el peso por pixel SUBE.
-    bytes = page.jpegSample.bytesPerPixel * fitted.scale ** -SAMPLE_BPP_EXPONENT * pixels;
+    bytes = page.jpegSample.bytesPerPixel * fitted.scale ** -SAMPLE_BPP_EXPONENT * pixels * SAMPLE_BIAS;
   } else {
     // Sin muestra: un JPEG de escaner pesa del orden de 0,35 bytes/pixel a calidad 0,9.
     const ratio = pixels / (full.width * full.height);
     bytes = Math.max(20_000, Math.min(page.original.size * Math.min(1, ratio) * 0.9, pixels * 0.5));
   }
-  return { width: fitted.width, height: fitted.height, bytes, kind: "jpeg" };
+  return { width: fitted.width, height: fitted.height, bytes, kind: "jpeg", ...(page.jpegSample?.qualityRatio ? { qualityRatio: page.jpegSample.qualityRatio } : {}) };
+}
+
+/** Peso relativo de un JPEG a la calidad del preset frente a 0,9 cuando la pagina no trae medida propia (contenido tipico). */
+const FALLBACK_QUALITY_RATIO: Record<string, number> = { "0.92": 1.12, "0.87": 0.86, "0.8": 0.66 };
+
+/**
+ * Regla del 15 % de `prepareForPdf` (recodificar solo si el resultado pesa >= 15 % menos). Cerca del umbral el resultado real
+ * depende del codificador del navegador (en Chromium sale recodificado, en WebKit suele quedar el original): se estima el valor
+ * esperado, con un sesgo hacia arriba (mejor decir de mas que de menos).
+ */
+export function blendKeepRule(original: number, encoded: number, band: KeepBand = MODEL_KEEP_BAND): number {
+  const ratio = encoded / original;
+  if (ratio >= 1) return original;
+  const threshold = 1 - MIN_SAVING;
+  const low = threshold - band.below;
+  const high = threshold + band.above;
+  if (ratio <= low) return encoded;
+  if (ratio >= high) return original;
+  const kept = (ratio - low) / (high - low);
+  return encoded * (1 - kept) + original * kept;
+}
+
+function estimateFromSample(header: ImageHeader, bytes: number, preset: ImagePreset, qualityRatio: Record<string, number>): number {
+  const plan = planPreparation(header, bytes, preset);
+  if (plan.action === "keep") return bytes;
+  const width = header.displayWidth ?? header.width ?? 1;
+  const height = header.displayHeight ?? header.height ?? 1;
+  const out = fitWithin(width, height, plan.maxSide, plan.maxPixels);
+  const shrink = out.width / Math.max(1, width);
+  const ratio = qualityRatio[String(preset.quality)] ?? FALLBACK_QUALITY_RATIO[String(preset.quality)] ?? 1;
+  // Pixeles ~ shrink^2 y peso por pixel ~ shrink^-0,5 (el detalle se concentra al reducir).
+  const encoded = bytes * shrink ** (2 - SAMPLE_BPP_EXPONENT) * ratio;
+  return blendKeepRule(bytes, encoded, SAMPLE_KEEP_BAND);
 }
 
 export function estimateScanSize(pages: readonly ScanPage[], options: { preset: string; searchable: boolean }): ScanSizeEstimate {
@@ -88,14 +124,18 @@ export function estimateScanSize(pages: readonly ScanPage[], options: { preset: 
   let total = 0;
   for (const page of pages) {
     const expected = expectedProcessed(page);
-    // La politica y el modelo de `prepareForPdf` (Original conserva el archivo; el resto, solo si ahorra >= 15 %).
-    const { optimized: modelled } = estimatePreparedBytes(headerFor(expected.width, expected.height, expected.kind), expected.bytes, preset);
-    // El modelo de `prepareForPdf` se queda corto ~9 % cuando recodifica un JPEG (medido con fotos reales en los tres presets).
-    let optimized = modelled < expected.bytes ? Math.min(expected.bytes, modelled * TRANSCODE_BIAS) : modelled;
-    if (optimized < expected.bytes) {
-      const ratio = optimized / expected.bytes;
-      const keepWeight = KEEP_RULE_MAX_WEIGHT * Math.min(1, Math.max(0, (ratio - KEEP_RULE_START) / KEEP_RULE_SPAN));
-      optimized = expected.bytes * (ratio + (1 - ratio) * keepWeight);
+    const header = headerFor(expected.width, expected.height, expected.kind);
+    let optimized: number;
+    if (expected.qualityRatio && presetId !== "original") {
+      // Pagina procesada con muestra: se reproduce lo que hace `prepareForPdf` con el peso REAL de este contenido a la calidad de cada
+      // preset (reducir si pasa del lado maximo, recodificar y quedarse con lo nuevo solo si ahorra >= 15 %).
+      optimized = estimateFromSample(header, expected.bytes, preset, expected.qualityRatio);
+    } else {
+      // La politica y el modelo de `prepareForPdf` (Original conserva el archivo; el resto, solo si ahorra >= 15 %).
+      const { optimized: modelled } = estimatePreparedBytes(header, expected.bytes, preset);
+      // El modelo de `prepareForPdf` se queda corto ~9 % cuando recodifica un JPEG (medido con fotos reales en los tres presets).
+      optimized = modelled < expected.bytes ? Math.min(expected.bytes, modelled * TRANSCODE_BIAS) : modelled;
+      if (optimized < expected.bytes) optimized = blendKeepRule(expected.bytes, optimized);
     }
     total += optimized + PAGE_OVERHEAD_BYTES + (options.searchable ? SEARCHABLE_BYTES_PER_PAGE : 0);
   }

@@ -293,7 +293,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
       >
       <p className="text-footnote text-muted-foreground">{s.reviewHelp}</p>
 
-      <ImportProblemsBanner s={s} problems={api.importProblems} onDismiss={api.dismissImportProblems} />
+      <ImportProblemsBanner s={s} problems={api.importProblems} onDismiss={api.dismissImportProblems} onRetry={api.retryEngineProblems} onReload={api.engineRetried ? () => window.location.reload() : undefined} />
 
       {blanks.length > 0 ? (
         <div data-banner="blanks" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-ios border border-hairline bg-white/5 px-3 py-2">

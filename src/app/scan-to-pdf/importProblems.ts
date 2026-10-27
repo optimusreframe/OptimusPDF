@@ -2,12 +2,14 @@
  * Fotos que no se pudieron anadir: que paso con cada una (por su nombre) y por que.
  * Funciones puras: la lista vive en `useScanSession` y el aviso en `ImportProblemsBanner`.
  */
-export type ImportProblemKind = "notImage" | "heic" | "damaged";
+export type ImportProblemKind = "notImage" | "heic" | "damaged" | "engine";
 
 export type ImportProblem = {
   /** Nombre del archivo; vacio si viene de la camara (no tiene). */
   name: string;
   kind: ImportProblemKind;
+  /** Solo `engine`: la foto, para reintentar cuando el motor cargue (no es un defecto suyo). */
+  blob?: Blob;
 };
 
 const HEIC_TYPE = /^image\/hei[cf]/i;
@@ -20,8 +22,10 @@ export function blobName(blob: Blob): string {
 }
 
 /** Por que fallo una foto: HEIC que este navegador no sabe leer, algo que no es una imagen, o una imagen danada. */
-export function classifyImportFailure(blob: Blob): ImportProblem {
+export function classifyImportFailure(blob: Blob, engineUnavailable = false): ImportProblem {
   const name = blobName(blob);
+  // El escaner no cargo (sin red): la foto NO esta dañada; se guarda para reintentar.
+  if (engineUnavailable) return { name, kind: "engine", blob };
   const type = blob.type || "";
   if (HEIC_TYPE.test(type) || HEIC_NAME.test(name)) return { name, kind: "heic" };
   const looksLikeImage = type.startsWith("image/") || IMAGE_NAME.test(name);

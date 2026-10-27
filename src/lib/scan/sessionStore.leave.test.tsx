@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { Blob as NodeBlob } from "node:buffer";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SCAN_DB_NAME,
   __resetScanStagingForTests,
@@ -130,6 +130,75 @@ describe("volcado al irse de la pagina — src/lib/scan/sessionStore.ts", () => 
       expect(loaded?.pages[1].thumb?.size).toBeGreaterThan(0);
     } finally {
       __setScanStorageModeForTests("blob");
+    }
+  });
+
+  it("WebKit (modo bytes): una pagina con miniatura NUEVA (sin leer: la acaba de regenerar un giro) se escribe igualmente, sin miniatura, y el giro no se pierde", async () => {
+    __setScanStorageModeForTests("bytes");
+    try {
+      const base = session([page(0), page(0)]);
+      expect((await scanSessionStore.save(base)).ok).toBe(true);
+      const regenerated = new NodeBlob([new Uint8Array([7, 7, 7])], { type: "image/jpeg" }) as unknown as Blob;
+      scanSessionStore.stage?.({ ...base, pages: base.pages.map((p, i) => (i === 1 ? { ...p, rotation: 90 as const, thumb: regenerated } : p)) });
+      window.dispatchEvent(new Event("pagehide"));
+      await tick(60);
+      const loaded = await scanSessionStore.load(base.id);
+      expect(loaded?.pages.map((p) => p.rotation)).toEqual([0, 90]);
+      // Sin miniatura (la interfaz la vuelve a generar al restaurar); la otra pagina conserva la suya.
+      expect(loaded?.pages[1].thumb ?? null).toBeNull();
+      expect(loaded?.pages[0].thumb?.size).toBeGreaterThan(0);
+    } finally {
+      __setScanStorageModeForTests("blob");
+    }
+  });
+
+  it("WebKit (modo bytes): borrar una pagina de una sesion YA restaurada (miniaturas nuevas sin leer) y recargar al instante deja la otra pagina", async () => {
+    __setScanStorageModeForTests("bytes");
+    try {
+      const base = session([page(0), page(90)]);
+      expect((await scanSessionStore.save(base)).ok).toBe(true);
+      // Como tras una recarga: la sesion se LEE del almacen (miniaturas nuevas) y se sigue desde ahi.
+      const restored = await scanSessionStore.load(base.id);
+      expect(restored?.pages).toHaveLength(2);
+      scanSessionStore.stage?.({ ...(restored as ScanSession), pages: (restored as ScanSession).pages.slice(0, 1) });
+      window.dispatchEvent(new Event("pagehide"));
+      await tick(80);
+      const loaded = await scanSessionStore.load(base.id);
+      expect(loaded?.pages.map((p) => p.id)).toEqual([base.pages[0].id]);
+    } finally {
+      __setScanStorageModeForTests("blob");
+    }
+  });
+
+  it("modo blob sin ningun guardado normal terminado en esta carga: el volcado al irse NO arriesga una transaccion (WebKit se quedaria colgado): usa el guardado normal", async () => {
+    const fresh = session([page(0)]);
+    scanSessionStore.stage?.(fresh);
+    await tick(60);
+    const original = IDBDatabase.prototype.transaction;
+    let started = 0;
+    IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase["transaction"]>) {
+      started += 1;
+      return original.apply(this, args);
+    } as typeof original;
+    try {
+      window.dispatchEvent(new Event("pagehide"));
+      expect(started).toBe(0);
+    } finally {
+      IDBDatabase.prototype.transaction = original;
+    }
+    await tick(80);
+    expect((await scanSessionStore.load(fresh.id))?.pages).toHaveLength(1);
+  });
+
+  it("si en esta pestana ya se vio que no se guardan Blob, al recargar el almacen EMPIEZA en modo bytes", async () => {
+    sessionStorage.setItem("optimuspdf.scan.bytesMode", "1");
+    try {
+      vi.resetModules();
+      const fresh = await import("@/lib/scan/sessionStore");
+      expect(fresh.scanStorageMode()).toBe("bytes");
+    } finally {
+      sessionStorage.removeItem("optimuspdf.scan.bytesMode");
+      vi.resetModules();
     }
   });
 

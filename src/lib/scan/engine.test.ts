@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ENGINE_LOAD_BACKOFF_MS,
   SCAN_ENGINE_TEST_HOOK,
+  __setEngineLoadWaitForTests,
   __setRealEngineImporterForTests,
   preloadScanEngine,
   ScanEngineUnavailableError,
@@ -97,24 +99,69 @@ describe("fachada del motor — src/lib/scan/engine.ts", () => {
     await expect(splitSpread({} as ScanPage)).rejects.toBeInstanceOf(ScanEngineUnavailableError);
   });
 
-  it("cargar el motor real sin conexion falla UNA vez y NO queda cacheado: el siguiente uso lo reintenta y funciona", async () => {
+  it("un fallo puntual al cargar el motor se reintenta SOLO (con espera) y funciona sin que la persona haga nada", async () => {
+    const waits: number[] = [];
+    __setEngineLoadWaitForTests(async (ms) => {
+      waits.push(ms);
+    });
     let calls = 0;
     const fakePage = { id: "p-reintento" } as ScanPage;
     __setRealEngineImporterForTests(async () => {
       calls += 1;
-      if (calls === 1) throw new TypeError("Failed to fetch dynamically imported module");
+      if (calls <= 2) throw new TypeError("Failed to fetch dynamically imported module");
       return { createPage: async () => fakePage } as never;
     });
     const info = { source: "library" as const, mode: "document" as const, settings: DEFAULT_SCAN_SETTINGS };
-    await expect(createPage(new Blob([]), info)).rejects.toThrow("Failed to fetch");
     expect(await createPage(new Blob([]), info)).toBe(fakePage);
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
+    expect(waits).toEqual([...ENGINE_LOAD_BACKOFF_MS]);
     // Cargado: no se vuelve a pedir.
     await createPage(new Blob([]), info);
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
+    __setEngineLoadWaitForTests(null);
+  });
+
+  it("si el motor NO carga sale un error PROPIO (engine-unavailable / load-failed), distinto de una foto danada, y no queda cacheado", async () => {
+    __setEngineLoadWaitForTests(async () => {});
+    let calls = 0;
+    const fakePage = { id: "p-despues" } as ScanPage;
+    let down = true;
+    __setRealEngineImporterForTests(async () => {
+      calls += 1;
+      if (down) throw new TypeError("Failed to fetch dynamically imported module");
+      return { createPage: async () => fakePage } as never;
+    });
+    const info = { source: "library" as const, mode: "document" as const, settings: DEFAULT_SCAN_SETTINGS };
+    const failure = await createPage(new Blob([]), info).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ScanEngineUnavailableError);
+    expect(isScanEngineUnavailable(failure)).toBe(true);
+    expect(failure).toMatchObject({ code: "engine-unavailable", reason: "load-failed" });
+    expect((failure as Error).cause).toBeInstanceOf(TypeError);
+    expect(calls).toBe(1 + ENGINE_LOAD_BACKOFF_MS.length);
+    // Vuelve la red: el siguiente uso lo reintenta (el fallo no se guardo).
+    down = false;
+    expect(await createPage(new Blob([]), info)).toBe(fakePage);
+    __setEngineLoadWaitForTests(null);
+  });
+
+  it("si ya fallo SIN conexion y con conexion sigue fallando (el cargador recuerda el trozo fallido), pide RECARGAR", async () => {
+    __setEngineLoadWaitForTests(async () => {});
+    __setRealEngineImporterForTests(async () => {
+      throw new TypeError("Failed to fetch dynamically imported module");
+    });
+    const info = { source: "library" as const, mode: "document" as const, settings: DEFAULT_SCAN_SETTINGS };
+    vi.stubGlobal("navigator", { onLine: false });
+    const first = await createPage(new Blob([]), info).catch((error: unknown) => error);
+    expect(first).toMatchObject({ reason: "load-failed", needsReload: false });
+    vi.stubGlobal("navigator", { onLine: true });
+    const second = await createPage(new Blob([]), info).catch((error: unknown) => error);
+    expect(second).toMatchObject({ reason: "load-failed", needsReload: true });
+    vi.unstubAllGlobals();
+    __setEngineLoadWaitForTests(null);
   });
 
   it("preloadScanEngine deja todo cargado y nunca lanza, aunque no haya conexion", async () => {
+    __setEngineLoadWaitForTests(async () => {});
     __setRealEngineImporterForTests(async () => {
       throw new TypeError("offline");
     });
@@ -126,5 +173,6 @@ describe("fachada del motor — src/lib/scan/engine.ts", () => {
     });
     await preloadScanEngine();
     expect(loaded).toBe(1);
+    __setEngineLoadWaitForTests(null);
   });
 });

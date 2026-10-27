@@ -3,7 +3,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import { PDFArray, PDFDocument, PDFRawStream, decodePDFRawStream } from "@cantoo/pdf-lib";
 import { getPageSize, getTextItems } from "../../../e2e/helpers/pdf-inspection";
 import { buildScanPdf, type BuildPdfDeps } from "@/lib/scan/buildPdf";
-import { estimateScanSize, expectedProcessed, isIdentityPage, PROCESSED_MAX_SIDE, SAMPLE_BPP_EXPONENT } from "@/lib/scan/estimate";
+import { estimateScanSize, expectedProcessed, isIdentityPage, PROCESSED_MAX_SIDE, SAMPLE_BIAS, SAMPLE_BPP_EXPONENT } from "@/lib/scan/estimate";
 import { drawTextLayer, imagePlacement, marginPoints } from "@/lib/scan/textLayer";
 import type { OcrResult } from "@/lib/scan/ocr";
 import { DEFAULT_SCAN_SETTINGS, type ScanBuildWarning, type ScanPage, type ScanSession } from "@/lib/scan/types";
@@ -330,12 +330,12 @@ describe("estimacion del peso — src/lib/scan/estimate.ts", () => {
     const scale = expected.width / 3000;
     expect(scale).toBeLessThan(1);
     expect(Math.max(expected.width, expected.height)).toBeLessThanOrEqual(PROCESSED_MAX_SIDE);
-    expect(expected.bytes).toBeCloseTo(0.2 * scale ** -SAMPLE_BPP_EXPONENT * expected.width * expected.height, 0);
+    expect(expected.bytes).toBeCloseTo(0.2 * scale ** -SAMPLE_BPP_EXPONENT * expected.width * expected.height * SAMPLE_BIAS, 0);
     // Una muestra mas densa pesa mas; sin muestra se usa la regla antigua; sin reducir (scale 1) el peso por pixel es el medido.
     expect(expectedProcessed({ ...base, jpegSample: { side: 128, bytesPerPixel: 0.4 } }).bytes).toBeGreaterThan(expected.bytes * 1.9);
     expect(expectedProcessed(base).bytes).toBeGreaterThan(0);
     const small = page(1200, 1600, { processed: null, processedSize: undefined, mode: "document", resolvedFilter: "enhance", jpegSample: { side: 128, bytesPerPixel: 0.1 } });
-    expect(expectedProcessed(small).bytes).toBeCloseTo(0.1 * 1200 * 1600, 0);
+    expect(expectedProcessed(small).bytes).toBeCloseTo(0.1 * 1200 * 1600 * SAMPLE_BIAS, 0);
   });
 
   it("con el resultado ya procesado se usa su peso y sus dimensiones reales (sin estimar)", () => {

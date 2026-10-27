@@ -129,7 +129,8 @@ function ScanFlow() {
 
   /* ---------------- guarda de salida ---------------- */
   const leave = useScanLeaveGuard(
-    hasPages && view !== "done" ? { progress: true, sessionId: api.state.id, saved: api.saveStatus === "saved" || api.saveStatus === "idle" || api.saveStatus === "saving", pages: pages.length } : null,
+    hasPages && view !== "done" ? { progress: true, sessionId: api.state.id, // «unsaved» = cambio pendiente del autoguardado: `stage` lo apunta y se escribe al salir (no se pierde); solo cuota / sin almacen / demasiado grande son «no guardado».
+      saved: api.saveStatus === "saved" || api.saveStatus === "idle" || api.saveStatus === "saving" || api.saveStatus === "unsaved", pages: pages.length } : null,
     api.hasPendingWrite,
   );
 
@@ -278,6 +279,8 @@ function ScanFlow() {
           resumeNotice={resumeNotice}
           importProblems={api.importProblems}
           onDismissProblems={api.dismissImportProblems}
+          onRetryProblems={api.retryEngineProblems}
+          onReloadProblems={api.engineRetried ? () => window.location.reload() : undefined}
           resuming={resuming}
           onResume={(id) => void onResume(id)}
           onDiscardSaved={(id) => {

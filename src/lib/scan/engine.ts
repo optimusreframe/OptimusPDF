@@ -22,11 +22,23 @@ export * from "@/lib/scan/types";
 
 export const SCAN_ENGINE_TEST_HOOK = "__optimusScanEngine";
 
+/**
+ * El motor no esta disponible. `code` es SIEMPRE `"engine-unavailable"` (usa `isScanEngineUnavailable`). `reason` distingue:
+ *  - `"not-installed"`: no hay motor (solo el motor de prueba `unavailableEngine`);
+ *  - `"load-failed"`: el trozo de codigo del motor NO se pudo descargar (sin conexion o conexion caida al abrir la herramienta). NO es
+ *    una foto danada: la interfaz debe decir «No se pudo cargar el escaner; comprueba la conexion» y reintentar al volver la red.
+ * `needsReload` pasa a `true` cuando la conexion ya volvio y aun asi sigue fallando: el cargador de la aplicacion (Turbopack)
+ * recuerda un trozo fallido hasta recargar la pagina. La interfaz debe ofrecer «Recargar» (lo ya guardado en Recientes se conserva).
+ */
 export class ScanEngineUnavailableError extends Error {
   readonly code = "engine-unavailable";
-  constructor(message = "El motor del escaner no esta instalado") {
-    super(message);
+  readonly reason: "not-installed" | "load-failed";
+  readonly needsReload: boolean;
+  constructor(message = "El motor del escaner no esta instalado", options: { reason?: "not-installed" | "load-failed"; needsReload?: boolean; cause?: unknown } = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "ScanEngineUnavailableError";
+    this.reason = options.reason ?? "not-installed";
+    this.needsReload = options.needsReload ?? false;
   }
 }
 
@@ -59,11 +71,48 @@ let realImporter: () => Promise<ScanEngineApi> = () => import("@/lib/scan/realEn
 export function __setRealEngineImporterForTests(next: (() => Promise<ScanEngineApi>) | null): void {
   realImporter = next ?? (() => import("@/lib/scan/realEngine").then((module) => module.realEngine));
   realPromise = null;
+  failedWhileOffline = false;
 }
 
-/** Carga el motor real una vez; un rechazo (chunk no disponible, sin conexion) NO se guarda: el siguiente uso lo reintenta. */
+/** Esperas entre intentos de carga del motor (ms). */
+export const ENGINE_LOAD_BACKOFF_MS: readonly number[] = [250, 900];
+let waitBetweenAttempts: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Un intento de carga fallido anterior (para saber si la conexion ya volvio y aun asi falla). */
+let failedWhileOffline = false;
+
+/** Solo para pruebas: sin esperas reales entre intentos (`null` restaura). */
+export function __setEngineLoadWaitForTests(wait: ((ms: number) => Promise<void>) | null): void {
+  waitBetweenAttempts = wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  failedWhileOffline = false;
+}
+
+const online = (): boolean => typeof navigator === "undefined" || navigator.onLine !== false;
+
+async function loadReal(): Promise<ScanEngineApi> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= ENGINE_LOAD_BACKOFF_MS.length; attempt += 1) {
+    try {
+      const engine = await realImporter();
+      failedWhileOffline = false;
+      return engine;
+    } catch (error) {
+      lastError = error;
+      if (attempt < ENGINE_LOAD_BACKOFF_MS.length) await waitBetweenAttempts(ENGINE_LOAD_BACKOFF_MS[attempt]);
+    }
+  }
+  // Si ya habia fallado SIN conexion y ahora la hay, el cargador de la aplicacion recuerda el trozo fallido: hace falta recargar.
+  const needsReload = failedWhileOffline && online();
+  if (!online()) failedWhileOffline = true;
+  throw new ScanEngineUnavailableError("No se pudo cargar el motor del escaner (comprueba la conexion)", { reason: "load-failed", needsReload, cause: lastError });
+}
+
+/**
+ * Carga el motor real una vez. Un rechazo (trozo no disponible, sin conexion) NO se guarda: el siguiente uso lo reintenta (con un
+ * par de reintentos esperando antes) y falla con `ScanEngineUnavailableError` (`reason: "load-failed"`), distinto de una foto
+ * danada.
+ */
 const real = (): Promise<ScanEngineApi> => {
-  realPromise ??= realImporter().catch((error: unknown) => {
+  realPromise ??= loadReal().catch((error: unknown) => {
     realPromise = null;
     throw error;
   });
