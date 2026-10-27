@@ -17,9 +17,15 @@ import { clampQuad, type QuadCorners, type ScanPoint } from "@/lib/scan/perspect
 
 const MEASURE_SIDE = 800;
 /** Cuantos puntos se miden a lo largo de cada lado. */
-const SAMPLES = 96;
+const SAMPLES = 64;
 /** Margen de seguridad hacia fuera (px a 800) cuando un lado se empuja, y minimo siempre. */
 export const SAFETY_MARGIN_PX = 2;
+/**
+ * Margen de seguridad extra (fraccion del lado) en las TARJETAS: una cabecera oscura o de color casi del color de la mesa no tiene borde
+ * que ver ni texto en su franja superior y el detector se queda unos puntos dentro; como la tarjeta es pequena, unos puntos de mesa
+ * alrededor cuestan poco y evitan perder cabecera.
+ */
+export const CARD_MARGIN_FRACTION = 0.03;
 /** Diferencia maxima (por canal) para seguir llamando «papel» a un pixel respecto al papel de dentro. */
 export const PAPER_TOLERANCE = 14;
 /** Cuanto puede alejarse el papel de justo dentro del color tipico del papel (luz desigual) para seguir contando como papel. */
@@ -29,6 +35,8 @@ export const STEP_MIN_DELTA = 28;
 /** El salto se mide a +-STEP_WIDE px; un borde nitido hace al menos STEP_SHARPNESS de ese salto dentro de +-1 px (una sombra, no). */
 export const STEP_WIDE = 5;
 export const STEP_SHARPNESS = 0.35;
+/** Desviacion tipica maxima (px) de las posiciones de los saltos respecto a UNA recta para que formen un borde. */
+export const STEP_LINE_TOLERANCE = 3;
 export const STEP_MIN_SHARE = 0.7;
 /** Cuanto se puede empujar un lado (fraccion del lado menor) antes de dudar, y hasta donde se busca un segundo borde. */
 export const MAX_PUSH_FRACTION = 0.06;
@@ -115,6 +123,23 @@ function fitEdge(pushes: number[], length: number): { start: number; end: number
   return { start: Math.max(0, intercept + lift), end: Math.max(0, intercept + slope * length + lift) };
 }
 
+/** Desviacion tipica de las posiciones respecto a la recta de minimos cuadrados (posicion en funcion de la muestra). */
+function lineResidual(points: Array<{ k: number; position: number }>): number {
+  const n = points.length;
+  const meanK = points.reduce((a, p) => a + p.k, 0) / n;
+  const meanP = points.reduce((a, p) => a + p.position, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (const p of points) {
+    num += (p.k - meanK) * (p.position - meanP);
+    den += (p.k - meanK) ** 2;
+  }
+  const slope = den > 1e-9 ? num / den : 0;
+  let sq = 0;
+  for (const p of points) sq += (p.position - (meanP + slope * (p.k - meanK))) ** 2;
+  return Math.sqrt(sq / n);
+}
+
 function lineIntersection(p1: Vec, d1: Vec, p2: Vec, d2: Vec): Vec | null {
   const det = d1.x * d2.y - d1.y * d2.x;
   if (Math.abs(det) < 1e-9) return null;
@@ -126,7 +151,7 @@ function lineIntersection(p1: Vec, d1: Vec, p2: Vec, d2: Vec): Vec | null {
  * Empuja los lados hacia fuera hasta el borde real del papel y rechaza el recorte si detras de algun lado hay otro borde nitido
  * paralelo o el papel no acaba. `quad` normalizado; el resultado tambien.
  */
-export function refineCrop(source: Rgba, quad: QuadCorners): RefineResult {
+export function refineCrop(source: Rgba, quad: QuadCorners, options: { margin?: number } = {}): RefineResult {
   const image = source.width > MEASURE_SIDE || source.height > MEASURE_SIDE ? downscaleRgba(source, MEASURE_SIDE) : source;
   const minSide = Math.min(image.width, image.height);
   const corners: Vec[] = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft].map((p) => ({ x: p.x * image.width, y: p.y * image.height }));
@@ -213,13 +238,16 @@ export function refineCrop(source: Rgba, quad: QuadCorners): RefineResult {
       start = Math.min(maxShift, Math.max(0, fit.start));
       end = Math.min(maxShift, Math.max(0, fit.end));
     }
-    const edge = Math.max(start, end) + SAFETY_MARGIN_PX;
+    const margin = Math.max(SAFETY_MARGIN_PX, (options.margin ?? 0) * length);
+    const edge = Math.max(start, end) + margin;
 
-    // Detras del lado (ya empujado) no puede haber otro borde nitido y paralelo.
+    // Detras del lado (ya empujado) no puede haber otro borde nitido que lo acompane (paralelo O inclinado unos grados: el detector
+    // suele quedarse girado respecto a la hoja, y el final de un membrete queda en una recta que se aleja del lado).
     const first = Math.ceil(edge) + STEP_WIDE;
-    const steps = new Map<number, number>();
-    for (const profile of profiles) {
-      const seen = new Set<number>();
+    const stepAt: Array<{ k: number; position: number }> = [];
+    profiles.forEach((profile, k) => {
+      let bestGap = 0;
+      let position = -1;
       for (let d = first; d + STEP_WIDE < profile.length - 1; d += 1) {
         const before = profile[d - STEP_WIDE];
         const after = profile[d + STEP_WIDE];
@@ -228,15 +256,14 @@ export function refineCrop(source: Rgba, quad: QuadCorners): RefineResult {
         if (!before || !after || !near0 || !near1) continue;
         const wide = channelGap(before, after);
         // Un borde nitido concentra el salto en 2 px; la penumbra de una sombra lo reparte en muchos y no cuenta.
-        if (wide >= STEP_MIN_DELTA && channelGap(near0, near1) >= wide * STEP_SHARPNESS) {
-          for (let near = d - 2; near <= d + 2; near += 1) seen.add(near);
+        if (wide >= STEP_MIN_DELTA && channelGap(near0, near1) >= wide * STEP_SHARPNESS && wide > bestGap) {
+          bestGap = wide;
+          position = d;
         }
       }
-      for (const position of seen) steps.set(position, (steps.get(position) ?? 0) + 1);
-    }
-    let best = 0;
-    for (const count of steps.values()) best = Math.max(best, count);
-    if (best >= SAMPLES * STEP_MIN_SHARE) return { ok: false, reason: "content-beyond", side };
+      if (position >= 0) stepAt.push({ k, position });
+    });
+    if (stepAt.length >= SAMPLES * STEP_MIN_SHARE && lineResidual(stepAt) <= STEP_LINE_TOLERANCE) return { ok: false, reason: "content-beyond", side };
 
     // Contenido ajeno al fondo (texto o logo de un membrete) en la franja de detras.
     const beyond: Array<[number, number, number]> = [];
@@ -258,8 +285,8 @@ export function refineCrop(source: Rgba, quad: QuadCorners): RefineResult {
     }
 
     shifts.push(edge);
-    const o0 = start + SAFETY_MARGIN_PX;
-    const o1 = end + SAFETY_MARGIN_PX;
+    const o0 = start + margin;
+    const o1 = end + margin;
     const slanted = { x: tangent.x * length + normal.x * (o1 - o0), y: tangent.y * length + normal.y * (o1 - o0) };
     const slantedLength = Math.hypot(slanted.x, slanted.y) || 1;
     lines.push({ point: { x: a.x + normal.x * o0, y: a.y + normal.y * o0 }, dir: { x: slanted.x / slantedLength, y: slanted.y / slantedLength } });

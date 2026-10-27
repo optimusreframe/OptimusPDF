@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
@@ -49,6 +50,23 @@ const F0_SPECS = /(sign-ceremony-turns|sign-recovery|sign-record|sign-privacy|re
 const F0_PENDING = /@f0-pendiente/;
 
 /**
+ * Pruebas de RENDIMIENTO con un presupuesto ABSOLUTO de tiempo, de tareas largas o de memoria (llevan la etiqueta `@perf`:
+ * `test(titulo, { tag: "@perf" }, ...)`). Con 2 workers en un runner de 2 nucleos otro navegador pesado al lado las ralentiza
+ * 2-2,6 veces (la de 20 paginas x 30 imagenes pasaba de 2,8 s a 5,5-7,3 s con limite de 5 s; «Alta» de image-optimize de 19,6 s a
+ * 41-45 s) sin que el codigo haya cambiado: el resultado dependia de que prueba le tocaba al lado. Por eso en CI corren APARTE,
+ * con un solo worker, en una segunda pasada que reutiliza la build:
+ *   PW_PERF=skip -> todo MENOS `@perf` (primera pasada, 2 workers)
+ *   PW_PERF=only -> SOLO `@perf` (segunda pasada, `--workers=1`; su evidencia va a `.evidence/playwright-perf*`)
+ *   sin definir  -> todo (local: cada quien lanza lo que quiere, como siempre)
+ * `PW_SKIP_BUILD=1` hace que el servidor de esa segunda pasada arranque la build que ya dejo la primera en vez de recompilar.
+ */
+const PERF = /@perf/;
+const PERF_MODE = process.env.PW_PERF === "skip" || process.env.PW_PERF === "only" ? process.env.PW_PERF : undefined;
+const GREP_INVERT = [...(process.env.PW_F0 === "1" ? [] : [F0_PENDING]), ...(PERF_MODE === "skip" ? [PERF] : [])];
+const REUSE_BUILD = !!process.env.PW_SKIP_BUILD && existsSync(path.resolve(__dirname, ".next/BUILD_ID"));
+const EVIDENCE_SUFFIX = PERF_MODE === "only" ? "-perf" : "";
+
+/**
  * Suite E2E de navegador real para las rutas que dependen de pdfjs-dist /
  * canvas y no pueden ejercitarse en el entorno Node de Vitest
  * (compress, redact, compare, y el render compartido de core.ts via
@@ -58,13 +76,14 @@ const F0_PENDING = /@f0-pendiente/;
  */
 export default defineConfig({
   testDir: "./e2e/specs",
-  outputDir: ".evidence/playwright",
+  outputDir: `.evidence/playwright${EVIDENCE_SUFFIX}`,
   fullyParallel: false,
-  grepInvert: process.env.PW_F0 === "1" ? undefined : F0_PENDING,
+  grep: PERF_MODE === "only" ? PERF : undefined,
+  grepInvert: GREP_INVERT.length > 0 ? GREP_INVERT : undefined,
   workers: process.env.CI ? 2 : undefined,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI
-    ? [["line"], ["html", { outputFolder: ".evidence/playwright-report", open: "never" }]]
+    ? [["line"], ["html", { outputFolder: `.evidence/playwright-report${EVIDENCE_SUFFIX}`, open: "never" }]]
     : "list",
   use: {
     // "localhost", no "127.0.0.1": Next.js 16 bloquea por defecto los
@@ -84,7 +103,9 @@ export default defineConfig({
     // intercepta clics sobre el dock movil de PDF Pro y hacia fallar 7 de 75
     // pruebas Pro solo en CI. En local se mantiene `npm run dev` (rapido).
     command: process.env.CI
-      ? `npm run build && npm run start -- -p ${PORT}`
+      ? REUSE_BUILD
+        ? `npm run start -- -p ${PORT}`
+        : `npm run build && npm run start -- -p ${PORT}`
       : `npm run dev -- -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     // WebKit aplica `upgrade-insecure-requests` tambien a http://localhost (pagina en blanco): ver next.config.ts.

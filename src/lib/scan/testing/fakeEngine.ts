@@ -4,7 +4,7 @@
  *
  * El resultado de cada pagina sale de "etiquetas" que lleva el NOMBRE del archivo importado (un `File`) o, para fotogramas de
  * camara (sin nombre), de `controls.tokens` (se consumen de una en una):
- *   blank | blurry | glare | dark | nodoc          -> avisos de calidad de la pagina
+ *   blank | sparse | blurry | glare | dark | nodoc          -> avisos de calidad de la pagina
  *   dup                                             -> `analyzeSession` la marca repetida de la pagina anterior
  *   sideways | upsidedown                           -> `detectOrientation` devuelve 90 / 180
  *   title-Contrato_de_servicio                      -> `suggestName` lo devuelve como titulo reconocido (OCR simulado)
@@ -55,6 +55,8 @@ export type FakeControls = {
   buildError: string | null;
   /** `createPage` y `buildPdf` fallan como el motor real cuando su chunk no carga (sin red): `code === "engine-unavailable"`. */
   engineUnavailable: boolean;
+  /** Con `engineUnavailable`: el error trae `needsReload: true` (la conexion volvio y aun asi no carga: solo recargar lo arregla). */
+  engineNeedsReload: boolean;
   /** Solo `splitSpread`: sin lomo detectable. */
   noSplit: boolean;
   /** El modelo de texto buscable ya esta en este dispositivo (`ocrModelAvailable`). */
@@ -78,6 +80,7 @@ export function newControls(): FakeControls {
     peakConcurrent: 0,
     buildError: null,
     engineUnavailable: false,
+    engineNeedsReload: false,
     noSplit: false,
     ocrAvailable: false,
     ocrPrepare: "ok",
@@ -202,7 +205,7 @@ function nameOf(blob: Blob): string {
 function tokensOfName(name: string): string[] {
   const lower = name.toLowerCase();
   const found: string[] = [];
-  for (const token of ["blank", "blurry", "glare", "dark", "nodoc", "dup", "sideways", "upsidedown", "fail", "slow"]) {
+  for (const token of ["blank", "sparse", "blurry", "glare", "dark", "nodoc", "dup", "sideways", "upsidedown", "fail", "slow"]) {
     if (new RegExp(`(^|[^a-z0-9])${token}([^a-z0-9]|$)`).test(lower)) found.push(token);
   }
   return found;
@@ -240,10 +243,12 @@ export type FakeEngine = ScanEngineApi & {
 };
 
 /** El error del motor real cuando su chunk no carga (`ScanEngineUnavailableError`, `code === "engine-unavailable"`). */
-function unavailableError(): Error {
+function unavailableError(needsReload = false): Error {
   const error = new Error("El motor del escaner no se pudo cargar");
   error.name = "ScanEngineUnavailableError";
-  (error as Error & { code: string }).code = "engine-unavailable";
+  (error as Error & { code: string; reason: string; needsReload: boolean }).code = "engine-unavailable";
+  (error as Error & { reason: string }).reason = "load-failed";
+  (error as Error & { needsReload: boolean }).needsReload = needsReload;
   return error;
 }
 
@@ -357,7 +362,7 @@ export function createFakeEngine(controls: FakeControls = newControls()): FakeEn
 
     async createPage(source, info): Promise<ScanPage> {
       call("createPage");
-      if (controls.engineUnavailable) throw unavailableError();
+      if (controls.engineUnavailable) throw unavailableError(controls.engineNeedsReload);
       const label = nameOf(source) || "frame";
       controls.createLog.push(label);
       enter();
@@ -370,6 +375,8 @@ export function createFakeEngine(controls: FakeControls = newControls()): FakeEn
         const height = bitmap?.height ?? 1000;
         const flags: ScanPageFlags = {};
         if (tokens.includes("blank")) flags.blank = true;
+        // ADITIVO del motor real (`flags.sparse`, «casi vacia»): el doble lo marca con la etiqueta `sparse`.
+        if (tokens.includes("sparse") && !flags.blank) (flags as ScanPageFlags & { sparse?: boolean }).sparse = true;
         if (tokens.includes("blurry")) flags.blurry = true;
         if (tokens.includes("glare")) flags.glare = true;
         if (tokens.includes("dark")) flags.dark = true;
@@ -476,7 +483,7 @@ export function createFakeEngine(controls: FakeControls = newControls()): FakeEn
 
     async buildPdf(session, options): Promise<Blob> {
       call("buildPdf");
-      if (controls.engineUnavailable) throw unavailableError();
+      if (controls.engineUnavailable) throw unavailableError(controls.engineNeedsReload);
       if (controls.buildError) throw new Error(controls.buildError);
       const pdf = await PDFDocument.create();
       const total = session.pages.length;

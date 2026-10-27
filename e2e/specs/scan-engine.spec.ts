@@ -32,7 +32,7 @@ test.beforeAll(async () => {
 });
 
 test.describe("motor del Escaner · navegador real", () => {
-  test("createPage: detecta la hoja (IoU), saca la miniatura de 360 px, deja el original intacto y tarda < 300 ms por pagina", async ({ page }) => {
+  test("createPage: detecta la hoja (IoU), saca la miniatura de 360 px, deja el original intacto y tarda < 300 ms por pagina", { tag: "@perf" }, async ({ page }) => {
     const requests = trackRequests(page);
     await openLab(page);
     const ids = ["text0", "text90", "text180", "text270", "blur", "formA", "dupA"];
@@ -91,7 +91,7 @@ test.describe("motor del Escaner · navegador real", () => {
     const flags = await page.evaluate(async () => {
       const lab = (window as unknown as { __lab: any }).__lab;
       const out: Record<string, unknown> = {};
-      for (const id of ["text0", "blur", "glare", "blank"]) out[id] = (await lab.make(id)).flags;
+      for (const id of ["text0", "blur", "glare", "blank", "empty"]) out[id] = (await lab.make(id)).flags;
       const photo = await lab.make("photo", "photo");
       out.photo = { flags: photo.flags, corners: photo.corners };
       return out;
@@ -99,7 +99,11 @@ test.describe("motor del Escaner · navegador real", () => {
     expect(flags.text0).toEqual({});
     expect((flags.blur as { blurry?: boolean }).blurry).toBe(true);
     expect((flags.glare as { glare?: boolean }).glare).toBe(true);
-    expect((flags.blank as { blank?: boolean }).blank).toBe(true);
+    // Una hoja con solo un sello es «casi vacia» (NO en blanco: quitar las blancas no debe borrarla); la vacia de verdad si es blanca.
+    expect((flags.blank as { blank?: boolean; sparse?: boolean }).blank).toBeUndefined();
+    expect((flags.blank as { sparse?: boolean }).sparse).toBe(true);
+    expect((flags.empty as { blank?: boolean; sparse?: boolean }).blank).toBe(true);
+    expect((flags.empty as { sparse?: boolean }).sparse).toBeUndefined();
     expect((flags.photo as { corners: unknown }).corners).toBeNull();
     expect((flags.photo as { flags: Record<string, unknown> }).flags.blurry).toBeUndefined();
     expect((flags.photo as { flags: Record<string, unknown> }).flags.noDocument).toBeUndefined();
@@ -182,7 +186,7 @@ test.describe("motor del Escaner · navegador real", () => {
     await openLab(page);
     const out = await page.evaluate(async () => {
       const lab = (window as unknown as { __lab: any }).__lab;
-      const ids = ["text0", "dupA", "blank", "dupB", "formA", "formB", "other"];
+      const ids = ["text0", "dupA", "empty", "dupB", "formA", "formB", "other"];
       const pages = [];
       for (const id of ids) pages.push(await lab.make(id));
       const flags = await lab.L.realEngine.analyzeSession(pages);
@@ -239,7 +243,7 @@ test.describe("motor del Escaner · navegador real", () => {
     expect(Math.abs(out.cardSize.width / out.cardSize.height - 85.6 / 53.98)).toBeLessThan(0.02);
   });
 
-  test("tareas largas: crear 8 paginas y procesar 4 a resolucion completa no bloquea el hilo principal mas de 100 ms", async ({ page }) => {
+  test("tareas largas: crear 8 paginas y procesar 4 a resolucion completa no bloquea el hilo principal mas de 100 ms", { tag: "@perf" }, async ({ page }) => {
     await openLab(page);
     const out = await page.evaluate(async () => {
       const lab = (window as unknown as { __lab: any }).__lab;

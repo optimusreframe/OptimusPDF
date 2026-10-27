@@ -90,7 +90,7 @@ describe("quality — src/lib/scan/quality.ts", () => {
     expect(blankSheet.blurry).toBe(false);
   });
 
-  it("measurePage: una hoja en blanco con unas manchas suaves (que por si solas parecerian borrosas) nunca se marca borrosa", () => {
+  it("measurePage: una hoja casi vacia con unas manchas suaves (que por si solas parecerian borrosas) nunca se marca borrosa", () => {
     const smudges = gray(300, 400, (x, y) => {
       for (let k = 0; k < 4; k += 1) {
         const cx = 30 + (k % 3) * 90;
@@ -101,8 +101,10 @@ describe("quality — src/lib/scan/quality.ts", () => {
     });
     const soft = { ...smudges, data: Uint8Array.from(boxBlur(smudges.data, smudges.width, smudges.height, 3)) };
     const quality = measurePage(rgba(soft));
-    expect(quality.blank).toBe(true);
-    // Las dos medidas dirian «borrosa»: lo que la salva es que la hoja esta en blanco.
+    // Unas manchas: «casi vacia» (no en blanco: no se borra al quitar las blancas), y tan poco contenido que no se juzga la nitidez.
+    expect(quality.blank).toBe(false);
+    expect(quality.sparse).toBe(true);
+    // Las dos medidas dirian «borrosa»: lo que la salva es que casi no hay contenido.
     expect(isBlurry(quality.sharpness, quality.reblur)).toBe(true);
     expect(quality.blurry).toBe(false);
   });

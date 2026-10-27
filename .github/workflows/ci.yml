@@ -67,7 +67,23 @@ jobs:
       # playwright.config.ts, no hace falta bajar Firefox/WebKit.
       - run: npx playwright install --with-deps chromium
 
+      # Primera pasada: toda la suite menos las pruebas de rendimiento (`@perf`), con 2 workers. Esas llevan un presupuesto
+      # ABSOLUTO de tiempo o de memoria y, con otro navegador pesado al lado en un runner de 2 nucleos, tardaban 2-2,6 veces
+      # mas (sin cambio de codigo): pasaban o fallaban segun la prueba que les tocara en el otro worker. Ver `PW_PERF` en
+      # playwright.config.ts.
       - run: npx playwright test --shard=${{ matrix.shard }}/5
+        env:
+          PW_PERF: skip
+
+      # Segunda pasada: solo `@perf`, con UN worker (sin nada al lado) y reutilizando la build de la primera (no recompila;
+      # `--pass-with-no-tests`: con pocas pruebas `@perf` hay fragmentos a los que no les toca ninguna). `!cancelled()`: se
+      # ejecuta aunque la primera pasada haya fallado, para no esconder un fallo de rendimiento detras de otro.
+      - name: E2E de rendimiento (@perf, 1 worker)
+        if: ${{ !cancelled() }}
+        run: npx playwright test --shard=${{ matrix.shard }}/5 --workers=1 --pass-with-no-tests
+        env:
+          PW_PERF: only
+          PW_SKIP_BUILD: "1"
 
       - name: Subir evidencia de Playwright (solo si falla)
         if: failure()
@@ -77,4 +93,6 @@ jobs:
           path: |
             .evidence/playwright-report
             .evidence/playwright
+            .evidence/playwright-report-perf
+            .evidence/playwright-perf
           retention-days: 7

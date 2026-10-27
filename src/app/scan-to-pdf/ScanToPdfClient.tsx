@@ -279,8 +279,8 @@ function ScanFlow() {
           resumeNotice={resumeNotice}
           importProblems={api.importProblems}
           onDismissProblems={api.dismissImportProblems}
-          onRetryProblems={api.retryEngineProblems}
-          onReloadProblems={api.engineRetried ? () => window.location.reload() : undefined}
+          onRetryProblems={api.canRetryEngine ? api.retryEngineProblems : undefined}
+          onReloadProblems={() => window.location.reload()}
           resuming={resuming}
           onResume={(id) => void onResume(id)}
           onDiscardSaved={(id) => {

@@ -138,7 +138,7 @@ test("cuota llena: avisa con un mensaje claro y se puede seguir creando el PDF",
   await expect(tiles(page)).toHaveCount(2);
   await waitIdle(page);
   await expect(status(page)).toHaveText("No guardado: no hay espacio");
-  await expect(page.locator('[data-banner="storage"]')).toContainText("no hay espacio");
+  await expect(page.locator('[data-banner="storage"]')).toContainText("No queda espacio");
   await page.getByRole("button", { name: /Guardar PDF \(2\)/ }).click();
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
@@ -210,7 +210,10 @@ test("girar y recargar de INMEDIATO conserva el giro (el almacen apunta cada cam
   expect(await pageIds(page)).toEqual(ids);
   await expect(tiles(page).first()).toHaveAttribute("data-rotation", turned);
   await expect(tiles(page).nth(1)).toHaveAttribute("data-rotation", String(second));
-  // Y un borrado seguido de recarga inmediata tambien.
+  // Y un borrado seguido de recarga inmediata tambien. El almacen abre su conexion de volcado en segundo plano tras la primera carga:
+  // se le da un instante (nadie borra una hoja en los primeros 100 ms de abrir la pagina; sin conexion abierta el volcado cae al
+  // guardado normal, que una recarga inmediata corta).
+  await page.waitForTimeout(1_000);
   await page.getByRole("button", { name: "Borrar la página 2" }).click();
   await expect(tiles(page)).toHaveCount(1);
   await page.reload();
@@ -264,4 +267,22 @@ test("el escaner no se pudo CARGAR (sin red): un mensaje claro con «Reintentar�
   }
   await expect(tiles(page)).toHaveCount(2, { timeout: 60_000 });
   await expect(banner).toHaveCount(0);
+});
+
+test("el almacen no responde: «Guardando…» pasa en ~10 s a un aviso honesto con «descarga el PDF» (nunca eterno)", async ({ page }) => {
+  test.skip(USE_REAL_ENGINE, FAKE_ONLY_REASON);
+  await page.goto("/scan-to-pdf");
+  await page.evaluate(() => {
+    (globalThis as unknown as { __scanFake: { store: { controls: { hangSave: boolean } } } }).__scanFake.store.controls.hangSave = true;
+  });
+  await importPhotos(page, widthCodedFiles(2));
+  await expect(tiles(page)).toHaveCount(2);
+  await waitIdle(page);
+  await expect(status(page)).toHaveText("Guardando…");
+  await expect(status(page)).toHaveText("No guardado: sin respuesta", { timeout: 25_000 });
+  await expect(page.locator('[data-banner="storage"]')).toHaveText("No se pudo guardar en este dispositivo; descarga el PDF para no perder el trabajo.");
+  // Se puede seguir: crear el PDF funciona (no depende del almacen).
+  await page.getByRole("button", { name: /Guardar PDF \(2\)/ }).click();
+  await page.locator('[data-save-action="create"]').click();
+  await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
 });

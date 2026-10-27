@@ -24,21 +24,61 @@ async function load(page: Page, names: string[]) {
   return pageIds(page);
 }
 
-test("chips: «En blanco → Quitar» quita esa hoja; «Quitar todas las hojas en blanco» las quita todas y se puede deshacer", async ({ page }) => {
+test("chips: «En blanco» y «Quitar hojas en blanco» piden confirmacion con miniaturas; solo se quita lo marcado y se puede deshacer", async ({ page }) => {
   const ids = await load(page, ["a.jpg", "b-blank.jpg", "c.jpg", "d-blank.jpg"]);
   await expect(page.locator('[data-quality-chip="blank"]')).toHaveCount(2);
   await expect(page.locator('[data-banner="blanks"]')).toContainText("2 hojas parecen estar en blanco");
-  // Un toque en el chip de la pagina 2.
-  await page.getByRole("button", { name: "Página 2: En blanco. Quitar" }).click();
+  // Un toque en el chip de la pagina 2 NO la quita: abre la confirmacion con miniaturas de lo que se quitaria.
+  await page.getByRole("button", { name: "Página 2: En blanco. Revisar" }).click();
+  const sheet = page.getByRole("dialog", { name: "Quitar hojas en blanco" });
+  await expect(sheet).toBeVisible();
+  expect(await pageIds(page)).toEqual(ids);
+  await expect(sheet.locator("[data-blank-item]")).toHaveCount(2);
+  await expect(sheet.locator("[data-blank-item] img")).toHaveCount(2);
+  // Se desmarca la pagina 4: solo se quita la 2.
+  // La casilla es el propio rotulo de la miniatura (la entrada nativa esta oculta): se pulsa la miniatura.
+  await sheet.locator("[data-blank-item]").filter({ has: page.getByRole("checkbox", { name: "Página 4" }) }).click();
+  await expect(sheet.getByRole("checkbox", { name: "Página 4" })).not.toBeChecked();
+  await sheet.getByRole("button", { name: "Quitar 1 hoja" }).click();
   await expect.poll(() => pageIds(page)).toEqual([ids[0], ids[2], ids[3]]);
-  await page.getByRole("button", { name: "Quitar hojas en blanco (1)" }).click();
+  // Aviso con «Deshacer» inmediato.
+  await expect(page.locator('[data-banner="blanks-removed"]')).toContainText("Quitamos 1 hoja");
+  await page.locator('[data-review-action="undo-blanks"]').click();
+  await expect.poll(() => pageIds(page)).toEqual(ids);
+  // «Quitar hojas en blanco (2)»: tambien con confirmacion; se quitan las dos.
+  await page.getByRole("button", { name: "Quitar hojas en blanco (2)" }).click();
+  await page.getByRole("dialog", { name: "Quitar hojas en blanco" }).getByRole("button", { name: "Quitar 2 hojas" }).click();
   await expect.poll(() => pageIds(page)).toEqual([ids[0], ids[2]]);
   await expect(page.locator('[data-banner="blanks"]')).toHaveCount(0);
   // Deshacer vuelve la ultima operacion; rehacer la repite.
-  await page.getByRole("button", { name: "Deshacer", exact: true }).click();
-  await expect.poll(() => pageIds(page)).toEqual([ids[0], ids[2], ids[3]]);
+  await page.getByRole("button", { name: "Deshacer", exact: true }).first().click();
+  await expect.poll(() => pageIds(page)).toEqual(ids);
   await page.getByRole("button", { name: "Rehacer", exact: true }).click();
   await expect.poll(() => pageIds(page)).toEqual([ids[0], ids[2]]);
+});
+
+test("«Casi vacía»: el chip REVISA la hoja entera; en la confirmacion va en una lista aparte, sin marcar, y solo se quita si se marca", async ({ page }) => {
+  // `flags.sparse` es del motor (aditivo): con el real depende de sus umbrales; aqui se prueba la interfaz con el doble.
+  test.skip(USE_REAL_ENGINE, "solo con el motor falso: la etiqueta `sparse` la lee el doble (el motor real decide por sus umbrales)");
+  const ids = await load(page, ["a.jpg", "b-sparse.jpg", "c-blank.jpg"]);
+  await expect(page.locator('[data-quality-chip="sparse"]')).toHaveCount(1);
+  await expect(page.locator('[data-banner="blanks"]')).toContainText("casi vacía");
+  await page.getByRole("button", { name: "Página 2: Casi vacía. Revisar" }).click();
+  await expect(page.locator("[data-sheet-viewer]")).toBeVisible();
+  expect(await pageIds(page)).toEqual(ids);
+  await page.locator('[data-sheet-action="close"]').click();
+  await page.getByRole("button", { name: "Quitar hojas en blanco (1)" }).click();
+  const sheet = page.getByRole("dialog", { name: "Quitar hojas en blanco" });
+  await expect(sheet.locator('[data-blanks-list="blank"] [data-blank-item]')).toHaveCount(1);
+  await expect(sheet.locator('[data-blanks-list="sparse"] [data-blank-item] img')).toHaveCount(1);
+  await expect(sheet.locator('[data-blanks-list="sparse"] input[type=checkbox]')).not.toBeChecked();
+  await expect(sheet.getByRole("button", { name: "Quitar 1 hoja" })).toBeVisible();
+  await sheet.locator('[data-blanks-list="sparse"] [data-blank-item]').click();
+  await expect(sheet.locator('[data-blanks-list="sparse"] input[type=checkbox]')).toBeChecked();
+  await sheet.getByRole("button", { name: "Quitar 2 hojas" }).click();
+  await expect.poll(() => pageIds(page)).toEqual([ids[0]]);
+  await page.locator('[data-review-action="undo-blanks"]').click();
+  await expect.poll(() => pageIds(page)).toEqual(ids);
 });
 
 test("chips: «Borrosa → Repetir» abre la camara y la nueva captura sustituye a la pagina EN EL MISMO SITIO", async ({ page, browserName }) => {

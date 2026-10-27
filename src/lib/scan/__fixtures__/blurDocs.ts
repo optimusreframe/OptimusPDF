@@ -46,8 +46,8 @@ export function blankDocument(kind: BlankKind): Canvas {
   }
   if (kind === "page-number") {
     x.fillStyle = "#222";
-    x.font = "28px sans-serif";
-    x.fillText("12", 1100, 1560);
+    x.font = "32px sans-serif";
+    x.fillText("12", 580, 1500);
   }
   if (kind === "stamp") {
     x.fillStyle = "#335";
@@ -63,3 +63,35 @@ export function decodedLikeEngine(canvas: Canvas): Rgba {
   const d = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
   return downscaleRgba({ data: new Uint8ClampedArray(d.data), width: canvas.width, height: canvas.height }, 1280);
 }
+
+/** Paginas de contenido ESCASO (informe del verificador): nunca «en blanco». `sparse` = deben salir «casi vacias»; las demas, con contenido normal. */
+export const SPARSE_PAGES: Record<string, { sparse: boolean; draw: (c: CanvasRenderingContext2D, W: number, H: number) => void }> = {
+  "una linea arriba": { sparse: true, draw: (c, W, H) => { c.fillStyle = "#111"; c.font = `${H * 0.022}px sans-serif`; c.fillText("Anexo 3 - Conforme del asegurado", W * 0.1, H * 0.1); } },
+  "solo firma": { sparse: true, draw: (c, W, H) => { c.strokeStyle = "#0a1a6e"; c.lineWidth = W * 0.004; c.beginPath(); c.moveTo(W * 0.3, H * 0.78); for (let k = 1; k <= 14; k += 1) c.quadraticCurveTo(W * (0.3 + k * 0.012), H * (0.78 + (k % 2 ? -0.03 : 0.03)), W * (0.3 + k * 0.014), H * 0.78); c.stroke(); } },
+  "logo": { sparse: true, draw: (c, W, H) => { c.fillStyle = "#c0392b"; c.fillRect(W * 0.08, H * 0.06, W * 0.14, H * 0.05); } },
+  "numero de pagina": { sparse: true, draw: (c, W, H) => { c.fillStyle = "#222"; c.font = `${H * 0.02}px sans-serif`; c.fillText("12", W * 0.49, H * 0.95); } },
+  "sello": { sparse: true, draw: (c, W, H) => { c.strokeStyle = "#1d4fa8"; c.lineWidth = W * 0.008; c.beginPath(); c.arc(W * 0.75, H * 0.8, W * 0.09, 0, 7); c.stroke(); c.fillStyle = "#1d4fa8"; c.font = `bold ${W * 0.03}px sans-serif`; c.fillText("PAGADO", W * 0.69, H * 0.805); } },
+  "una palabra": { sparse: true, draw: (c, W, H) => { c.fillStyle = "#222"; c.font = `bold ${H * 0.04}px sans-serif`; c.fillText("APROBADO", W * 0.35, H * 0.5); } },
+  "iniciales": { sparse: true, draw: (c, W, H) => { c.fillStyle = "#1a1a6e"; c.font = `italic ${H * 0.03}px serif`; c.fillText("J.R.", W * 0.8, H * 0.93); } },
+  "notas a lapiz": { sparse: false, draw: (c, W, H) => { c.fillStyle = "#a8a8a8"; c.font = `${H * 0.02}px sans-serif`; for (let l = 0; l < 6; l += 1) c.fillText(`nota a lapiz ${l + 1} revisar el importe pendiente`, W * 0.12, H * (0.3 + l * 0.04)); } },
+  "tabla sin texto": { sparse: false, draw: (c, W, H) => { c.strokeStyle = "#444"; c.lineWidth = W * 0.0015; for (let k = 0; k < 8; k += 1) c.strokeRect(W * 0.1, H * (0.2 + k * 0.06), W * 0.8, H * 0.06); } },
+  "degradado grande": { sparse: false, draw: (c, W, H) => { const g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#ffffff"); g.addColorStop(1, "#8fa9c4"); c.fillStyle = g; c.fillRect(W * 0.1, H * 0.15, W * 0.8, H * 0.6); } },
+};
+
+/** Hoja de 1200 x 1600 con el dibujo dado sobre papel claro. */
+export function sparsePage(draw: (c: CanvasRenderingContext2D, W: number, H: number) => void, W = 1200, H = 1600): Canvas {
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
+  ctx.fillStyle = "#fbfaf6";
+  ctx.fillRect(0, 0, W, H);
+  draw(ctx, W, H);
+  return canvas;
+}
+
+/** Hojas VACIAS de verdad (informe del verificador): blanco puro, papel con ruido, degradado de sombra y texto del reverso casi invisible. */
+export const EMPTY_PAGES: Record<string, (c: CanvasRenderingContext2D, W: number, H: number) => void> = {
+  "blanco puro": () => {},
+  "papel con ruido": (c, W, H) => { let s = 7; const r = (): number => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); for (let i = 0; i < 4000; i += 1) { const d = (r() - 0.5) * 10; c.fillStyle = `rgba(${235 + d},${233 + d},${226 + d},0.4)`; c.fillRect(r() * W, r() * H, 3, 3); } },
+  "degradado de sombra": (c, W, H) => { const g = c.createLinearGradient(0, 0, W, 0); g.addColorStop(0, "rgba(0,0,0,0.22)"); g.addColorStop(1, "rgba(0,0,0,0)"); c.fillStyle = g; c.fillRect(0, 0, W, H); },
+  "reverso transparentado": (c, W, H) => { c.fillStyle = "rgba(0,0,0,0.04)"; c.font = `${H * 0.02}px sans-serif`; for (let l = 0; l < 30; l += 1) c.fillText("texto del reverso transparentado por el papel", W * 0.12, H * (0.1 + l * 0.027)); },
+};

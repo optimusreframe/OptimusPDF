@@ -303,7 +303,8 @@ test.describe("extract-assets · motor real · errores, cancelar y topes", () =>
 });
 
 test.describe("extract-assets · motor real · rendimiento", () => {
-  test("20 paginas con 30 imagenes de 800 x 600: dentro del presupuesto, sin tareas largas y con memoria acotada", async ({ page, browserName }, testInfo) => {
+  // @perf: presupuesto ABSOLUTO de tiempo y de tareas largas (2 s x 2,5 en CI): en CI corre solo, con un worker (ver `PW_PERF`).
+  test("20 paginas con 30 imagenes de 800 x 600: dentro del presupuesto, sin tareas largas y con memoria acotada", { tag: "@perf" }, async ({ page, browserName }, testInfo) => {
     const ipad = testInfo.project.name === "webkit-ipad";
     await openRealEngine(page, await scalePdf(20, 30, 800, 600));
     // Calentamiento: la primera busqueda carga pdf.js y su worker; el presupuesto se mide en la segunda (worker caliente).

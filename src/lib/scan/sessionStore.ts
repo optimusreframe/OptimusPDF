@@ -361,11 +361,44 @@ function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
   });
 }
 
+/** Plazo (ms) para que una transaccion de escritura termine: WebKit puede emitir `error` sin `abort` ni `complete` y dejarla colgada. */
+const DEFAULT_TX_GUARD_MS = 8_000;
+let txGuardMs = DEFAULT_TX_GUARD_MS;
+
+/** Solo para tests: plazo de las transacciones (`null` restaura el normal). */
+export function __setTxGuardMsForTests(ms: number | null): void {
+  txGuardMs = ms ?? DEFAULT_TX_GUARD_MS;
+}
+
+/**
+ * Espera a que termine la transaccion. Cualquier `error` (de la transaccion o de una de sus peticiones, que sube hasta ella) o un
+ * `abort` la dan por FALLIDA y la cancelan explicitamente (en WebKit, con un Blob que no se puede preparar, llega `error` pero
+ * nunca `abort` ni `complete`: sin esto el guardado se quedaba esperando para siempre); y un plazo de guardia hace lo mismo si
+ * no llega nada.
+ */
 function txDone(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error ?? new Error("transaccion abortada"));
+    let settled = false;
+    const fail = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        tx.abort();
+      } catch {
+        // Ya terminada o abortada.
+      }
+      reject(error instanceof Error ? error : new Error("transaccion fallida"));
+    };
+    const timer = setTimeout(() => fail(new Error("la transaccion tarda demasiado")), txGuardMs);
+    tx.oncomplete = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    tx.onerror = (event) => fail(tx.error ?? (event?.target as IDBRequest | null)?.error ?? new Error("error de IndexedDB"));
+    tx.onabort = () => fail(tx.error ?? new Error("transaccion abortada"));
   });
 }
 
@@ -497,6 +530,79 @@ function writeModeHint(): void {
 }
 
 let storageMode: "blob" | "bytes" = readModeHint();
+/** Base de pruebas SEPARADA de la de sesiones: lo que salga mal aqui no puede colgar la de las sesiones. */
+const PROBE_DB_NAME = "optimuspdf-scan-probe";
+const DEFAULT_PROBE_MS = 2_000;
+let probeMs = DEFAULT_PROBE_MS;
+let blobProbe: Promise<boolean> | null = null;
+
+/** Solo para tests: olvida el resultado de la prueba de Blob y fija su plazo (`null` restaura). */
+export function __resetBlobProbeForTests(ms: number | null = null): void {
+  blobProbe = null;
+  probeMs = ms ?? DEFAULT_PROBE_MS;
+}
+
+/**
+ * ¿Este navegador guarda Blob en IndexedDB? Se prueba UNA vez con una escritura de un Blob diminuto en una base APARTE. Safari/WebKit
+ * puede fallar con `UnknownError: Error preparing Blob/File data to be stored in object store` y entonces emite `error` pero ni
+ * `abort` ni `complete`: la transaccion queda colgada y bloquea las siguientes de las MISMAS tablas (por eso no se prueba con la
+ * base de sesiones: el guardado se quedaba en «Guardando…» para siempre). Cualquier fallo o plazo agotado = no se guardan Blob.
+ */
+function probeBlobSupport(): Promise<boolean> {
+  blobProbe ??= new Promise<boolean>((resolve) => {
+    if (typeof indexedDB === "undefined" || typeof Blob === "undefined") {
+      resolve(true);
+      return;
+    }
+    let settled = false;
+    let db: IDBDatabase | null = null;
+    const done = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        db?.close();
+      } catch {
+        // Ya cerrada.
+      }
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), probeMs);
+    try {
+      const request = indexedDB.open(PROBE_DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("p")) request.result.createObjectStore("p");
+      };
+      request.onerror = () => done(true);
+      request.onblocked = () => done(true);
+      request.onsuccess = () => {
+        db = request.result;
+        try {
+          const tx = db.transaction("p", "readwrite");
+          tx.oncomplete = () => done(true);
+          tx.onerror = () => done(false);
+          tx.onabort = () => done(false);
+          tx.objectStore("p").put(new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }), "probe");
+        } catch {
+          done(false);
+        }
+      };
+    } catch {
+      done(true);
+    }
+  });
+  return blobProbe;
+}
+
+/** Si la prueba dice que no hay Blob, el almacen pasa a `bytes` (y lo recuerda en esta pestana). */
+async function settleStorageMode(): Promise<void> {
+  if (storageMode !== "blob" || blobVerified) return;
+  if (!(await probeBlobSupport()) && storageMode === "blob") {
+    storageMode = "bytes";
+    writeModeHint();
+  }
+}
+
 /** Un guardado NORMAL con Blob ya termino bien en esta carga: solo entonces se arriesga el volcado al irse en modo `blob` (en WebKit una transaccion con Blob que no termina deja colgada la base para la pagina siguiente). */
 let blobVerified = false;
 
@@ -514,6 +620,7 @@ async function saveSessionNow(input: ScanSession): Promise<SaveResult> {
   let targetId = forks.get(input.id) ?? input.id;
   const bytes = sessionBytes(input);
   if (bytes > limits.maxSessionBytes) return { ok: false, reason: "tooBig" };
+  await settleStorageMode();
   let db: IDBDatabase;
   try {
     db = await openDb();
@@ -629,13 +736,38 @@ async function saveSessionNow(input: ScanSession): Promise<SaveResult> {
 /** Guardados de una misma sesion en fila (un autoguardado no pisa a otro que sigue en vuelo). */
 const saveQueues = new Map<string, Promise<unknown>>();
 
+/** Plazo (ms) de un guardado entero: si algo se queda colgado (la base no abre, WebKit no contesta) la interfaz recibe un fallo, no una espera eterna. */
+const DEFAULT_SAVE_GUARD_MS = 20_000;
+let saveGuardMs = DEFAULT_SAVE_GUARD_MS;
+
+/** Solo para tests: plazo de un guardado entero (`null` restaura el normal). */
+export function __setSaveGuardMsForTests(ms: number | null): void {
+  saveGuardMs = ms ?? DEFAULT_SAVE_GUARD_MS;
+}
+
+function saveGuarded(input: ScanSession): Promise<SaveResult> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false, reason: "unavailable" }), saveGuardMs);
+    saveSessionNow(input).then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve({ ok: false, reason: "unavailable" });
+      },
+    );
+  });
+}
+
 function saveSession(input: ScanSession): Promise<SaveResult> {
   void warmConnection();
   const key = isRecord(input) && typeof input.id === "string" ? input.id : "";
   const previous = saveQueues.get(key) ?? Promise.resolve();
   const run = previous.then(
-    () => saveSessionNow(input),
-    () => saveSessionNow(input),
+    () => saveGuarded(input),
+    () => saveGuarded(input),
   );
   const tail = run.finally(() => {
     if (saveQueues.get(key) === tail) saveQueues.delete(key);
@@ -870,6 +1002,7 @@ function warmConnection(): Promise<void> {
         return;
       }
       warmDb = db;
+      void settleStorageMode();
       db.onversionchange = () => dropWarm(db);
       db.onclose = () => {
         if (warmDb === db) warmDb = null;
@@ -885,6 +1018,8 @@ function warmConnection(): Promise<void> {
 /** Solo para tests: cierra y olvida la conexion de volcado y lo apuntado. */
 export function __resetScanStagingForTests(): void {
   blobVerified = false;
+  for (const entry of stageTimers.values()) clearTimeout(entry.timer);
+  stageTimers.clear();
   if (warmDb) dropWarm(warmDb);
   staged.clear();
 }
@@ -990,11 +1125,49 @@ function installLeaveHooks(): void {
   });
 }
 
+/**
+ * Guardado ANTICIPADO tras cada cambio apuntado con `stage`: sin esperar al autoguardado de la interfaz (500 ms) ni al `pagehide`
+ * (que en WebKit llega tarde o no llega: la pagina muere antes de que la transaccion termine), el almacen escribe lo apuntado a
+ * los ~30 ms del ULTIMO cambio (y, aunque lleguen cambios sin parar, como mucho a los ~90 ms del primero). Es el guardado normal
+ * (`save`): el autoguardado posterior de la interfaz no repite nada (compara firmas).
+ */
+const DEFAULT_STAGE_SAVE_MS = 30;
+const STAGE_SAVE_MAX_WAIT_MS = 90;
+let stageSaveMs: number | null = DEFAULT_STAGE_SAVE_MS;
+const stageTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; firstAt: number }>();
+
+/** Solo para tests: retraso del guardado anticipado (`null` lo desactiva, `undefined` restaura el normal). */
+export function __setStageSaveMsForTests(ms: number | null | undefined): void {
+  stageSaveMs = ms === undefined ? DEFAULT_STAGE_SAVE_MS : ms;
+  for (const entry of stageTimers.values()) clearTimeout(entry.timer);
+  stageTimers.clear();
+}
+
+function scheduleEarlySave(id: string): void {
+  if (stageSaveMs === null) return;
+  const now = Date.now();
+  const pending = stageTimers.get(id);
+  if (pending) {
+    // Con cambios seguidos se espera al silencio, pero sin pasar de STAGE_SAVE_MAX_WAIT_MS desde el primero.
+    if (now - pending.firstAt >= STAGE_SAVE_MAX_WAIT_MS - stageSaveMs) return;
+    clearTimeout(pending.timer);
+  }
+  const firstAt = pending?.firstAt ?? now;
+  const timer = setTimeout(() => {
+    stageTimers.delete(id);
+    const latest = staged.get(id);
+    // Una sesion sin paginas la borra la interfaz (`remove`): no se guarda vacia.
+    if (latest && Array.isArray(latest.pages) && latest.pages.length > 0) void saveSession(latest);
+  }, stageSaveMs);
+  stageTimers.set(id, { timer, firstAt });
+}
+
 function stageSession(session: ScanSession): void {
   if (!isRecord(session) || !isValidScanSessionId(session.id)) return;
   staged.set(session.id, session);
   installLeaveHooks();
   void warmConnection();
+  scheduleEarlySave(session.id);
 }
 
 async function flushStaged(): Promise<void> {

@@ -102,16 +102,43 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** `setTimeout` REAL, guardado antes de que ninguna prueba instale el reloj falso. */
+const realSetTimeout = globalThis.setTimeout;
+
 /**
- * Espera una promesa del motor con el reloj FALSO adelantandolo de a segundo: si algo pidiera un objeto que no esta (el
- * plazo real es de 20 s), la prueba falla enseguida en vez de esperar al plazo del test.
+ * Espera una promesa del motor con el reloj FALSO.
+ *
+ * El motor mezcla DOS esperas distintas: los temporizadores (el plazo de un objeto que no llega, los cedes de hilo con
+ * `setTimeout(0)`), que manda el reloj falso, y trabajo REAL que ningun reloj controla: la compresion de la miniatura
+ * (`CompressionStream` -> zlib en el pool de hilos de Node). Un bucle con un numero fijo de vueltas de `advanceTimersByTimeAsync`
+ * (la version anterior: 120 y 200 vueltas, unos milisegundos reales en total) asumia que ese trabajo terminaba dentro del bucle; con
+ * la CPU repartida (el runner de CI de 2 nucleos con otros workers de Vitest quemando CPU) no terminaba, el bucle se acababa con la
+ * promesa a medias y, al volver el trabajo real, el motor pedia un `setTimeout(0)` falso que nadie volvia a adelantar: la prueba se
+ * colgaba hasta el plazo de 30 s (reproducido en Linux: ~50 % de las ejecuciones con dos procesos quemando CPU).
+ *
+ * Aqui el reloj falso avanza de a segundo SOLO mientras haya un temporizador pendiente; si no hay ninguno, el motor espera
+ * trabajo real y se deja pasar un turno del bucle de eventos REAL. El tope es de reloj falso y de tiempo real, no de vueltas, y
+ * falla con un mensaje claro en vez de colgarse (el plazo real de un objeto que no llega es de 20 s).
  */
-async function drain<T>(promise: Promise<T>): Promise<T> {
+async function drain<T>(promise: Promise<T>, limits: { fakeMs?: number; realMs?: number } = {}): Promise<T> {
+  const { fakeMs = 120_000, realMs = 20_000 } = limits;
   let finished = false;
-  void promise.finally(() => {
-    finished = true;
-  });
-  for (let i = 0; i < 120 && !finished; i += 1) await vi.advanceTimersByTimeAsync(1_000);
+  void promise.then(
+    () => {
+      finished = true;
+    },
+    () => {
+      finished = true;
+    },
+  );
+  const startedReal = vi.getRealSystemTime();
+  const startedFake = Date.now();
+  while (!finished) {
+    if (Date.now() - startedFake > fakeMs) throw new Error(`el motor no termino en ${fakeMs} ms de reloj falso (algo espera mas de lo previsto)`);
+    if (vi.getRealSystemTime() - startedReal > realMs) throw new Error(`el motor no termino en ${realMs} ms reales (espera algo que no es un temporizador ni trabajo del pool de hilos)`);
+    if (vi.getTimerCount() > 0) await vi.advanceTimersByTimeAsync(1_000);
+    else await new Promise<void>((resolve) => realSetTimeout(resolve, 1));
+  }
   return promise;
 }
 
@@ -140,14 +167,8 @@ describe("objetos de imagen de pdf.js", () => {
         never: ["img_never"],
       },
     ]);
-    const promise = findImageAssets(doc, { ops: OPS, jpegIndex: null });
-    let finished = false;
-    void promise.finally(() => {
-      finished = true;
-    });
-    // El reloj falso salta 25 s; los cedes de hilo (`setTimeout(0)`) que se vayan encolando se dejan correr tambien.
-    for (let i = 0; i < 200 && !finished; i += 1) await vi.advanceTimersByTimeAsync(1_000);
-    const result = await promise;
+    // El reloj falso salta el plazo de 20 s; los cedes de hilo (`setTimeout(0)`) que se vayan encolando se dejan correr tambien.
+    const result = await drain(findImageAssets(doc, { ops: OPS, jpegIndex: null }), { fakeMs: 25_000 });
     expect(result.assets).toHaveLength(1);
     expect(result.warnings).toEqual([{ code: "decode-failed", pageIndex: 0, detail: "img_never" }]);
   });
@@ -173,6 +194,24 @@ describe("objetos de imagen de pdf.js", () => {
     expect(finished).toBe(true);
     const result = await promise;
     expect(result.warnings.map((w) => w.code)).toEqual(["decode-failed", "decode-failed"]);
+  });
+
+  it("`drain` no se cuelga si el motor espera trabajo REAL que tarda mas que unas vueltas del bucle y despues cede el hilo con el reloj falso (el fallo del CI)", async () => {
+    vi.useFakeTimers();
+    // Lo que hace el motor con la miniatura: espera algo real (zlib en el pool de hilos; aqui, 400 ms de reloj REAL, mas de lo que
+    // duraban las 120-200 vueltas del bucle anterior) y DESPUES pide un `setTimeout(0)` (el cede de hilo), que es del reloj falso.
+    const engine = (async () => {
+      await new Promise<void>((resolve) => realSetTimeout(resolve, 400));
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      return "fin";
+    })();
+    expect(await drain(engine)).toBe("fin");
+  });
+
+  it("`drain` falla con un mensaje claro (no se cuelga) si el motor espera algo que no es ni temporizador ni trabajo real", async () => {
+    vi.useFakeTimers();
+    await expect(drain(new Promise<never>(() => undefined), { realMs: 300 })).rejects.toThrow(/no termino en 300 ms reales/);
+    await expect(drain(new Promise<never>((resolve) => setTimeout(resolve, 60_000)), { fakeMs: 5_000 })).rejects.toThrow(/no termino en 5000 ms de reloj falso/);
   });
 
   it("un objeto nulo (pdf.js no pudo decodificarlo) da `decode-failed` UNA sola vez aunque se pinte varias", async () => {

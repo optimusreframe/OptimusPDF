@@ -19,7 +19,13 @@ export type ScanPageSource = "camera" | "library" | "file";
 
 /** Avisos de calidad de una pagina (se muestran como chips con accion: «Repetir», «Quitar»). */
 export type ScanPageFlags = {
+  /** Hoja REALMENTE vacia (ni un trazo, ni una firma, ni un sello): la interfaz puede ofrecer quitarla. */
   blank?: boolean;
+  /**
+   * ADITIVO. «Casi vacia»: casi nada de tinta pero algo (una firma, una palabra, unas iniciales, un sello, un logo o un numero de
+   * pagina). NO es `blank`: la interfaz debe PEDIR CONFIRMACION antes de quitarla.
+   */
+  sparse?: boolean;
   blurry?: boolean;
   glare?: boolean;
   dark?: boolean;

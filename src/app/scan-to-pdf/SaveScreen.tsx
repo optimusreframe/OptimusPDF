@@ -21,7 +21,8 @@ import { downloadBlob, formatFileSize } from "@/lib/pdf/core";
 import { addRecentEntry } from "@/lib/recent";
 import { toolHref } from "@/lib/tools-registry";
 import { fileNameFor } from "@/app/scan-to-pdf/scanState";
-import { isEngineUnavailableError, ocrModelAvailable, preloadEngine, prepareOcrModel } from "@/app/scan-to-pdf/scanServices";
+import { isAlreadyOptimized } from "@/app/scan-to-pdf/sizeNote";
+import { engineNeedsReload, isEngineUnavailableError, ocrModelAvailable, preloadEngine, prepareOcrModel } from "@/app/scan-to-pdf/scanServices";
 import { ScreenShell } from "@/app/scan-to-pdf/ScreenShell";
 import { useAnnounce } from "@/app/scan-to-pdf/ScanLive";
 import { OCR_MODEL_MB, type ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
@@ -60,6 +61,7 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
   const [progressText, setProgressText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const engineFailedRef = useRef<{ tried: boolean; needsReload: boolean } | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const createRef = useRef<HTMLButtonElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -68,10 +70,14 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
   // (`ocrModelAvailable`, sin red) y, si no, hay una accion EXPLICITA para bajarlo. Sin el modelo el PDF sale normal y el aviso del
   // motor (`onWarning`) se muestra en el resultado: nunca es un error.
   const [failedWhileSearchable, setFailedWhileSearchable] = useState(false);
-  const [engineFailed, setEngineFailed] = useState(false);
+  // `null` = el motor cargo; si no, ya se intento una vez (`tried`) y/o el motor pide recargar (`needsReload`).
+  const [engineFailed, setEngineFailed] = useState<{ tried: boolean; needsReload: boolean } | null>(null);
   const [modelReady, setModelReady] = useState<boolean | null>(null);
   const [model, setModel] = useState<{ phase: "idle" | "downloading" | "failed"; reason?: "offline" | "network" | "engine" }>({ phase: "idle" });
   const modelAbort = useRef<AbortController | null>(null);
+  useEffect(() => {
+    engineFailedRef.current = engineFailed;
+  }, [engineFailed]);
 
   // La calidad recordada solo se conoce ya en el cliente (localStorage).
   const effective: ImagePresetId = preset ?? (isClient ? readStoredImagePreset() : "balanced");
@@ -128,8 +134,12 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `pages` y `searchable` son las entradas reales (`estimateSize` lee el estado vigente)
   const raw = useMemo(() => estimateSize(effective), [estimateSize, effective, pages, searchable]);
   const sourceBytes = useMemo(() => pages.reduce((sum, page) => sum + page.original.size, 0), [pages]);
+  // «Sin optimizar» = la estimacion de ORIGINAL del mismo calculo (no una cifra aparte que no coincide con el PDF «Original»).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mismas entradas que `raw`
+  const original = useMemo(() => estimateSize("original"), [estimateSize, pages, searchable]);
+  const alreadyOptimized = effective !== "original" && isAlreadyOptimized(raw.bytes, original.bytes);
   const estimate: PdfSizeEstimate | null = pages.length
-    ? { photos: pages.length, sourceBytes, optimizedBytes: raw.bytes, unoptimizedBytes: Math.max(raw.high, sourceBytes) }
+    ? { photos: pages.length, sourceBytes, optimizedBytes: raw.bytes, unoptimizedBytes: original.bytes }
     : null;
   const sizeText = formatFileSize(raw.bytes, locale);
 
@@ -141,7 +151,6 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
     runRef.current = run;
     setError(null);
     setFailedWhileSearchable(false);
-    setEngineFailed(false);
     setProgress(0);
     setProgressText(s.buildProgress(1, pages.length));
     setPhase("building");
@@ -170,6 +179,7 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
       // Pidio texto buscable pero el motor lo degrado (falta el modelo, sin red...): AVISO en el resultado con SU texto (no es un error: el PDF es valido).
       const missing = wantsText ? warnings.map((warning) => s.searchableWarning(warning)) : [];
       const notices = missing.length > 0 ? { title: described.notices?.title ?? s.searchableNoticeTitle, items: [...(described.notices?.items ?? []), ...missing] } : described.notices;
+      setEngineFailed(null);
       onBuilt({ blob, filename, summary: described.summary, notices });
     } catch (caught) {
       if (runRef.current !== run) return;
@@ -179,7 +189,7 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
       const unavailable = !aborted && isEngineUnavailableError(caught);
       const message = aborted ? s.buildCancelled : unavailable ? s.importProblems.engineUnavailable : wantsText ? s.searchableFailed : s.buildFailed;
       setFailedWhileSearchable(!aborted && !unavailable && wantsText);
-      setEngineFailed(unavailable);
+      setEngineFailed(unavailable ? { tried: engineFailedRef.current !== null, needsReload: engineNeedsReload(caught) } : null);
       // El aviso recibe el foco: el lector lo lee al llegar (anunciarlo ademas por la region viva lo diria dos veces).
       setError(message);
       requestAnimationFrame(() => errorRef.current?.focus({ preventScroll: false }));
@@ -263,6 +273,7 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
         <ImageQualityPicker
           value={effective}
           estimate={estimate}
+          estimateNote={alreadyOptimized ? s.alreadyOptimized(formatFileSize(raw.bytes, locale)) : null}
           onChange={(next) => {
             setPreset(next);
             writeStoredImagePreset(next);
@@ -330,10 +341,20 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
       ) : null}
 
         {error && engineFailed ? (
-          <div className="mt-3 pb-6">
-            <Button variant="secondary" size="md" fullWidth wrap data-save-action="retry" onClick={() => { preloadEngine(); void build(); }}>
-              {s.importProblems.retry}
+          <div className="mt-3 flex flex-col gap-2 pb-6">
+            <p data-save-reload-hint="" className="text-footnote text-muted-foreground">
+              {s.importProblems.engineReload(0)}
+            </p>
+            {/* Recargar es la accion PRINCIPAL: un reintento sin recargar no recupera un trozo que el cargador dio por fallido. */}
+            <Button size="md" fullWidth wrap data-save-action="reload" onClick={() => window.location.reload()}>
+              {s.importProblems.reload}
             </Button>
+            {/* «Reintentar» solo si puede funcionar: hay conexion, el motor no pide recargar y no se acaba de reintentar. */}
+            {!engineFailed.needsReload && !engineFailed.tried && (typeof navigator === "undefined" || navigator.onLine !== false) ? (
+              <Button variant="secondary" size="md" fullWidth wrap data-save-action="retry" onClick={() => { preloadEngine(); void build(); }}>
+                {s.importProblems.retry}
+              </Button>
+            ) : null}
           </div>
         ) : null}
 

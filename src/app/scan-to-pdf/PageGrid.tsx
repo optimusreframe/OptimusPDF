@@ -281,10 +281,16 @@ export function PageGrid({ s, pages, pendingIds, selection, selecting, movingIds
       frame = 0;
       const element = containerRef.current;
       if (!element) return;
-      // Parte de la cuadricula que esta dentro de la zona visible del contenedor con desplazamiento.
-      const top = scroller.getBoundingClientRect().top - element.getBoundingClientRect().top;
+      // Parte de la cuadricula que esta dentro de la zona visible: la del contenedor con desplazamiento RECORTADA a la ventana. Sin
+      // recortar, mientras la pantalla aun no tiene alto fijo (primer cuadro) o con la pagina desplazandose (apreto), la zona medida
+      // era TODO el contenido y se pintaban las 100 tarjetas de golpe: una tarea larga de ~200 ms al importar.
+      const area = scroller.getBoundingClientRect();
+      const viewport = window.visualViewport?.height ?? window.innerHeight;
+      const visibleTop = Math.max(area.top, 0);
+      const visibleBottom = Math.min(area.bottom, viewport);
+      const top = visibleTop - element.getBoundingClientRect().top;
       setScroll((previous) => {
-        const next = { top: Math.max(0, top), height: scroller.clientHeight || 800 };
+        const next = { top: Math.max(0, top), height: Math.max(1, Math.round(visibleBottom - visibleTop)) || 800 };
         return Math.abs(previous.top - next.top) < 40 && previous.height === next.height ? previous : next;
       });
     };
@@ -293,6 +299,7 @@ export function PageGrid({ s, pages, pendingIds, selection, selecting, movingIds
     };
     update();
     scroller.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
     // El alto de la zona cambia sin que haya desplazamiento ni cambio de ventana (la pantalla se mide tras pintar, entra o sale
     // el teclado, cambia el alto de la cabecera): se recalcula la ventana visible.
@@ -300,6 +307,7 @@ export function PageGrid({ s, pages, pendingIds, selection, selecting, movingIds
     observer?.observe(scroller);
     return () => {
       scroller.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
       observer?.disconnect();
       if (frame) cancelAnimationFrame(frame);

@@ -130,4 +130,17 @@ describe("puerta del recorte automatico — src/lib/scan/cropGate.ts", () => {
     expect(result.quad).toBeNull();
     expect(result.verdict).toMatchObject({ accept: false, reason: "content-beyond" });
   });
+
+  it("modo id-card: el recorte lleva un margen extra (CARD_MARGIN_FRACTION) que el modo documento no lleva", () => {
+    const box: [number, number, number, number] = [110, 80, 290, 190]; // 180 x 110: proporcion de tarjeta (1,64)
+    const image = scene({ bg: [55, 52, 60], fg: [236, 232, 224], box });
+    const card = selectCrop(quadOf(box), null, image, "id-card").quad;
+    const doc = selectCrop(quadOf(box), null, image, "document");
+    expect(card).not.toBeNull();
+    if (!card) return;
+    // Sin margen extra, un documento reconocido avanza solo el margen de seguridad corriente (~2 px); la tarjeta, ~3 % del lado (~5 px).
+    const cardGrow = quadOf(box).topLeft.x * 400 - card.topLeft.x * 400;
+    expect(cardGrow).toBeGreaterThan(4);
+    if (doc.quad) expect(quadOf(box).topLeft.x * 400 - doc.quad.topLeft.x * 400).toBeLessThan(cardGrow);
+  });
 });

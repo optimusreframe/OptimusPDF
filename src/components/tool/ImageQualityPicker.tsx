@@ -17,6 +17,8 @@ export type ImageQualityPickerProps = {
   estimate: PdfSizeEstimate | null;
   /** Peso central estimado con «Alta» (solo si alguna foto pasa de 12 Mpx y la calidad elegida no es «Alta»). */
   highDetailBytes?: number | null;
+  /** ADITIVO: texto que sustituye a la estimacion (p. ej. «Ya esta optimizado…» cuando la calidad elegida pesa como Original). */
+  estimateNote?: string | null;
   className?: string;
 };
 
@@ -30,7 +32,7 @@ const subscribeNothing = (): (() => void) => () => {};
  * viven en UNA region viva (`role="status"`): el lector de pantalla los anuncia al cambiar de calidad. Lo comparten Imagenes a
  * PDF y Escanear a PDF.
  */
-export function ImageQualityPicker({ value, onChange, estimate, highDetailBytes = null, className }: ImageQualityPickerProps) {
+export function ImageQualityPicker({ value, onChange, estimate, highDetailBytes = null, estimateNote = null, className }: ImageQualityPickerProps) {
   const { language } = useI18n();
   const copy = IMAGE_QUALITY_STRINGS[language];
   const locale = localeTag(language);
@@ -49,6 +51,7 @@ export function ImageQualityPicker({ value, onChange, estimate, highDetailBytes 
       });
     else estimateText = fillCopy(copy.estimateVersus, { after: size(estimate.optimizedBytes), before: size(estimate.unoptimizedBytes) });
   }
+  if (estimate && estimateNote) estimateText = estimateNote;
   const warnings = estimate ? previewWarnings(estimate, value, ios) : [];
   const warningText = { mail: copy.warnMail, huge: copy.warnHuge, memory: copy.warnMemory };
 

@@ -1,13 +1,18 @@
 import "fake-indexeddb/auto";
 import { Blob as NodeBlob } from "node:buffer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SCAN_DB_NAME,
+  __resetBlobProbeForTests,
   __resetScanStagingForTests,
   __resetScanStoreMemoryForTests,
   clearScanSessions,
+  __setSaveGuardMsForTests,
   __setScanStorageModeForTests,
+  __setStageSaveMsForTests,
+  __setTxGuardMsForTests,
   newScanSessionId,
+  scanStorageMode,
   scanSessionStore,
 } from "@/lib/scan/sessionStore";
 import { DEFAULT_SCAN_SETTINGS, type ScanPage, type ScanSession } from "@/lib/scan/types";
@@ -62,6 +67,9 @@ async function storedRotation(id: string): Promise<number | null> {
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
 
 beforeEach(async () => {
+  // El guardado anticipado de `stage` se desactiva (salvo en sus propias pruebas): aqui se mide solo el volcado al irse la pagina.
+  __setStageSaveMsForTests(null);
+  __resetBlobProbeForTests();
   __resetScanStagingForTests();
   __resetScanStoreMemoryForTests();
   await clearScanSessions();
@@ -206,5 +214,183 @@ describe("volcado al irse de la pagina — src/lib/scan/sessionStore.ts", () => 
     window.dispatchEvent(new Event("pagehide"));
     await tick();
     expect(await scanSessionStore.list()).toEqual([]);
+  });
+
+});
+
+/**
+ * WebKit: una transaccion con un Blob que no se puede preparar emite `error` pero NUNCA `abort` ni `complete`; el guardado se
+ * quedaba esperando para siempre («Guardando…» eterno). Se simula tragando `oncomplete`/`onabort` de la primera transaccion de
+ * escritura y disparando solo `onerror`; y, en el otro caso, sin disparar nada.
+ */
+describe("guardado que no termina (WebKit) — src/lib/scan/sessionStore.ts", () => {
+  type Mutable = { transaction: IDBDatabase["transaction"] };
+  const proto = IDBDatabase.prototype as unknown as Mutable;
+  const original = proto.transaction;
+  afterEach(() => {
+    proto.transaction = original;
+    __setTxGuardMsForTests(null);
+    __setSaveGuardMsForTests(null);
+    __setScanStorageModeForTests("blob");
+    sessionStorage.removeItem("optimuspdf.scan.bytesMode");
+  });
+
+  function hangFirstWrite(options: { fireError: boolean; every?: boolean; database?: string }): { calls: () => number } {
+    let writes = 0;
+    proto.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase["transaction"]>) {
+      const tx = original.apply(this, args);
+      if (args[1] !== "readwrite") return tx;
+      // `database`: solo las transacciones de esa base (la de pruebas de Blob, o la de sesiones).
+      if (options.database && this.name !== options.database) return tx;
+      writes += 1;
+      if (writes > 1 && !options.every) return tx;
+      return new Proxy(tx, {
+        set(target, property, value) {
+          if (property === "oncomplete" || property === "onabort") return true;
+          if (property === "onerror") {
+            if (options.fireError) setTimeout(() => (value as (event: unknown) => void)({ target: { error: new Error("UnknownError: Error preparing Blob/File data to be stored in object store") } }), 5);
+            return true;
+          }
+          (target as unknown as Record<string | symbol, unknown>)[property] = value;
+          return true;
+        },
+        get(target, property) {
+          const value = (target as unknown as Record<string | symbol, unknown>)[property];
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    } as typeof original;
+    return { calls: () => writes };
+  }
+
+  it("`error` sin `abort` ni `complete`: se da por fallida, cae al modo bytes, REINTENTA y el guardado termina bien", async () => {
+    __setStageSaveMsForTests(null);
+    __setScanStorageModeForTests("blob");
+    const hang = hangFirstWrite({ fireError: true, database: SCAN_DB_NAME });
+    const base = session([page(0)]);
+    const started = Date.now();
+    const result = await scanSessionStore.save(base);
+    // Rapido: el `error` basta (sin esperar al plazo de guardia de 8 s).
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(result.ok).toBe(true);
+    expect(scanStorageMode()).toBe("bytes");
+    expect(hang.calls()).toBeGreaterThanOrEqual(2);
+    expect((await scanSessionStore.load(base.id))?.pages).toHaveLength(1);
+  });
+
+  it("sin NINGUN evento: el plazo de guardia la da por fallida, reintenta en bytes y termina", async () => {
+    __setTxGuardMsForTests(60);
+    __setScanStorageModeForTests("blob");
+    hangFirstWrite({ fireError: false, database: SCAN_DB_NAME });
+    const base = session([page(0)]);
+    const started = Date.now();
+    const result = await scanSessionStore.save(base);
+    expect(result.ok).toBe(true);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(scanStorageMode()).toBe("bytes");
+  });
+
+  it("si TODO se cuelga, el guardado devuelve un fallo (`unavailable`) a tiempo en vez de esperar para siempre", async () => {
+    __setTxGuardMsForTests(40);
+    __setSaveGuardMsForTests(300);
+    __setScanStorageModeForTests("blob");
+    hangFirstWrite({ fireError: false, every: true, database: SCAN_DB_NAME });
+    const result = await scanSessionStore.save(session([page(0)]));
+    expect(result).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("guardado anticipado: tras `stage` el cambio queda escrito a los ~100 ms SIN pagehide ni autoguardado de la interfaz", async () => {
+    __setStageSaveMsForTests(30);
+    const base = session([page(0), page(0)]);
+    expect((await scanSessionStore.save(base)).ok).toBe(true);
+    scanSessionStore.stage?.({ ...base, pages: [base.pages[1], base.pages[0]] });
+    await tick(25);
+    expect((await scanSessionStore.load(base.id))?.pages.map((p) => p.id)).toEqual(base.pages.map((p) => p.id));
+    await tick(150);
+    expect((await scanSessionStore.load(base.id))?.pages.map((p) => p.id)).toEqual([base.pages[1].id, base.pages[0].id]);
+  });
+
+  it("guardado anticipado con cambios sin parar: no espera al silencio mas alla de ~90 ms desde el primero", async () => {
+    __setStageSaveMsForTests(50);
+    const base = session([page(0)]);
+    expect((await scanSessionStore.save(base)).ok).toBe(true);
+    const turn = (rotation: 0 | 90 | 180 | 270) => scanSessionStore.stage?.({ ...base, pages: [{ ...base.pages[0], rotation }] });
+    turn(90);
+    for (let k = 0; k < 6; k += 1) {
+      await tick(40);
+      turn(k % 2 ? 180 : 270);
+    }
+    // Pasaron ~240 ms con un cambio cada 40 ms (el silencio nunca llego a 60 ms): aun asi ya hay algo escrito.
+    expect((await storedRotation(base.id)) !== 0).toBe(true);
+  });
+
+  it("PRUEBA de Blob en una base APARTE: si falla como en WebKit (error sin abort ni complete), el almacen pasa a bytes SIN tocar la base de sesiones y guarda", async () => {
+    __setScanStorageModeForTests("blob");
+    const hang = hangFirstWrite({ fireError: true, database: "optimuspdf-scan-probe" });
+    const base = session([page(0)]);
+    const result = await scanSessionStore.save(base);
+    expect(result.ok).toBe(true);
+    expect(scanStorageMode()).toBe("bytes");
+    expect(hang.calls()).toBe(1);
+    expect((await scanSessionStore.load(base.id))?.pages).toHaveLength(1);
+    // El navegador queda marcado: una recarga de la pestana empieza ya en bytes (no se vuelve a probar).
+    expect(sessionStorage.getItem("optimuspdf.scan.bytesMode")).toBe("1");
+    sessionStorage.removeItem("optimuspdf.scan.bytesMode");
+  });
+
+  it("la prueba de Blob sin ningun evento se da por fallida al agotar su plazo (nunca espera para siempre)", async () => {
+    __resetBlobProbeForTests(60);
+    __setScanStorageModeForTests("blob");
+    hangFirstWrite({ fireError: false, database: "optimuspdf-scan-probe" });
+    const started = Date.now();
+    const result = await scanSessionStore.save(session([page(0)]));
+    expect(result.ok).toBe(true);
+    expect(scanStorageMode()).toBe("bytes");
+    expect(Date.now() - started).toBeLessThan(2000);
+    sessionStorage.removeItem("optimuspdf.scan.bytesMode");
+  });
+
+  it("si el navegador SI guarda Blob, la prueba se hace una sola vez y el modo sigue siendo blob", async () => {
+    __setScanStorageModeForTests("blob");
+    const open = vi.spyOn(indexedDB, "open");
+    expect((await scanSessionStore.save(session([page(0)]))).ok).toBe(true);
+    expect((await scanSessionStore.save(session([page(0)]))).ok).toBe(true);
+    expect(scanStorageMode()).toBe("blob");
+    expect(open.mock.calls.filter(([name]) => name === "optimuspdf-scan-probe")).toHaveLength(1);
+    open.mockRestore();
+  });
+
+  it("un guardado que se cuelga FUERA de las transacciones (la lectura previa no contesta) devuelve el fallo a tiempo: la guardia del guardado entero", async () => {
+    __setSaveGuardMsForTests(200);
+    __setStageSaveMsForTests(null);
+    const getter = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function () {
+      return {} as IDBRequest;
+    } as typeof getter;
+    try {
+      const started = Date.now();
+      const result = await scanSessionStore.save(session([page(0)]));
+      expect(result).toEqual({ ok: false, reason: "unavailable" });
+      expect(Date.now() - started).toBeLessThan(2000);
+    } finally {
+      IDBObjectStore.prototype.get = getter;
+    }
+  });
+
+  it("si la base de PRUEBAS no se puede abrir no se concluye que falten Blob: el modo sigue siendo blob", async () => {
+    __setScanStorageModeForTests("blob");
+    const real = indexedDB.open.bind(indexedDB);
+    const spy = vi.spyOn(indexedDB, "open").mockImplementation(((name: string, version?: number) => {
+      if (name !== "optimuspdf-scan-probe") return real(name, version);
+      const request = {} as IDBOpenDBRequest;
+      setTimeout(() => (request.onerror as (() => void) | null)?.(), 5);
+      return request;
+    }) as typeof indexedDB.open);
+    try {
+      expect((await scanSessionStore.save(session([page(0)]))).ok).toBe(true);
+      expect(scanStorageMode()).toBe("blob");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

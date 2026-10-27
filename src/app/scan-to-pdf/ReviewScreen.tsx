@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { useFocusTarget } from "@/components/tool/useFocusTarget";
 import { cn } from "@/lib/cn";
-import { blankPageIds, orientationCounts, type QualityChipKind } from "@/app/scan-to-pdf/scanState";
+import { blankPageIds, orientationCounts, sparsePageIds, type QualityChipKind } from "@/app/scan-to-pdf/scanState";
 import { FILTER_ORDER } from "@/app/scan-to-pdf/PageEditor";
 import { PageGrid } from "@/app/scan-to-pdf/PageGrid";
 import { ScreenShell } from "@/app/scan-to-pdf/ScreenShell";
 import { ImportProblemsBanner } from "@/app/scan-to-pdf/ImportProblemsBanner";
+import { BlankReviewSheet } from "@/app/scan-to-pdf/BlankReviewSheet";
 import { useAnnounce } from "@/app/scan-to-pdf/ScanLive";
 import type { ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
 import type { ScanSessionApi, SaveStatus } from "@/app/scan-to-pdf/useScanSession";
@@ -46,6 +47,8 @@ function statusText(s: ScanToPdfStrings, status: SaveStatus): string {
       return s.statusUnavailable;
     case "tooBig":
       return s.statusTooBig;
+    case "stalled":
+      return s.statusStalled;
   }
 }
 
@@ -63,6 +66,9 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
   const [moreId, setMoreId] = useState<string | null>(null);
   const [insertAt, setInsertAt] = useState<number | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [blanksOpen, setBlanksOpen] = useState(false);
+  /** Tras quitar hojas en blanco: aviso con «Deshacer» (mientras lo ultimo que se hizo siga siendo esa operacion). */
+  const [removedBlanks, setRemovedBlanks] = useState<{ count: number } | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const focusArg = useRef<{ index: number; id: string; part: "remove" | "handle" | "main" }>({ index: 0, id: "", part: "main" });
 
@@ -78,6 +84,11 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
   });
 
   const blanks = useMemo(() => blankPageIds(pages), [pages]);
+  const sparse = useMemo(() => sparsePageIds(pages), [pages]);
+  const entries = (ids: string[]) => {
+    const set = new Set(ids);
+    return pages.flatMap((page, index) => (set.has(page.id) ? [{ page, number: index + 1 }] : []));
+  };
   const indexOf = useCallback((id: string) => pages.findIndex((page) => page.id === id), [pages]);
   const chosen = useMemo(() => pages.filter((page) => selection.has(page.id)).map((page) => page.id), [pages, selection]);
 
@@ -96,12 +107,16 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
 
   const onChip = useCallback(
     (id: string, kind: QualityChipKind) => {
-      if (kind === "blank" || kind === "duplicate") remove([id]);
+      if (kind === "duplicate") remove([id]);
+      // En blanco: SIEMPRE se confirma mirando la miniatura (un texto muy tenue o una firma pueden parecerlo).
+      else if (kind === "blank") setBlanksOpen(true);
+      // Casi vacia: se REVISA la hoja entera (nunca se quita de un toque: puede ser una firma o una pagina de numero).
+      else if (kind === "sparse") onViewSheet(id);
       // Sin documento detectado: la pagina esta ENTERA; se abre el ajuste de esquinas («Toda la foto» la deja completa).
       else if (kind === "noDocument") onCorners(id);
       else onCamera({ kind: "retake", id });
     },
-    [remove, onCorners, onCamera],
+    [remove, onCorners, onCamera, onViewSheet],
   );
 
   const onDrop = useCallback(
@@ -293,15 +308,33 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
       >
       <p className="text-footnote text-muted-foreground">{s.reviewHelp}</p>
 
-      <ImportProblemsBanner s={s} problems={api.importProblems} onDismiss={api.dismissImportProblems} onRetry={api.retryEngineProblems} onReload={api.engineRetried ? () => window.location.reload() : undefined} />
+      <ImportProblemsBanner s={s} problems={api.importProblems} onDismiss={api.dismissImportProblems} onRetry={api.canRetryEngine ? api.retryEngineProblems : undefined} onReload={() => window.location.reload()} />
 
-      {blanks.length > 0 ? (
+      {blanks.length > 0 || sparse.length > 0 ? (
         <div data-banner="blanks" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-ios border border-hairline bg-white/5 px-3 py-2">
-          <p className="min-w-0 text-footnote text-foreground">{s.blanksBanner(blanks.length)}</p>
-          <Button size="sm" data-review-action="remove-blanks" onClick={() => { focusArg.current = { index: 0, id: "", part: "main" }; api.removeBlanks(); askFocus(pages.length - blanks.length > 0 ? "tile" : "fallback"); }}>
+          <p className="min-w-0 text-footnote text-foreground">
+            {blanks.length > 0 ? s.blanksBanner(blanks.length) : s.sparseBanner(sparse.length)}
+            {blanks.length > 0 && sparse.length > 0 ? ` ${s.sparseBanner(sparse.length)}` : ""}
+          </p>
+          <Button size="sm" data-review-action="remove-blanks" onClick={() => setBlanksOpen(true)}>
             <Trash2 aria-hidden="true" className="size-4" />
-            {s.removeBlanks(blanks.length)}
+            {blanks.length > 0 ? s.removeBlanks(blanks.length) : s.reviewSparse(sparse.length)}
           </Button>
+        </div>
+      ) : null}
+
+      {removedBlanks && api.undoLabel === s.labels.blanks ? (
+        <div data-banner="blanks-removed" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-ios border border-hairline bg-white/5 px-3 py-2">
+          <p className="min-w-0 text-footnote text-foreground">{s.blanksReview.removedNotice(removedBlanks.count)}</p>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="secondary" data-review-action="undo-blanks" onClick={() => { api.undo(); setRemovedBlanks(null); }}>
+              <Undo2 aria-hidden="true" className="size-4" />
+              {s.blanksReview.undo}
+            </Button>
+            <IconButton label={s.blanksReview.dismiss} action="dismiss-blanks" onClick={() => setRemovedBlanks(null)}>
+              <X aria-hidden="true" className="size-5" />
+            </IconButton>
+          </div>
         </div>
       ) : null}
 
@@ -329,10 +362,11 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
         </div>
       ) : null}
 
-      {api.saveStatus === "unavailable" || api.saveStatus === "quota" || api.saveStatus === "tooBig" ? (
-        <div data-banner="storage" className="mt-3 flex items-start gap-2 rounded-ios border border-destructive/40 bg-destructive/10 p-3">
+      {api.saveStatus === "unavailable" || api.saveStatus === "quota" || api.saveStatus === "tooBig" || api.saveStatus === "stalled" ? (
+        <div data-banner="storage" data-storage-reason={api.saveStatus} className="mt-3 flex items-start gap-2 rounded-ios border border-destructive/40 bg-destructive/10 p-3">
           <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive-text" />
-          <p className="text-subheadline text-foreground">{api.saveStatus === "unavailable" ? s.storageUnavailableHint : api.saveStatus === "quota" ? s.statusQuota : s.statusTooBig}. {s.storageUnavailableHint}</p>
+          {/* Un solo mensaje, con su motivo y sin repetir el estado de la cabecera (leerlos los dos duplicaba el texto). */}
+          <p className="text-subheadline text-foreground">{s.storageBanner[api.saveStatus]}</p>
         </div>
       ) : null}
 
@@ -406,6 +440,22 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
           </Button>
         </div>
       </Sheet>
+
+      <BlankReviewSheet
+        open={blanksOpen}
+        onClose={() => setBlanksOpen(false)}
+        s={s}
+        closeLabel={closeLabel}
+        blanks={entries(blanks)}
+        sparse={entries(sparse)}
+        onConfirm={(ids) => {
+          setBlanksOpen(false);
+          focusArg.current = { index: 0, id: "", part: "main" };
+          const removed = api.removeBlanks(ids);
+          if (removed > 0) setRemovedBlanks({ count: removed });
+          askFocus(pages.length - ids.length > 0 ? "tile" : "fallback");
+        }}
+      />
 
       <Sheet open={filterOpen} onClose={() => setFilterOpen(false)} title={s.bulkFilterTitle} closeLabel={closeLabel} inertBackground>
         {filterChoices}

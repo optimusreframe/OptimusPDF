@@ -9,6 +9,8 @@ import { createFakeStore, type FakeStore } from "@/lib/scan/testing/fakeStore";
 import { tinyJpegBytes, tinyJpegFile } from "@/lib/scan/testing/testImages";
 import { DEFAULT_SCAN_SETTINGS, type ScanSession } from "@/lib/scan/types";
 import { ScanToPdfClient } from "@/app/scan-to-pdf/ScanToPdfClient";
+import { formatFileSize } from "@/lib/pdf/core";
+import { __setSaveStallMsForTests } from "@/app/scan-to-pdf/useScanSession";
 import { OCR_MODEL_MB, STRINGS } from "@/app/scan-to-pdf/strings";
 
 /**
@@ -162,21 +164,74 @@ describe("importar y revisar", () => {
     expect(row.textContent).toContain(es.importProblems.kinds.notImage);
   });
 
-  it("chips de calidad con accion de un toque: «En blanco → Quitar» y «Quitar hojas en blanco»", async () => {
+  it("«En blanco» y «Quitar hojas en blanco» abren SIEMPRE la hoja de confirmacion con miniaturas; solo se quita lo marcado y se puede deshacer", async () => {
     mount();
     await importFiles(["a.jpg", "b-blank.jpg", "c.jpg", "d-blank.jpg"]);
     expect(document.querySelectorAll('[data-quality-chip="blank"]')).toHaveLength(2);
     expect(document.querySelector('[data-banner="blanks"]')?.textContent).toContain("2 hojas parecen estar en blanco");
     const ids = order();
-    fireEvent.click(screen.getByRole("button", { name: "Página 2: En blanco. Quitar" }));
-    expect(order()).toEqual([ids[0], ids[2], ids[3]]);
-    fireEvent.click(screen.getByRole("button", { name: es.removeBlanks(1) }));
-    expect(order()).toEqual([ids[0], ids[2]]);
-    // Deshacer y rehacer.
-    fireEvent.click(screen.getByRole("button", { name: es.undo }));
-    expect(order()).toEqual([ids[0], ids[2], ids[3]]);
+    // El chip de la hoja NO la quita: abre la confirmacion.
+    fireEvent.click(screen.getByRole("button", { name: "Página 2: En blanco. Revisar" }));
+    expect(order()).toEqual(ids);
+    const sheet = await screen.findByRole("dialog", { name: es.blanksReview.title });
+    const items = sheet.querySelectorAll("[data-blank-item]");
+    expect(items).toHaveLength(2);
+    // Las dos vienen marcadas; se deja marcada solo la de la pagina 2.
+    const boxes = within(sheet).getAllByRole("checkbox") as HTMLInputElement[];
+    expect(boxes.every((box) => box.checked)).toBe(true);
+    fireEvent.click(within(sheet).getByRole("checkbox", { name: es.blanksReview.pageLabel(4) }));
+    fireEvent.click(within(sheet).getByRole("button", { name: es.blanksReview.confirm(1) }));
+    await waitFor(() => expect(order()).toEqual([ids[0], ids[2], ids[3]]));
+    // Aviso con «Deshacer» tras quitar.
+    expect(document.querySelector('[data-banner="blanks-removed"]')?.textContent).toContain(es.blanksReview.removedNotice(1));
+    fireEvent.click(document.querySelector<HTMLElement>('[data-review-action="undo-blanks"]')!);
+    expect(order()).toEqual(ids);
+    expect(document.querySelector('[data-banner="blanks-removed"]')).toBeNull();
+    // «Quitar hojas en blanco» (todas): tambien con confirmacion.
+    fireEvent.click(screen.getByRole("button", { name: es.removeBlanks(2) }));
+    const again = await screen.findByRole("dialog", { name: es.blanksReview.title });
+    expect(order()).toEqual(ids);
+    fireEvent.click(within(again).getByRole("button", { name: es.blanksReview.confirm(2) }));
+    await waitFor(() => expect(order()).toEqual([ids[0], ids[2]]));
+    // Rehacer / deshacer desde la cabecera.
+    fireEvent.click(screen.getAllByRole("button", { name: es.undo })[0]);
+    expect(order()).toEqual(ids);
     fireEvent.click(screen.getByRole("button", { name: es.redo }));
     expect(order()).toEqual([ids[0], ids[2]]);
+  });
+
+  it("«Casi vacia»: chip que REVISA la hoja entera, lista aparte SIN marcar en la confirmacion y solo se quita si se marca", async () => {
+    mount();
+    await importFiles(["a.jpg", "b-sparse.jpg", "c-blank.jpg"]);
+    const ids = order();
+    expect(document.querySelectorAll('[data-quality-chip="sparse"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-quality-chip="blank"]')).toHaveLength(1);
+    // El chip abre la hoja completa (revisar), no la quita.
+    fireEvent.click(screen.getByRole("button", { name: "Página 2: Casi vacía. Revisar" }));
+    await waitFor(() => expect(document.querySelector("[data-sheet-viewer]")).not.toBeNull());
+    expect(order()).toEqual(ids);
+    fireEvent.click(document.querySelector<HTMLElement>('[data-sheet-action="close"]')!);
+    await waitFor(() => expect(document.querySelector("[data-sheet-viewer]")).toBeNull());
+    // La confirmacion: «en blanco» marcada, «casi vacia» en su lista y SIN marcar.
+    fireEvent.click(screen.getByRole("button", { name: es.removeBlanks(1) }));
+    const sheet = await screen.findByRole("dialog", { name: es.blanksReview.title });
+    const sparseList = sheet.querySelector('[data-blanks-list="sparse"]') as HTMLElement;
+    expect(sparseList.textContent).toContain(es.blanksReview.sparseList(1));
+    expect((within(sparseList).getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect((within(sheet.querySelector('[data-blanks-list="blank"]') as HTMLElement).getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+    expect(within(sheet).getByRole("button", { name: es.blanksReview.confirm(1) })).toBeTruthy();
+    fireEvent.click(within(sparseList).getByRole("checkbox"));
+    fireEvent.click(within(sheet).getByRole("button", { name: es.blanksReview.confirm(2) }));
+    await waitFor(() => expect(order()).toEqual([ids[0]]));
+  });
+
+  it("sin el aviso `sparse` del motor no hay chip ni lista de «casi vacias» (lector tolerante)", async () => {
+    mount();
+    await importFiles(["a.jpg", "b-blank.jpg"]);
+    expect(document.querySelector('[data-quality-chip="sparse"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: es.removeBlanks(1) }));
+    const sheet = await screen.findByRole("dialog", { name: es.blanksReview.title });
+    expect(sheet.querySelector('[data-blanks-list="sparse"]')).toBeNull();
   });
 
   it("«Repetida → Quitar», «Borrosa» y «Sin documento» muestran su accion", async () => {
@@ -304,36 +359,81 @@ describe("guardado inmediato (stage / flush)", () => {
 });
 
 describe("el escaner no se pudo cargar (sin red)", () => {
-  it("importar: UN mensaje claro con «Reintentar», nunca «dañada», y al reintentar las fotos entran", async () => {
-    engine.controls.engineUnavailable = true;
-    mount();
+  const importTwo = async () => {
     fireEvent.change(libraryInput(), { target: { files: [tinyJpegFile("a.jpg", 64, 80, 1), tinyJpegFile("b.jpg", 64, 80, 2)] } });
-    const banner = await waitFor(() => {
+    return waitFor(() => {
       const found = document.querySelector('[data-banner="import-problems"]');
       expect(found).not.toBeNull();
       return found as HTMLElement;
     }, { timeout: 8000 });
+  };
+
+  it("importar: «Recargar la página» es la accion principal desde el PRIMER error, con las fotos pendientes nombradas; nunca «dañada»", async () => {
+    engine.controls.engineUnavailable = true;
+    mount();
+    const banner = await importTwo();
     expect(banner.textContent).toContain(es.importProblems.engineUnavailable);
     expect(banner.textContent).not.toMatch(/dañada|incompleta/i);
-    expect(banner.querySelector('[data-import-problem]')).toBeNull();
+    expect(banner.querySelector("[data-import-problem]")).toBeNull();
+    expect(within(banner).getByRole("button", { name: es.importProblems.reload })).toBeTruthy();
+    // Las fotos que se pierden al recargar se dicen, con su nombre: «vuelve a elegirlas».
+    expect(banner.querySelector("[data-import-reload-hint]")?.textContent).toBe(es.importProblems.engineReload(2));
+    expect(Array.from(banner.querySelectorAll("[data-import-pending]")).map((item) => item.textContent)).toEqual(["a.jpg", "b.jpg"]);
     expect(tiles()).toHaveLength(0);
-    // Vuelve la red: Reintentar procesa las DOS fotos.
+  });
+
+  it("«Reintentar» solo aparece si puede funcionar (conexion y el motor no pide recargar) y, si funciona, las fotos entran", async () => {
+    engine.controls.engineUnavailable = true;
+    mount();
+    const banner = await importTwo();
     engine.controls.engineUnavailable = false;
     fireEvent.click(within(banner).getByRole("button", { name: es.importProblems.retry }));
     await waitFor(() => expect(tiles()).toHaveLength(2), { timeout: 8000 });
     expect(document.querySelector('[data-banner="import-problems"]')).toBeNull();
   });
 
-  it("crear el PDF: mismo mensaje con «Reintentar» (no «No se pudo crear el PDF») y el reintento lo crea", async () => {
+  it("si el motor dice `needsReload` (la conexion volvio y aun asi no carga) NO hay «Reintentar» que no haria nada; si el reintento falla, tampoco", async () => {
+    engine.controls.engineUnavailable = true;
+    engine.controls.engineNeedsReload = true;
+    mount();
+    const banner = await importTwo();
+    expect(within(banner).queryByRole("button", { name: es.importProblems.retry })).toBeNull();
+    expect(within(banner).getByRole("button", { name: es.importProblems.reload })).toBeTruthy();
+  });
+
+  it("un reintento que tambien falla quita «Reintentar» y deja solo «Recargar la página»", async () => {
+    engine.controls.engineUnavailable = true;
+    mount();
+    const banner = await importTwo();
+    fireEvent.click(within(banner).getByRole("button", { name: es.importProblems.retry }));
+    await waitFor(() => expect(document.querySelector("[data-import-action=reload]")).not.toBeNull());
+    await waitFor(() => expect(document.querySelector("[data-import-action=retry]")).toBeNull(), { timeout: 8000 });
+    expect(document.querySelector("[data-import-action=reload]")).not.toBeNull();
+  });
+
+  it("crear el PDF: mismo mensaje, «Recargar la página» principal y «Reintentar» solo si puede funcionar", async () => {
     mount();
     await importFiles(["a.jpg"]);
     fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
     engine.controls.engineUnavailable = true;
     fireEvent.click(await screen.findByRole("button", { name: es.create }));
     await waitFor(() => expect(document.querySelector("[data-save-error]")?.textContent).toBe(es.importProblems.engineUnavailable));
+    expect(screen.getByRole("button", { name: es.importProblems.reload })).toBeTruthy();
     engine.controls.engineUnavailable = false;
     fireEvent.click(screen.getByRole("button", { name: es.importProblems.retry }));
     await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+  });
+
+  it("crear el PDF con `needsReload`: sin «Reintentar»", async () => {
+    mount();
+    await importFiles(["a.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
+    engine.controls.engineUnavailable = true;
+    engine.controls.engineNeedsReload = true;
+    fireEvent.click(await screen.findByRole("button", { name: es.create }));
+    await waitFor(() => expect(document.querySelector("[data-save-error]")).not.toBeNull());
+    expect(screen.getByRole("button", { name: es.importProblems.reload })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: es.importProblems.retry })).toBeNull();
   });
 });
 
@@ -456,6 +556,39 @@ describe("persistencia", () => {
     const dialog = await screen.findByRole("dialog", { name: es.leaveTitle });
     expect(dialog.textContent).toContain(es.leaveBodySaved(1));
     await waitFor(() => expect(within(dialog).getByRole("button", { name: es.leaveStay })).toBe(document.activeElement));
+  });
+
+  it("el almacen no responde: «Guardando…» no dura para siempre, pasa a un aviso honesto (descarga el PDF) y la salida avisa de que se perderia", async () => {
+    __setSaveStallMsForTests(400);
+    try {
+      store.controls.hangSave = true;
+      mount();
+      await importFiles(["a.jpg", "b.jpg"]);
+      await waitFor(() => expect(document.querySelector("[data-save-status]")?.textContent).toBe(es.statusSaving), { timeout: 3000 });
+      const started = Date.now();
+      await waitFor(() => expect(document.querySelector("[data-save-status]")?.textContent).toBe(es.statusStalled), { timeout: 4000 });
+      // La espera del propio `save` corta a los 400 ms; el temporizador del estado (otra guardia) no llegaria hasta ~1,9 s.
+      expect(Date.now() - started).toBeLessThan(1500);
+      expect(document.querySelector('[data-banner="storage"]')?.textContent).toBe(es.storageBanner.stalled);
+      act(() => {
+        interceptNavigation("/merge-pdf", () => {});
+      });
+      const dialog = await screen.findByRole("dialog", { name: es.leaveTitle });
+      expect(dialog.textContent).toContain(es.leaveBodyUnsaved(2));
+    } finally {
+      __setSaveStallMsForTests(null);
+    }
+  });
+
+  it("el aviso de almacenamiento no repite el estado ni acaba en doble punto", async () => {
+    store.controls.unavailable = true;
+    mount();
+    await importFiles(["a.jpg"]);
+    await waitFor(() => expect(document.querySelector('[data-banner="storage"]')).not.toBeNull(), { timeout: 5000 });
+    const banner = document.querySelector('[data-banner="storage"]')!.textContent ?? "";
+    expect(banner).toBe(es.storageBanner.unavailable);
+    expect(banner).not.toMatch(/\.\./);
+    expect(banner).not.toContain(es.statusUnavailable);
   });
 
   it("cuota llena: «No guardado: no hay espacio»", async () => {
@@ -616,6 +749,33 @@ describe("camara y guardar", () => {
     await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
     // Tres hojas = tres cuadros de progreso: sin memoizar, la estimacion se repetia en cada uno.
     expect((engine.controls.calls.estimateSize ?? 0) - before).toBe(0);
+  });
+
+  it("comparativa de tamaño: «sin optimizar» es la estimacion de ORIGINAL del mismo calculo; si pesa casi igual, «Ya esta optimizado»", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg"]);
+    const spy = vi.spyOn(engine, "estimateSize");
+    fireEvent.click(screen.getByRole("button", { name: es.save(2) }));
+    const text = () => document.querySelector("[data-image-quality-estimate]")?.textContent ?? "";
+    await waitFor(() => expect(text()).toContain("≈"));
+    // Con la calidad por defecto la base es EXACTAMENTE la estimacion de Original del motor (no `high` ni el peso de las fotos).
+    const originalCall = spy.mock.calls.findIndex((call) => call[1].preset === "original");
+    expect(originalCall).toBeGreaterThanOrEqual(0);
+    const originalBytes = (spy.mock.results[originalCall].value as { bytes: number }).bytes;
+    expect(text()).toContain(`frente a ≈ ${formatFileSize(originalBytes, "es-ES")} sin optimizar`);
+  });
+
+  it("si la calidad elegida pesa como Original (dentro del 5 %), no hay comparativa: «Ya esta optimizado»", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg"]);
+    vi.spyOn(engine, "estimateSize").mockImplementation(() => ({ bytes: 1_000_000, low: 900_000, high: 1_100_000 }));
+    fireEvent.click(screen.getByRole("button", { name: es.save(2) }));
+    const text = () => document.querySelector("[data-image-quality-estimate]")?.textContent ?? "";
+    await waitFor(() => expect(text()).toContain("Ya está optimizado"));
+    expect(text()).not.toContain("frente a");
+    // Con «Original» no hace falta comparar nada.
+    fireEvent.click(screen.getByRole("tab", { name: "Original" }));
+    await waitFor(() => expect(text()).not.toContain("Ya está optimizado"));
   });
 
   it("un fallo del motor al crear el PDF deja las paginas y lo dice", async () => {

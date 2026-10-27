@@ -51,6 +51,7 @@ describe.skipIf(!DIR)("fotos reales sin documento (local)", () => {
       let cropped = 0;
       let blurry = 0;
       let glare = 0;
+      let emptyOrSparse = 0;
       let blurredDetected = 0;
       for (const file of files) {
         const full = await load(file);
@@ -62,14 +63,16 @@ describe.skipIf(!DIR)("fotos reales sin documento (local)", () => {
         const quality = measurePage(downscaleRgba(full, 1280));
         if (quality.blurry) blurry += 1;
         if (quality.glare) glare += 1;
+        if (quality.blank || quality.sparse) emptyOrSparse += 1;
         if (measurePage(blurred(downscaleRgba(full, 1280), 8)).blurry) blurredDetected += 1;
       }
-      const line = `fotos=${files.length} recortadas=${cropped} borrosas=${blurry} brillo=${glare} desenfocadas-detectadas=${blurredDetected}`;
+      const line = `fotos=${files.length} recortadas=${cropped} borrosas=${blurry} brillo=${glare} vacias-o-casi=${emptyOrSparse} desenfocadas-detectadas=${blurredDetected}`;
       console.log(`[scan-real] ${line}`);
       if (process.env.REAL_OUT) fs.appendFileSync(process.env.REAL_OUT, `photos ${line}\n`);
       expect(cropped).toBe(0);
       expect(blurry).toBe(0);
       expect(glare).toBe(0);
+      expect(emptyOrSparse).toBe(0);
       expect(blurredDetected / files.length).toBeGreaterThanOrEqual(0.9);
     } finally {
       restore();

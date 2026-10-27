@@ -22,6 +22,8 @@ export type FakeStoreControls = {
   unavailable: boolean;
   /** `save` devuelve `tooBig` mientras sea `true`. */
   tooBig: boolean;
+  /** `save` NO responde nunca (como una transaccion colgada de WebKit): la interfaz debe pasar de «Guardando…» a un aviso honesto. */
+  hangSave: boolean;
   /** El proximo `save` se guarda con ESTE id y responde `forkedAs` (otra pestana modifico antes la sesion); despues se borra. */
   forkNext: string | null;
   latencyMs: number;
@@ -93,6 +95,7 @@ export function createFakeStore(options: FakeStoreOptions = {}): FakeStore {
     quotaBytes: options.quotaBytes ?? null,
     unavailable: false,
     tooBig: false,
+    hangSave: false,
     forkNext: null,
     latencyMs: options.latencyMs ?? 0,
     saveLog: [],
@@ -164,6 +167,7 @@ export function createFakeStore(options: FakeStoreOptions = {}): FakeStore {
       if (staged && staged.id === session.id) staged = null;
       await pause();
       controls.saveLog.push({ id: session.id, pages: session.pages.length, at: Date.now() });
+      if (controls.hangSave) return new Promise(() => {});
       if (controls.unavailable) return { ok: false, reason: "unavailable" };
       if (controls.tooBig) return { ok: false, reason: "tooBig" };
       if (controls.quotaBytes !== null) {

@@ -359,7 +359,8 @@ test.describe("motor de imagenes incrustadas en navegador real (headless)", () =
     expect(await page.evaluate("window.__lab.cancel()")).toBe("AbortError");
   });
 
-  test("20 paginas con 30 imagenes de 800 x 600: dentro del presupuesto, sin tareas largas y con memoria acotada", async ({ page, browserName }, testInfo) => {
+  // @perf: misma carga y mismo presupuesto absoluto que la de `extract-core.spec.ts`; en CI corre solo, con un worker (ver `PW_PERF`).
+  test("20 paginas con 30 imagenes de 800 x 600: dentro del presupuesto, sin tareas largas y con memoria acotada", { tag: "@perf" }, async ({ page, browserName }, testInfo) => {
     await openLab(page);
     const ipad = testInfo.project.name === "webkit-ipad";
     const slack = process.env.CI ? 2.5 : 1;

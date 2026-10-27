@@ -38,8 +38,8 @@ export type StartScreenProps = {
   resumeNotice: string | null;
   importProblems: ImportProblem[];
   onDismissProblems: () => void;
-  onRetryProblems: () => void;
-  onReloadProblems?: () => void;
+  onRetryProblems?: () => void;
+  onReloadProblems: () => void;
   resuming: boolean;
   onResume: (id: string) => void;
   onDiscardSaved: (id: string) => void;

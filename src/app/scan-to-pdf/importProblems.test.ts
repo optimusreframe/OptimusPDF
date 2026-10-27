@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { blobName, classifyImportFailure, mergeProblems, rejectedFile } from "@/app/scan-to-pdf/importProblems";
 import { orientationCounts } from "@/app/scan-to-pdf/scanState";
-import { isEngineUnavailableError } from "@/app/scan-to-pdf/scanServices";
+import { engineNeedsReload, isEngineUnavailableError } from "@/app/scan-to-pdf/scanServices";
 import { STRINGS } from "@/app/scan-to-pdf/strings";
 
 const { es, en } = STRINGS;
@@ -85,8 +85,16 @@ describe("motor no disponible", () => {
 
   it("una foto cuyo fallo es del motor no se clasifica como danada y guarda la foto para reintentar", () => {
     const file = new File(["x"], "a.jpg", { type: "image/jpeg" });
-    expect(classifyImportFailure(file, true)).toEqual({ name: "a.jpg", kind: "engine", blob: file });
+    expect(classifyImportFailure(file, true)).toEqual({ name: "a.jpg", kind: "engine", blob: file, needsReload: false });
+    expect(classifyImportFailure(file, true, true).needsReload).toBe(true);
     expect(classifyImportFailure(file, false).kind).toBe("damaged");
+  });
+
+  it("`needsReload` del motor", () => {
+    expect(engineNeedsReload(Object.assign(new Error("x"), { needsReload: true }))).toBe(true);
+    expect(engineNeedsReload(Object.assign(new Error("x"), { needsReload: false }))).toBe(false);
+    expect(engineNeedsReload(new Error("x"))).toBe(false);
+    expect(engineNeedsReload(null)).toBe(false);
   });
 
   it("textos ES y EN", () => {

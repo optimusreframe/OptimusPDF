@@ -83,6 +83,9 @@ export type ScanToPdfStrings = {
   statusQuota: string;
   statusUnavailable: string;
   statusTooBig: string;
+  statusStalled: string;
+  /** Aviso del banner de almacenamiento segun el motivo (cada uno con su punto final; no repite el estado de la cabecera). */
+  storageBanner: Record<"unavailable" | "quota" | "tooBig" | "stalled", string>;
   addCamera: string;
   addPhotos: string;
   select: string;
@@ -93,6 +96,22 @@ export type ScanToPdfStrings = {
   redo: string;
   removeBlanks: (count: number) => string;
   blanksBanner: (count: number) => string;
+  /** Aviso de hojas «casi vacias» (muy poco contenido, no en blanco) y la hoja de confirmacion para quitarlas. */
+  sparseBanner: (count: number) => string;
+  reviewSparse: (count: number) => string;
+  blanksReview: {
+    title: string;
+    intro: string;
+    blankList: (count: number) => string;
+    sparseList: (count: number) => string;
+    sparseHint: string;
+    pageLabel: (n: number) => string;
+    confirm: (count: number) => string;
+    cancel: string;
+    removedNotice: (count: number) => string;
+    undo: string;
+    dismiss: string;
+  };
   /** «Giramos 3 páginas: 2 de lado y 1 cabeza abajo.» Distingue un cuarto de vuelta (de lado) de media vuelta (cabeza abajo). */
   /** Sufijo del nombre de un escaneo que otra pestaña ya había modificado («Contrato (copia)»). */
   forkSuffix: string;
@@ -110,7 +129,8 @@ export type ScanToPdfStrings = {
     retry: string;
     /** Tras un reintento que tambien falla: el navegador puede guardar el fallo de carga hasta recargar la pagina. */
     reload: string;
-    reloadHint: string;
+    /** Que hacer tras recargar: las paginas ya añadidas se conservan; las fotos sin procesar hay que volver a elegirlas. */
+    engineReload: (count: number) => string;
   };
   orientationUndo: string;
   lostPages: (count: number) => string;
@@ -246,6 +266,8 @@ export type ScanToPdfStrings = {
   modelFailed: Record<"offline" | "network" | "engine", string>;
   /** Sustituye a «≈ X MB» bajo «Crear PDF» mientras falte el modelo: el PDF saldra normal. */
   createMetaNoModel: string;
+  /** Calidad elegida pesa casi lo mismo que Original: sin comparativa inventada. */
+  alreadyOptimized: (size: string) => string;
   searchableFailed: string;
   createWithoutText: string;
   /** Texto del aviso de `buildPdf` (`onWarning`): lo que el PDF NO lleva y por que. NO es un error. */
@@ -272,7 +294,6 @@ export type ScanToPdfStrings = {
   leaveLeave: string;
   /* Errores */
   noFiles: string;
-  storageUnavailableHint: string;
   /* Entradas de archivo ocultas */
   inputFiles: string;
   inputCamera: string;
@@ -372,6 +393,13 @@ const ES: ScanToPdfStrings = {
   statusQuota: "No guardado: no hay espacio",
   statusUnavailable: "No guardado: sin almacenamiento",
   statusTooBig: "No guardado: demasiado grande",
+  statusStalled: "No guardado: sin respuesta",
+  storageBanner: {
+    unavailable: "Este navegador no deja guardar el escaneo (¿modo privado?). Crea el PDF antes de salir.",
+    quota: "No queda espacio en este dispositivo para guardar el escaneo. Crea el PDF antes de salir.",
+    tooBig: "El escaneo es demasiado grande para guardarlo en este dispositivo. Crea el PDF antes de salir.",
+    stalled: "No se pudo guardar en este dispositivo; descarga el PDF para no perder el trabajo.",
+  },
   addCamera: "Cámara",
   addPhotos: "Fotos",
   select: "Seleccionar",
@@ -382,6 +410,21 @@ const ES: ScanToPdfStrings = {
   redo: "Rehacer",
   removeBlanks: (count) => `Quitar hojas en blanco (${count})`,
   blanksBanner: (count) => `${count} ${count === 1 ? "hoja parece estar en blanco" : "hojas parecen estar en blanco"}`,
+  sparseBanner: (count) => `${count} ${count === 1 ? "hoja está casi vacía" : "hojas están casi vacías"}: tienen muy poco contenido. Revísalas antes de quitarlas.`,
+  reviewSparse: (count) => `Revisar hojas casi vacías (${count})`,
+  blanksReview: {
+    title: "Quitar hojas en blanco",
+    intro: "Mira las hojas antes de quitarlas. Solo se quitan las que dejes marcadas, y luego puedes deshacerlo.",
+    blankList: (count) => `En blanco (${count})`,
+    sparseList: (count) => `Casi vacías (${count})`,
+    sparseHint: "Tienen muy poco contenido (una firma, un número, una línea). Vienen SIN marcar: márcalas solo si quieres quitarlas.",
+    pageLabel: (n) => `Página ${n}`,
+    confirm: (count) => `Quitar ${count} ${count === 1 ? "hoja" : "hojas"}`,
+    cancel: "Cancelar",
+    removedNotice: (count) => `Quitamos ${count} ${count === 1 ? "hoja" : "hojas"}.`,
+    undo: "Deshacer",
+    dismiss: "Cerrar el aviso",
+  },
   forkSuffix: "(copia)",
   orientationNotice: ({ side, flipped }) => {
     const total = side + flipped;
@@ -401,7 +444,10 @@ const ES: ScanToPdfStrings = {
     engineUnavailable: "No se pudo cargar el escáner. Revisa tu conexión y vuelve a intentarlo.",
     retry: "Reintentar",
     reload: "Recargar la página",
-    reloadHint: "Sigue sin cargar. Si ya tienes conexión, recarga la página (tus páginas ya añadidas se conservan).",
+    engineReload: (count) =>
+      count > 0
+        ? `Recarga la página para cargar el escáner: las páginas ya añadidas se conservan. Después vuelve a elegir ${count === 1 ? "la foto que no se procesó" : `las ${count} fotos que no se procesaron`}.`
+        : "Recarga la página para cargar el escáner: las páginas ya añadidas se conservan.",
     camera: "Foto de la cámara",
     more: (count) => `y ${count} más`,
     rest: "Las demás siguen en la lista.",
@@ -416,11 +462,12 @@ const ES: ScanToPdfStrings = {
   gridLabel: "Páginas del escaneo",
   tileLabel: (n, total, flags) => `Página ${n} de ${total}${flags.length ? `, ${flags.join(", ")}` : ""}`,
   quality: {
-    blank: { label: "En blanco", action: "Quitar", tip: "Parece una hoja en blanco" },
+    blank: { label: "En blanco", action: "Revisar", tip: "Parece una hoja en blanco: revísala antes de quitarla" },
     blurry: { label: "Borrosa", action: "Repetir", tip: "Se ve borrosa" },
     glare: { label: "Brillo", action: "Repetir", tip: "Tiene reflejos" },
     dark: { label: "Oscura", action: "Repetir", tip: "Está muy oscura" },
     duplicate: { label: "Repetida", action: "Quitar", tip: "Parece repetida" },
+    sparse: { label: "Casi vacía", action: "Revisar", tip: "Tiene muy poco contenido: revísala antes de quitarla." },
     noDocument: { label: "Sin documento detectado", action: "Ajusta el recorte", visibleAction: "Ajustar", tip: "No se detectó el documento: la página está entera, sin recortar. Ajusta el recorte o deja la página completa." },
   },
   chipAction: (n, label, action) => `Página ${n}: ${label}. ${action}`,
@@ -554,6 +601,7 @@ const ES: ScanToPdfStrings = {
     engine: "El reconocimiento de texto no arrancó en este navegador. El PDF saldrá sin texto buscable.",
   },
   createMetaNoModel: "Sin el modelo de texto, el PDF saldrá sin texto buscable.",
+  alreadyOptimized: (size) => `Ya está optimizado: el tamaño no cambia con este ajuste (≈ ${size}).`,
   searchableFailed: "No se pudo reconocer el texto (la primera vez el modelo necesita conexión). Tus páginas siguen aquí: prueba con conexión o crea el PDF sin texto buscable.",
   createWithoutText: "Crear el PDF sin texto buscable",
   searchableWarning: ({ reason, pagesWithText, total }) => {
@@ -583,7 +631,6 @@ const ES: ScanToPdfStrings = {
   leaveStay: "Seguir escaneando",
   leaveLeave: "Salir",
   noFiles: "Elige al menos una foto.",
-  storageUnavailableHint: "Este navegador no deja guardar el escaneo (¿modo privado?). Crea el PDF antes de salir.",
   inputFiles: "Selector de fotos y archivos de imagen",
   inputCamera: "Captura con la cámara del sistema",
 };
@@ -682,6 +729,13 @@ const EN: ScanToPdfStrings = {
   statusQuota: "Not saved: no space left",
   statusUnavailable: "Not saved: no storage",
   statusTooBig: "Not saved: too large",
+  statusStalled: "Not saved: no response",
+  storageBanner: {
+    unavailable: "This browser cannot save the scan (private mode?). Create the PDF before leaving.",
+    quota: "There is no space left on this device to save the scan. Create the PDF before leaving.",
+    tooBig: "The scan is too large to save on this device. Create the PDF before leaving.",
+    stalled: "Could not save on this device; download the PDF so you do not lose your work.",
+  },
   addCamera: "Camera",
   addPhotos: "Photos",
   select: "Select",
@@ -692,6 +746,21 @@ const EN: ScanToPdfStrings = {
   redo: "Redo",
   removeBlanks: (count) => `Remove blank sheets (${count})`,
   blanksBanner: (count) => `${count} ${count === 1 ? "sheet looks" : "sheets look"} blank`,
+  sparseBanner: (count) => `${count} ${count === 1 ? "sheet is" : "sheets are"} almost empty: very little content. Check ${count === 1 ? "it" : "them"} before removing.`,
+  reviewSparse: (count) => `Check almost-empty sheets (${count})`,
+  blanksReview: {
+    title: "Remove blank sheets",
+    intro: "Look at the sheets before removing them. Only the ones you leave ticked are removed, and you can undo it afterwards.",
+    blankList: (count) => `Blank (${count})`,
+    sparseList: (count) => `Almost empty (${count})`,
+    sparseHint: "They have very little content (a signature, a number, a line). They start UNTICKED: tick them only if you want them removed.",
+    pageLabel: (n) => `Page ${n}`,
+    confirm: (count) => `Remove ${count} ${count === 1 ? "sheet" : "sheets"}`,
+    cancel: "Cancel",
+    removedNotice: (count) => `Removed ${count} ${count === 1 ? "sheet" : "sheets"}.`,
+    undo: "Undo",
+    dismiss: "Close the notice",
+  },
   forkSuffix: "(copy)",
   orientationNotice: ({ side, flipped }) => {
     const total = side + flipped;
@@ -711,7 +780,10 @@ const EN: ScanToPdfStrings = {
     engineUnavailable: "The scanner could not be loaded. Check your connection and try again.",
     retry: "Try again",
     reload: "Reload the page",
-    reloadHint: "It still does not load. If you are back online, reload the page (the pages you already added are kept).",
+    engineReload: (count) =>
+      count > 0
+        ? `Reload the page to load the scanner: the pages you already added are kept. Then choose ${count === 1 ? "the photo that was not processed" : `the ${count} photos that were not processed`} again.`
+        : "Reload the page to load the scanner: the pages you already added are kept.",
     camera: "Camera photo",
     more: (count) => `and ${count} more`,
     rest: "The rest are still in the list.",
@@ -726,11 +798,12 @@ const EN: ScanToPdfStrings = {
   gridLabel: "Scan pages",
   tileLabel: (n, total, flags) => `Page ${n} of ${total}${flags.length ? `, ${flags.join(", ")}` : ""}`,
   quality: {
-    blank: { label: "Blank", action: "Remove", tip: "Looks like a blank sheet" },
+    blank: { label: "Blank", action: "Check", tip: "Looks like a blank sheet: check it before removing it" },
     blurry: { label: "Blurry", action: "Retake", tip: "It looks blurry" },
     glare: { label: "Glare", action: "Retake", tip: "It has reflections" },
     dark: { label: "Dark", action: "Retake", tip: "It is too dark" },
     duplicate: { label: "Repeated", action: "Remove", tip: "Looks like a repeat" },
+    sparse: { label: "Almost empty", action: "Check", tip: "It has very little content: check it before removing it." },
     noDocument: { label: "No document detected", action: "Adjust the crop", visibleAction: "Adjust", tip: "The document was not detected: the page is whole, uncropped. Adjust the crop or keep the whole page." },
   },
   chipAction: (n, label, action) => `Page ${n}: ${label}. ${action}`,
@@ -864,6 +937,7 @@ const EN: ScanToPdfStrings = {
     engine: "Text recognition did not start in this browser. The PDF will come out without searchable text.",
   },
   createMetaNoModel: "Without the text model, the PDF will come out without searchable text.",
+  alreadyOptimized: (size) => `Already optimised: the size does not change with this setting (≈ ${size}).`,
   searchableFailed: "The text could not be recognised (the first time the model needs a connection). Your pages are still here: try again online or create the PDF without searchable text.",
   createWithoutText: "Create the PDF without searchable text",
   searchableWarning: ({ reason, pagesWithText, total }) => {
@@ -893,7 +967,6 @@ const EN: ScanToPdfStrings = {
   leaveStay: "Keep scanning",
   leaveLeave: "Leave",
   noFiles: "Choose at least one photo.",
-  storageUnavailableHint: "This browser cannot save the scan (private mode?). Create the PDF before leaving.",
   inputFiles: "Photo and image file picker",
   inputCamera: "Capture with the system camera",
 };

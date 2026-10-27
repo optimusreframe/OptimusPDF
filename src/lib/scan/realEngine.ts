@@ -1,4 +1,4 @@
-import { selectCrop } from "@/lib/scan/cropGate";
+import { finishCrop, pickCrop } from "@/lib/scan/cropGate";
 import { detectDocumentCorners } from "@/lib/scan/documentDetection";
 import { detectLiveQuad } from "@/lib/scan/liveDetect";
 import { buildScanPdf } from "@/lib/scan/buildPdf";
@@ -92,14 +92,15 @@ function pageMode(page: ScanPage): ScanMode {
 }
 
 /** Marcas de calidad que tienen sentido segun el modo (una foto de dano no es «borrosa» ni «en blanco» por su textura). */
-function qualityFlags(mode: ScanMode, q: PageQualityReading | null): Pick<ScanPageFlags, "blank" | "blurry" | "glare" | "dark"> {
+function qualityFlags(mode: ScanMode, q: PageQualityReading | null): Pick<ScanPageFlags, "blank" | "sparse" | "blurry" | "glare" | "dark"> {
   if (!q) return {};
-  const flags: Pick<ScanPageFlags, "blank" | "blurry" | "glare" | "dark"> = {};
+  const flags: Pick<ScanPageFlags, "blank" | "sparse" | "blurry" | "glare" | "dark"> = {};
   if (mode === "photo") {
     if (q.dark) flags.dark = true;
     return flags;
   }
   if (q.blank && (mode === "document" || mode === "book")) flags.blank = true;
+  if (q.sparse && (mode === "document" || mode === "book")) flags.sparse = true;
   if (q.blurry) flags.blurry = true;
   if (q.glare) flags.glare = true;
   if (q.dark) flags.dark = true;
@@ -119,8 +120,13 @@ async function decodeSmallForDetection(source: Blob, token: string, signal?: Abo
 /** scanic (preciso) + detector ligero, combinados y pasados por la puerta del recorte (solo se recorta si es MUY fiable). */
 async function findCorners(image: { data: Uint8ClampedArray<ArrayBuffer>; width: number; height: number }, mode: ScanMode): Promise<QuadCorners | null> {
   const found = await detectDocumentCorners(new ImageData(image.data, image.width, image.height));
+  // El detector, la puerta y el ajuste de los lados corren en el hilo principal: se cede el hilo entre ellos (cada trozo, < ~15 ms).
+  await yieldToMain();
   const live = detectLiveQuad(image);
-  return selectCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, image, mode, live?.confidence ?? 0).quad;
+  const picked = pickCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, image, mode, live?.confidence ?? 0);
+  if (!picked.candidate || !picked.verdict?.accept) return null;
+  await yieldToMain();
+  return finishCrop(image, picked.candidate, picked.verdict, mode).quad;
 }
 
 export const realEngine: ScanEngineApi = {
@@ -207,6 +213,7 @@ export const realEngine: ScanEngineApi = {
     const mode = pageMode(page);
     const flags: ScanPageFlags = { ...page.flags };
     delete flags.blank;
+    delete flags.sparse;
     delete flags.blurry;
     delete flags.glare;
     delete flags.dark;

@@ -179,7 +179,7 @@ async function tour(page: Page, language: Language, wide = false, camera = true,
   }
 
   // Revisar con avisos de calidad
-  const names = ["a.jpg", "b-blank.jpg", "c-blurry.jpg", "d-glare.jpg", "e-sideways.jpg", "f-dup.jpg", "g-nodoc.jpg"];
+  const names = ["a.jpg", "b-blank.jpg", "c-blurry.jpg", "d-glare.jpg", "e-sideways.jpg", "f-dup.jpg", "g-nodoc.jpg", "h-sparse.jpg"];
   await importPhotos(page, scanFiles(names));
   await expect(page.locator("[data-review]")).toBeVisible();
   await waitIdle(page);
@@ -201,6 +201,16 @@ async function tour(page: Page, language: Language, wide = false, camera = true,
   }
   await page.locator("[data-shell-scroll]").evaluate((node) => node.scrollTo(0, 0));
   if (onlyReview) return problems;
+
+  // Confirmacion de «Quitar hojas en blanco» (miniaturas con casillas)
+  if ((await page.locator('[data-review-action="remove-blanks"]').count()) > 0) {
+    await page.locator('[data-review-action="remove-blanks"]').click();
+    await expect(page.locator("[data-blanks-sheet]")).toBeVisible();
+    await page.waitForTimeout(500);
+    await check(page, problems, "quitar blancos", "[role=dialog]");
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-blanks-sheet]")).toHaveCount(0);
+  }
 
   // Mas acciones
   await page.locator('[data-tile-action="more"]').first().click();
@@ -399,5 +409,28 @@ test.describe("contraste con muchas miniaturas (insignia del numero y asa de arr
         });
       }
     }
+  }
+});
+
+test.describe("cabecera pegajosa: ningun control queda a medias bajo ella al desplazar la lista (1024×768 y moviles)", () => {
+  for (const [width, height] of [[1024, 768], [768, 1024], [375, 667]] as const) {
+    test(`axe target-size con la lista a distintas alturas · ${width}×${height}`, async ({ browser }) => {
+      const context = await newContext(browser, { width, height, theme: "light", language: "es" });
+      const page = await context.newPage();
+      const problems: Problems = [];
+      await installScanFakes(page);
+      await page.goto("/scan-to-pdf");
+      await importPhotos(page, scanFiles(Array.from({ length: 16 }, (_, index) => `p${index + 1}.jpg`)));
+      await expect(page.locator("[data-page-grid] [data-page-id]")).toHaveCount(16, { timeout: 60_000 });
+      await waitIdle(page);
+      // Alturas arbitrarias: incluidas las que dejan un asa o un chip justo en el borde de la cabecera.
+      for (const offset of [20, 47, 63, 88, 119, 151, 203, 262, 333, 410, 503]) {
+        await page.locator("[data-shell-scroll]").evaluate((node, y) => node.scrollTo(0, y), offset);
+        await page.waitForTimeout(150);
+        await check(page, problems, `desplazada ${offset}`, null);
+      }
+      await context.close();
+      expect(problems, problems.join("\n")).toEqual([]);
+    });
   }
 });

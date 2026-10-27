@@ -164,7 +164,9 @@ for (const preset of [
   { id: "Equilibrada" as const, key: "balanced" },
   { id: "Compacta" as const, key: "compact" },
 ]) {
-  test(`40 fotos con «${preset.id}»: tamano, 40 paginas con su orientacion, calidad medida, sin red, hilo libre y memoria`, async ({ page }) => {
+  // @perf: tiempo (20 s x 2,5 en CI), huecos del hilo principal y memoria del navegador con presupuestos absolutos; en CI corre solo,
+  // con un worker (ver `PW_PERF`). Con otro navegador pesado al lado «Alta» pasaba de 19,6 s a 41-45 s (limite 50 s).
+  test(`40 fotos con «${preset.id}»: tamano, 40 paginas con su orientacion, calidad medida, sin red, hilo libre y memoria`, { tag: "@perf" }, async ({ page }) => {
     test.setTimeout(480_000);
     await installJankMonitor(page);
     await gotoWithPhotos(page);

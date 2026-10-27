@@ -112,5 +112,10 @@ export function isEngineUnavailableError(error: unknown): boolean {
   return typeof message === "string" && /dynamically imported module|Loading chunk|Importing a module script failed|ChunkLoadError/i.test(message);
 }
 
+/** `ScanEngineUnavailableError.needsReload` (aditivo del motor): ya hay conexion y aun asi no carga → solo recargar la pagina lo arregla. */
+export function engineNeedsReload(error: unknown): boolean {
+  return !!error && typeof error === "object" && (error as { needsReload?: unknown }).needsReload === true;
+}
+
 /** Mensaje de un aviso de `buildPdf` (`onWarning`): lo que el PDF NO lleva y por que. */
 export type { ScanBuildWarning } from "@/lib/scan/types";

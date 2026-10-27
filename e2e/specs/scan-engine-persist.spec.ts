@@ -47,7 +47,7 @@ async function makeSession(page: Page, ids: string[], name = "Escaneo de prueba"
 test.describe("sesion persistente · navegador real", () => {
   test("guardar -> recargar -> listar -> recuperar: los originales vuelven INTACTOS (mismo SHA-256) y la pagina sigue usable", async ({ page }) => {
     await open(page);
-    const made = await makeSession(page, ["text0", "text90", "formA", "other", "blank"]);
+    const made = await makeSession(page, ["text0", "text90", "formA", "other", "empty"]);
     const saved = await page.evaluate(() => (window as unknown as { __lab: any; __session: unknown }).__lab.L.scanSessionStore.save((window as unknown as { __session: unknown }).__session));
     expect(saved).toMatchObject({ ok: true, rev: 1 });
     // «Cerrar la pestana»: una carga nueva, sin nada en memoria.
@@ -286,5 +286,20 @@ test.describe("sesion persistente · navegador real", () => {
       return (await lab.L.scanSessionStore.load(id)).pages[0].rotation;
     }, made.id);
     expect(rotation).toBe(270);
+  });
+
+  test("P2-10 · guardado ANTICIPADO: lo apuntado con stage queda escrito a los ~300 ms SIN pagehide ni autoguardado de la interfaz (en WebKit el pagehide llega tarde)", async ({ page }) => {
+    await open(page);
+    const made = await makeSession(page, ["text0", "formA"]);
+    const rotation = await page.evaluate(async (id) => {
+      const lab = (window as unknown as { __lab: any; __session: any }).__lab;
+      const session = (window as unknown as { __session: any }).__session;
+      await lab.L.scanSessionStore.save(session);
+      lab.L.scanSessionStore.stage({ ...session, pages: session.pages.map((p: any, i: number) => (i === 1 ? { ...p, rotation: 90 } : p)) });
+      // Solo se espera 300 ms: ni se vuelca la pagina ni se llama a save.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return (await lab.L.scanSessionStore.load(id)).pages[1].rotation;
+    }, made.id);
+    expect(rotation).toBe(90);
   });
 });

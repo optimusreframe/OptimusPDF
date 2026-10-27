@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildCorpus, type Corpus, type CorpusItem } from "@/lib/scan/__fixtures__/corpus";
 import { fakeOcr, installScanicEnvironment, rectify, toNapiImageData } from "@/lib/scan/__fixtures__/testUtils";
 import { quadIoU } from "@/lib/scan/geometry";
+import { paperKept } from "@/lib/scan/__fixtures__/scenes";
 import { selectCrop } from "@/lib/scan/cropGate";
 import { detectDocumentCorners } from "@/lib/scan/documentDetection";
 import { detectLiveQuad } from "@/lib/scan/liveDetect";
@@ -69,25 +70,39 @@ describe("orientacion del texto (heuristica por proyeccion)", () => {
   });
 });
 
-describe("hojas en blanco", () => {
-  it("precision >= 0,95 y recall >= 0,9 (sellos pequenos y numeros de pagina cuentan como en blanco)", () => {
+describe("hojas en blanco y casi vacias", () => {
+  it("«en blanco» solo la hoja REALMENTE vacia (precision >= 0,95, recall >= 0,9); un sello o un numero de pagina es «casi vacia», nunca en blanco", () => {
     const items = [...corpus.documents, ...corpus.blanks, ...corpus.quality, ...corpus.session];
     let tp = 0;
     let fp = 0;
     let fn = 0;
+    let sparseTp = 0;
+    let sparseFp = 0;
+    let sparseFn = 0;
     for (const item of items) {
-      const predicted = measurePage(rectify(item, 560)).blank;
-      if (predicted && item.truth.blank) tp += 1;
-      else if (predicted) fp += 1;
+      const reading = measurePage(rectify(item, 560));
+      if (reading.blank && item.truth.blank) tp += 1;
+      else if (reading.blank) fp += 1;
       else if (item.truth.blank) fn += 1;
+      if (reading.sparse && item.truth.sparse) sparseTp += 1;
+      else if (reading.sparse) sparseFp += 1;
+      else if (item.truth.sparse) sparseFn += 1;
+      // Lo que tiene un solo trazo NUNCA se marca en blanco (borrar paginas con contenido es lo grave).
+      if (item.truth.sparse) expect(reading.blank, item.id).toBe(false);
     }
     const precision = tp / Math.max(1, tp + fp);
     const recall = tp / Math.max(1, tp + fn);
+    const sparsePrecision = sparseTp / Math.max(1, sparseTp + sparseFp);
+    const sparseRecall = sparseTp / Math.max(1, sparseTp + sparseFn);
     record("blank.cases", items.length);
     record("blank.precision", precision);
     record("blank.recall", recall);
+    record("sparse.precision", sparsePrecision);
+    record("sparse.recall", sparseRecall);
     expect(precision).toBeGreaterThanOrEqual(0.95);
     expect(recall).toBeGreaterThanOrEqual(0.9);
+    expect(sparsePrecision).toBeGreaterThanOrEqual(0.95);
+    expect(sparseRecall).toBeGreaterThanOrEqual(0.9);
   });
 });
 
@@ -173,7 +188,10 @@ describe("deteccion del documento", () => {
         continue;
       }
       const iou = quadIoU(quad, item.truth.quad as QuadCorners);
-      if (iou >= 0.9) hit += 1;
+      // Las tarjetas llevan un margen de seguridad (CARD_MARGIN_FRACTION) que baja el IoU sin perder nada de la tarjeta: se mide que NO
+      // se pierda contenido (>= 99 % de la tarjeta dentro) y que el recorte siga siendo ajustado (IoU >= 0,8).
+      const ok = item.mode === "id-card" ? iou >= 0.8 && paperKept(item.truth.quad as QuadCorners, quad) >= 0.99 : iou >= 0.9;
+      if (ok) hit += 1;
       else {
         wrongCrop += 1;
         misses.push(`${item.id}:${iou.toFixed(2)}`);

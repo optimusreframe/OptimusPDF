@@ -16,6 +16,7 @@ export function ImportProblemsBanner({ s, problems, onDismiss, onRetry, onReload
   // «No se pudo cargar el escaner» (sin red) NO es un defecto de las fotos: un solo mensaje claro con «Reintentar», nunca «dañada».
   const engine = problems.some((problem) => problem.kind === "engine");
   const photos = problems.filter((problem) => problem.kind !== "engine");
+  const pending = problems.filter((problem) => problem.kind === "engine" && (problem.name !== "" || problem.blob));
   const shown = photos.slice(0, SHOWN);
   const hidden = photos.length - shown.length;
   return (
@@ -25,31 +26,44 @@ export function ImportProblemsBanner({ s, problems, onDismiss, onRetry, onReload
         {engine ? (
           <div data-import-engine-unavailable="">
             <p className="text-footnote font-semibold text-foreground">{copy.engineUnavailable}</p>
-            {onRetry ? (
-              <button
-                type="button"
-                data-import-action="retry"
-                onClick={onRetry}
-                className="mt-1.5 inline-flex min-h-11 items-center rounded-ios-sm border border-hairline-strong bg-white/5 px-4 text-footnote font-semibold text-foreground outline-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
-              >
-                {copy.retry}
-              </button>
+            {/* Las fotos que no se procesaron se pierden al recargar (viven en memoria): se dice, con sus nombres. */}
+            <p data-import-reload-hint="" className="mt-1 text-footnote text-muted-foreground">
+              {copy.engineReload(pending.length)}
+            </p>
+            {pending.length > 0 ? (
+              <ul className="mt-1 flex flex-col gap-0.5 text-footnote text-foreground">
+                {pending.slice(0, SHOWN).map((problem, index) => (
+                  <li key={`${problem.name}-${index}`} data-import-pending="" className="min-w-0 break-words font-medium">
+                    {problem.name || copy.camera}
+                  </li>
+                ))}
+                {pending.length > SHOWN ? <li className="text-muted-foreground">{copy.more(pending.length - SHOWN)}</li> : null}
+              </ul>
             ) : null}
-            {onReload ? (
-              <>
-                <p data-import-reload-hint="" className="mt-2 text-footnote text-muted-foreground">
-                  {copy.reloadHint}
-                </p>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {/* La accion PRINCIPAL es recargar: un reintento sin recargar no recupera un trozo de codigo que el cargador ya dio por fallido. */}
+              {onReload ? (
                 <button
                   type="button"
                   data-import-action="reload"
                   onClick={onReload}
-                  className="mt-1.5 inline-flex min-h-11 items-center rounded-ios-sm border border-hairline-strong bg-white/5 px-4 text-footnote font-semibold text-foreground outline-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                  className="inline-flex min-h-11 items-center rounded-ios-sm bg-signal px-4 text-footnote font-semibold text-[var(--color-on-signal)] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
                 >
                   {copy.reload}
                 </button>
-              </>
-            ) : null}
+              ) : null}
+              {/* «Reintentar» solo cuando puede funcionar (hay conexion y el motor no pide recargar). */}
+              {onRetry ? (
+                <button
+                  type="button"
+                  data-import-action="retry"
+                  onClick={onRetry}
+                  className="inline-flex min-h-11 items-center rounded-ios-sm border border-hairline-strong bg-white/5 px-4 text-footnote font-semibold text-foreground outline-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                >
+                  {copy.retry}
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {photos.length > 0 ? (

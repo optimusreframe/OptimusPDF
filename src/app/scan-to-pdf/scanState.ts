@@ -129,14 +129,23 @@ export function insertPages(pages: readonly ScanPage[], at: number, added: reado
  * Avisos de calidad por pagina
  * ------------------------------------------------------------------ */
 
-export type QualityChipKind = "blank" | "blurry" | "glare" | "dark" | "duplicate" | "noDocument";
+export type QualityChipKind = "blank" | "sparse" | "blurry" | "glare" | "dark" | "duplicate" | "noDocument";
 
 /** Orden de importancia: el primero es el que se muestra primero (en tarjetas estrechas, solo cabe uno o dos). */
-export const QUALITY_ORDER: QualityChipKind[] = ["blank", "duplicate", "blurry", "glare", "dark", "noDocument"];
+export const QUALITY_ORDER: QualityChipKind[] = ["blank", "sparse", "duplicate", "blurry", "glare", "dark", "noDocument"];
+
+/**
+ * «Casi vacia» (`flags.sparse`, ADITIVO del motor: la hoja tiene muy poco contenido pero NO esta en blanco). Lector tolerante: si el
+ * motor no lo trae (o aun no existe) simplemente no hay chip ni lista aparte. Una hoja «en blanco» nunca es ademas «casi vacia».
+ */
+export function isSparse(flags: ScanPageFlags): boolean {
+  return !flags.blank && (flags as ScanPageFlags & { sparse?: unknown }).sparse === true;
+}
 
 export function qualityKinds(flags: ScanPageFlags): QualityChipKind[] {
   const found: QualityChipKind[] = [];
   if (flags.blank) found.push("blank");
+  if (isSparse(flags)) found.push("sparse");
   if (flags.duplicateOf) found.push("duplicate");
   if (flags.blurry) found.push("blurry");
   if (flags.glare) found.push("glare");
@@ -149,11 +158,16 @@ export function blankPageIds(pages: readonly ScanPage[]): string[] {
   return pages.filter((page) => page.flags.blank).map((page) => page.id);
 }
 
+export function sparsePageIds(pages: readonly ScanPage[]): string[] {
+  return pages.filter((page) => isSparse(page.flags)).map((page) => page.id);
+}
+
 export function clearFlag(pages: readonly ScanPage[], id: string, kind: QualityChipKind): ScanPage[] {
   return pages.map((page) => {
     if (page.id !== id) return page;
     const flags = { ...page.flags };
     if (kind === "blank") delete flags.blank;
+    if (kind === "sparse") delete (flags as ScanPageFlags & { sparse?: unknown }).sparse;
     if (kind === "duplicate") delete flags.duplicateOf;
     if (kind === "blurry") delete flags.blurry;
     if (kind === "glare") delete flags.glare;
@@ -308,6 +322,7 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
           !!flags.glare === !!page.flags.glare &&
           !!flags.dark === !!page.flags.dark &&
           !!flags.noDocument === !!page.flags.noDocument &&
+          isSparse(flags) === isSparse(page.flags) &&
           flags.duplicateOf === page.flags.duplicateOf;
         return same ? page : { ...page, flags };
       };

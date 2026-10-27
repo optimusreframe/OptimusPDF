@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { refineCrop } from "@/lib/scan/cropRefine";
+import { CARD_MARGIN_FRACTION, refineCrop } from "@/lib/scan/cropRefine";
 import type { QuadCorners } from "@/lib/scan/perspective";
 import type { Rgba } from "@/lib/scan/pixels";
 
@@ -18,7 +18,7 @@ type Options = {
   /** Papel (x0,y0,x1,y1). */
   box: [number, number, number, number];
   /** Banda pegada ARRIBA del papel (alto en px) y su color. */
-  header?: { height: number; color: Rgb; text?: boolean };
+  header?: { height: number; color: Rgb; text?: boolean; /** Inclinacion de la banda: el borde exterior sube/baja `slope` px por px a lo largo del lado. */ slope?: number };
   /** Sombra suave a la derecha y abajo (px de caida). */
   softShadow?: number;
 };
@@ -41,9 +41,10 @@ function scene(o: Options): Rgba {
         }
       }
       if (x >= x0 && x < x1 && y >= y0 && y < y1) c = paper;
-      if (o.header && x >= x0 && x < x1 && y >= y0 - o.header.height && y < y0) {
+      const top = o.header ? y0 - o.header.height - (o.header.slope ?? 0) * (x - x0) : 0;
+      if (o.header && x >= x0 && x < x1 && y >= top && y < y0) {
         c = o.header.color;
-        if (o.header.text && (y - (y0 - o.header.height)) % 8 >= 2 && (y - (y0 - o.header.height)) % 8 < 6 && (x - x0) % 12 < 7 && x > x0 + 20 && x < x0 + 200) c = [255, 255, 255];
+        if (o.header.text && (y - top) % 8 >= 2 && (y - top) % 8 < 6 && (x - x0) % 12 < 7 && x > x0 + 20 && x < x0 + 200) c = [255, 255, 255];
       }
       data.set([...c, 255], (y * W + x) * 4);
     }
@@ -66,6 +67,9 @@ describe("ajuste de los lados del recorte — src/lib/scan/cropRefine.ts", () =>
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     for (const shift of result.shifts) expect(shift).toBeLessThanOrEqual(3);
+    // Siempre se sale al menos un punto del lado propuesto (margen de seguridad): un recorte exacto nunca se queda justo en el borde.
+    expect(result.quad.topLeft.x * W).toBeLessThanOrEqual(BOX[0] - 1);
+    expect(result.quad.bottomRight.y * H).toBeGreaterThanOrEqual(BOX[3] + 1);
   });
 
   it("un recorte que se quedo unos pixeles DENTRO del papel se empuja hasta el borde", () => {
@@ -124,5 +128,39 @@ describe("ajuste de los lados del recorte — src/lib/scan/cropRefine.ts", () =>
     expect(result.quad.topRight.x * W).toBeGreaterThanOrEqual(309);
     // Y el extremo que ya estaba bien NO se ensancha por culpa del otro (un empuje paralelo lo sacaria ~8 px del papel).
     expect(result.quad.topRight.x * W).toBeLessThanOrEqual(313);
+  });
+
+  it("tarjetas: un margen de seguridad extra (CARD_MARGIN_FRACTION del lado) cubre la cabecera casi del color de la mesa que el detector dejo fuera", () => {
+    // Cuerpo de la tarjeta 90..310 x 100..270 y, pegada arriba, una cabecera (52,73,94) sobre una mesa (70,72,76): sin borde que ver.
+    const body: [number, number, number, number] = [90, 100, 310, 270];
+    const image = scene({ box: body, desk: [70, 72, 76], paper: [207, 227, 207], header: { height: 30, color: [52, 73, 94] } });
+    const plain = refineCrop(image, quadOf(body));
+    const card = refineCrop(image, quadOf(body), { margin: CARD_MARGIN_FRACTION });
+    expect(plain.ok && card.ok).toBe(true);
+    if (!plain.ok || !card.ok) return;
+    // Sin margen extra solo se suma el margen de seguridad corriente; con el, el lado sube CARD_MARGIN_FRACTION * largo del lado (~5-7 px).
+    expect(plain.quad.topLeft.y * H).toBeGreaterThan(body[1] - 4);
+    expect(card.quad.topLeft.y * H).toBeLessThan(body[1] - 5.5);
+    expect(card.quad.bottomRight.x * W).toBeGreaterThan(body[2] + 4.5);
+  });
+
+  it("un membrete cuyo borde exterior va INCLINADO respecto al lado (el detector se quedo girado: el final del membrete se aleja del lado a lo largo de el) tambien se detecta", () => {
+    const body: [number, number, number, number] = [90, 90, 310, 270];
+    // Banda de 22 px en el extremo izquierdo que crece ~13 px hacia la derecha (pendiente 0,06): sus saltos NO estan a la misma distancia.
+    // Tono parecido al de la mesa (salto de ~32 niveles) para que solo lo delate su borde, no el contraste del contenido.
+    const image = scene({ box: body, desk: [170, 150, 120], header: { height: 22, color: [138, 118, 92], slope: 0.06 } });
+    expect(refineCrop(image, quadOf(body))).toMatchObject({ ok: false, reason: "content-beyond", side: 0 });
+  });
+
+  it("un membrete de tono PARECIDO al de la mesa (salto de ~30 niveles: se ve el borde, pero no hay contenido que destaque) se detecta por su borde", () => {
+    const body: [number, number, number, number] = [90, 110, 310, 270];
+    // Banda de 40 px (138,118,92) sobre una mesa (170,150,120): salto de 32 por canal (> STEP_MIN_DELTA, < OUTLIER_DELTA), sin texto.
+    const image = scene({ box: body, desk: [170, 150, 120], header: { height: 40, color: [138, 118, 92] } });
+    expect(refineCrop(image, quadOf(body))).toMatchObject({ ok: false, reason: "content-beyond", side: 0 });
+  });
+
+  it("un lado que hay que empujar mas del 4 % del encuadre pero menos de lo que se mide como «papel que no acaba» tambien se rechaza", () => {
+    // El recorte propuesto empieza 14 px dentro por la izquierda (4 % de 300 = 12 px; el tope de lo medible es ~18 px).
+    expect(refineCrop(scene({ box: BOX }), quadOf([104, 60, 310, 270]))).toMatchObject({ ok: false, reason: "paper-continues", side: 3 });
   });
 });

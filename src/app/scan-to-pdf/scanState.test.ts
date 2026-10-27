@@ -12,6 +12,8 @@ import {
   emptyState,
   fileNameFor,
   insertPages,
+  isSparse,
+  sparsePageIds,
   movePages,
   normalizeRotation,
   proposeName,
@@ -286,5 +288,31 @@ describe("nombre propuesto", () => {
     expect(fileNameFor(".pdf", "Escaneo")).toBe("Escaneo.pdf");
     expect(fileNameFor("informe.pdfx", "Escaneo")).toBe("informe.pdfx.pdf");
     expect(fileNameFor("a".repeat(300), "x").length).toBe(124);
+  });
+});
+
+describe("«casi vacia» (flags.sparse, aditivo del motor)", () => {
+  const sparse = { sparse: true } as unknown as ScanPage["flags"];
+  it("solo cuenta si el motor lo trae y nunca junto a «en blanco»", () => {
+    expect(isSparse({})).toBe(false);
+    expect(isSparse(sparse)).toBe(true);
+    expect(isSparse({ ...sparse, blank: true })).toBe(false);
+    expect(qualityKinds(sparse)).toEqual(["sparse"]);
+    expect(qualityKinds({ blank: true, ...sparse })).toEqual(["blank"]);
+    expect(qualityKinds({})).toEqual([]);
+  });
+
+  it("sparsePageIds y clearFlag", () => {
+    const pages = [makeBarePage("a"), { ...makeBarePage("b"), flags: sparse }, { ...makeBarePage("c"), flags: { blank: true } }];
+    expect(sparsePageIds(pages)).toEqual(["b"]);
+    expect(blankPageIds(pages)).toEqual(["c"]);
+    const cleared = clearFlag(pages, "b", "sparse");
+    expect(isSparse(cleared[1].flags)).toBe(false);
+  });
+
+  it("el analisis que cambia SOLO `sparse` se aplica a la pagina", () => {
+    const state = stateFromSession({ id: "scan-test-0001", createdAt: "", updatedAt: "", name: "", settings: { mode: "document", filter: "auto" } as never, pages: [makeBarePage("a")] } as never);
+    const next = scanReducer(state, { type: "flags", flags: { a: sparse } });
+    expect(isSparse(next.pages[0].flags)).toBe(true);
   });
 });

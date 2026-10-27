@@ -200,6 +200,17 @@ export function isBlurry(sharpness: number | null, reblur: number | null, conten
   return sharpness < BLUR_ACUTANCE_THRESHOLD && reblur < BLUR_REBLUR_THRESHOLD;
 }
 
+/**
+ * Desenfoque EXTREMO: el texto se difumina tanto que desaparece y el rango de tonos cae por debajo del minimo para juzgar la nitidez
+ * (`sharpnessOf` da `null`), pero la hoja NO esta vacia: sigue siendo un bloque de luz distinto de la superficie suave del papel
+ * (`layoutShare` alto). Una hoja de verdad vacia o con un degradado de luz deja casi todos los bloques sobre la superficie.
+ */
+export const FADED_MIN_LAYOUT_SHARE = 0.25;
+
+export function isFaded(sharpness: number | null, layout: number): boolean {
+  return sharpness === null && layout >= FADED_MIN_LAYOUT_SHARE;
+}
+
 /** Mediana de la luminancia (papel), opcionalmente solo dentro de `mask`. */
 export function medianLevel(gray: Gray, mask?: Uint8Array): number {
   if (!mask) return percentileOf(histogram256(gray.data), 0.5);
@@ -382,6 +393,18 @@ export function isBlankPage(stats: InkStats): boolean {
   return stats.cells <= BLANK_MAX_CELLS && stats.fraction <= BLANK_MAX_FRACTION;
 }
 
+/** Fraccion de tinta por encima de la cual una hoja ya no esta vacia aunque ninguna celda llegue a encenderse (ruido suelto). */
+export const EMPTY_MAX_FRACTION = 0.0002;
+
+/**
+ * Hoja REALMENTE vacia: ninguna celda con tinta (ni una firma, una palabra, unas iniciales, un sello, un logo o un numero de pagina:
+ * todo eso enciende al menos una celda) y casi nada de tinta suelta. Lo que tiene poco pero algo es «casi vacia» (`sparse`):
+ * `isBlankPage` (la definicion antigua, hasta 48 celdas) ya no basta para llamar «en blanco» a una pagina.
+ */
+export function isEmptyPage(stats: InkStats): boolean {
+  return stats.cells === 0 && stats.fraction <= EMPTY_MAX_FRACTION;
+}
+
 export type PageQuality = {
   sharpness: number | null;
   reblur: number | null;
@@ -391,6 +414,8 @@ export type PageQuality = {
   dark: boolean;
   paperLevel: number;
   blank: boolean;
+  /** Casi vacia (ver `isEmptyPage`): casi nada de tinta, pero algo; NO es una hoja en blanco. */
+  sparse: boolean;
   /** Fraccion de bloques fuera de la superficie de luz (ver `layoutShare`). */
   layout: number;
   ink: InkStats;
@@ -409,17 +434,21 @@ export function measurePage(image: Rgba, options: { width?: number; sharpSide?: 
   const ink = inkStatsOf(gray);
   const layout = layoutShare(gray);
   // En blanco = sin tinta Y sin estructura a gran escala: un texto desenfocado hasta no leerse no es una hoja vacia.
-  const blank = isBlankPage(ink) && layout < LAYOUT_BLANK_MAX_SHARE;
+  const smooth = layout < LAYOUT_BLANK_MAX_SHARE;
+  const blank = isEmptyPage(ink) && smooth;
+  // Casi vacia: unos pocos trazos u objetos (firma, una palabra, iniciales, sello, logo, numero de pagina) y nada mas.
+  const sparse = !blank && isBlankPage(ink) && smooth;
   return {
     sharpness,
     reblur,
-    blurry: !blank && isBlurry(sharpness, reblur, !isBlankPage(ink) || layout >= LAYOUT_BLANK_MAX_SHARE),
+    blurry: !blank && !sparse && (isFaded(sharpness, layout) || isBlurry(sharpness, reblur, !isBlankPage(ink) || layout >= LAYOUT_BLANK_MAX_SHARE)),
     glare: glare.glare,
     glareFraction: glare.fraction,
     // Oscura = falta luz en lo mas claro de la imagen: una hoja bien iluminada sobre una mesa oscura (pagina sin recortar) no lo esta.
     dark: paperLevel < DARK_PAPER_THRESHOLD && brightLevel < DARK_BRIGHT_THRESHOLD,
     paperLevel,
     blank,
+    sparse,
     layout,
     ink,
   };

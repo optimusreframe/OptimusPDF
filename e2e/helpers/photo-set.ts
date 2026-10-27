@@ -5,7 +5,7 @@
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { PDFDocument, PDFName, PDFRawStream, type PDFRef } from "@cantoo/pdf-lib";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { drawSyntheticPhoto, psnr, reducePixels, ssim, withExifOrientation, type Pixels } from "../../src/lib/image/photoTestUtils";
@@ -196,7 +196,9 @@ export type RssRow = { pid: number; rss: number; kind: "web" | "gpu" | "other"; 
 export function browserProcesses(options: { webkit?: boolean } = {}): RssRow[] {
   const found: RssRow[] = [];
   try {
-    const output = execFileSync("ps", ["-axo", "pid=,ppid=,rss=,command="], { encoding: "utf8", maxBuffer: 64 * MB });
+    const probe = spawnSync("ps", ["-axo", "pid=,ppid=,rss=,command="], { encoding: "utf8", maxBuffer: 64 * MB });
+    if (probe.error || probe.status !== 0) return found;
+    const output = probe.stdout;
     const rows: Array<{ pid: number; ppid: number; rss: number; command: string }> = [];
     for (const line of output.split("\n")) {
       const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line);
@@ -214,7 +216,10 @@ export function browserProcesses(options: { webkit?: boolean } = {}): RssRow[] {
       }
     }
     for (const row of rows) {
-      if (row.pid === process.pid) continue;
+      // El propio `ps` figura en su salida como hijo del worker. Cada muestra lanza uno NUEVO (otro pid): contado como «proceso
+      // nuevo» sumaba su RSS entera (~4 MB) en cada muestra, y como el aumento se suma por pid, el «resto» crecia en linea recta
+      // con la duracion de la prueba (~16 MB por segundo a 250 ms), sin que el navegador hubiera usado un byte mas.
+      if (row.pid === process.pid || row.pid === probe.pid) continue;
       const isXpc = options.webkit === true && row.command.includes("ms-playwright") && /webkit/i.test(row.command) && /(WebContent|Networking|GPU)/.test(row.command);
       if (!family.has(row.pid) && !isXpc) continue;
       const kind = /WebContent|--type=renderer/.test(row.command) ? "web" : /\.GPU\.|--type=gpu-process/.test(row.command) ? "gpu" : "other";

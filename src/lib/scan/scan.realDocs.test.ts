@@ -42,6 +42,9 @@ describe.skipIf(!DIR)("documentos reales (local)", () => {
     let blurry = 0;
     let blank = 0;
     let glare = 0;
+    let sparse = 0;
+    const detected: Record<number, number> = { 6: 0, 12: 0, 20: 0 };
+    let measured = 0;
     for (const f of files) {
       const doc = await lib.getDocument({ data: new Uint8Array(fs.readFileSync(path.join(DIR as string, f))), useSystemFonts: true }).promise;
       for (let n = 1; n <= Math.min(pages, doc.numPages); n += 1) {
@@ -101,13 +104,26 @@ describe.skipIf(!DIR)("documentos reales (local)", () => {
             if (q.blurry) blurry += 1;
             if (q.blank) blank += 1;
             if (q.glare) glare += 1;
+            if (q.sparse) sparse += 1;
+            // El mismo texto desenfocado (sigma en px de la pagina a 833 px de ancho): debe salir «borrosa», no «en blanco».
+            measured += 1;
+            for (const sigma of [6, 12, 20]) {
+              const blurred = createCanvas(pc.width, pc.height);
+              const bctx = blurred.getContext("2d");
+              bctx.filter = `blur(${sigma}px)`;
+              bctx.drawImage(pc, 0, 0);
+              const bq = measurePage(downscaleRgba({ data: new Uint8ClampedArray(bctx.getImageData(0, 0, pc.width, pc.height).data), width: pc.width, height: pc.height }, 1280));
+              if (bq.blurry && !bq.blank) detected[sigma] += 1;
+            }
           }
         }
       }
     }
     const pagesMeasured = total / CASES.length;
-    fs.appendFileSync(process.env.REAL_OUT ?? path.join(process.cwd(), "..", "realdocs.txt"), `docs ${files.length} pages ${pagesMeasured} cases ${total} cropped ${cropped} lossy(<99%) ${lossy} minKept ${(minKept * 100).toFixed(2)} | quality: blurry ${blurry} blank ${blank} glare ${glare}\n`);
+    fs.appendFileSync(process.env.REAL_OUT ?? path.join(process.cwd(), "..", "realdocs.txt"), `docs ${files.length} pages ${pagesMeasured} cases ${total} cropped ${cropped} lossy(<99%) ${lossy} minKept ${(minKept * 100).toFixed(2)} | quality: blurry ${blurry} blank ${blank} sparse ${sparse} glare ${glare} | blurred detected sigma6 ${detected[6]}/${measured} sigma12 ${detected[12]}/${measured} sigma20 ${detected[20]}/${measured}\n`);
     expect(lossy).toBe(0);
     expect(blurry).toBe(0);
+    expect(blank + sparse).toBe(0);
+    expect(detected[12] / Math.max(1, measured)).toBeGreaterThanOrEqual(0.9);
   }, 900_000);
 });

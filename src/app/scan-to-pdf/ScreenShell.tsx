@@ -14,7 +14,7 @@ import { cn } from "@/lib/cn";
  * se desplaza es SOLO la zona del medio, con `overscroll-behavior: contain`.
  *
  * Tres modos, elegidos midiendo (la cabecera y la barra se miden ellas mismas, no se adivinan por el ancho):
- *  - holgado: la cabecera se queda arriba (`sticky` dentro de la zona) y la lista se desplaza debajo;
+ *  - holgado: la cabecera se queda arriba (FIJA, fuera de la zona con desplazamiento: lo que se desplaza se recorta en su borde) y la lista se desplaza debajo;
  *  - justo (movil pequeño, letra grande, horizontal): la cabecera se desplaza con la lista para que quede sitio para ver hojas;
  *  - aprieto (casi no cabe nada): sin alto fijo; la pagina se desplaza y la barra queda `sticky` abajo.
  */
@@ -58,6 +58,7 @@ export function ScreenShell({ top, children, bar, scrollerRef, className, rootPr
   const ownScroller = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const headingFocused = useRef(false);
   const scroller = scrollerRef ?? ownScroller;
   const [mode, setMode] = useState<Mode>({ height: null, sticky: true, flow: false, headHeight: 0, tabbar: 0 });
 
@@ -88,12 +89,12 @@ export function ScreenShell({ top, children, bar, scrollerRef, className, rootPr
       setMode((current) => (current.height === next.height && current.sticky === next.sticky && current.flow === next.flow && current.headHeight === next.headHeight && current.tabbar === next.tabbar ? current : next));
     };
     measure();
+    measureRef.current = measure;
     window.addEventListener("resize", measure);
     window.visualViewport?.addEventListener("resize", measure);
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     const tabbar = document.querySelector('[data-chrome="tabbar"]');
     if (tabbar) observer?.observe(tabbar);
-    if (headRef.current) observer?.observe(headRef.current);
     if (barRef.current) observer?.observe(barRef.current);
     observer?.observe(document.body);
     return () => {
@@ -103,13 +104,47 @@ export function ScreenShell({ top, children, bar, scrollerRef, className, rootPr
     };
   }, []);
 
+  useLayoutEffect(() => {
+    // La cabecera se vuelve a montar al cambiar de modo; si el titulo tenia el foco (o se lo acaban de dar) y se perdio con el
+    // desmontaje, se le devuelve (un elemento que se quita no dispara `blur`: la marca sigue puesta).
+    if (!headingFocused.current) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && document.contains(active)) return;
+    headRef.current?.querySelector<HTMLElement>("[data-view-heading]")?.focus({ preventScroll: true });
+  }, [mode.sticky, mode.flow]);
+
+  // La cabecera cambia de sitio (fuera de la zona o dentro de ella) con el modo: se vuelve a observar su alto.
+  const measureRef = useRef<() => void>(() => {});
+  useLayoutEffect(() => {
+    const head = headRef.current;
+    if (!head || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => measureRef.current());
+    observer.observe(head);
+    return () => observer.disconnect();
+  }, [mode.sticky, mode.flow]);
+
   const rootStyle: CSSProperties = mode.height === null ? {} : { height: mode.height };
-  const scrollStyle: CSSProperties = { touchAction: "pan-y", scrollPaddingTop: mode.sticky ? mode.headHeight : 0, scrollPaddingBottom: 8 };
+  const scrollStyle: CSSProperties = { touchAction: "pan-y", scrollPaddingBottom: 8 };
   return (
-    <div ref={rootRef} data-screen-shell="" data-shell-mode={mode.flow ? "flow" : mode.sticky ? "fixed-header" : "scroll-header"} style={rootStyle} className={cn("mx-auto flex w-full flex-col", className)} {...rootProps}>
+    <div
+      ref={rootRef}
+      data-screen-shell=""
+      onFocusCapture={(event) => {
+        if ((event.target as HTMLElement).hasAttribute("data-view-heading")) headingFocused.current = true;
+      }}
+      onBlurCapture={(event) => {
+        if ((event.target as HTMLElement).hasAttribute("data-view-heading") && event.relatedTarget) headingFocused.current = false;
+      }} data-shell-mode={mode.flow ? "flow" : mode.sticky ? "fixed-header" : "scroll-header"} style={rootStyle} className={cn("mx-auto flex w-full flex-col", className)} {...rootProps}>
+      {/* Cabecera FIJA fuera de la zona con desplazamiento: lo que se desplaza se recorta en su borde (nada queda a medias BAJO ella,
+          que era lo que axe medía como objetivos de menos de 24 px al desplazar). Con poco sitio pasa a desplazarse con la lista. */}
+      {top && mode.sticky ? (
+        <div ref={headRef} data-shell-top="" className="shrink-0 bg-background px-[16px] pt-4 pb-2 md:px-[24px] md:pt-6">
+          {top}
+        </div>
+      ) : null}
       <div ref={scroller} data-shell-scroll="" className={cn("px-[16px] md:px-[24px]", mode.flow ? "" : "min-h-0 flex-1 overflow-y-auto overscroll-contain")} style={scrollStyle}>
-        {top ? (
-          <div ref={headRef} data-shell-top="" className={cn("-mx-[16px] px-[16px] pt-4 pb-2 md:-mx-[24px] md:px-[24px] md:pt-6", mode.sticky ? "sticky top-0 z-20 bg-background" : "")}>
+        {top && !mode.sticky ? (
+          <div ref={headRef} data-shell-top="" className="-mx-[16px] px-[16px] pt-4 pb-2 md:-mx-[24px] md:px-[24px] md:pt-6">
             {top}
           </div>
         ) : null}

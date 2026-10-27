@@ -1,6 +1,6 @@
 import { decideAutoFilter } from "@/lib/scan/filters";
 import { quadArea } from "@/lib/scan/geometry";
-import { refineCrop } from "@/lib/scan/cropRefine";
+import { CARD_MARGIN_FRACTION, refineCrop } from "@/lib/scan/cropRefine";
 import { chooseCorners, edgeSupport } from "@/lib/scan/documentDetection";
 import { quadMask } from "@/lib/scan/liveFrame";
 import { quadOutputSize, warpImageData, type QuadCorners } from "@/lib/scan/perspective";
@@ -140,14 +140,27 @@ export function evaluateCrop(image: Rgba, quad: QuadCorners, mode: ScanMode): Cr
  * la puerta (`evaluateCrop`) decide si es lo bastante fiable. `null` = no recortar (pagina completa).
  */
 export function selectCrop(scanic: QuadCorners | null, live: QuadCorners | null, image: Rgba, mode: ScanMode, liveConfidence = 0): { quad: QuadCorners | null; verdict: CropVerdict | null } {
-  if (mode === "photo") return { quad: null, verdict: null };
+  const picked = pickCrop(scanic, live, image, mode, liveConfidence);
+  if (!picked.candidate || !picked.verdict || !picked.verdict.accept) return { quad: null, verdict: picked.verdict };
+  return finishCrop(image, picked.candidate, picked.verdict, mode);
+}
+
+/**
+ * Primera mitad de `selectCrop` (elegir candidato y pasar la puerta): ~6 ms. Se separa de `finishCrop` (el ajuste de los lados,
+ * ~10 ms) para que el motor ceda el hilo entre las dos y ninguna tarea del hilo principal junte detector, puerta y ajuste.
+ */
+export function pickCrop(scanic: QuadCorners | null, live: QuadCorners | null, image: Rgba, mode: ScanMode, liveConfidence = 0): { candidate: QuadCorners | null; verdict: CropVerdict | null } {
+  if (mode === "photo") return { candidate: null, verdict: null };
   const candidate = chooseCorners(scanic, live, image, liveConfidence);
-  if (!candidate) return { quad: null, verdict: null };
-  const verdict = evaluateCrop(image, candidate, mode);
-  if (!verdict.accept) return { quad: null, verdict };
+  if (!candidate) return { candidate: null, verdict: null };
+  return { candidate, verdict: evaluateCrop(image, candidate, mode) };
+}
+
+/** Segunda mitad de `selectCrop`: empuja y comprueba los lados del candidato ya aceptado por la puerta. */
+export function finishCrop(image: Rgba, candidate: QuadCorners, verdict: CropVerdict, mode: ScanMode): { quad: QuadCorners | null; verdict: CropVerdict } {
   // Ultima comprobacion: los lados se empujan hasta el borde real del papel y, si detras hay otro borde (un membrete oscuro o de
   // color que el detector dejo fuera) o el papel no acaba, no se recorta.
-  const refined = refineCrop(image, candidate);
+  const refined = refineCrop(image, candidate, mode === "id-card" ? { margin: CARD_MARGIN_FRACTION } : {});
   if (!refined.ok) return { quad: null, verdict: { accept: false, reason: refined.reason, features: verdict.features } };
   return { quad: refined.quad, verdict };
 }

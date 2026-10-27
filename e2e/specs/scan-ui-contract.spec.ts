@@ -41,6 +41,7 @@ test("el motor marca la hoja en blanco y la copia exacta; la interfaz ofrece qui
   await expect(tiles(page).nth(3).locator('[data-quality-chip="duplicate"]')).toHaveCount(1, { timeout: 30_000 });
   await expect(tiles(page).nth(2).locator('[data-quality-chip="blank"]')).toHaveCount(0);
   await page.getByRole("button", { name: /Quitar hojas en blanco \(1\)/ }).click();
+  await page.getByRole("dialog", { name: "Quitar hojas en blanco" }).getByRole("button", { name: "Quitar 1 hoja" }).click();
   await expect(tiles(page)).toHaveCount(3);
 });
 

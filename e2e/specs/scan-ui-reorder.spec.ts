@@ -140,7 +140,7 @@ test.describe("dedo (CDP, solo Chromium)", () => {
   });
 });
 
-test("100 paginas: la cuadricula esta virtualizada, sin tareas largas y arrastrar sigue funcionando", async ({ page, browserName }) => {
+test("100 paginas: la cuadricula esta virtualizada, sin tareas largas y arrastrar sigue funcionando", { tag: "@perf" }, async ({ page, browserName }) => {
   await page.addInitScript(() => {
     const w = window as unknown as { __long: number[] };
     w.__long = [];

@@ -14,7 +14,7 @@ import type { ScanFilterMode, ScanMode, ScanRotation } from "@/lib/scan/types";
  * resultados pequenos (blobs, lecturas de calidad, firma de la hoja). El original nunca se modifica.
  */
 
-export type PageQualityReading = { blurry: boolean; glare: boolean; dark: boolean; blank: boolean; sharpness: number | null };
+export type PageQualityReading = { blurry: boolean; glare: boolean; dark: boolean; blank: boolean; sparse: boolean; sharpness: number | null };
 
 export type TaskRequest =
   /** Decodifica reducido (para detectar el documento en el hilo principal). Deja la imagen en cache bajo `token`. */
@@ -208,7 +208,7 @@ export async function runTask(request: TaskRequest, hooks: RenderHooks = {}): Pr
         jpegSample = await measureNativeSample(request.source, request.job, output.resolved, hooks);
       }
       const quality = output.quality
-        ? { blurry: output.quality.blurry, glare: output.quality.glare, dark: output.quality.dark, blank: output.quality.blank, sharpness: output.quality.sharpness }
+        ? { blurry: output.quality.blurry, glare: output.quality.glare, dark: output.quality.dark, blank: output.quality.blank, sparse: output.quality.sparse, sharpness: output.quality.sharpness }
         : null;
       return {
         kind: "render",

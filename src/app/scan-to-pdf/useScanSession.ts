@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_SCAN_SETTINGS, type ScanFilterMode, type ScanMode, type ScanPage, type ScanPageSource, type ScanSettings } from "@/lib/scan/types";
 import type { QuadCorners } from "@/lib/scan/perspective";
-import { forkedAsOf, isEngineUnavailableError, lostPagesOf, preloadEngine, resolveScanEngine, resolveScanStore, splitSpreadOf, suggestedFullName } from "@/app/scan-to-pdf/scanServices";
+import { engineNeedsReload, forkedAsOf, isEngineUnavailableError, lostPagesOf, preloadEngine, resolveScanEngine, resolveScanStore, splitSpreadOf, suggestedFullName } from "@/app/scan-to-pdf/scanServices";
 import {
   blankPageIds,
   canRedo,
@@ -39,7 +39,18 @@ export const AUTOSAVE_DELAY_MS = 500;
 /** Lado (px) de la miniatura rapida que se pide al motor tras cada cambio de organizacion (`renderPage(..., {maxSide})`). */
 export const QUICK_THUMB_SIDE = 480;
 
-export type SaveStatus = "idle" | "saving" | "saved" | "unsaved" | "quota" | "unavailable" | "tooBig";
+/**
+ * «Guardando…» nunca dura para siempre: si el almacen no responde (WebKit con una transaccion colgada) a los ~10 s el estado pasa a
+ * `stalled` («No se pudo guardar en este dispositivo; descarga el PDF…»). Doble guardia: la espera del `save` y un temporizador del
+ * propio estado. Ajustable solo para pruebas.
+ */
+let saveStallMs = 10_000;
+export const SAVE_STALL_MS = (): number => saveStallMs;
+export function __setSaveStallMsForTests(ms: number | null): void {
+  saveStallMs = ms ?? 10_000;
+}
+
+export type SaveStatus = "idle" | "saving" | "saved" | "unsaved" | "quota" | "unavailable" | "tooBig" | "stalled";
 
 export type SavedSummary = { id: string; name: string; updatedAt: string; pageCount: number; thumb: Blob | null };
 
@@ -262,7 +273,7 @@ export function useScanSession({ language, strings: s, announce, autosave = true
           } catch (error) {
             if (epoch !== epochRef.current || !mountedRef.current) return;
             dispatchRef.current({ type: "discard", id: pending.id });
-            reportImportProblems([classifyImportFailure(blob, isEngineUnavailableError(error))]);
+            reportImportProblems([classifyImportFailure(blob, isEngineUnavailableError(error), engineNeedsReload(error))]);
             return;
           }
           if (epoch !== epochRef.current || !mountedRef.current) return;
@@ -537,8 +548,10 @@ export function useScanSession({ language, strings: s, announce, autosave = true
     [commit],
   );
 
-  const removeBlanks = useCallback(() => {
-    const ids = blankPageIds(stateRef.current.pages);
+  /** Quita las hojas indicadas (por defecto, todas las «en blanco»): la interfaz SIEMPRE pide confirmar antes y ofrece deshacer. */
+  const removeBlanks = useCallback((chosen?: readonly string[]) => {
+    const present = new Set(stateRef.current.pages.map((page) => page.id));
+    const ids = (chosen ?? blankPageIds(stateRef.current.pages)).filter((id) => present.has(id));
     if (ids.length === 0) return 0;
     commit(removePages(stateRef.current.pages, ids), sRef.current.labels.blanks);
     announceRef.current(sRef.current.said.blanksRemoved(ids.length));
@@ -646,7 +659,18 @@ export function useScanSession({ language, strings: s, announce, autosave = true
           await store.remove(snapshot.id);
           result = "idle";
         } else {
-          const outcome = await store.save(sessionFromState(snapshot, new Date().toISOString()));
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const stalled = new Promise<"stalled">((resolve) => {
+            timer = setTimeout(() => resolve("stalled"), saveStallMs);
+          });
+          const raced = await Promise.race([store.save(sessionFromState(snapshot, new Date().toISOString())), stalled]);
+          if (timer !== undefined) clearTimeout(timer);
+          if (raced === "stalled") {
+            result = "stalled";
+            lastSavedRev.current = snapshot.rev;
+            break;
+          }
+          const outcome = raced;
           result = outcome.ok ? "saved" : outcome.reason === "quota" ? "quota" : outcome.reason === "tooBig" ? "tooBig" : "unavailable";
           // Otra pestana modifico esta sesion antes: la copia de esta se guardo con otro id y se sigue con el.
           const forked = outcome.ok ? forkedAsOf(outcome) : null;
@@ -670,6 +694,13 @@ export function useScanSession({ language, strings: s, announce, autosave = true
     if (mountedRef.current) setSaveStatus(result);
     return result;
   }, [autosave]);
+
+  // Segunda guardia: el estado «guardando / pendiente» no puede durar mas de ~10 s aunque nadie llame a `save` ni conteste.
+  useEffect(() => {
+    if (!autosave || (saveStatus !== "saving" && saveStatus !== "unsaved")) return;
+    const timer = setTimeout(() => setSaveStatus((current) => (current === "saving" || current === "unsaved" ? "stalled" : current)), saveStallMs + 1500);
+    return () => clearTimeout(timer);
+  }, [autosave, saveStatus]);
 
   useEffect(() => {
     if (!autosave) return;
@@ -884,7 +915,8 @@ export function useScanSession({ language, strings: s, announce, autosave = true
     reportImportProblems,
     dismissImportProblems,
     retryEngineProblems,
-    engineRetried,
+    /** «Reintentar» solo si puede funcionar: hay conexion, el motor no dijo que hace falta recargar y no se acaba de reintentar. */
+    canRetryEngine: !engineRetried && !importProblems.some((problem) => problem.kind === "engine" && problem.needsReload) && (typeof navigator === "undefined" || navigator.onLine !== false),
     lostPages,
     dismissLostPages: () => setLostPages(0),
     undoOrientation,

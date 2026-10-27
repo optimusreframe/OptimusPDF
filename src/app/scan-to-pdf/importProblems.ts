@@ -10,6 +10,8 @@ export type ImportProblem = {
   kind: ImportProblemKind;
   /** Solo `engine`: la foto, para reintentar cuando el motor cargue (no es un defecto suyo). */
   blob?: Blob;
+  /** Solo `engine`: la conexion ya volvio y aun asi no carga (el cargador recuerda el trozo fallido): solo recargar la pagina lo arregla. */
+  needsReload?: boolean;
 };
 
 const HEIC_TYPE = /^image\/hei[cf]/i;
@@ -22,10 +24,10 @@ export function blobName(blob: Blob): string {
 }
 
 /** Por que fallo una foto: HEIC que este navegador no sabe leer, algo que no es una imagen, o una imagen danada. */
-export function classifyImportFailure(blob: Blob, engineUnavailable = false): ImportProblem {
+export function classifyImportFailure(blob: Blob, engineUnavailable = false, needsReload = false): ImportProblem {
   const name = blobName(blob);
   // El escaner no cargo (sin red): la foto NO esta dañada; se guarda para reintentar.
-  if (engineUnavailable) return { name, kind: "engine", blob };
+  if (engineUnavailable) return { name, kind: "engine", blob, needsReload };
   const type = blob.type || "";
   if (HEIC_TYPE.test(type) || HEIC_NAME.test(name)) return { name, kind: "heic" };
   const looksLikeImage = type.startsWith("image/") || IMAGE_NAME.test(name);

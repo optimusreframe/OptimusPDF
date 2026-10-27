@@ -43,6 +43,8 @@ export type CorpusTruth = {
   /** Fecha ISO escrita en el documento. */
   date: string | null;
   blank: boolean;
+  /** Casi vacia: casi nada pero algo (sello, numero de pagina...). NO es una hoja en blanco. */
+  sparse?: boolean;
   /** Mismo valor = misma hoja capturada dos veces (repetidas). */
   duplicateGroup: string | null;
   /** Misma plantilla de formulario con datos distintos: NO son repetidas. */
@@ -148,10 +150,10 @@ export function buildBlankSet(): CorpusItem[] {
     items.push(item(`blank-clean-${n}`, { kind: "blank", mode: "document", render: renderBlankPage({ seed: 200 + n }), scene: { seed: 4000 + n, desk: DESKS[n % 4], shadow: 0.1 + n * 0.04, noise: 2 + n * 0.5 } }));
   }
   for (let n = 0; n < 6; n += 1) {
-    items.push(item(`blank-stamp-${n}`, { kind: "blank", mode: "document", render: renderBlankPage({ seed: 300 + n, stamp: true }), scene: { seed: 4100 + n, desk: DESKS[n % 4], shadow: 0.15 } }));
+    items.push(item(`blank-stamp-${n}`, { kind: "blank", mode: "document", render: renderBlankPage({ seed: 300 + n, stamp: true }), scene: { seed: 4100 + n, desk: DESKS[n % 4], shadow: 0.15 }, extra: { blank: false, sparse: true } }));
   }
   for (let n = 0; n < 4; n += 1) {
-    items.push(item(`blank-number-${n}`, { kind: "blank", mode: "document", render: renderBlankPage({ seed: 400 + n, pageNumber: true }), scene: { seed: 4200 + n, desk: DESKS[(n + 1) % 4] } }));
+    items.push(item(`blank-number-${n}`, { kind: "blank", mode: "document", render: renderBlankPage({ seed: 400 + n, pageNumber: true }), scene: { seed: 4200 + n, desk: DESKS[(n + 1) % 4] }, extra: { blank: false, sparse: true } }));
   }
   for (let n = 0; n < 5; n += 1) {
     items.push(item(`short-note-${n}`, { kind: "text", mode: "document", render: renderBlankPage({ seed: 500 + n, shortNote: true }), scene: { seed: 4300 + n, desk: DESKS[n % 4], shadow: 0.2 } }));

@@ -74,7 +74,9 @@ export function buildScanFixtures(): Record<string, PhotoFixture> {
   add(make("text270", text(), { seed: 14, desk: "dark", turns: 3, angleDeg: -2, shadow: 0.1 }));
   add(make("blur", text(), { seed: 15, desk: "dark", blur: 5, shadow: 0.1 }));
   add(make("glare", text(), { seed: 16, desk: "dark", glare: { x: 0.5, y: 0.45, radius: 0.16, strength: 1.4 } }));
+  // «blank» lleva un sello pequeno (casi vacia, `sparse`); «empty» no tiene nada (en blanco de verdad).
   add(make("blank", renderBlankPage({ seed: 21, stamp: true }), { seed: 17, desk: "wood", shadow: 0.15 }));
+  add(make("empty", renderBlankPage({ seed: 21 }), { seed: 17, desk: "wood", shadow: 0.15 }));
   add(make("dupA", renderTextPage({ seed: 61, title: "Informe de siniestro" }), { seed: 18, desk: "dark", angleDeg: -2, keystone: 0.02, scale: 0.74 }));
   add(make("dupB", renderTextPage({ seed: 61, title: "Informe de siniestro" }), { seed: 19, desk: "wood", angleDeg: 3, keystone: -0.03, scale: 0.7, shadow: 0.2 }));
   add(make("other", renderTextPage({ seed: 71, title: "Acta de inspección" }), { seed: 20, desk: "dark" }));

@@ -9,7 +9,7 @@ import type { QuadCorners } from "@/lib/scan/perspective";
  */
 
 type Pt = [number, number];
-export type DeskName = "wood-dark" | "gray-dark" | "beige" | "gray-light" | "white-ish";
+export type DeskName = "wood-dark" | "gray-dark" | "beige" | "gray-light" | "white-ish" | "blue";
 
 export type SceneSpec = {
   bg: DeskName;
@@ -43,7 +43,7 @@ function quadOf(spec: { cx: number; cy: number; pw: number; ph: number; rot: num
 
 export type SceneRender = { image: Rgba; quad: QuadCorners; truth: Pt[]; width: number; height: number };
 
-const DESKS: Record<DeskName, [number, number, number]> = { "wood-dark": [74, 52, 36], "gray-dark": [70, 72, 76], beige: [201, 184, 150], "gray-light": [196, 198, 200], "white-ish": [238, 238, 234] };
+const DESKS: Record<DeskName, [number, number, number]> = { "wood-dark": [74, 52, 36], "gray-dark": [70, 72, 76], beige: [201, 184, 150], "gray-light": [196, 198, 200], "white-ish": [238, 238, 234], blue: [40, 70, 120] };
 
 /** Dibuja la escena (por defecto 1600 x 1200; 1200 x 1600 si `portrait`). Reproducible por `seed`. */
 export function renderScene(spec: SceneSpec, seed = 1, size: { W: number; H: number } = { W: 1600, H: 1200 }): SceneRender {
@@ -251,6 +251,45 @@ export function fuzzSpecs(count: number, seed = 12345): Array<{ name: string; sp
       ...(rnd() < 0.2 ? { gradient: true } : {}),
     };
     out.push({ name: `fuzz-${i}${header ? "-hdr" : ""}${card ? "-card" : ""}`, spec });
+  }
+  return out;
+}
+
+/**
+ * Fuzz de TARJETAS de identificacion (modo `id-card`): proporcion 1,586, cabecera oscura o de color a sangre arriba (como las
+ * tarjetas reales), mesas de todo tipo incluida una azul, giros de 0 a 30 grados y sombra.
+ */
+export function fuzzCardSpecs(count: number, seed = 4321): Array<{ name: string; spec: SceneSpec }> {
+  let s = seed;
+  const rnd = (): number => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const pick = <T,>(items: T[]): T => items[Math.floor(rnd() * items.length)];
+  const out: Array<{ name: string; spec: SceneSpec }> = [];
+  for (let i = 0; i < count; i += 1) {
+    const bg = pick<DeskName>(["wood-dark", "gray-dark", "beige", "gray-light", "blue"]);
+    const rot = ((rnd() * 60 - 30) * Math.PI) / 180;
+    const ph = 0.4 + rnd() * 0.12;
+    const cx = 0.42 + rnd() * 0.16;
+    const cy = 0.42 + rnd() * 0.16;
+    let fit = ph;
+    for (let k = 0; k < 40; k += 1) {
+      const w = fit * 1.586 * 1200;
+      const h = fit * 1200;
+      const ex = (Math.abs(Math.cos(rot)) * w + Math.abs(Math.sin(rot)) * h) / 2 / 1600;
+      const ey = (Math.abs(Math.sin(rot)) * w + Math.abs(Math.cos(rot)) * h) / 2 / 1200;
+      if (cx - ex > 0.015 && cx + ex < 0.985 && cy - ey > 0.015 && cy + ey < 0.985) break;
+      fit *= 0.95;
+    }
+    const header = rnd() < 0.65 ? pick(["#34495e", "#222831", "#1f4e8c", "#c0392b", "#2e7d32", "#111111", "#8a1c1c", "#5b2a86"]) : undefined;
+    out.push({
+      name: `card-${i}${header ? "-hdr" : ""}`,
+      spec: {
+        bg,
+        shadow: rnd() < 0.8 ? 1 : 0,
+        paper: { cx, cy, ph: fit, asp: 1.586, rot },
+        paperColor: pick(["#d8e4f0", "#e8d8c0", "#f2f2f2", "#f7f7f5", "#e6efe0"]),
+        ...(header ? { header, header2: header, headerH: 0.16 + rnd() * 0.18 } : {}),
+      },
+    });
   }
   return out;
 }
