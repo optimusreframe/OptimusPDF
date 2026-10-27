@@ -181,3 +181,48 @@ test("una foto que no se puede procesar se descarta con aviso y el resto sigue (
   await waitIdle(page);
   expect(await fakeControls(page, (c) => c.calls.createPage)).toBe(3);
 });
+
+test("girar y recargar de INMEDIATO conserva el giro (el almacen apunta cada cambio y lo escribe al irse la pagina)", async ({ page }) => {
+  // Con el almacen REAL: `stage` en cada cambio y volcado en `pagehide` (el almacen falso no escribe al ocultarse).
+  test.skip(!USE_REAL_ENGINE, "solo con el almacen real: el volcado al irse la pagina es de `scanSessionStore`");
+  await startScan(page, 2);
+  const ids = await pageIds(page);
+  const rotationOf = async (index: number) => Number(await tiles(page).nth(index).getAttribute("data-rotation"));
+  // La orientacion automatica del motor corre en segundo plano justo despues de crear las paginas y puede girar alguna: se espera a
+  // que los giros dejen de cambiar (si no, el giro automatico podria caer entre la lectura y el clic) y se parte de lo que haya.
+  let stable = 0;
+  let last = "";
+  while (stable < 4) {
+    const now = `${await rotationOf(0)},${await rotationOf(1)}`;
+    stable = now === last ? stable + 1 : 0;
+    last = now;
+    await page.waitForTimeout(350);
+  }
+  const first = await rotationOf(0);
+  const second = await rotationOf(1);
+  const turned = String((first + 90) % 360);
+  await page.getByRole("button", { name: "Girar la página 1" }).click();
+  await expect(tiles(page).first()).toHaveAttribute("data-rotation", turned);
+  // Sin esperar el autoguardado de 500 ms.
+  await page.reload();
+  await expect(tiles(page)).toHaveCount(2);
+  await waitIdle(page);
+  expect(await pageIds(page)).toEqual(ids);
+  await expect(tiles(page).first()).toHaveAttribute("data-rotation", turned);
+  await expect(tiles(page).nth(1)).toHaveAttribute("data-rotation", String(second));
+  // Y un borrado seguido de recarga inmediata tambien.
+  await page.getByRole("button", { name: "Borrar la página 2" }).click();
+  await expect(tiles(page)).toHaveCount(1);
+  await page.reload();
+  await expect(tiles(page)).toHaveCount(1);
+  await expect(tiles(page).first()).toHaveAttribute("data-rotation", turned);
+});
+
+test("con el almacen falso cada cambio se apunta con `stage` al instante y se vuelca con `flush`", async ({ page }) => {
+  test.skip(USE_REAL_ENGINE, FAKE_ONLY_REASON);
+  await startScan(page, 2);
+  const before = await page.evaluate(() => (globalThis as unknown as { __scanFake: { store: { controls: { stageLog: unknown[] } } } }).__scanFake.store.controls.stageLog.length);
+  await page.getByRole("button", { name: "Girar la página 1" }).click();
+  const after = await page.evaluate(() => (globalThis as unknown as { __scanFake: { store: { controls: { stageLog: unknown[] } } } }).__scanFake.store.controls.stageLog.length);
+  expect(after).toBeGreaterThan(before);
+});

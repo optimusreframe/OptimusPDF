@@ -919,6 +919,8 @@ function writeNow(session: ScanSession): boolean {
       originals.delete(rowKey(targetId, pid));
     }
     tx.objectStore(META_STORE).put(meta);
+    // Pide el commit YA: una pagina que se va puede morir antes del commit automatico (fin de la tarea) y abortar la transaccion.
+    (tx as IDBTransaction & { commit?: () => void }).commit?.();
     // Lo escrito solo se da por escrito cuando la transaccion termina (si falla, el siguiente guardado normal lo repite).
     tx.oncomplete = () => {
       const next = new Map<string, WrittenPage>();

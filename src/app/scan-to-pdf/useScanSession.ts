@@ -32,6 +32,7 @@ import { composeIdSheet, splitSpreadFallback } from "@/app/scan-to-pdf/imageTool
 import { readScanPrefs, writeScanPrefs } from "@/app/scan-to-pdf/scanPrefs";
 import { classifyImportFailure, mergeProblems, type ImportProblem } from "@/app/scan-to-pdf/importProblems";
 import type { ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
+import type { ScanBuildWarning } from "@/lib/scan/types";
 
 /** Silencio (ms) tras el ultimo cambio antes de guardar; se guarda de inmediato si la pagina se oculta. */
 export const AUTOSAVE_DELAY_MS = 500;
@@ -89,11 +90,15 @@ export function useScanSession({ language, strings: s, announce, autosave = true
   // El estado es la REFERENCIA (`stateRef`): cada accion se aplica al instante, asi dos acciones del mismo turno (varias fotos
   // seguidas, un cambio justo tras otro) se ven una a otra. `state` solo es su copia para pintar.
   const stateRef = useRef(state);
+  // Cada cambio se APUNTA al instante en el almacen (`stage`: solo guarda la referencia, no escribe): si la pagina se recarga o se cierra
+  // antes del autoguardado de 500 ms, el almacen escribe lo apuntado al ocultarse (pagehide / visibilitychange). Sin almacen no hace nada.
+  const stageRef = useRef<(snapshot: ScanState) => void>(() => {});
   const dispatchRef = useRef((action: ScanAction) => {
     const next = scanReducer(stateRef.current, action);
     if (next === stateRef.current) return;
     stateRef.current = next;
     setState(next);
+    stageRef.current(next);
   });
   const sRef = useRef(s);
   const announceRef = useRef(announce);
@@ -102,6 +107,14 @@ export function useScanSession({ language, strings: s, announce, autosave = true
     sRef.current = s;
     announceRef.current = announce;
     languageRef.current = language;
+    stageRef.current = (snapshot) => {
+      if (!autosave || snapshot.pages.length === 0) return;
+      try {
+        resolveScanStore()?.stage?.(sessionFromState(snapshot, new Date().toISOString()));
+      } catch {
+        // `stage` nunca debe romper la interfaz: sin el, queda el autoguardado normal.
+      }
+    };
   });
 
   /* ---------------- cola de trabajos (una sola tarea a la vez) ---------------- */
@@ -663,6 +676,18 @@ export function useScanSession({ language, strings: s, announce, autosave = true
     };
   }, [autosave, flush]);
 
+  // Al salir de la herramienta por un enlace de la propia app (sin recargar) tambien se escribe lo apuntado.
+  useEffect(() => {
+    if (!autosave) return;
+    return () => {
+      try {
+        void resolveScanStore()?.flush?.();
+      } catch {
+        // Nunca lanza.
+      }
+    };
+  }, [autosave]);
+
   /* ---------------- sesiones guardadas ---------------- */
   const [saved, setSaved] = useState<SavedSummary | null>(null);
   const [savedFetched, setSavedFetched] = useState(false);
@@ -764,7 +789,7 @@ export function useScanSession({ language, strings: s, announce, autosave = true
 
   /* ---------------- PDF ---------------- */
   const buildPdf = useCallback(
-    (options: { preset: string; pageSize: "a4" | "letter" | "fit"; margin: "none" | "small" | "large"; signal?: AbortSignal; onProgress?: (done: number, total: number) => void }) =>
+    (options: { preset: string; pageSize: "a4" | "letter" | "fit"; margin: "none" | "small" | "large"; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; allowModelDownload?: boolean; onWarning?: (warning: ScanBuildWarning) => void }) =>
       resolveScanEngine().buildPdf(sessionFromState(stateRef.current, new Date().toISOString()), options),
     [],
   );

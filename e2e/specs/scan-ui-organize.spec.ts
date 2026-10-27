@@ -68,9 +68,12 @@ test("chips: «Repetida → Quitar» y «Sin documento → Recortar»", async ({
   await load(page, USE_REAL_ENGINE ? ["a.jpg", "a-dup.jpg"] : ["a.jpg", "a-dup.jpg", "c-nodoc.jpg"]);
   await expect(page.getByRole("button", { name: /Página 2: Repetida\. Quitar/ })).toBeVisible();
   if (!USE_REAL_ENGINE) {
-    await page.getByRole("button", { name: /Página 3: Sin documento\. Recortar/ }).click();
-    await expect(page.locator("[data-page-editor]")).toBeVisible();
-    await page.locator('[data-editor-action="done"]').click();
+    await page.getByRole("button", { name: /Página 3: Sin documento detectado\. Ajusta el recorte/ }).click();
+    // Abre directamente el ajuste de esquinas, con «Toda la foto» para dejar la pagina completa.
+    await expect(page.locator("[data-corner-editor]")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Toda la foto" })).toBeVisible();
+    await page.getByRole("button", { name: "Cerrar sin cambios" }).click();
+    await expect(page.locator("[data-corner-editor]")).toHaveCount(0);
   }
   await page.getByRole("button", { name: /Página 2: Repetida\. Quitar/ }).click();
   await expect(tiles(page)).toHaveCount(USE_REAL_ENGINE ? 1 : 2);

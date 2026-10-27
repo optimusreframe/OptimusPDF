@@ -84,6 +84,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
       role="listitem"
       data-page-id={page.id}
       data-page-index={index}
+      data-rotation={page.rotation}
       data-pending={pending || undefined}
       aria-posinset={number}
       aria-setsize={total}
@@ -170,11 +171,11 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
                   title={q.tip}
                   aria-label={s.chipAction(number, q.label, q.action)}
                   onClick={() => cb.chip(page.id, kind)}
-                  className="on-media inline-flex min-h-[32px] max-w-full items-center gap-1 rounded-full border border-white/30 bg-black/75 px-2.5 py-1 text-left text-caption leading-tight font-semibold text-white outline-none pointer-coarse:min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-signal"
+                  className="on-media inline-flex min-h-[32px] max-w-full flex-wrap items-center gap-x-1 rounded-[16px] border border-white/30 bg-black/75 px-2.5 py-1 text-left text-caption leading-tight font-semibold text-white outline-none pointer-coarse:min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-signal"
                 >
-                  <span className="min-w-0">{q.label}</span>
-                  <span aria-hidden="true" className="shrink-0 underline">
-                    {q.action}
+                  <span className="line-clamp-2 min-w-0 break-words">{q.label}</span>
+                  <span aria-hidden="true" className="min-w-0 underline">
+                    {q.visibleAction ?? q.action}
                   </span>
                 </button>
               );

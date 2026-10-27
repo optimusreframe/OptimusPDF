@@ -4,12 +4,12 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider, useI18n, type Language } from "@/lib/i18n";
 import { __resetNavigationGuardForTests, interceptNavigation } from "@/lib/navigationGuard";
-import { createFakeEngine, makeBarePage, newControls, type FakeEngine } from "@/lib/scan/testing/fakeEngine";
+import { createFakeEngine, createFakeOcr, makeBarePage, newControls, type FakeEngine } from "@/lib/scan/testing/fakeEngine";
 import { createFakeStore, type FakeStore } from "@/lib/scan/testing/fakeStore";
 import { tinyJpegBytes, tinyJpegFile } from "@/lib/scan/testing/testImages";
 import { DEFAULT_SCAN_SETTINGS, type ScanSession } from "@/lib/scan/types";
 import { ScanToPdfClient } from "@/app/scan-to-pdf/ScanToPdfClient";
-import { STRINGS } from "@/app/scan-to-pdf/strings";
+import { OCR_MODEL_MB, STRINGS } from "@/app/scan-to-pdf/strings";
 
 /**
  * Interfaz del Escaner contra el MOTOR y el ALMACEN falsos inyectados con los ganchos de pruebas (como en el E2E). Sin canvas
@@ -49,11 +49,13 @@ beforeEach(() => {
   store = createFakeStore({ backend: "memory" });
   globalThis.__optimusScanEngine = engine;
   globalThis.__optimusScanStore = store;
+  globalThis.__optimusScanOcr = createFakeOcr(engine.controls);
 });
 
 afterEach(() => {
   delete globalThis.__optimusScanEngine;
   delete globalThis.__optimusScanStore;
+  delete globalThis.__optimusScanOcr;
   __resetNavigationGuardForTests();
 });
 
@@ -182,7 +184,7 @@ describe("importar y revisar", () => {
     await importFiles(["a.jpg", "b-blurry.jpg", "c-dup.jpg", "d-nodoc.jpg"]);
     expect(screen.getByRole("button", { name: "Página 2: Borrosa. Repetir" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Página 3: Repetida. Quitar" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Página 4: Sin documento. Recortar" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Página 4: Sin documento detectado. Ajusta el recorte" })).toBeTruthy();
   });
 
   it("girar, duplicar y borrar con las acciones de la tarjeta; borrar es deshacible y se anuncia en la region viva", async () => {
@@ -269,6 +271,35 @@ describe("fotos que no se pueden anadir", () => {
     expect(document.querySelector('[data-import-problem="heic"]')?.textContent).toContain("IMG_0001-fail.HEIC");
     expect(document.querySelector('[data-import-problem="damaged"]')).toBeNull();
     expect(document.querySelector('[data-banner="import-problems"]')?.textContent).toContain(es.importProblems.title(1));
+  });
+});
+
+describe("sin documento detectado", () => {
+  it("el chip dice «Sin documento detectado · ajusta el recorte» y abre el ajuste de esquinas (con «Toda la foto»)", async () => {
+    mount();
+    await importFiles(["a.jpg", "c-nodoc.jpg"]);
+    const chip = await screen.findByRole("button", { name: es.chipAction(2, es.quality.noDocument.label, es.quality.noDocument.action) }, { timeout: 8000 });
+    expect(es.quality.noDocument.label).toBe("Sin documento detectado");
+    fireEvent.click(chip);
+    await waitFor(() => expect(document.querySelector("[data-corner-editor]")).not.toBeNull());
+    expect(screen.getByRole("button", { name: es.cornersReset })).toBeTruthy();
+  });
+});
+
+describe("guardado inmediato (stage / flush)", () => {
+  it("cada cambio se APUNTA en el almacen al instante (sin esperar el autoguardado) y al salir se vuelca", async () => {
+    const view = mount();
+    await importFiles(["a.jpg", "b.jpg"]);
+    const staged = store.controls.stageLog.length;
+    expect(staged).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Girar la página 1" }));
+    // Apuntado en el MISMO turno del cambio: antes de que pasen los 500 ms del autoguardado.
+    expect(store.controls.stageLog.length).toBeGreaterThan(staged);
+    const last = store.controls.stageLog[store.controls.stageLog.length - 1];
+    expect(last.pages).toBe(2);
+    expect(store.controls.calls.flush ?? 0).toBe(0);
+    view.unmount();
+    expect(store.controls.calls.flush).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -424,14 +455,20 @@ describe("camara y guardar", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ searchable: true })));
   });
 
-  it("texto buscable: el texto NO promete «sin internet», pide aceptar la descarga del modelo y no crea hasta aceptar", async () => {
+  async function toSaveWithSearchable(names = ["a.jpg"]) {
+    await importFiles(names);
+    fireEvent.click(screen.getByRole("button", { name: es.save(names.length) }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: es.searchable }));
+  }
+  const downloadButton = () => document.querySelector<HTMLButtonElement>('[data-save-action="download-model"]');
+
+  it("texto buscable: el texto NO promete «sin internet»; sin el modelo ofrece descargarlo (accion explicita), no descarga nada solo y crea un PDF normal con AVISO", async () => {
     mount();
+    expect(es.searchableHint).not.toMatch(/sin internet/i);
+    expect(en.searchableHint).not.toMatch(/without internet|offline/i);
     await importFiles(["a.jpg"]);
     fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
     const box = await screen.findByRole("checkbox", { name: es.searchable });
-    expect(es.searchableHint).not.toMatch(/sin internet/i);
-    expect(en.searchableHint).not.toMatch(/without internet|offline/i);
-    // Sin marcar: nada que aceptar.
     expect(document.querySelector("[data-ocr-download]")).toBeNull();
     fireEvent.click(box);
     const note = await waitFor(() => {
@@ -439,41 +476,74 @@ describe("camara y guardar", () => {
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    expect(note.textContent).toContain(es.searchableDownloadNote);
-    // Hasta aceptar la descarga, «Crear PDF» no se puede pulsar y dice por que.
-    const create = screen.getByRole("button", { name: es.create }) as HTMLButtonElement;
-    expect(create.disabled).toBe(true);
-    expect(document.querySelector("[data-create-meta]")?.textContent).toBe(es.searchableNeedConsent);
-    fireEvent.click(screen.getByRole("checkbox", { name: es.searchableDownloadConsent }));
-    await waitFor(() => expect(create.disabled).toBe(false));
-    fireEvent.click(create);
-    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
-  });
-
-  it("texto buscable con el modelo ya en el dispositivo: no pide aceptar nada; si alguna pagina salio sin texto, lo avisa (aviso, no error)", async () => {
-    engine.controls.ocrAvailable = true;
-    engine.controls.searchableReport = { total: 3, withText: 1 };
-    mount();
-    await importFiles(["a.jpg", "b.jpg", "c.jpg"]);
-    fireEvent.click(screen.getByRole("button", { name: es.save(3) }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: es.searchable }));
-    expect(document.querySelector("[data-ocr-download]")).toBeNull();
+    expect(note.textContent).toContain(es.searchableDownloadNote(OCR_MODEL_MB));
+    expect(downloadButton()?.textContent).toBe(es.downloadModel(OCR_MODEL_MB));
+    expect(document.querySelector("[data-create-meta]")?.textContent).toBe(es.createMetaNoModel);
+    // Crear NO depende de la descarga: el PDF sale normal y el aviso del motor aparece en el resultado (no es un error).
     const create = screen.getByRole("button", { name: es.create }) as HTMLButtonElement;
     expect(create.disabled).toBe(false);
     fireEvent.click(create);
     await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
-    const notices = document.querySelector("[data-download-notices]");
-    expect(notices?.textContent).toContain(es.searchablePartial(2, 3));
+    expect(document.querySelector("[data-download-notices]")?.textContent).toContain(es.searchableWarning({ code: "searchable-unavailable", reason: "model-missing", pagesWithText: 0, total: 1 }));
     expect(document.querySelector("[data-save-error]")).toBeNull();
+    expect(engine.controls.calls.prepareOcrModel ?? 0).toBe(0);
+    expect(engine.controls.calls.ocrUsed ?? 0).toBe(0);
   });
 
-  it("texto buscable que falla: dice por que, deja las paginas y ofrece crear el PDF sin texto", async () => {
-    engine.controls.buildError = "ocr";
+  it("«Descargar el modelo de texto»: llama a prepareOcrModel UNA vez, la nota desaparece y el PDF ya lleva texto (sin aviso)", async () => {
+    mount();
+    await toSaveWithSearchable();
+    await waitFor(() => expect(downloadButton()).not.toBeNull());
+    fireEvent.click(downloadButton()!);
+    await waitFor(() => expect(document.querySelector("[data-ocr-download]")).toBeNull());
+    expect(engine.controls.calls.prepareOcrModel).toBe(1);
+    expect(document.querySelector("[data-create-meta]")?.textContent).not.toBe(es.createMetaNoModel);
+    fireEvent.click(screen.getByRole("button", { name: es.create }));
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+    expect(engine.controls.calls.ocrUsed).toBe(1);
+    expect(document.querySelector("[data-download-notices]")).toBeNull();
+  });
+
+  it("la descarga del modelo falla sin conexion: lo dice (aviso, no error de pagina), se puede reintentar y crear sin texto", async () => {
+    engine.controls.ocrPrepare = "offline";
+    mount();
+    await toSaveWithSearchable();
+    await waitFor(() => expect(downloadButton()).not.toBeNull());
+    fireEvent.click(downloadButton()!);
+    await waitFor(() => expect(document.querySelector("[data-ocr-download-error]")?.textContent).toBe(es.modelFailed.offline));
+    expect(downloadButton()?.disabled).toBe(false);
+    expect(document.querySelector("[data-save-error]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: es.create }));
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+    expect(document.querySelector("[data-download-notices]")?.textContent).toContain("falta el modelo de texto");
+  });
+
+  it("con el modelo ya en el dispositivo no se ofrece descargar nada y el PDF lleva texto", async () => {
+    engine.controls.ocrAvailable = true;
+    mount();
+    await toSaveWithSearchable();
+    await waitFor(() => expect(document.querySelector("[data-save-screen]")).not.toBeNull());
+    expect(document.querySelector("[data-ocr-download]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: es.create }));
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+    expect(engine.controls.calls.ocrUsed).toBe(1);
+    expect(engine.controls.calls.prepareOcrModel ?? 0).toBe(0);
+  });
+
+  it("no se pregunta por el modelo (ni se hace nada de OCR) mientras el texto buscable esta desactivado", async () => {
+    const spy = vi.spyOn(globalThis.__optimusScanOcr!, "ocrModelAvailable");
     mount();
     await importFiles(["a.jpg"]);
     fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: es.searchable }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: es.searchableDownloadConsent }));
+    await screen.findByRole("checkbox", { name: es.searchable });
+    expect(spy).not.toHaveBeenCalled();
+    expect(engine.controls.calls.prepareOcrModel ?? 0).toBe(0);
+  });
+
+  it("texto buscable que falla en el motor: dice por que, deja las paginas y ofrece crear el PDF sin texto", async () => {
+    engine.controls.buildError = "ocr";
+    mount();
+    await toSaveWithSearchable();
     fireEvent.click(screen.getByRole("button", { name: es.create }));
     await waitFor(() => expect(document.querySelector("[data-save-error]")?.textContent).toBe(es.searchableFailed));
     engine.controls.buildError = null;

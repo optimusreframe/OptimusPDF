@@ -84,13 +84,17 @@ MUTATIONS = [
     ("M36", STATE, "if (delta === 180) flipped += 1;", "if (delta === 90) flipped += 1;", "aviso de giro: media vuelta = cabeza abajo", T_PROBLEMS),
     ("M37", STRINGS, "if (side === 0) return `${lead} que ${flipped === 1 ? \"estaba\" : \"estaban\"} cabeza abajo.`;", "if (side === 0) return `${lead} que ${flipped === 1 ? \"estaba\" : \"estaban\"} de lado.`;", "aviso de giro: texto de las hojas cabeza abajo", T_PROBLEMS),
     ("M38", LAYOUT, "const boxH = thumbH + STRIP_H;", "const boxH = thumbH;", "tarjeta: franja superior sobre la miniatura (nada tapa la foto)", T_LAYOUT),
-    ("M39", SERVICES, "return resolved === true ? \"ready\" : \"download\";", "return \"ready\";", "texto buscable: sin dato del motor se asume que hay que descargar el modelo", T_CLIENT),
-    ("M40", SAVE, "disabled={pages.length === 0 || (searchable && needsDownload && !consent)}", "disabled={pages.length === 0}", "texto buscable: no se crea hasta aceptar la descarga", T_CLIENT),
+    ("M39", SAVE, "const needsModel = searchable && modelReady === false;", "const needsModel = false;", "texto buscable: sin el modelo se ofrece descargarlo (accion explicita)", T_CLIENT),
+    ("M40", SAVE, "onWarning: (warning) => warnings.push(warning),", "", "texto buscable: el aviso del motor (`onWarning`) llega al resultado", T_CLIENT),
     ("M41", SESSION, "if (current !== \"\" && !current.endsWith(label))", "if (false)", "bifurcacion: la copia se distingue en Recientes", T_CLIENT),
-    ("M42", SAVE, "report.withText < report.total ? s.searchablePartial", "report.withText > report.total ? s.searchablePartial", "texto buscable: aviso si alguna pagina salio sin texto", T_CLIENT),
+    ("M42", SAVE, "      setModelReady(true);\n      setModel({ phase: \"idle\" });", "      setModel({ phase: \"idle\" });", "texto buscable: tras descargar el modelo ya no se ofrece", T_CLIENT),
     ("M43", SESSION, "reportImportProblems([classifyImportFailure(blob)]);", "void blob;", "fotos no anadidas: la que falla al procesarse se nombra", T_CLIENT),
     ("M44", SHELL, "const ROOMY_LIST = 240;", "const ROOMY_LIST = 24;", "pantalla: la cabecera fija solo si queda sitio para la lista", T_PIECES),
     ("M45", SHELL, "const FLOW_BELOW = 140;", "const FLOW_BELOW = 14;", "pantalla: aprieto = la pagina se desplaza y la barra queda pegada", T_PIECES),
+    ("M46", SESSION, "    stageRef.current(next);\n  });", "  });", "guardado inmediato: cada cambio se apunta con `stage`", T_CLIENT),
+    ("M47", SESSION, "        void resolveScanStore()?.flush?.();", "", "guardado inmediato: al salir de la herramienta se vuelca lo apuntado", T_CLIENT),
+    ("M48", REVIEW, "else if (kind === \"noDocument\") onCorners(id);", "else if (kind === \"noDocument\") onEdit(id);", "chip «Sin documento detectado» abre el ajuste de esquinas", T_CLIENT),
+    ("M49", SAVE, "    if (!searchable) return;\n    let live = true;", "    let live = true;", "texto buscable: no se consulta el modelo mientras esta desactivado", T_CLIENT),
 ]
 
 

@@ -111,14 +111,13 @@ test("cero red: ninguna peticion sale del origen durante todo el flujo (importar
   // Y con la red cortada del todo, el flujo sigue funcionando (en Chromium: WebKit no sirve de cache los trozos de JS que aun no se pidieron).
   await page.goto("/scan-to-pdf");
   if (USE_REAL_ENGINE) {
-    // El motor real carga su trabajador de dibujo la primera vez: se calienta CON red (importar una foto) y despues se corta. El
-    // arranque del motor sin red es del motor y lo cubre su propio spec; aqui se prueba que el FLUJO no necesita la red.
-    await importPhotos(page, scanFiles(["calentar.jpg"]));
-    await expect(page.locator("[data-page-grid] [data-page-id]")).toHaveCount(1);
-    await waitIdle(page);
-    await page.getByRole("button", { name: "Borrar la página 1" }).click();
-  }
-  if (browserName === "chromium") await page.context().setOffline(true);
+    // El motor real se precarga solo al abrir la herramienta (`preloadScanEngine`): se espera a que acabe y se corta la red SIN calentar
+    // con ninguna importacion previa (como un movil que abre la herramienta y se queda sin cobertura). Se corta con `route` y no con
+    // `setOffline`: en WebKit de Linux `setOffline` tambien rompe las URL `blob:` locales, que no son red.
+    await page.waitForTimeout(4000);
+    await page.context().route(/^https?:\/\//, (route) => route.abort("internetdisconnected"));
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  } else if (browserName === "chromium") await page.context().setOffline(true);
   await importPhotos(page, scanFiles(["a.jpg", "b-blank.jpg", "c.jpg"]));
   await expect(page.locator("[data-page-grid] [data-page-id]")).toHaveCount(3);
   await waitIdle(page);
@@ -205,7 +204,14 @@ test("avisos de peso del PDF: > 20 MB aconseja «Compacta»; > 100 MB avisa de q
   await expect(page.locator("[data-size-warning=huge]")).toContainText("100 MB");
 });
 
-test("texto buscable: no promete «sin internet», pide aceptar la descarga del modelo y hasta entonces no crea el PDF", async ({ page }) => {
+test("texto buscable: sin el modelo ofrece DESCARGARLO (accion explicita), no descarga nada solo y el PDF sale normal con un AVISO", async ({ page, baseURL }) => {
+  const foreign: string[] = [];
+  const own = new URL(baseURL!).origin;
+  page.on("request", (request) => {
+    const url = request.url();
+    if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("about:")) return;
+    if (new URL(url).origin !== own) foreign.push(`${request.method()} ${url}`);
+  });
   await page.goto("/scan-to-pdf");
   await importPhotos(page, scanFiles(["a.jpg", "b.jpg"]));
   await waitIdle(page);
@@ -213,34 +219,43 @@ test("texto buscable: no promete «sin internet», pide aceptar la descarga del 
   const save = page.locator("[data-save-screen]");
   // Antes de marcar nada, el texto de la casilla no afirma que funcione sin conexion (falso la primera vez).
   await expect(save).not.toContainText(/sin internet/i);
-  const searchable = page.getByRole("checkbox", { name: "PDF con texto buscable" });
-  await searchable.check({ force: true });
+  await page.getByRole("checkbox", { name: "PDF con texto buscable" }).check({ force: true });
   const download = page.locator("[data-ocr-download]");
   await expect(download).toBeVisible();
-  await expect(download).toContainText("se descarga el modelo");
+  await expect(download).toContainText("≈ 25 MB");
+  const button = page.locator('[data-save-action="download-model"]');
+  await expect(button).toHaveText("Descargar el modelo de texto (≈ 25 MB)");
+  await expect(page.locator("[data-create-meta]")).toContainText("Sin el modelo de texto");
+  // Crear NO depende de la descarga: PDF normal y un aviso (no un error) con el texto del motor. Sin ninguna peticion externa.
   const create = page.locator('[data-save-action="create"]');
-  await expect(create).toBeDisabled();
-  await expect(page.locator("[data-create-meta]")).toContainText("Permitir descargar el modelo");
-  await page.getByRole("checkbox", { name: /Permitir descargar el modelo/ }).check({ force: true });
   await expect(create).toBeEnabled();
-  // Desmarcar el texto buscable quita la condicion.
-  await searchable.uncheck({ force: true });
-  await expect(download).toHaveCount(0);
-  await expect(create).toBeEnabled();
+  await create.click();
+  await expect(page.locator("[data-result]")).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator("[data-download-notices]")).toContainText("sin texto buscable");
+  await expect(page.locator("[data-download-notices]")).toContainText("falta el modelo de texto");
+  await expect(page.locator("[data-save-error]")).toHaveCount(0);
+  expect(foreign, foreign.join("\n")).toEqual([]);
 });
 
-test("texto buscable: si el PDF sale sin texto en alguna pagina, un AVISO (no un error) lo dice", async ({ page }) => {
+test("texto buscable: «Descargar el modelo de texto» baja el modelo UNA vez y despues el PDF lleva texto; si falla, lo dice y se puede reintentar", async ({ page }) => {
   test.skip(USE_REAL_ENGINE, FAKE_ONLY_REASON);
-  await installScanFakes(page, { controls: { ocrAvailable: true, searchableReport: { total: 3, withText: 1 } } });
+  await installScanFakes(page, { controls: { ocrPrepare: "offline" } });
   await page.goto("/scan-to-pdf");
-  await importPhotos(page, widthCodedFiles(3));
+  await importPhotos(page, widthCodedFiles(2));
   await waitIdle(page);
-  await page.getByRole("button", { name: /Guardar PDF \(3\)/ }).click();
+  await page.getByRole("button", { name: /Guardar PDF \(2\)/ }).click();
   await page.getByRole("checkbox", { name: "PDF con texto buscable" }).check({ force: true });
-  // El modelo ya esta en el dispositivo: no hay nada que aceptar.
+  const button = page.locator('[data-save-action="download-model"]');
+  await button.click();
+  await expect(page.locator("[data-ocr-download-error]")).toContainText("Sin conexión");
+  await expect(button).toBeEnabled();
+  // Vuelve la conexion: el siguiente intento baja el modelo y la nota desaparece.
+  await fakeControls(page, (c) => (c.ocrPrepare = "ok"));
+  await button.click();
   await expect(page.locator("[data-ocr-download]")).toHaveCount(0);
+  expect(await fakeControls(page, (c) => c.calls.prepareOcrModel)).toBe(2);
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator("[data-download-notices]")).toContainText("2 de 3 páginas no tienen texto buscable");
-  await expect(page.locator("[data-save-error]")).toHaveCount(0);
+  await expect(page.locator("[data-download-notices]")).toHaveCount(0);
+  expect(await fakeControls(page, (c) => c.calls.ocrUsed)).toBe(1);
 });

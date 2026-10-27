@@ -27,6 +27,8 @@ export type FakeStoreControls = {
   latencyMs: number;
   /** Lo que se pidio guardar (ids de sesion, numero de paginas) en orden. */
   saveLog: Array<{ id: string; pages: number; at: number }>;
+  /** Cada `stage` (ultima version apuntada sin escribir) y cada `flush`, en orden. */
+  stageLog: Array<{ id: string; pages: number; rev: number }>;
   calls: Record<string, number>;
 };
 
@@ -94,8 +96,10 @@ export function createFakeStore(options: FakeStoreOptions = {}): FakeStore {
     forkNext: null,
     latencyMs: options.latencyMs ?? 0,
     saveLog: [],
+    stageLog: [],
     calls: {},
   };
+  let staged: ScanSession | null = null;
   const memory = new Map<string, ScanSession>();
   const useIdb = options.backend === "indexeddb";
   const call = (name: string) => {
@@ -136,8 +140,28 @@ export function createFakeStore(options: FakeStoreOptions = {}): FakeStore {
   return {
     controls,
 
+    stage(session) {
+      call("stage");
+      controls.stageLog.push({ id: session.id, pages: session.pages.length, rev: controls.stageLog.length });
+      staged = session;
+    },
+
+    async flush() {
+      call("flush");
+      const pending = staged;
+      staged = null;
+      if (pending && pending.pages.length > 0 && !controls.unavailable) {
+        try {
+          await write({ ...pending, updatedAt: new Date().toISOString() });
+        } catch {
+          // Como el real: nunca lanza.
+        }
+      }
+    },
+
     async save(session) {
       call("save");
+      if (staged && staged.id === session.id) staged = null;
       await pause();
       controls.saveLog.push({ id: session.id, pages: session.pages.length, at: Date.now() });
       if (controls.unavailable) return { ok: false, reason: "unavailable" };

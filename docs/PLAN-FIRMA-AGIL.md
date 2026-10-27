@@ -2634,3 +2634,51 @@ el bloque «fotos reales sin documento» de `scan-engine.spec.ts`): nunca se gua
 Límites conocidos: la estimación con imágenes SINTÉTICAS (ruido y papel casi blanco) tiene tolerancia 25 % en las pruebas E2E porque su
 peso varía mucho con el codificador de cada navegador; el requisito de ≤ 15 % se mide con fotos reales. Sin probar en Safari/iPhone reales
 ni OCR real de tesseract.js sin red (se prueba con un reconocedor sustituto y una CDN bloqueada).
+
+## Escanear a PDF · interfaz y flujo (unidad E2) · integracion con las correcciones del motor (scan-ui-fix3)
+
+La interfaz adopta las acciones de «Qué debe hacer la interfaz» de las correcciones del motor (E1 · fix). No cambia el contrato ni toca `src/lib/scan/*` salvo `testing/`.
+
+### 1. Chip «Sin documento detectado · ajusta el recorte»
+
+Cuando `page.flags.noDocument` (el motor dejo la pagina ENTERA porque el recorte no paso su puerta), la tarjeta muestra el chip **«Sin documento detectado · Ajusta el recorte»** (EN: «No document detected · Adjust the crop»). Al pulsarlo se abre DIRECTAMENTE el editor de esquinas de esa pagina (antes: el editor de pagina), donde «Toda la foto» deja la pagina completa y «Aplicar recorte» aplica el ajuste; las dos salidas quitan el aviso (`setCornersOn`). Archivos: `strings.ts` (`quality.noDocument`), `ReviewScreen.tsx` (`onCorners`), `ScanToPdfClient.tsx`.
+
+### 2. Guardado inmediato: `stage` en CADA cambio, `flush` al salir
+
+`useScanSession.ts`: todo cambio de estado pasa por un unico `dispatch`; tras aplicarlo se llama `scanSessionStore.stage(sessionFromState(estado))` en el MISMO turno (solo guarda la referencia: barato). El autoguardado de 500 ms (`save`) sigue igual; al ocultarse la pagina el almacen vuelca lo apuntado (`pagehide`, `beforeunload`, `visibilitychange`) y al desmontarse la herramienta (navegacion interna) la interfaz llama `flush()`. `stage`/`flush` son opcionales en el contrato: sin ellos (almacenes antiguos) no pasa nada. El almacen falso implementa los dos (`controls.stageLog`, `calls.flush`) para probarlo.
+
+**Hallazgo del E2E «girar y recargar de INMEDIATO» con el almacen real** (`scan-ui-persist.spec.ts`): con la maquina cargada (6 contextos en paralelo) el giro se perdia en ≈ 15 % de las recargas (3 de 18 y 4 de 18 en dos rondas), aunque `stage` y los avisos de `pagehide`/`beforeunload` funcionan. Causa medida con un registro de transacciones: `writeNow` (`sessionStore.ts`) crea la transaccion en `pagehide` pero NO pide el commit; si el proceso de la pagina muere antes del commit automatico (fin de la tarea), la transaccion se aborta y `meta.rev` se queda en 1. **Arreglo propuesto para el dueño del motor** (una linea, verificado: 36 de 36 recargas conservan el giro): tras `tx.objectStore(META_STORE).put(meta);` en `writeNow`, `(tx as IDBTransaction & { commit?: () => void }).commit?.();`. El parche esta en `scratchpad/scan-ui-fix3/engine-suggestion-tx-commit.patch` (NO esta incluido en `unit-nodocs.patch`: es `src/lib/scan/`). Hasta que se aplique, esa prueba (solo con el motor real) es intermitente bajo carga.
+
+### 3. Texto buscable: modelo local, descarga EXPLICITA y avisos (reemplaza los lectores tolerantes)
+
+`scanServices.ts` ya no lee `ocrAvailable` / `lastSearchableReport`: usa las funciones reales del motor (`ocrModelAvailable`, `prepareOcrModel`, `preloadScanEngine` de `@/lib/scan/engine`) con un gancho de pruebas `__optimusScanOcr` (los dobles lo ponen junto al motor y al almacen falsos; en produccion nadie lo define).
+
+`SaveScreen.tsx`:
+
+- Con «PDF con texto buscable» marcado, la interfaz pregunta `ocrModelAvailable()` (sin red) y NADA MAS: **nunca llama a OCR ni a la red por su cuenta**, ni siquiera consulta el modelo mientras la casilla esta desmarcada.
+- Sin el modelo (`false`): aviso con el tamaño aproximado (`OCR_MODEL_MB = 25`, español + inglés de tesseract.js: cifra estimada, ajustable en `strings.ts`) y el boton **«Descargar el modelo de texto (≈ 25 MB)»** → `prepareOcrModel()` con cancelar. Al terminar, el aviso desaparece; si falla (`offline` / `network` / `engine`) se muestra un mensaje en el propio panel (no es un error de pagina) y se puede reintentar.
+- «Crear PDF» NO se bloquea: sin modelo el PDF sale normal y el aviso `onWarning` del motor se muestra en el resultado con su texto («El PDF está bien, pero sin texto buscable: falta el modelo de texto.», o «solo 1 de 3 páginas llevan texto buscable: …»), como AVISO, no como error. Bajo «Crear PDF»: «Sin el modelo de texto, el PDF saldrá sin texto buscable.»
+- Se mantiene «Crear el PDF sin texto buscable» si el motor falla de verdad (`buildPdf` rechaza).
+- Ya no existe la casilla «Permitir descargar el modelo» de la ronda anterior: la accion explicita es el boton de descarga.
+
+### 4. Precarga del motor
+
+`ScanFlow` llama a `preloadScanEngine()` (via `preloadEngine()` de `scanServices.ts`) al abrir la herramienta, salvo con el motor falso inyectado. Asi importar fotos funciona aunque despues se pierda la red.
+
+### Pruebas de esta ronda
+
+- **Vitest** (`ScanToPdfClient.test.tsx`): chip y editor de esquinas; `stage` en cada cambio (antes del autoguardado) y `flush` al desmontar; texto buscable sin modelo (descarga ofrecida, nada se descarga solo, PDF normal + aviso), «Descargar» llama a `prepareOcrModel` UNA vez y el PDF lleva texto, descarga fallida sin conexion con reintento, modelo ya presente, no se consulta el modelo con la casilla desmarcada, fallo del motor + «crear sin texto».
+- **E2E**: `scan-ui-persist` (giro + recarga inmediata con el motor REAL; con el falso, `stage` al instante), `scan-ui-flow` («cero red» con el motor real SIN calentar: se espera la precarga y se corta la red con `route`; texto buscable sin el modelo con cero peticiones externas y aviso; descarga del modelo y fallo sin conexion con el falso), `scan-ui-organize` (chip y esquinas), `scan-ui-contract` (el nombre propuesto por el motor usa `HH.mm`: la expresion acepta `:` y `.`).
+- **Mutaciones**: `scan-ui-mutate.py` ahora tiene 49 (M39–M42 sustituyen a las del lector tolerante; M46–M49 nuevas: `stage`, `flush`, chip → esquinas, consulta del modelo con la casilla desmarcada); las 49 mueren.
+
+### Limites
+
+- El tamaño del modelo (`OCR_MODEL_MB`) es una estimacion, no una medida.
+- La prueba de recarga inmediata depende del arreglo de `tx.commit()` del motor (arriba) para ser estable bajo carga.
+- Sigue pendiente lo de la ronda anterior: capa de camara con letra al 150 % en moviles de 320–393 px y desborde de la cabecera/pestañas del sitio.
+
+### Verificacion (base: main 5d1e53e; `git apply --check` limpio sobre una copia fresca)
+
+- `tsc --noEmit`, `eslint src e2e` (0 errores) y Vitest completo (665 archivos, 14319 pruebas) en verde; 49 mutaciones de `scan-ui-mutate.py`, las 49 mueren.
+- Docker Linux (Playwright 1.62 noble + DejaVu, `CI=1`, 2 trabajadores, sin reintentos, build de produccion): `e2e/specs/scan-ui-*` con motor falso **104 de 104 (+1 que se salta: solo motor real)** y con `SCAN_REAL=1` **97 de 97 (+8 que se saltan con motivo explicito)**. Incluye el contrato real (`SCAN_REAL=1 scan-ui-contract`), las celdas 320 px y letra al 150 % en ES/EN, y el giro + recarga inmediata con el motor real. Esa corrida uso el arreglo de `tx.commit()` del motor (arriba) aplicado SOLO en el arbol de verificacion; sin el, la prueba de recarga inmediata falla de forma intermitente bajo carga.
+- Ajuste visual derivado: el chip largo «Sin documento detectado» muestra «Ajustar» como accion visible (el nombre accesible y el `title` llevan «Ajusta el recorte») y su rotulo se limita a dos lineas, para que con letra grande no tape el centro de la miniatura.

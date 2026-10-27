@@ -62,7 +62,7 @@ test("nombre propuesto con el formato acordado y PDF con una pagina por hoja, de
   await load(page);
   await page.getByRole("button", { name: /Guardar PDF \(4\)/ }).click();
   const name = page.locator("#scan-name");
-  await expect.poll(async () => name.inputValue(), { timeout: 30_000 }).toMatch(/^(Escaneo \d{4}-\d{2}-\d{2} \d{2}:\d{2}|.+ · \d{4}-\d{2}-\d{2})$/);
+  await expect.poll(async () => name.inputValue(), { timeout: 30_000 }).toMatch(/^(Escaneo \d{4}-\d{2}-\d{2} \d{2}[:.]\d{2}|.+ · \d{4}-\d{2}-\d{2})$/);
   await expect(page.locator("[data-image-quality-estimate]")).toContainText("≈");
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 120_000 });

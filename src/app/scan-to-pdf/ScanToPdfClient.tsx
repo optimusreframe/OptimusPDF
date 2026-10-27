@@ -17,6 +17,7 @@ import { ResultScreen, SaveScreen, type ScanResult } from "@/app/scan-to-pdf/Sav
 import { ScanLiveProvider, useAnnounce } from "@/app/scan-to-pdf/ScanLive";
 import { StartScreen } from "@/app/scan-to-pdf/StartScreen";
 import { rejectedFile } from "@/app/scan-to-pdf/importProblems";
+import { preloadEngine } from "@/app/scan-to-pdf/scanServices";
 import { readScanFromSearch, hideScanFromUrl } from "@/app/scan-to-pdf/scanUrl";
 import { STRINGS } from "@/app/scan-to-pdf/strings";
 import { useScanLeaveGuard } from "@/app/scan-to-pdf/useScanLeaveGuard";
@@ -44,6 +45,10 @@ function ScanFlow() {
   const s = STRINGS[language];
   const announce = useAnnounce();
   const api = useScanSession({ language, strings: s, announce });
+  // Importar fotos tiene que funcionar aunque despues se pierda la red: el motor real se precarga al abrir la herramienta.
+  useEffect(() => {
+    preloadEngine();
+  }, []);
   const [view, setView] = useState<View>("start");
   // Capas a pantalla completa: la camara, y el editor con la hoja completa y las esquinas ENCIMA de el (cerrar la de arriba devuelve
   // a la de debajo, con el foco en el control que la abrio).
@@ -296,6 +301,7 @@ function ScanFlow() {
             onCamera={openCamera}
             onPhotos={pickPhotos}
             onEdit={openEditor}
+            onCorners={(id) => setCornersId(id)}
             onViewSheet={(id) => setSheetId(id)}
             onSave={() => goto("save")}
           />

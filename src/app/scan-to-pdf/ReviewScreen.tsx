@@ -25,6 +25,8 @@ export type ReviewScreenProps = {
   onCamera: (target: AddTarget) => void;
   onPhotos: (target: AddTarget) => void;
   onEdit: (id: string) => void;
+  /** Abre el editor de esquinas de una pagina (el chip «Sin documento detectado»). */
+  onCorners: (id: string) => void;
   onViewSheet: (id: string) => void;
   onSave: () => void;
 };
@@ -52,7 +54,7 @@ function statusText(s: ScanToPdfStrings, status: SaveStatus): string {
  * duplicar, repetir captura, insertar, seleccion multiple (barra inferior contextual), deshacer / rehacer. La accion primaria
  * («Guardar PDF») vive abajo, al alcance del pulgar.
  */
-export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, onViewSheet, onSave }: ReviewScreenProps) {
+export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, onCorners, onViewSheet, onSave }: ReviewScreenProps) {
   const announce = useAnnounce();
   const pages = api.pages;
   const [selecting, setSelecting] = useState(false);
@@ -95,10 +97,11 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
   const onChip = useCallback(
     (id: string, kind: QualityChipKind) => {
       if (kind === "blank" || kind === "duplicate") remove([id]);
-      else if (kind === "noDocument") onEdit(id);
+      // Sin documento detectado: la pagina esta ENTERA; se abre el ajuste de esquinas («Toda la foto» la deja completa).
+      else if (kind === "noDocument") onCorners(id);
       else onCamera({ kind: "retake", id });
     },
-    [remove, onEdit, onCamera],
+    [remove, onCorners, onCamera],
   );
 
   const onDrop = useCallback(

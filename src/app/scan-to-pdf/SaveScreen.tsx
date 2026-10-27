@@ -21,10 +21,11 @@ import { downloadBlob, formatFileSize } from "@/lib/pdf/core";
 import { addRecentEntry } from "@/lib/recent";
 import { toolHref } from "@/lib/tools-registry";
 import { fileNameFor } from "@/app/scan-to-pdf/scanState";
-import { ocrStatusOf, resolveScanEngine, searchableReportOf } from "@/app/scan-to-pdf/scanServices";
+import { ocrModelAvailable, prepareOcrModel } from "@/app/scan-to-pdf/scanServices";
 import { ScreenShell } from "@/app/scan-to-pdf/ScreenShell";
 import { useAnnounce } from "@/app/scan-to-pdf/ScanLive";
-import type { ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
+import { OCR_MODEL_MB, type ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
+import type { ScanBuildWarning } from "@/lib/scan/types";
 import type { ScanSessionApi } from "@/app/scan-to-pdf/useScanSession";
 import { useIsClient } from "@/hooks/useIsClient";
 
@@ -63,16 +64,54 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
   const createRef = useRef<HTMLButtonElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const runRef = useRef(0);
-  // Texto buscable: el reconocimiento puede necesitar bajar el modelo de idioma la primera vez (internet). Sin la confirmacion de que
-  // ya esta en este dispositivo, se pide una accion EXPLICITA antes de crear el PDF.
-  const [consent, setConsent] = useState(false);
+  // Texto buscable: el motor es 100 % local por defecto y NO descarga nada solo. Se pregunta si el modelo ya esta en el dispositivo
+  // (`ocrModelAvailable`, sin red) y, si no, hay una accion EXPLICITA para bajarlo. Sin el modelo el PDF sale normal y el aviso del
+  // motor (`onWarning`) se muestra en el resultado: nunca es un error.
   const [failedWhileSearchable, setFailedWhileSearchable] = useState(false);
-  const needsDownload = ocrStatusOf(resolveScanEngine()) !== "ready";
+  const [modelReady, setModelReady] = useState<boolean | null>(null);
+  const [model, setModel] = useState<{ phase: "idle" | "downloading" | "failed"; reason?: "offline" | "network" | "engine" }>({ phase: "idle" });
+  const modelAbort = useRef<AbortController | null>(null);
 
   // La calidad recordada solo se conoce ya en el cliente (localStorage).
   const effective: ImagePresetId = preset ?? (isClient ? readStoredImagePreset() : "balanced");
   const pages = api.pages;
   const searchable = api.settings.searchable;
+  const needsModel = searchable && modelReady === false;
+
+  useEffect(() => {
+    if (!searchable) return;
+    let live = true;
+    void ocrModelAvailable().then((ready) => {
+      if (live) setModelReady(ready);
+    });
+    return () => {
+      live = false;
+    };
+  }, [searchable]);
+
+  useEffect(() => () => modelAbort.current?.abort(), []);
+
+  const downloadModel = async () => {
+    if (model.phase === "downloading") return;
+    const controller = new AbortController();
+    modelAbort.current = controller;
+    setModel({ phase: "downloading" });
+    announce(s.modelDownloading);
+    const result = await prepareOcrModel({ signal: controller.signal });
+    if (controller.signal.aborted && !result.ok && result.reason === "cancelled") {
+      setModel({ phase: "idle" });
+      return;
+    }
+    if (result.ok) {
+      setModelReady(true);
+      setModel({ phase: "idle" });
+      announce(s.modelReady);
+    } else if (result.reason === "cancelled") {
+      setModel({ phase: "idle" });
+    } else {
+      setModel({ phase: "failed", reason: result.reason });
+    }
+  };
 
   const nameProposed = useRef(false);
   const { proposeNameNow } = api;
@@ -102,12 +141,14 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
     setPhase("building");
     const controller = new AbortController();
     abortRef.current = controller;
+    const warnings: ScanBuildWarning[] = [];
     try {
       const blob = await api.buildPdf({
         preset: effective,
         pageSize,
         margin,
         signal: controller.signal,
+        onWarning: (warning) => warnings.push(warning),
         onProgress: (done, total) => {
           if (runRef.current !== run) return;
           setProgress(Math.round((done / Math.max(1, total)) * 100));
@@ -120,10 +161,9 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
       const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
       const described = describeResult(copy, { sourceBytes, pdfBytes: blob.size }, (bytes) => formatFileSize(bytes, locale), (value) => percent.format(value / 100));
       addRecentEntry("scan-to-pdf", filename);
-      // Pidio texto buscable pero el motor dice que alguna pagina salio sin el: un AVISO en el resultado (no un error: el PDF es valido).
-      const report = wantsText ? searchableReportOf(resolveScanEngine()) : null;
-      const missing = report && report.total > 0 && report.withText < report.total ? s.searchablePartial(report.total - report.withText, report.total) : null;
-      const notices = missing ? { title: described.notices?.title ?? s.searchableNoticeTitle, items: [...(described.notices?.items ?? []), missing] } : described.notices;
+      // Pidio texto buscable pero el motor lo degrado (falta el modelo, sin red...): AVISO en el resultado con SU texto (no es un error: el PDF es valido).
+      const missing = wantsText ? warnings.map((warning) => s.searchableWarning(warning)) : [];
+      const notices = missing.length > 0 ? { title: described.notices?.title ?? s.searchableNoticeTitle, items: [...(described.notices?.items ?? []), ...missing] } : described.notices;
       onBuilt({ blob, filename, summary: described.summary, notices });
     } catch (caught) {
       if (runRef.current !== run) return;
@@ -169,11 +209,11 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
         }
         bar={
           <>
-            <Button ref={createRef} size="lg" fullWidth wrap className="min-h-[56px]" data-save-action="create" disabled={pages.length === 0 || (searchable && needsDownload && !consent)} onClick={() => void build()}>
+            <Button ref={createRef} size="lg" fullWidth wrap className="min-h-[56px]" data-save-action="create" disabled={pages.length === 0} onClick={() => void build()}>
               {s.create}
             </Button>
             <p data-create-meta="" className="mt-1.5 text-center text-footnote text-muted-foreground tabular-nums">
-              {searchable && needsDownload && !consent ? s.searchableNeedConsent : s.createMeta(pages.length, `≈ ${sizeText}`)}
+              {needsModel ? s.createMetaNoModel : s.createMeta(pages.length, `≈ ${sizeText}`)}
             </p>
           </>
         }
@@ -243,10 +283,24 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
 
         <div className="flex flex-col gap-2">
           <Checkbox label={s.searchable} hint={s.searchableHint} checked={searchable} onChange={(checked) => api.setSettings({ searchable: checked })} />
-          {searchable && needsDownload ? (
-            <div data-ocr-download="" className="ml-1 rounded-ios border border-hairline bg-white/5 p-3">
-              <p className="text-footnote text-foreground">{s.searchableDownloadNote}</p>
-              <Checkbox label={s.searchableDownloadConsent} checked={consent} onChange={setConsent} className="mt-1" />
+          {needsModel ? (
+            <div data-ocr-download="" className="ml-1 rounded-ios border border-accent-edit/50 bg-accent-edit/10 p-3">
+              <p className="text-footnote text-foreground">{s.searchableDownloadNote(OCR_MODEL_MB)}</p>
+              {model.phase === "failed" && model.reason ? (
+                <p data-ocr-download-error="" className="mt-2 text-footnote font-medium text-foreground">
+                  {s.modelFailed[model.reason]}
+                </p>
+              ) : null}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button variant="secondary" size="md" wrap data-save-action="download-model" disabled={model.phase === "downloading"} aria-busy={model.phase === "downloading" || undefined} onClick={() => void downloadModel()}>
+                  {model.phase === "downloading" ? s.modelDownloading : s.downloadModel(OCR_MODEL_MB)}
+                </Button>
+                {model.phase === "downloading" ? (
+                  <Button variant="ghost" size="md" wrap data-save-action="cancel-model" onClick={() => modelAbort.current?.abort()}>
+                    {s.downloadModelCancel}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>

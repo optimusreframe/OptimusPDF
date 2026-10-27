@@ -3,6 +3,10 @@ import type { CameraErrorCode } from "@/lib/pdf/scanToPdf";
 import type { FrameVerdict, ScanFilterMode, ScanMode } from "@/lib/scan/types";
 import type { QualityChipKind } from "@/app/scan-to-pdf/scanState";
 import type { ImportProblemKind } from "@/app/scan-to-pdf/importProblems";
+import type { ScanBuildWarning } from "@/lib/scan/types";
+
+/** Tamaño aproximado (MB) de los datos de idioma español + inglés que baja tesseract.js la primera vez. */
+export const OCR_MODEL_MB = 25;
 
 /** Textos propios de «Escanear a PDF» (copy original ES/EN). Las funciones resuelven plurales y numeros. */
 export type ScanToPdfStrings = {
@@ -110,7 +114,8 @@ export type ScanToPdfStrings = {
   emptyBody: string;
   gridLabel: string;
   tileLabel: (n: number, total: number, flags: string[]) => string;
-  quality: Record<QualityChipKind, { label: string; action: string; tip: string }>;
+  /** `visibleAction`: version corta de la accion para la miniatura (el nombre accesible y el `title` llevan la completa). */
+  quality: Record<QualityChipKind, { label: string; action: string; tip: string; visibleAction?: string }>;
   chipAction: (n: number, label: string, action: string) => string;
   thumbAlt: (n: number) => string;
   processing: string;
@@ -226,12 +231,19 @@ export type ScanToPdfStrings = {
   marginLarge: string;
   searchable: string;
   searchableHint: string;
-  searchableDownloadNote: string;
-  searchableDownloadConsent: string;
-  searchableNeedConsent: string;
+  /** Aviso de que el texto buscable necesita bajar el modelo (una vez); `mb` = tamaño aproximado. */
+  searchableDownloadNote: (mb: number) => string;
+  downloadModel: (mb: number) => string;
+  downloadModelCancel: string;
+  modelDownloading: string;
+  modelReady: string;
+  modelFailed: Record<"offline" | "network" | "engine", string>;
+  /** Sustituye a «≈ X MB» bajo «Crear PDF» mientras falte el modelo: el PDF saldra normal. */
+  createMetaNoModel: string;
   searchableFailed: string;
   createWithoutText: string;
-  searchablePartial: (missing: number, total: number) => string;
+  /** Texto del aviso de `buildPdf` (`onWarning`): lo que el PDF NO lleva y por que. NO es un error. */
+  searchableWarning: (warning: ScanBuildWarning) => string;
   searchableNoticeTitle: string;
   create: string;
   createMeta: (count: number, size: string) => string;
@@ -398,7 +410,7 @@ const ES: ScanToPdfStrings = {
     glare: { label: "Brillo", action: "Repetir", tip: "Tiene reflejos" },
     dark: { label: "Oscura", action: "Repetir", tip: "Está muy oscura" },
     duplicate: { label: "Repetida", action: "Quitar", tip: "Parece repetida" },
-    noDocument: { label: "Sin documento", action: "Recortar", tip: "No se detectó el documento" },
+    noDocument: { label: "Sin documento detectado", action: "Ajusta el recorte", visibleAction: "Ajustar", tip: "No se detectó el documento: la página está entera, sin recortar. Ajusta el recorte o deja la página completa." },
   },
   chipAction: (n, label, action) => `Página ${n}: ${label}. ${action}`,
   thumbAlt: (n) => `Página ${n}`,
@@ -520,12 +532,24 @@ const ES: ScanToPdfStrings = {
   marginLarge: "Grande",
   searchable: "PDF con texto buscable",
   searchableHint: "Reconoce el texto en tu dispositivo y lo deja seleccionable y buscable. Es más lento. Desactivado por defecto.",
-  searchableDownloadNote: "La primera vez se descarga el modelo de reconocimiento de texto (unos MB, solo una vez) y hace falta conexión. Después funciona sin internet. Tus páginas no salen de tu dispositivo.",
-  searchableDownloadConsent: "Permitir descargar el modelo (una sola vez)",
-  searchableNeedConsent: "Marca «Permitir descargar el modelo» para crear el PDF con texto buscable, o desactiva el texto buscable.",
+  searchableDownloadNote: (mb) => `El texto buscable necesita un modelo de reconocimiento (≈ ${mb} MB). Se descarga una sola vez, con tu permiso, y después funciona sin conexión. Hasta entonces el PDF sale normal, sin texto buscable. Tus páginas no salen de tu dispositivo.`,
+  downloadModel: (mb) => `Descargar el modelo de texto (≈ ${mb} MB)`,
+  downloadModelCancel: "Cancelar la descarga",
+  modelDownloading: "Descargando el modelo de texto…",
+  modelReady: "Modelo de texto listo en este dispositivo.",
+  modelFailed: {
+    offline: "Sin conexión: no se pudo descargar el modelo. Conéctate y vuelve a intentarlo; mientras, el PDF sale sin texto buscable.",
+    network: "No se pudo descargar el modelo (la conexión falló o está bloqueada). Puedes reintentarlo; mientras, el PDF sale sin texto buscable.",
+    engine: "El reconocimiento de texto no arrancó en este navegador. El PDF saldrá sin texto buscable.",
+  },
+  createMetaNoModel: "Sin el modelo de texto, el PDF saldrá sin texto buscable.",
   searchableFailed: "No se pudo reconocer el texto (la primera vez el modelo necesita conexión). Tus páginas siguen aquí: prueba con conexión o crea el PDF sin texto buscable.",
   createWithoutText: "Crear el PDF sin texto buscable",
-  searchablePartial: (missing, total) => `${missing} de ${total} ${total === 1 ? "página" : "páginas"} no tienen texto buscable (no se reconoció texto). El PDF es válido.`,
+  searchableWarning: ({ reason, pagesWithText, total }) => {
+    const why = { "model-missing": "falta el modelo de texto", offline: "no había conexión para descargar el modelo", network: "falló la descarga del modelo", engine: "el reconocimiento de texto no funcionó en este navegador" }[reason];
+    const what = pagesWithText === 0 ? "sin texto buscable" : `solo ${pagesWithText} de ${total} ${total === 1 ? "página lleva" : "páginas llevan"} texto buscable`;
+    return `El PDF está bien, pero ${what}: ${why}.`;
+  },
   searchableNoticeTitle: "Texto buscable",
   create: "Crear PDF",
   createMeta: (count, size) => `${count} ${count === 1 ? "página" : "páginas"} · ${size}`,
@@ -691,7 +715,7 @@ const EN: ScanToPdfStrings = {
     glare: { label: "Glare", action: "Retake", tip: "It has reflections" },
     dark: { label: "Dark", action: "Retake", tip: "It is too dark" },
     duplicate: { label: "Repeated", action: "Remove", tip: "Looks like a repeat" },
-    noDocument: { label: "No document", action: "Crop", tip: "The document was not detected" },
+    noDocument: { label: "No document detected", action: "Adjust the crop", visibleAction: "Adjust", tip: "The document was not detected: the page is whole, uncropped. Adjust the crop or keep the whole page." },
   },
   chipAction: (n, label, action) => `Page ${n}: ${label}. ${action}`,
   thumbAlt: (n) => `Page ${n}`,
@@ -813,12 +837,24 @@ const EN: ScanToPdfStrings = {
   marginLarge: "Large",
   searchable: "Searchable PDF",
   searchableHint: "Recognises the text on your device and makes it selectable and searchable. It is slower. Off by default.",
-  searchableDownloadNote: "The first time, the text-recognition model is downloaded (a few MB, only once) and a connection is needed. After that it works offline. Your pages never leave your device.",
-  searchableDownloadConsent: "Allow downloading the model (only once)",
-  searchableNeedConsent: "Tick “Allow downloading the model” to create the PDF with searchable text, or turn searchable text off.",
+  searchableDownloadNote: (mb) => `Searchable text needs a recognition model (≈ ${mb} MB). It is downloaded once, with your permission, and works offline afterwards. Until then the PDF comes out normal, without searchable text. Your pages never leave your device.`,
+  downloadModel: (mb) => `Download the text model (≈ ${mb} MB)`,
+  downloadModelCancel: "Cancel the download",
+  modelDownloading: "Downloading the text model…",
+  modelReady: "Text model ready on this device.",
+  modelFailed: {
+    offline: "No connection: the model could not be downloaded. Connect and try again; meanwhile the PDF comes out without searchable text.",
+    network: "The model could not be downloaded (the connection failed or is blocked). You can try again; meanwhile the PDF comes out without searchable text.",
+    engine: "Text recognition did not start in this browser. The PDF will come out without searchable text.",
+  },
+  createMetaNoModel: "Without the text model, the PDF will come out without searchable text.",
   searchableFailed: "The text could not be recognised (the first time the model needs a connection). Your pages are still here: try again online or create the PDF without searchable text.",
   createWithoutText: "Create the PDF without searchable text",
-  searchablePartial: (missing, total) => `${missing} of ${total} ${total === 1 ? "page has" : "pages have"} no searchable text (no text was recognised). The PDF is valid.`,
+  searchableWarning: ({ reason, pagesWithText, total }) => {
+    const why = { "model-missing": "the text model is missing", offline: "there was no connection to download the model", network: "the model download failed", engine: "text recognition did not work in this browser" }[reason];
+    const what = pagesWithText === 0 ? "without searchable text" : `only ${pagesWithText} of ${total} ${total === 1 ? "page has" : "pages have"} searchable text`;
+    return `The PDF is fine, but ${what}: ${why}.`;
+  },
   searchableNoticeTitle: "Searchable text",
   create: "Create PDF",
   createMeta: (count, size) => `${count} ${count === 1 ? "page" : "pages"} · ${size}`,

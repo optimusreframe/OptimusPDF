@@ -55,10 +55,10 @@ export type FakeControls = {
   buildError: string | null;
   /** Solo `splitSpread`: sin lomo detectable. */
   noSplit: boolean;
-  /** Opcional del contrato (aditivo): el modelo de texto buscable ya esta en este dispositivo (sin descarga previa). */
+  /** El modelo de texto buscable ya esta en este dispositivo (`ocrModelAvailable`). */
   ocrAvailable: boolean;
-  /** Opcional del contrato (aditivo): cuantas paginas del ultimo PDF llevaron texto buscable; `null` = el motor no lo informa. */
-  searchableReport: { total: number; withText: number } | null;
+  /** Resultado de `prepareOcrModel`: `ok` deja el modelo en el dispositivo; el resto es el motivo del fallo. */
+  ocrPrepare: "ok" | "offline" | "network" | "engine";
 };
 
 export function newControls(): FakeControls {
@@ -77,7 +77,7 @@ export function newControls(): FakeControls {
     buildError: null,
     noSplit: false,
     ocrAvailable: false,
-    searchableReport: null,
+    ocrPrepare: "ok",
   };
 }
 
@@ -234,10 +234,22 @@ export type FakeEngine = ScanEngineApi & {
   controls: FakeControls;
   /** Opcional del contrato (aditivo): parte la pagina de un libro abierto en dos (izquierda, derecha). */
   splitSpread: (source: ScanPage, options?: { signal?: AbortSignal }) => Promise<[ScanPage, ScanPage]>;
-  /** Opcionales del contrato (aditivos), leidos de `controls`. */
-  readonly ocrAvailable: boolean;
-  readonly lastSearchableReport: { total: number; withText: number } | null;
 };
+
+/** Doble de `ocrModelAvailable` / `prepareOcrModel` del motor (se instala en `globalThis.__optimusScanOcr`). */
+export function createFakeOcr(controls: FakeControls): NonNullable<typeof globalThis.__optimusScanOcr> {
+  return {
+    ocrModelAvailable: async () => controls.ocrAvailable,
+    prepareOcrModel: async () => {
+      controls.calls.prepareOcrModel = (controls.calls.prepareOcrModel ?? 0) + 1;
+      if (controls.ocrPrepare === "ok") {
+        controls.ocrAvailable = true;
+        return { ok: true };
+      }
+      return { ok: false, reason: controls.ocrPrepare };
+    },
+  };
+}
 
 export function createFakeEngine(controls: FakeControls = newControls()): FakeEngine {
   let counter = 0;
@@ -450,13 +462,6 @@ export function createFakeEngine(controls: FakeControls = newControls()): FakeEn
       return { bytes: Math.round(bytes), low: Math.round(bytes * 0.8), high: Math.round(bytes * 1.25) };
     },
 
-    get ocrAvailable() {
-      return controls.ocrAvailable;
-    },
-    get lastSearchableReport() {
-      return controls.searchableReport;
-    },
-
     async buildPdf(session, options): Promise<Blob> {
       call("buildPdf");
       if (controls.buildError) throw new Error(controls.buildError);
@@ -481,6 +486,12 @@ export function createFakeEngine(controls: FakeControls = newControls()): FakeEn
         options.onProgress?.(done, total);
       }
       if (options.signal?.aborted) throw abortError();
+      if (session.settings.searchable) {
+        // Como el motor real: con el modelo en el dispositivo hay texto; sin el, el PDF sale NORMAL y se avisa (nunca es un error).
+        if (!controls.ocrAvailable && options.allowModelDownload && controls.ocrPrepare === "ok") controls.ocrAvailable = true;
+        if (controls.ocrAvailable) call("ocrUsed");
+        else options.onWarning?.({ code: "searchable-unavailable", reason: options.allowModelDownload && controls.ocrPrepare !== "ok" ? controls.ocrPrepare : "model-missing", pagesWithText: 0, total });
+      }
       const saved = await pdf.save();
       return new Blob([saved as BlobPart], { type: "application/pdf" });
     },

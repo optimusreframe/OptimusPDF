@@ -1,4 +1,4 @@
-import { getScanEngine } from "@/lib/scan/engine";
+import { getScanEngine, ocrModelAvailable as realOcrModelAvailable, prepareOcrModel as realPrepareOcrModel, preloadScanEngine, type PrepareOcrResult } from "@/lib/scan/engine";
 import { scanSessionStore, scanSessionsSupported } from "@/lib/scan/sessionStore";
 import type { QuadCorners } from "@/lib/scan/perspective";
 import type { FrameVerdict, ScanEngineApi, ScanMode, ScanPage, ScanSession, ScanSessionStore } from "@/lib/scan/types";
@@ -21,6 +21,8 @@ import type { FrameVerdict, ScanEngineApi, ScanMode, ScanPage, ScanSession, Scan
 declare global {
   var __optimusScanEngine: ScanEngineApi | undefined;
   var __optimusScanStore: ScanSessionStore | undefined;
+  /** Gancho de PRUEBAS del modelo de texto buscable (el doble lo pone junto al motor y al almacen falsos). */
+  var __optimusScanOcr: { ocrModelAvailable: () => Promise<boolean>; prepareOcrModel: (options?: { signal?: AbortSignal }) => Promise<PrepareOcrResult> } | undefined;
 }
 
 export function resolveScanEngine(): ScanEngineApi {
@@ -71,20 +73,32 @@ export function forkedAsOf(outcome: { ok: boolean }): string | null {
 }
 
 /**
- * Texto buscable: ¿el modelo de reconocimiento esta ya en este dispositivo? El motor puede exponerlo (aditivo, opcional) como
- * `ocrAvailable` (booleano o funcion sincrona). Sin dato se asume que HAY que descargarlo (la primera vez necesita internet).
+ * Texto buscable (OCR). El motor es 100 % local por defecto: el modelo de reconocimiento se baja SOLO con una accion explicita.
+ * Estas dos funciones son las del motor (`ocrModelAvailable`, `prepareOcrModel` de `@/lib/scan/engine`); con los dobles de prueba
+ * se resuelven por el gancho `__optimusScanOcr`. La interfaz NO llama a OCR por su cuenta: solo pregunta si el modelo esta.
  */
-export function ocrStatusOf(engine: ScanEngineApi): "ready" | "download" {
-  const value = (engine as unknown as { ocrAvailable?: unknown }).ocrAvailable;
-  const resolved = typeof value === "function" ? (value as () => unknown).call(engine) : value;
-  return resolved === true ? "ready" : "download";
+export function ocrModelAvailable(): Promise<boolean> {
+  const hook = globalThis.__optimusScanOcr;
+  return (hook ? hook.ocrModelAvailable() : realOcrModelAvailable()).catch(() => false);
 }
 
-/** Informe del ultimo PDF con texto buscable (aditivo, opcional): cuantas paginas llevan texto. `null` si el motor no lo da. */
-export function searchableReportOf(engine: ScanEngineApi): { total: number; withText: number } | null {
-  const raw = (engine as unknown as { lastSearchableReport?: unknown }).lastSearchableReport;
-  const report = typeof raw === "function" ? (raw as () => unknown).call(engine) : raw;
-  if (!report || typeof report !== "object") return null;
-  const { total, withText } = report as { total?: unknown; withText?: unknown };
-  return typeof total === "number" && typeof withText === "number" ? { total, withText } : null;
+export function prepareOcrModel(options: { signal?: AbortSignal } = {}): Promise<PrepareOcrResult> {
+  const hook = globalThis.__optimusScanOcr;
+  return hook ? hook.prepareOcrModel(options) : realPrepareOcrModel(options);
 }
+
+/**
+ * Precarga el motor real (scanic, worker de dibujo) al abrir la herramienta: asi importar fotos funciona aunque despues se pierda la
+ * red. Con el motor falso inyectado no hay nada que precargar. Nunca lanza.
+ */
+export function preloadEngine(): void {
+  if (globalThis.__optimusScanEngine) return;
+  try {
+    void preloadScanEngine().catch(() => {});
+  } catch {
+    // Sin precarga el motor se carga al primer uso.
+  }
+}
+
+/** Mensaje de un aviso de `buildPdf` (`onWarning`): lo que el PDF NO lleva y por que. */
+export type { ScanBuildWarning } from "@/lib/scan/types";

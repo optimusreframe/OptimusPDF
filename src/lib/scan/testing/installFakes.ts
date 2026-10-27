@@ -6,7 +6,7 @@
  * Config opcional en `globalThis.__scanFakeConfig` (la pone el test antes de este script):
  *   { store?: { backend, quotaBytes, latencyMs }, controls?: Partial<FakeControls> }
  */
-import { createFakeEngine, newControls, type FakeControls, type FakeEngine } from "@/lib/scan/testing/fakeEngine";
+import { createFakeEngine, createFakeOcr, newControls, type FakeControls, type FakeEngine } from "@/lib/scan/testing/fakeEngine";
 import { createFakeStore, type FakeStore, type FakeStoreOptions } from "@/lib/scan/testing/fakeStore";
 
 type Config = { store?: FakeStoreOptions; controls?: Partial<FakeControls> };
@@ -24,6 +24,7 @@ export function installFakes(config: Config = globalThis.__scanFakeConfig ?? {})
   const store = createFakeStore({ backend: "indexeddb", ...(config.store ?? {}) });
   globalThis.__optimusScanEngine = engine;
   globalThis.__optimusScanStore = store;
+  globalThis.__optimusScanOcr = createFakeOcr(controls);
   const handle = { engine, store, controls };
   globalThis.__scanFake = handle;
   return handle;
