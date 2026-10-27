@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
 import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
 import { es } from "../../src/lib/locales/es";
+import { importPhotos, installFakeCamera, installScanFakes, WEBKIT_LINUX_CAMERA_REASON, waitIdle, waitVideoReady, webkitLinuxCamera, widthCodedFiles } from "../helpers/scan-ui";
 
 /**
  * Wave 6 · V-F: el foco NUNCA pasa por <body> —ni un fotograma— tras «Elegir otro archivo», «Quitar
@@ -308,127 +309,149 @@ test.describe("ToolShell · el foco nunca pasa por <body>", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * scan-to-pdf (V-G): descartar, mover, deshacer, editor de esquinas, camara
+ * scan-to-pdf (V-G): flujo «Escaner» nuevo: camara a pantalla completa, revisar, editor y esquinas
  * ------------------------------------------------------------------ */
 
 const S = {
   start: "Activar cámara",
-  stop: "Apagar cámara",
   capture: "Capturar página",
-  remove: "Descartar captura",
-  edit: "Editar recorte",
+  closeCamera: "Cerrar la cámara",
+  remove: /^Borrar la página \d+$/,
   closeEditor: "Cerrar sin cambios",
-  down: T.moveDown,
 };
 
 test.describe("scan-to-pdf · el foco nunca pasa por <body>", () => {
-  const captureCount = (page: Page) => page.locator("[data-capture-id]").count();
+  test.beforeEach(async ({ page }) => {
+    // Motor y almacen falsos + camara de canvas (valen en los tres motores; la camara real no se usa aqui).
+    await installScanFakes(page);
+    await installFakeCamera(page);
+  });
 
-  /** Hay un fotograma real del dispositivo falso (no basta con que el elemento exista). */
-  async function videoReady(page: Page) {
-    await expect
-      .poll(() => page.locator("video").evaluate((el: HTMLVideoElement) => el.videoWidth > 0 && el.readyState >= 2), { timeout: 30_000 })
-      .toBe(true);
-  }
+  const tiles = (page: Page) => page.locator("[data-page-grid] [data-page-id]");
 
   async function startCamera(page: Page) {
     await page.goto("/scan-to-pdf");
     await page.getByRole("button", { name: S.start }).click();
     await expect(page.getByRole("button", { name: S.capture })).toBeVisible({ timeout: 30_000 });
-    await videoReady(page);
+    await waitVideoReady(page);
   }
 
-  async function takePhotos(page: Page, count: number) {
-    for (let index = 1; index <= count; index += 1) {
-      await page.getByRole("button", { name: S.capture }).click();
-      await expect.poll(() => captureCount(page), { timeout: 15_000 }).toBe(index);
-    }
-    // Espera a que la deteccion de bordes termine (los controles de la captura se activan).
-    await expect(page.locator('[data-capture-action="edit"]:not([disabled])')).toHaveCount(count, { timeout: 30_000 });
-  }
-
-  test(`iniciar camara, apagarla y descartar capturas ×${REPS}`, async ({ page }) => {
+  test(`iniciar la camara, cerrarla, y borrar paginas desde Revisar ×${REPS}`, async ({ page, browserName }) => {
+    test.skip(webkitLinuxCamera(browserName), WEBKIT_LINUX_CAMERA_REASON);
     await installProbe(page);
     for (let rep = 0; rep < REPS; rep += 1) {
       await page.goto("/scan-to-pdf");
-      // Iniciar: el foco pasa del boton «Activar camara» (que se desmonta) a «Capturar».
+      // Iniciar: el foco pasa de «Activar camara» al disparador de la capa de camara.
       await page.getByRole("button", { name: S.start }).focus();
       await probeOn(page);
       await page.getByRole("button", { name: S.start }).click();
       await expect(page.getByRole("button", { name: S.capture })).toBeFocused({ timeout: 30_000 });
       await expectNoBody(page, "scan iniciar camara");
-      await videoReady(page);
+      await waitVideoReady(page);
 
-      await takePhotos(page, 2);
+      // Dos paginas (sin captura automatica) y a revisar: el foco queda en el encabezado del paso.
+      await page.locator('[data-camera-action="auto"]').click();
+      await page.getByRole("button", { name: S.capture }).click();
+      await page.getByRole("button", { name: S.capture }).click();
+      await probeOn(page);
+      await page.locator('[data-camera-action="done"]').click();
+      await expect(tiles(page)).toHaveCount(2);
+      await settleOnControl(page);
+      await expectNoBody(page, "scan ir a revisar");
+      await waitIdle(page);
 
-      // Descartar la primera: el foco va al «Descartar» de la que ocupa su sitio.
-      await page.locator('[data-capture-action="remove"]').first().focus();
+      // Borrar la primera: el foco va a la que ocupa su sitio.
+      await page.getByRole("button", { name: S.remove }).first().focus();
       await probeOn(page);
       await page.getByRole("button", { name: S.remove }).first().click();
       await settleOnControl(page);
-      await expectNoBody(page, "scan descartar (hay mas)");
-      expect(await captureCount(page)).toBe(1);
+      await expectNoBody(page, "scan borrar (hay mas)");
+      expect(await tiles(page).count()).toBe(1);
 
-      // Descartar la ultima: el foco va a la camara.
-      await page.locator('[data-capture-action="remove"]').first().focus();
+      // Borrar la ultima: el foco va a «Camara» (no queda ninguna tarjeta).
+      await page.getByRole("button", { name: S.remove }).first().focus();
       await probeOn(page);
       await page.getByRole("button", { name: S.remove }).first().click();
-      await expect(page.getByRole("button", { name: S.capture })).toBeFocused();
-      await expectNoBody(page, "scan descartar (la ultima)");
-
-      // Apagar la camara: el foco va a «Activar camara».
-      await page.getByRole("button", { name: S.stop }).focus();
-      await probeOn(page);
-      await page.getByRole("button", { name: S.stop }).click();
-      await expect(page.getByRole("button", { name: S.start })).toBeFocused();
-      await expectNoBody(page, "scan apagar camara");
+      await settleOnControl(page);
+      await expectNoBody(page, "scan borrar (la ultima)");
     }
   });
 
-  test(`editor de esquinas («Cerrar sin cambios») y mover captura ×${REPS}`, async ({ page }) => {
+  test(`cerrar la camara con Escape y con el boton ×${REPS}`, async ({ page, browserName }) => {
+    test.skip(webkitLinuxCamera(browserName), WEBKIT_LINUX_CAMERA_REASON);
     await installProbe(page);
     for (let rep = 0; rep < REPS; rep += 1) {
       await startCamera(page);
-      await takePhotos(page, 2);
-
-      // Abrir el editor: el foco entra en el dialogo; «Cerrar sin cambios» lo devuelve a «Ajustar esquinas» de ESA captura.
-      const first = page.locator("[data-capture-id]").first();
-      await first.locator('[data-capture-action="edit"]').focus();
       await probeOn(page);
-      await first.locator('[data-capture-action="edit"]').click();
-      await expect(page.getByRole("dialog")).toBeVisible();
-      await expect(page.getByRole("button", { name: S.closeEditor })).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(page.locator("[data-camera-stage]")).toHaveCount(0);
+      await settleOnControl(page);
+      await expectNoBody(page, "scan cerrar camara (Escape)");
+      await page.getByRole("button", { name: S.start }).click();
+      await expect(page.getByRole("button", { name: S.capture })).toBeFocused({ timeout: 30_000 });
+      await probeOn(page);
+      await page.getByRole("button", { name: S.closeCamera }).click();
+      await settleOnControl(page);
+      await expectNoBody(page, "scan cerrar camara (boton)");
+    }
+  });
+
+  test(`editor de pagina y editor de esquinas («Cerrar sin cambios») ×${REPS}`, async ({ page }) => {
+    await installProbe(page);
+    await page.goto("/scan-to-pdf");
+    await importPhotos(page, widthCodedFiles(3));
+    await expect(tiles(page)).toHaveCount(3);
+    await waitIdle(page);
+    for (let rep = 0; rep < REPS; rep += 1) {
+      // Abrir el editor: el foco entra; Escape lo cierra y vuelve a la tarjeta.
+      const main = tiles(page).nth(1).locator("[data-page-main]");
+      await main.focus();
+      await probeOn(page);
+      await main.click();
+      await expect(page.locator("[data-page-editor]")).toBeVisible();
+      await expect(page.locator('[data-editor-action="done"]')).toBeFocused();
       await expectNoBody(page, "scan abrir editor");
 
+      // Esquinas: el foco entra en «Cerrar sin cambios» y vuelve al boton «Recortar» del editor.
+      await page.locator('[data-editor-action="crop"]').focus();
+      await probeOn(page);
+      await page.locator('[data-editor-action="crop"]').click();
+      await expect(page.locator("[data-corner-editor]")).toBeVisible();
+      await expect(page.getByRole("button", { name: S.closeEditor })).toBeFocused();
+      await expectNoBody(page, "scan abrir esquinas");
       await probeOn(page);
       await page.getByRole("button", { name: S.closeEditor }).click();
-      await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(first.locator('[data-capture-action="edit"]')).toBeFocused();
-      await expectNoBody(page, "scan cerrar sin cambios");
+      await expect(page.locator("[data-corner-editor]")).toHaveCount(0);
+      await expect(page.locator('[data-editor-action="crop"]')).toBeFocused();
+      await expectNoBody(page, "scan cerrar esquinas");
 
-      // Mover la primera hacia abajo: el foco sigue en una flecha de la misma captura.
-      const id = await first.getAttribute("data-capture-id");
-      await first.locator('[data-capture-action="down"]').focus();
       await probeOn(page);
-      await first.locator('[data-capture-action="down"]').click();
+      await page.keyboard.press("Escape");
+      await expect(page.locator("[data-page-editor]")).toHaveCount(0);
+      await expect(main).toBeFocused();
+      await expectNoBody(page, "scan cerrar editor");
+    }
+  });
+
+  test(`mover una pagina con el teclado ×${REPS}`, async ({ page }) => {
+    await installProbe(page);
+    await page.goto("/scan-to-pdf");
+    await importPhotos(page, widthCodedFiles(3));
+    await expect(tiles(page)).toHaveCount(3);
+    await waitIdle(page);
+    for (let rep = 0; rep < REPS; rep += 1) {
+      const handle = tiles(page).first().locator("[data-drag-handle]");
+      await handle.focus();
+      await probeOn(page);
+      await page.keyboard.press("ArrowRight");
       await settleOnControl(page);
-      await expectNoBody(page, "scan mover captura");
-      expect(await page.locator(`[data-capture-id="${id}"]`).evaluate((element) => element.contains(document.activeElement))).toBe(true);
+      await expectNoBody(page, "scan mover pagina");
     }
   });
 
   test(`error de camara: el aviso recibe el foco ×${REPS}`, async ({ page }) => {
     await installProbe(page);
-    await page.addInitScript(() => {
-      // En el prototipo, no en la instancia: WebKit descarta lo que se le asigna a `navigator.mediaDevices`.
-      Object.defineProperty(MediaDevices.prototype, "getUserMedia", {
-        configurable: true,
-        writable: true,
-        value: async () => {
-          throw new DOMException("denegado", "NotAllowedError");
-        },
-      });
-    });
+    await installFakeCamera(page, { denyWith: "NotAllowedError" });
     for (let rep = 0; rep < REPS; rep += 1) {
       await page.goto("/scan-to-pdf");
       await page.getByRole("button", { name: S.start }).focus();

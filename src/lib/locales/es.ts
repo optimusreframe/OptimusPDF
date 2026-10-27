@@ -87,7 +87,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   "scan-to-pdf": {
     name: "Escanear a PDF",
     description:
-      "Usa la cámara del móvil como escáner y guarda las capturas en un PDF.",
+      "Escanea con la cámara o importa tus fotos: se recortan solas, las ordenas y guardas un PDF. Todo se queda en tu dispositivo.",
   },
   "pdf-to-jpg": {
     name: "PDF a JPG",

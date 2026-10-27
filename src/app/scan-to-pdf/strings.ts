@@ -1,38 +1,193 @@
 import type { Language } from "@/lib/i18n";
 import type { CameraErrorCode } from "@/lib/pdf/scanToPdf";
-import type { CaptureHint } from "@/lib/scan/frameAnalysis";
+import type { FrameVerdict, ScanFilterMode, ScanMode } from "@/lib/scan/types";
+import type { QualityChipKind } from "@/app/scan-to-pdf/scanState";
 
-/** Textos propios de "Escanear a PDF". Copy original ES/EN. */
+/** Textos propios de «Escanear a PDF» (copy original ES/EN). Las funciones resuelven plurales y numeros. */
 export type ScanToPdfStrings = {
+  /* Inicio */
   startTitle: string;
   startBody: string;
   startButton: string;
   starting: string;
-  liveTitle: string;
-  capture: string;
-  stopCamera: string;
-  retryCamera: string;
-  uploadInstead: string;
-  uploadHint: string;
-  autoCaptureLabel: string;
-  autoCaptureHint: string;
-  /** Contiene `{seconds}`, que se sustituye por los segundos restantes. */
-  autoCountdown: string;
-  captureHints: Record<CaptureHint, string>;
+  pickPhotos: string;
+  pickPhotosHint: string;
   nativeCamera: string;
   nativeCameraHint: string;
-  burstTitle: string;
-  /** Contiene `{count}`, que se sustituye por las fotos ya tomadas. */
-  burstCount: string;
-  burstDone: string;
-  capturesTitle: string;
-  capturesEmpty: string;
-  captureAlt: string;
-  removeCapture: string;
-  croppedBadge: string;
-  cropping: string;
-  editCorners: string;
-  undoCrop: string;
+  modeLabel: string;
+  modes: Record<ScanMode, { label: string; hint: string }>;
+  privacy: string;
+  /* Retomar */
+  resumeTitle: string;
+  resumeMeta: (count: number, when: string) => string;
+  resumeAction: string;
+  resumeDiscard: string;
+  resumeDiscardTitle: string;
+  resumeDiscardBody: string;
+  resumeDiscardConfirm: string;
+  resumeKeep: string;
+  resumeGone: string;
+  resumeLoading: string;
+  resumeFailed: string;
+  /* Camara */
+  cameraRegion: string;
+  liveTitle: string;
+  closeCamera: string;
+  shutter: string;
+  shutterAuto: string;
+  review: (count: number) => string;
+  reviewEmpty: string;
+  pagesBadge: (count: number) => string;
+  lastShotAlt: (n: number) => string;
+  undoLast: string;
+  undoLastDone: string;
+  autoOn: string;
+  autoOff: string;
+  burstOn: string;
+  burstOff: string;
+  torchOn: string;
+  torchOff: string;
+  zoomLabel: (x: string) => string;
+  switchCamera: string;
+  importPhotos: string;
+  toolsLabel: string;
+  hints: Record<FrameVerdict["hint"], string>;
+  hintPhoto: string;
+  hintBook: string;
+  hintReceipt: string;
+  hintBoard: string;
+  autoRing: string;
+  idFront: string;
+  idBack: string;
+  idStep: (side: string, n: number) => string;
+  idDone: string;
+  idCombining: string;
+  bookSplit: string;
+  cameraErrorTitle: string;
+  cameraErrors: Record<CameraErrorCode, string>;
+  cameraFallbackTitle: string;
+  cameraFallbackBody: string;
+  retryCamera: string;
+  focusRing: string;
+  /* Revisar */
+  reviewTitle: string;
+  reviewHelp: string;
+  statusSaved: string;
+  statusSaving: string;
+  statusUnsaved: string;
+  statusQuota: string;
+  statusUnavailable: string;
+  statusTooBig: string;
+  addCamera: string;
+  addPhotos: string;
+  select: string;
+  selectDone: string;
+  selectedCount: (count: number) => string;
+  selectAll: string;
+  undo: string;
+  redo: string;
+  removeBlanks: (count: number) => string;
+  blanksBanner: (count: number) => string;
+  orientationNotice: (count: number) => string;
+  orientationUndo: string;
+  lostPages: (count: number) => string;
+  save: (count: number) => string;
+  saveBlocked: string;
+  emptyTitle: string;
+  emptyBody: string;
+  gridLabel: string;
+  tileLabel: (n: number, total: number, flags: string[]) => string;
+  quality: Record<QualityChipKind, { label: string; action: string; tip: string }>;
+  chipAction: (n: number, label: string, action: string) => string;
+  thumbAlt: (n: number) => string;
+  processing: string;
+  rotate: (n: number) => string;
+  remove: (n: number) => string;
+  more: (n: number) => string;
+  edit: string;
+  retake: string;
+  duplicate: string;
+  insertBefore: string;
+  insertAfter: string;
+  moveTo: string;
+  viewSheet: string;
+  moveUp: string;
+  moveDown: string;
+  insertSourceTitle: string;
+  insertCamera: string;
+  insertLibrary: string;
+  dragHandle: (n: number) => string;
+  dragHandleHint: string;
+  dragStart: (n: number) => string;
+  dragMoved: (n: number, pos: number) => string;
+  dragCancel: string;
+  moveModeTitle: (count: number) => string;
+  moveHere: string;
+  moveToEnd: string;
+  moveCancel: string;
+  moveDone: (pos: number) => string;
+  bulkFilter: string;
+  bulkRotate: string;
+  bulkDelete: string;
+  bulkMove: string;
+  bulkFilterTitle: string;
+  actionsLabel: string;
+  moreTitle: (n: number) => string;
+  close: string;
+  /* Anuncios */
+  said: {
+    added: (count: number) => string;
+    captured: (n: number) => string;
+    removed: (count: number) => string;
+    rotated: (count: number) => string;
+    duplicated: (count: number) => string;
+    undone: (label: string) => string;
+    redone: (label: string) => string;
+    blanksRemoved: (count: number) => string;
+    createFailed: string;
+    saved: string;
+    retaken: (n: number) => string;
+    inserted: (n: number) => string;
+    filterAll: string;
+    cancelled: string;
+  };
+  labels: {
+    add: string;
+    remove: string;
+    rotate: string;
+    duplicate: string;
+    move: string;
+    filter: string;
+    adjust: string;
+    crop: string;
+    retake: string;
+    insert: string;
+    blanks: string;
+    orientation: string;
+    applyAll: string;
+    clear: string;
+  };
+  /* Editor */
+  editorTitle: (n: number, total: number) => string;
+  editorPrev: string;
+  editorNext: string;
+  editorCrop: string;
+  editorRotate: string;
+  editorFilter: string;
+  editorAdjust: string;
+  editorApplyAll: string;
+  editorApplyAllDone: string;
+  brightness: string;
+  contrast: string;
+  resetAdjust: string;
+  filterLabel: string;
+  filters: Record<ScanFilterMode, string>;
+  editorDone: string;
+  editorPreviewAlt: (n: number) => string;
+  sheetTitle: (n: number, total: number) => string;
+  sheetFit: string;
+  sheetActual: string;
+  sheetHint: string;
   cornersTitle: string;
   cornersHint: string;
   cornersLoading: string;
@@ -40,12 +195,12 @@ export type ScanToPdfStrings = {
   cornersReset: string;
   cornersCancel: string;
   cornersInvalid: string;
-  filterLabel: string;
-  filterColor: string;
-  filterGrayscale: string;
-  filterBw: string;
-  filterEnhance: string;
-  filterHint: string;
+  /* Guardar */
+  saveTitle: string;
+  saveBack: string;
+  nameLabel: string;
+  nameHint: string;
+  nameReset: string;
   pageSizeLabel: string;
   pageSizeA4: string;
   pageSizeLetter: string;
@@ -54,161 +209,566 @@ export type ScanToPdfStrings = {
   marginNone: string;
   marginSmall: string;
   marginLarge: string;
-  generate: string;
-  /** Motivos junto al boton de generar cuando esta desactivado. */
-  needCapture: string;
-  capturePending: string;
-  cameraErrorTitle: string;
-  cameraErrors: Record<CameraErrorCode, string>;
+  searchable: string;
+  searchableHint: string;
+  create: string;
+  createMeta: (count: number, size: string) => string;
+  sizeBig: string;
+  sizeHuge: string;
+  buildProgress: (n: number, total: number) => string;
+  buildCancelled: string;
+  buildFailed: string;
+  share: string;
+  shareDone: string;
+  shareFailed: string;
+  backToReview: string;
+  newScan: string;
+  newScanHint: string;
+  /* Salir */
+  leaveTitle: string;
+  leaveBodySaved: (count: number) => string;
+  leaveBodyUnsaved: (count: number) => string;
+  leaveStay: string;
+  leaveLeave: string;
+  /* Errores */
+  noFiles: string;
+  notImage: string;
+  storageUnavailableHint: string;
+  /* Entradas de archivo ocultas */
+  inputFiles: string;
+  inputCamera: string;
 };
 
-export const STRINGS: Record<Language, ScanToPdfStrings> = {
-  es: {
-    startTitle: "Usa la cámara como escáner",
-    startBody:
-      "La vía rápida: activa la cámara, encuadra el documento y la auto-captura dispara sola, página tras página. El vídeo se queda en tu dispositivo: no se transmite ni se graba.",
-    startButton: "Activar cámara",
-    starting: "Abriendo la cámara…",
-    liveTitle: "Vista de la cámara",
-    capture: "Capturar página",
-    stopCamera: "Apagar cámara",
-    retryCamera: "Volver a intentarlo",
-    uploadInstead: "Elegir fotos del dispositivo",
-    uploadHint:
-      "¿Sin cámara disponible? Puedes añadir fotos que ya tengas guardadas.",
-    autoCaptureLabel: "Auto-captura",
-    autoCaptureHint:
-      "Captura sola cuando el documento se ve nítido y la cámara está quieta.",
-    autoCountdown: "Capturando en {seconds}…",
-    captureHints: {
-      ok: "Listo para capturar",
-      hold_steady: "Mantén firme",
-      too_dark: "Muy oscuro",
-      unknown: "Buscando el encuadre…",
-    },
-    nativeCamera: "Usar la app de Cámara del sistema",
-    nativeCameraHint:
-      "Más lenta: la app de Cámara te pide confirmar cada foto antes de volver aquí. Solo merece la pena si necesitas flash o enfoque manual reales.",
-    burstTitle: "Ráfaga activa",
-    burstCount: "Fotos capturadas: {count}",
-    burstDone: "Terminar",
-    capturesTitle: "Páginas capturadas",
-    capturesEmpty: "Todavía no has capturado ninguna página.",
-    captureAlt: "Captura",
-    removeCapture: "Descartar captura",
-    croppedBadge: "Recortada",
-    cropping: "Buscando los bordes…",
-    editCorners: "Editar recorte",
-    undoCrop: "Deshacer recorte",
-    cornersTitle: "Ajusta las esquinas",
-    cornersHint:
-      "Arrastra cada esquina hasta los bordes del documento. Con el teclado: tabula hasta una esquina y muévela con las flechas.",
-    cornersLoading: "Preparando el editor…",
-    cornersApply: "Aplicar recorte",
-    cornersReset: "Toda la foto",
-    cornersCancel: "Cerrar sin cambios",
-    cornersInvalid: "Las esquinas se cruzan",
-    filterLabel: "Aspecto",
-    filterColor: "Color",
-    filterGrayscale: "Grises",
-    filterBw: "Blanco y negro",
-    filterEnhance: "Realzar",
-    filterHint:
-      "«Grises» quita el color sin tocar el contraste, «Blanco y negro» lo sube para que el texto se lea mejor y «Realzar» estira el contraste según la propia foto.",
-    pageSizeLabel: "Tamaño de página",
-    pageSizeA4: "A4",
-    pageSizeLetter: "Carta",
-    pageSizeFit: "Ajustar",
-    marginLabel: "Margen",
-    marginNone: "Sin margen",
-    marginSmall: "Pequeño",
-    marginLarge: "Grande",
-    generate: "Generar PDF",
-    needCapture: "Haz o importa al menos una captura para generar el PDF.",
-    capturePending: "Espera a que termine de procesarse la última captura.",
-    cameraErrorTitle: "La cámara no está disponible",
-    cameraErrors: {
-      denied:
-        "Has bloqueado el acceso a la cámara. Permítelo en los ajustes del navegador y vuelve a intentarlo.",
-      notFound: "No hemos encontrado ninguna cámara conectada a este equipo.",
-      busy: "Otra aplicación está usando la cámara. Ciérrala e inténtalo otra vez.",
-      insecure:
-        "El navegador solo abre la cámara en conexiones seguras (HTTPS).",
-      unsupported: "Este navegador no permite abrir la cámara desde una web.",
-      unknown: "No se ha podido abrir la cámara. Vuelve a intentarlo.",
-    },
+const ES: ScanToPdfStrings = {
+  startTitle: "Escanea con la cámara, sin perder nada",
+  startBody:
+    "Apunta al documento y la página se captura sola cuando se ve nítida. Revisa, ordena y guarda un PDF. Todo se queda en tu dispositivo y se guarda mientras escaneas.",
+  startButton: "Activar cámara",
+  starting: "Abriendo la cámara…",
+  pickPhotos: "Elegir fotos",
+  pickPhotosHint: "Varias a la vez, de tu fototeca o de archivos.",
+  nativeCamera: "Usar la app de Cámara del sistema",
+  nativeCameraHint: "Con flash y enfoque reales; te pide confirmar cada foto.",
+  modeLabel: "Qué vas a escanear",
+  modes: {
+    document: { label: "Documento", hint: "Hojas y contratos: se recorta y se endereza solo." },
+    "id-card": { label: "Identificación", hint: "Anverso y reverso en una sola hoja." },
+    receipt: { label: "Recibo", hint: "Tickets largos y estrechos: encuádralo entero." },
+    book: { label: "Libro", hint: "Una foto de las dos páginas; se parte por el lomo." },
+    whiteboard: { label: "Pizarra", hint: "Alto contraste para pizarras y carteles." },
+    photo: { label: "Foto", hint: "Sin recorte ni filtro: para daños y fotos." },
   },
-  en: {
-    startTitle: "Turn your camera into a scanner",
-    startBody:
-      "The fast way: turn the camera on, frame the document and auto capture shoots on its own, page after page. The video stays on your device: nothing is streamed or recorded.",
-    startButton: "Turn camera on",
-    starting: "Opening the camera…",
-    liveTitle: "Camera view",
-    capture: "Capture page",
-    stopCamera: "Turn camera off",
-    retryCamera: "Try again",
-    uploadInstead: "Pick photos from this device",
-    uploadHint: "No camera around? You can add photos you already have.",
-    autoCaptureLabel: "Auto capture",
-    autoCaptureHint:
-      "Shoots on its own once the document looks sharp and the camera is still.",
-    autoCountdown: "Capturing in {seconds}…",
-    captureHints: {
-      ok: "Ready to capture",
-      hold_steady: "Hold steady",
-      too_dark: "Too dark",
-      unknown: "Reading the frame…",
-    },
-    nativeCamera: "Use the system Camera app",
-    nativeCameraHint:
-      "Slower: the Camera app asks you to confirm every photo before returning here. Only worth it for real flash or manual focus.",
-    burstTitle: "Burst mode on",
-    burstCount: "Photos captured: {count}",
-    burstDone: "Done",
-    capturesTitle: "Captured pages",
-    capturesEmpty: "You have not captured any page yet.",
-    captureAlt: "Capture",
-    removeCapture: "Discard capture",
-    croppedBadge: "Cropped",
-    cropping: "Looking for the edges…",
-    editCorners: "Edit crop",
-    undoCrop: "Undo crop",
-    cornersTitle: "Adjust the corners",
-    cornersHint:
-      "Drag each corner onto the edges of the document. With a keyboard: tab to a corner and move it with the arrow keys.",
-    cornersLoading: "Getting the editor ready…",
-    cornersApply: "Apply crop",
-    cornersReset: "Whole photo",
-    cornersCancel: "Close without changes",
-    cornersInvalid: "The corners cross over",
-    filterLabel: "Look",
-    filterColor: "Colour",
-    filterGrayscale: "Greyscale",
-    filterBw: "Black and white",
-    filterEnhance: "Enhance",
-    filterHint:
-      "“Greyscale” drops the colour without touching contrast, “Black and white” raises it so the text reads more clearly, and “Enhance” stretches the contrast to fit the photo itself.",
-    pageSizeLabel: "Page size",
-    pageSizeA4: "A4",
-    pageSizeLetter: "Letter",
-    pageSizeFit: "Fit",
-    marginLabel: "Margin",
-    marginNone: "No margin",
-    marginSmall: "Small",
-    marginLarge: "Large",
-    generate: "Build PDF",
-    needCapture: "Take or import at least one capture to build the PDF.",
-    capturePending: "Wait for the last capture to finish processing.",
-    cameraErrorTitle: "The camera is not available",
-    cameraErrors: {
-      denied:
-        "Camera access is blocked. Allow it in your browser settings and try again.",
-      notFound: "We could not find any camera attached to this device.",
-      busy: "Another app is using the camera. Close it and try again.",
-      insecure: "Browsers only open the camera over a secure connection (HTTPS).",
-      unsupported: "This browser cannot open the camera from a web page.",
-      unknown: "The camera could not be opened. Please try again.",
-    },
+  privacy: "El vídeo y las páginas no salen de tu dispositivo.",
+  resumeTitle: "Tienes un escaneo sin terminar",
+  resumeMeta: (count, when) => `${count} ${count === 1 ? "página" : "páginas"} · ${when}`,
+  resumeAction: "Retomar escaneo",
+  resumeDiscard: "Empezar de nuevo",
+  resumeDiscardTitle: "¿Empezar de nuevo?",
+  resumeDiscardBody: "Se borrará el escaneo guardado en este dispositivo. No se puede deshacer.",
+  resumeDiscardConfirm: "Borrar y empezar",
+  resumeKeep: "Conservarlo",
+  resumeGone: "Ese escaneo ya no está disponible: se borra a los 14 días o al descartarlo.",
+  resumeLoading: "Recuperando tu escaneo…",
+  resumeFailed: "No se pudo recuperar el escaneo guardado.",
+  cameraRegion: "Cámara",
+  liveTitle: "Vista de la cámara",
+  closeCamera: "Cerrar la cámara",
+  shutter: "Capturar página",
+  shutterAuto: "Captura automática en curso",
+  review: (count) => `Revisar (${count})`,
+  reviewEmpty: "Revisar",
+  pagesBadge: (count) => `${count} ${count === 1 ? "página" : "páginas"}`,
+  lastShotAlt: (n) => `Última captura: página ${n}`,
+  undoLast: "Deshacer",
+  undoLastDone: "Última captura deshecha",
+  autoOn: "Captura automática: activada",
+  autoOff: "Captura automática: desactivada",
+  burstOn: "Ráfaga: seguir en la cámara tras cada página",
+  burstOff: "Ráfaga desactivada: revisar tras cada página",
+  torchOn: "Apagar la linterna",
+  torchOff: "Encender la linterna",
+  zoomLabel: (x) => `Zoom ${x}×`,
+  switchCamera: "Cambiar de cámara",
+  importPhotos: "Importar fotos",
+  toolsLabel: "Controles de la cámara",
+  hints: {
+    ok: "Listo",
+    move_closer: "Acércate",
+    move_away: "Aléjate un poco",
+    hold_steady: "Mantén firme",
+    too_dark: "Más luz",
+    glare: "Hay brillo",
+    no_document: "No veo el documento",
+    unknown: "Buscando el encuadre…",
   },
+  hintPhoto: "Encuadra y toca el botón",
+  hintBook: "Abre el libro y encuadra las dos páginas",
+  hintReceipt: "Encuadra el recibo entero",
+  hintBoard: "Encuadra la pizarra",
+  autoRing: "Captura automática",
+  idFront: "Anverso",
+  idBack: "Reverso",
+  idStep: (side, n) => `Identificación · ${side} (${n} de 2)`,
+  idDone: "Identificación guardada en una sola hoja",
+  idCombining: "Juntando anverso y reverso…",
+  bookSplit: "Libro partido en dos páginas",
+  cameraErrorTitle: "La cámara no está disponible",
+  cameraErrors: {
+    denied: "Has bloqueado el acceso a la cámara. Permítelo en los ajustes del navegador o elige fotos.",
+    notFound: "No hemos encontrado ninguna cámara conectada a este equipo.",
+    busy: "Otra aplicación está usando la cámara. Ciérrala e inténtalo otra vez.",
+    insecure: "El navegador solo abre la cámara en conexiones seguras (HTTPS).",
+    unsupported: "Este navegador no permite abrir la cámara desde una web.",
+    unknown: "No se ha podido abrir la cámara. Vuelve a intentarlo.",
+  },
+  cameraFallbackTitle: "Sigue con tus fotos",
+  cameraFallbackBody: "Elige varias fotos de tu fototeca o de archivos y las convertimos en un PDF igual de bien.",
+  retryCamera: "Volver a intentarlo",
+  focusRing: "Enfocando",
+  reviewTitle: "Revisar páginas",
+  reviewHelp: "Toca una página para editarla. Arrastra el asa para ordenar.",
+  statusSaved: "Guardado ✓",
+  statusSaving: "Guardando…",
+  statusUnsaved: "No guardado",
+  statusQuota: "No guardado: no hay espacio",
+  statusUnavailable: "No guardado: sin almacenamiento",
+  statusTooBig: "No guardado: demasiado grande",
+  addCamera: "Cámara",
+  addPhotos: "Fotos",
+  select: "Seleccionar",
+  selectDone: "Terminar",
+  selectedCount: (count) => `${count} ${count === 1 ? "seleccionada" : "seleccionadas"}`,
+  selectAll: "Todas",
+  undo: "Deshacer",
+  redo: "Rehacer",
+  removeBlanks: (count) => `Quitar hojas en blanco (${count})`,
+  blanksBanner: (count) => `${count} ${count === 1 ? "hoja parece estar en blanco" : "hojas parecen estar en blanco"}`,
+  orientationNotice: (count) => `Giramos ${count} ${count === 1 ? "página que estaba" : "páginas que estaban"} de lado.`,
+  orientationUndo: "Deshacer giro",
+  lostPages: (count) => `${count} ${count === 1 ? "página no se pudo recuperar" : "páginas no se pudieron recuperar"} del escaneo guardado.`,
+  save: (count) => `Guardar PDF (${count})`,
+  saveBlocked: "Espera a que terminen de procesarse las páginas.",
+  emptyTitle: "No quedan páginas",
+  emptyBody: "Añade páginas con la cámara o desde tus fotos.",
+  gridLabel: "Páginas del escaneo",
+  tileLabel: (n, total, flags) => `Página ${n} de ${total}${flags.length ? `, ${flags.join(", ")}` : ""}`,
+  quality: {
+    blank: { label: "En blanco", action: "Quitar", tip: "Parece una hoja en blanco" },
+    blurry: { label: "Borrosa", action: "Repetir", tip: "Se ve borrosa" },
+    glare: { label: "Brillo", action: "Repetir", tip: "Tiene reflejos" },
+    dark: { label: "Oscura", action: "Repetir", tip: "Está muy oscura" },
+    duplicate: { label: "Repetida", action: "Quitar", tip: "Parece repetida" },
+    noDocument: { label: "Sin documento", action: "Recortar", tip: "No se detectó el documento" },
+  },
+  chipAction: (n, label, action) => `Página ${n}: ${label}. ${action}`,
+  thumbAlt: (n) => `Página ${n}`,
+  processing: "Procesando…",
+  rotate: (n) => `Girar la página ${n}`,
+  remove: (n) => `Borrar la página ${n}`,
+  more: (n) => `Más acciones de la página ${n}`,
+  edit: "Editar página",
+  retake: "Repetir captura",
+  duplicate: "Duplicar",
+  insertBefore: "Insertar página antes",
+  insertAfter: "Insertar página después",
+  moveTo: "Mover a otro sitio",
+  viewSheet: "Ver hoja completa",
+  moveUp: "Mover antes",
+  moveDown: "Mover después",
+  insertSourceTitle: "Insertar página",
+  insertCamera: "Con la cámara",
+  insertLibrary: "Desde mis fotos",
+  dragHandle: (n) => `Mover la página ${n}`,
+  dragHandleHint: "Arrastra, o pulsa Espacio y usa las flechas",
+  dragStart: (n) => `Moviendo la página ${n}. Usa las flechas y suelta con Espacio.`,
+  dragMoved: (n, pos) => `Página ${n} ahora en la posición ${pos}`,
+  dragCancel: "Movimiento cancelado",
+  moveModeTitle: (count) => `Elige dónde poner ${count === 1 ? "la página" : `las ${count} páginas`}`,
+  moveHere: "Mover aquí",
+  moveToEnd: "Al final",
+  moveCancel: "Cancelar",
+  moveDone: (pos) => `Movida a la posición ${pos}`,
+  bulkFilter: "Filtro",
+  bulkRotate: "Girar",
+  bulkDelete: "Borrar",
+  bulkMove: "Mover",
+  bulkFilterTitle: "Filtro para las páginas elegidas",
+  actionsLabel: "Acciones de las páginas elegidas",
+  moreTitle: (n) => `Página ${n}`,
+  close: "Cerrar",
+  said: {
+    added: (count) => `${count} ${count === 1 ? "página añadida" : "páginas añadidas"}`,
+    captured: (n) => `Página ${n} capturada`,
+    removed: (count) => `${count} ${count === 1 ? "página borrada" : "páginas borradas"}. Puedes deshacerlo.`,
+    rotated: (count) => `${count} ${count === 1 ? "página girada" : "páginas giradas"}`,
+    duplicated: (count) => `${count} ${count === 1 ? "página duplicada" : "páginas duplicadas"}`,
+    undone: (label) => `Deshecho: ${label}`,
+    redone: (label) => `Rehecho: ${label}`,
+    blanksRemoved: (count) => `${count} ${count === 1 ? "hoja en blanco quitada" : "hojas en blanco quitadas"}. Puedes deshacerlo.`,
+    createFailed: "No se pudo procesar una foto. Se descartó.",
+    saved: "Escaneo guardado",
+    retaken: (n) => `Página ${n} sustituida`,
+    inserted: (n) => `Página insertada en la posición ${n}`,
+    filterAll: "Ajustes aplicados a todas las páginas",
+    cancelled: "Cancelado",
+  },
+  labels: {
+    add: "añadir páginas",
+    remove: "borrar páginas",
+    rotate: "girar",
+    duplicate: "duplicar",
+    move: "mover",
+    filter: "filtro",
+    adjust: "brillo y contraste",
+    crop: "recorte",
+    retake: "repetir captura",
+    insert: "insertar página",
+    blanks: "quitar hojas en blanco",
+    orientation: "orientación automática",
+    applyAll: "aplicar a todas",
+    clear: "quitar aviso",
+  },
+  editorTitle: (n, total) => `Editar página ${n} de ${total}`,
+  editorPrev: "Página anterior",
+  editorNext: "Página siguiente",
+  editorCrop: "Recortar",
+  editorRotate: "Girar",
+  editorFilter: "Filtro",
+  editorAdjust: "Brillo y contraste",
+  editorApplyAll: "Aplicar a todas",
+  editorApplyAllDone: "Filtro y ajustes aplicados a todas las páginas",
+  brightness: "Brillo",
+  contrast: "Contraste",
+  resetAdjust: "Restablecer",
+  filterLabel: "Filtro",
+  filters: {
+    auto: "Auto",
+    color: "Color",
+    grayscale: "Grises",
+    bw: "B/N",
+    enhance: "Mejorado",
+    original: "Original",
+  },
+  editorDone: "Listo",
+  editorPreviewAlt: (n) => `Vista de la página ${n}`,
+  sheetTitle: (n, total) => `Hoja completa · página ${n} de ${total}`,
+  sheetFit: "Ajustar",
+  sheetActual: "Tamaño real",
+  sheetHint: "Amplía para revisar la nitidez del texto.",
+  cornersTitle: "Ajusta las esquinas",
+  cornersHint:
+    "Arrastra cada esquina hasta los bordes del documento; la lupa te ayuda a afinar. Con el teclado: tabula hasta una esquina y muévela con las flechas.",
+  cornersLoading: "Preparando el editor…",
+  cornersApply: "Aplicar recorte",
+  cornersReset: "Toda la foto",
+  cornersCancel: "Cerrar sin cambios",
+  cornersInvalid: "Las esquinas se cruzan",
+  saveTitle: "Guardar el PDF",
+  saveBack: "Volver a revisar",
+  nameLabel: "Nombre del archivo",
+  nameHint: "Lo propone el escáner; cámbialo si quieres.",
+  nameReset: "Usar el nombre propuesto",
+  pageSizeLabel: "Tamaño de hoja",
+  pageSizeA4: "A4",
+  pageSizeLetter: "Carta",
+  pageSizeFit: "Ajustar",
+  marginLabel: "Margen",
+  marginNone: "Sin margen",
+  marginSmall: "Pequeño",
+  marginLarge: "Grande",
+  searchable: "PDF con texto buscable",
+  searchableHint: "Reconoce el texto en tu dispositivo, sin internet. Es más lento. Desactivado por defecto.",
+  create: "Crear PDF",
+  createMeta: (count, size) => `${count} ${count === 1 ? "página" : "páginas"} · ${size}`,
+  sizeBig: "Pesa más de ~20 MB: algunos correos no lo aceptarán. Prueba la calidad «Compacta».",
+  sizeHuge: "Pesa más de ~100 MB: WhatsApp y la mayoría de correos no lo aceptarán. Usa «Compacta» o divídelo después.",
+  buildProgress: (n, total) => `Creando la página ${n} de ${total}…`,
+  buildCancelled: "Creación cancelada. Tus páginas siguen aquí.",
+  buildFailed: "No se pudo crear el PDF. Tus páginas siguen guardadas; inténtalo de nuevo.",
+  share: "Compartir",
+  shareDone: "PDF compartido",
+  shareFailed: "No se pudo compartir; usa Descargar.",
+  backToReview: "Volver a revisar",
+  newScan: "Escanear otro documento",
+  newScanHint: "Cierra este escaneo y empieza uno nuevo.",
+  leaveTitle: "¿Salir del escaneo?",
+  leaveBodySaved: (count) =>
+    `Tu escaneo (${count} ${count === 1 ? "página" : "páginas"}) está guardado en este dispositivo. Al volver podrás retomarlo durante 14 días.`,
+  leaveBodyUnsaved: (count) =>
+    `Este escaneo no está guardado en el dispositivo. Si sales, se perderán ${count} ${count === 1 ? "página" : "páginas"}.`,
+  leaveStay: "Seguir escaneando",
+  leaveLeave: "Salir",
+  noFiles: "Elige al menos una foto.",
+  notImage: "Ese archivo no es una imagen y se ha omitido.",
+  storageUnavailableHint: "Este navegador no deja guardar el escaneo (¿modo privado?). Crea el PDF antes de salir.",
+  inputFiles: "Selector de fotos y archivos de imagen",
+  inputCamera: "Captura con la cámara del sistema",
 };
+
+const EN: ScanToPdfStrings = {
+  startTitle: "Scan with your camera, lose nothing",
+  startBody:
+    "Point at the document and the page is captured on its own once it looks sharp. Review, reorder and save a PDF. Everything stays on your device and is saved as you scan.",
+  startButton: "Turn camera on",
+  starting: "Opening the camera…",
+  pickPhotos: "Choose photos",
+  pickPhotosHint: "Several at once, from your photo library or files.",
+  nativeCamera: "Use the system Camera app",
+  nativeCameraHint: "With real flash and focus; it asks you to confirm each photo.",
+  modeLabel: "What are you scanning",
+  modes: {
+    document: { label: "Document", hint: "Sheets and contracts: cropped and straightened automatically." },
+    "id-card": { label: "ID card", hint: "Front and back on a single sheet." },
+    receipt: { label: "Receipt", hint: "Long, narrow tickets: frame the whole thing." },
+    book: { label: "Book", hint: "One photo of both pages; split at the spine." },
+    whiteboard: { label: "Whiteboard", hint: "High contrast for boards and posters." },
+    photo: { label: "Photo", hint: "No crop or filter: for damage and pictures." },
+  },
+  privacy: "The video and the pages never leave your device.",
+  resumeTitle: "You have an unfinished scan",
+  resumeMeta: (count, when) => `${count} ${count === 1 ? "page" : "pages"} · ${when}`,
+  resumeAction: "Resume scan",
+  resumeDiscard: "Start over",
+  resumeDiscardTitle: "Start over?",
+  resumeDiscardBody: "The scan saved on this device will be deleted. This cannot be undone.",
+  resumeDiscardConfirm: "Delete and start",
+  resumeKeep: "Keep it",
+  resumeGone: "That scan is no longer available: it is deleted after 14 days or when discarded.",
+  resumeLoading: "Recovering your scan…",
+  resumeFailed: "The saved scan could not be recovered.",
+  cameraRegion: "Camera",
+  liveTitle: "Camera view",
+  closeCamera: "Close the camera",
+  shutter: "Capture page",
+  shutterAuto: "Automatic capture in progress",
+  review: (count) => `Review (${count})`,
+  reviewEmpty: "Review",
+  pagesBadge: (count) => `${count} ${count === 1 ? "page" : "pages"}`,
+  lastShotAlt: (n) => `Last capture: page ${n}`,
+  undoLast: "Undo",
+  undoLastDone: "Last capture undone",
+  autoOn: "Automatic capture: on",
+  autoOff: "Automatic capture: off",
+  burstOn: "Burst: stay on the camera after each page",
+  burstOff: "Burst off: review after each page",
+  torchOn: "Turn the flashlight off",
+  torchOff: "Turn the flashlight on",
+  zoomLabel: (x) => `Zoom ${x}×`,
+  switchCamera: "Switch camera",
+  importPhotos: "Import photos",
+  toolsLabel: "Camera controls",
+  hints: {
+    ok: "Ready",
+    move_closer: "Move closer",
+    move_away: "Move back a little",
+    hold_steady: "Hold steady",
+    too_dark: "More light",
+    glare: "There is glare",
+    no_document: "I can't see the document",
+    unknown: "Looking for the frame…",
+  },
+  hintPhoto: "Frame it and tap the button",
+  hintBook: "Open the book and frame both pages",
+  hintReceipt: "Frame the whole receipt",
+  hintBoard: "Frame the whiteboard",
+  autoRing: "Automatic capture",
+  idFront: "Front",
+  idBack: "Back",
+  idStep: (side, n) => `ID card · ${side} (${n} of 2)`,
+  idDone: "ID card saved on a single sheet",
+  idCombining: "Joining front and back…",
+  bookSplit: "Book split into two pages",
+  cameraErrorTitle: "The camera is not available",
+  cameraErrors: {
+    denied: "Camera access is blocked. Allow it in your browser settings or choose photos.",
+    notFound: "We could not find any camera attached to this device.",
+    busy: "Another app is using the camera. Close it and try again.",
+    insecure: "Browsers only open the camera over a secure connection (HTTPS).",
+    unsupported: "This browser cannot open the camera from a web page.",
+    unknown: "The camera could not be opened. Please try again.",
+  },
+  cameraFallbackTitle: "Carry on with your photos",
+  cameraFallbackBody: "Choose several photos from your library or files and we turn them into a PDF just as well.",
+  retryCamera: "Try again",
+  focusRing: "Focusing",
+  reviewTitle: "Review pages",
+  reviewHelp: "Tap a page to edit it. Drag the handle to reorder.",
+  statusSaved: "Saved ✓",
+  statusSaving: "Saving…",
+  statusUnsaved: "Not saved",
+  statusQuota: "Not saved: no space left",
+  statusUnavailable: "Not saved: no storage",
+  statusTooBig: "Not saved: too large",
+  addCamera: "Camera",
+  addPhotos: "Photos",
+  select: "Select",
+  selectDone: "Done",
+  selectedCount: (count) => `${count} selected`,
+  selectAll: "All",
+  undo: "Undo",
+  redo: "Redo",
+  removeBlanks: (count) => `Remove blank sheets (${count})`,
+  blanksBanner: (count) => `${count} ${count === 1 ? "sheet looks" : "sheets look"} blank`,
+  orientationNotice: (count) => `We rotated ${count} ${count === 1 ? "page that was" : "pages that were"} sideways.`,
+  orientationUndo: "Undo rotation",
+  lostPages: (count) => `${count} ${count === 1 ? "page" : "pages"} of the saved scan could not be recovered.`,
+  save: (count) => `Save PDF (${count})`,
+  saveBlocked: "Wait for the pages to finish processing.",
+  emptyTitle: "No pages left",
+  emptyBody: "Add pages with the camera or from your photos.",
+  gridLabel: "Scan pages",
+  tileLabel: (n, total, flags) => `Page ${n} of ${total}${flags.length ? `, ${flags.join(", ")}` : ""}`,
+  quality: {
+    blank: { label: "Blank", action: "Remove", tip: "Looks like a blank sheet" },
+    blurry: { label: "Blurry", action: "Retake", tip: "It looks blurry" },
+    glare: { label: "Glare", action: "Retake", tip: "It has reflections" },
+    dark: { label: "Dark", action: "Retake", tip: "It is too dark" },
+    duplicate: { label: "Repeated", action: "Remove", tip: "Looks like a repeat" },
+    noDocument: { label: "No document", action: "Crop", tip: "The document was not detected" },
+  },
+  chipAction: (n, label, action) => `Page ${n}: ${label}. ${action}`,
+  thumbAlt: (n) => `Page ${n}`,
+  processing: "Processing…",
+  rotate: (n) => `Rotate page ${n}`,
+  remove: (n) => `Delete page ${n}`,
+  more: (n) => `More actions for page ${n}`,
+  edit: "Edit page",
+  retake: "Retake",
+  duplicate: "Duplicate",
+  insertBefore: "Insert page before",
+  insertAfter: "Insert page after",
+  moveTo: "Move elsewhere",
+  viewSheet: "View full sheet",
+  moveUp: "Move earlier",
+  moveDown: "Move later",
+  insertSourceTitle: "Insert page",
+  insertCamera: "With the camera",
+  insertLibrary: "From my photos",
+  dragHandle: (n) => `Move page ${n}`,
+  dragHandleHint: "Drag, or press Space and use the arrow keys",
+  dragStart: (n) => `Moving page ${n}. Use the arrow keys and drop with Space.`,
+  dragMoved: (n, pos) => `Page ${n} now at position ${pos}`,
+  dragCancel: "Move cancelled",
+  moveModeTitle: (count) => `Choose where to put ${count === 1 ? "the page" : `the ${count} pages`}`,
+  moveHere: "Move here",
+  moveToEnd: "To the end",
+  moveCancel: "Cancel",
+  moveDone: (pos) => `Moved to position ${pos}`,
+  bulkFilter: "Filter",
+  bulkRotate: "Rotate",
+  bulkDelete: "Delete",
+  bulkMove: "Move",
+  bulkFilterTitle: "Filter for the chosen pages",
+  actionsLabel: "Actions for the chosen pages",
+  moreTitle: (n) => `Page ${n}`,
+  close: "Close",
+  said: {
+    added: (count) => `${count} ${count === 1 ? "page added" : "pages added"}`,
+    captured: (n) => `Page ${n} captured`,
+    removed: (count) => `${count} ${count === 1 ? "page deleted" : "pages deleted"}. You can undo it.`,
+    rotated: (count) => `${count} ${count === 1 ? "page rotated" : "pages rotated"}`,
+    duplicated: (count) => `${count} ${count === 1 ? "page duplicated" : "pages duplicated"}`,
+    undone: (label) => `Undone: ${label}`,
+    redone: (label) => `Redone: ${label}`,
+    blanksRemoved: (count) => `${count} ${count === 1 ? "blank sheet removed" : "blank sheets removed"}. You can undo it.`,
+    createFailed: "A photo could not be processed. It was discarded.",
+    saved: "Scan saved",
+    retaken: (n) => `Page ${n} replaced`,
+    inserted: (n) => `Page inserted at position ${n}`,
+    filterAll: "Settings applied to every page",
+    cancelled: "Cancelled",
+  },
+  labels: {
+    add: "add pages",
+    remove: "delete pages",
+    rotate: "rotate",
+    duplicate: "duplicate",
+    move: "move",
+    filter: "filter",
+    adjust: "brightness and contrast",
+    crop: "crop",
+    retake: "retake",
+    insert: "insert page",
+    blanks: "remove blank sheets",
+    orientation: "automatic orientation",
+    applyAll: "apply to all",
+    clear: "dismiss notice",
+  },
+  editorTitle: (n, total) => `Edit page ${n} of ${total}`,
+  editorPrev: "Previous page",
+  editorNext: "Next page",
+  editorCrop: "Crop",
+  editorRotate: "Rotate",
+  editorFilter: "Filter",
+  editorAdjust: "Brightness and contrast",
+  editorApplyAll: "Apply to all",
+  editorApplyAllDone: "Filter and settings applied to every page",
+  brightness: "Brightness",
+  contrast: "Contrast",
+  resetAdjust: "Reset",
+  filterLabel: "Filter",
+  filters: {
+    auto: "Auto",
+    color: "Colour",
+    grayscale: "Greys",
+    bw: "B/W",
+    enhance: "Enhanced",
+    original: "Original",
+  },
+  editorDone: "Done",
+  editorPreviewAlt: (n) => `View of page ${n}`,
+  sheetTitle: (n, total) => `Full sheet · page ${n} of ${total}`,
+  sheetFit: "Fit",
+  sheetActual: "Actual size",
+  sheetHint: "Zoom in to check how sharp the text is.",
+  cornersTitle: "Adjust the corners",
+  cornersHint:
+    "Drag each corner onto the edges of the document; the magnifier helps you fine-tune. With a keyboard: tab to a corner and move it with the arrow keys.",
+  cornersLoading: "Getting the editor ready…",
+  cornersApply: "Apply crop",
+  cornersReset: "Whole photo",
+  cornersCancel: "Close without changes",
+  cornersInvalid: "The corners cross over",
+  saveTitle: "Save the PDF",
+  saveBack: "Back to review",
+  nameLabel: "File name",
+  nameHint: "Suggested by the scanner; change it if you like.",
+  nameReset: "Use the suggested name",
+  pageSizeLabel: "Sheet size",
+  pageSizeA4: "A4",
+  pageSizeLetter: "Letter",
+  pageSizeFit: "Fit",
+  marginLabel: "Margin",
+  marginNone: "No margin",
+  marginSmall: "Small",
+  marginLarge: "Large",
+  searchable: "Searchable PDF",
+  searchableHint: "Recognises the text on your device, without internet. It is slower. Off by default.",
+  create: "Create PDF",
+  createMeta: (count, size) => `${count} ${count === 1 ? "page" : "pages"} · ${size}`,
+  sizeBig: "Over ~20 MB: some email services will reject it. Try the “Compact” quality.",
+  sizeHuge: "Over ~100 MB: WhatsApp and most email services will not accept it. Use “Compact” or split it afterwards.",
+  buildProgress: (n, total) => `Creating page ${n} of ${total}…`,
+  buildCancelled: "Creation cancelled. Your pages are still here.",
+  buildFailed: "The PDF could not be created. Your pages are still saved; try again.",
+  share: "Share",
+  shareDone: "PDF shared",
+  shareFailed: "Could not share; use Download.",
+  backToReview: "Back to review",
+  newScan: "Scan another document",
+  newScanHint: "Closes this scan and starts a new one.",
+  leaveTitle: "Leave the scan?",
+  leaveBodySaved: (count) =>
+    `Your scan (${count} ${count === 1 ? "page" : "pages"}) is saved on this device. When you come back you can resume it for 14 days.`,
+  leaveBodyUnsaved: (count) =>
+    `This scan is not saved on the device. If you leave, ${count} ${count === 1 ? "page" : "pages"} will be lost.`,
+  leaveStay: "Keep scanning",
+  leaveLeave: "Leave",
+  noFiles: "Choose at least one photo.",
+  notImage: "That file is not an image and was skipped.",
+  storageUnavailableHint: "This browser cannot save the scan (private mode?). Create the PDF before leaving.",
+  inputFiles: "Photo and image file picker",
+  inputCamera: "Capture with the system camera",
+};
+
+export const STRINGS: Record<Language, ScanToPdfStrings> = { es: ES, en: EN };

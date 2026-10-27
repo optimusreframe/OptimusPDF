@@ -285,6 +285,8 @@ export const SETTINGS_NEVER_EXPORTED_KEYS: readonly string[] = [
   "optimuspdf.sign-drafts.signal",
   // «Calidad de imagen» de Imagenes a PDF / Escanear a PDF: preferencia de CADA dispositivo (pantalla, espacio, red), no viaja.
   "optimuspdf.imageQuality",
+  // Escanear a PDF: captura automatica, rafaga y ultimo modo (de CADA dispositivo: camara y pantalla distintas), no viaja.
+  "optimuspdf.scan.prefs",
 ];
 
 /** Comparacion estable de dos valores de ajuste (el objeto con las claves en cualquier orden). */

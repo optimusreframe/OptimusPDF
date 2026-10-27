@@ -1,378 +1,411 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { DetectedQuad } from "@/lib/scan/documentDetection";
-import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
+import "fake-indexeddb/auto";
+import { useEffect } from "react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider, useI18n, type Language } from "@/lib/i18n";
+import { __resetNavigationGuardForTests, interceptNavigation } from "@/lib/navigationGuard";
+import { createFakeEngine, makeBarePage, newControls, type FakeEngine } from "@/lib/scan/testing/fakeEngine";
+import { createFakeStore, type FakeStore } from "@/lib/scan/testing/fakeStore";
+import { tinyJpegBytes, tinyJpegFile } from "@/lib/scan/testing/testImages";
+import { DEFAULT_SCAN_SETTINGS, type ScanSession } from "@/lib/scan/types";
+import { ScanToPdfClient } from "@/app/scan-to-pdf/ScanToPdfClient";
 import { STRINGS } from "@/app/scan-to-pdf/strings";
-import {
-  ScanToPdfClient,
-  canGenerate,
-} from "@/app/scan-to-pdf/ScanToPdfClient";
-import type { ScanCapture } from "@/app/scan-to-pdf/CaptureStrip";
 
 /**
- * Lo que se comprueba aqui es el gate de generacion: mientras queda algun
- * paso asincrono por resolver sobre una captura (`pending`), el PDF no se
- * puede componer — si se compusiera, usaria la foto cruda y lo que
- * termine despues no llegaria nunca al resultado.
- *
- * Los dos pasos —enderezado por EXIF y deteccion de bordes— se sustituyen
- * por promesas que se resuelven a mano, que es la unica forma de mantener
- * una captura en `pending` de forma determinista (ambos motores reales
- * necesitan canvas y WASM del navegador).
+ * Interfaz del Escaner contra el MOTOR y el ALMACEN falsos inyectados con los ganchos de pruebas (como en el E2E). Sin canvas
+ * (jsdom) el motor falso no tiene pixeles: las paginas son validas pero sin recorte; la logica de la interfaz se prueba igual.
  */
-const detection = vi.hoisted(() => {
-  let settle: (value: DetectedQuad | null) => void = () => {};
-  let started = 0;
-  return {
-    reset() {
-      settle = () => {};
-      started = 0;
-    },
-    get started() {
-      return started;
-    },
-    resolveWith(value: DetectedQuad | null) {
-      settle(value);
-    },
-    detect: () =>
-      new Promise<DetectedQuad | null>((resolve) => {
-        started += 1;
-        settle = resolve;
-      }),
-  };
-});
-
-/** Por defecto resuelve al instante; con `hold()` se queda colgado. */
-const orientation = vi.hoisted(() => {
-  let release: (() => void) | null = null;
-  let holdNext = false;
-  return {
-    reset() {
-      release = null;
-      holdNext = false;
-    },
-    hold() {
-      holdNext = true;
-    },
-    release() {
-      release?.();
-      release = null;
-    },
-    normalize: (source: Blob) => {
-      if (!holdNext) return Promise.resolve(source);
-      holdNext = false;
-      return new Promise<Blob>((resolve) => {
-        release = () => resolve(source);
-      });
-    },
-  };
-});
-
-const scanToPdfMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/lib/scan/documentDetection", () => ({
-  preloadDocumentDetection: () => {},
-  detectDocumentInBlob: () => detection.detect(),
-}));
-
-vi.mock("@/lib/pdf/scanToPdf", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/pdf/scanToPdf")>();
-  return {
-    ...actual,
-    scanToPdf: scanToPdfMock,
-    normalizeImageOrientation: (source: Blob) => orientation.normalize(source),
-  };
-});
-
-const s = STRINGS.es;
+let engine: FakeEngine;
+let store: FakeStore;
 
 beforeAll(() => {
-  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
-
-  // Piezas que jsdom no trae y de las que depende esta pantalla.
-  window.matchMedia ??= ((query: string) => ({
-    matches: false,
-    media: query,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  })) as unknown as typeof window.matchMedia;
-  URL.createObjectURL ??= () => "blob:scan-test";
-  URL.revokeObjectURL ??= () => {};
+  window.matchMedia ??= ((query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })) as unknown as typeof window.matchMedia;
+  // jsdom no calcula cajas: el foco solo se da a elementos pintados.
+  Element.prototype.getClientRects = function getClientRects() {
+    return [{ width: 1, height: 1 }] as unknown as DOMRectList;
+  };
+  let count = 0;
+  URL.createObjectURL = () => `blob:test-${(count += 1)}`;
+  URL.revokeObjectURL = () => {};
+  HTMLCanvasElement.prototype.getContext = (() => null) as unknown as HTMLCanvasElement["getContext"];
+  // jsdom: `Blob.arrayBuffer` (el PDF falso lee los bytes de las paginas).
+  if (!Blob.prototype.arrayBuffer) {
+    Blob.prototype.arrayBuffer = function arrayBuffer(this: Blob) {
+      return new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(this);
+      });
+    };
+  }
 });
 
 beforeEach(() => {
-  scanToPdfMock.mockReset();
-  detection.reset();
-  orientation.reset();
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
+  engine = createFakeEngine(newControls());
+  store = createFakeStore({ backend: "memory" });
+  globalThis.__optimusScanEngine = engine;
+  globalThis.__optimusScanStore = store;
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  delete globalThis.__optimusScanEngine;
+  delete globalThis.__optimusScanStore;
+  __resetNavigationGuardForTests();
 });
 
-function photo(): File {
-  return new File([new Uint8Array([137, 80, 78, 71])], "pagina.png", {
-    type: "image/png",
-  });
+const es = STRINGS.es;
+const en = STRINGS.en;
+
+/** El idioma vive en un almacen del modulo: se cambia por el propio selector (`setLanguage`), no tocando localStorage. */
+function SetLanguage({ language }: { language: Language }) {
+  const { setLanguage } = useI18n();
+  useEffect(() => setLanguage(language), [language, setLanguage]);
+  return null;
 }
 
-function generateButtons(): HTMLButtonElement[] {
-  return screen.getAllByRole("button", {
-    name: s.generate,
-  }) as HTMLButtonElement[];
-}
-
-function nativeInput(container: HTMLElement): HTMLInputElement {
-  const input = container.querySelector<HTMLInputElement>(
-    'input[type="file"][capture]',
+function mount(language: Language = "es") {
+  return render(
+    <LanguageProvider>
+      <SetLanguage language={language} />
+      <ScanToPdfClient />
+    </LanguageProvider>,
   );
-  expect(input).not.toBeNull();
-  return input!;
 }
 
-/** Añade una foto por el input de archivos del escenario de camara. */
-async function addPhoto(container: HTMLElement) {
-  const input = container.querySelector<HTMLInputElement>(
-    'input[type="file"]:not([capture])',
-  );
-  expect(input).not.toBeNull();
-  fireEvent.change(input!, { target: { files: [photo()] } });
-  await waitFor(() => expect(screen.getByAltText(`${s.captureAlt} 1`)).toBeTruthy());
+function libraryInput(): HTMLInputElement {
+  return document.querySelector<HTMLInputElement>('input[data-scan-input="library"]')!;
 }
 
-function capture(overrides: Partial<ScanCapture> = {}): ScanCapture {
-  return {
-    id: "1",
-    originalBlob: new Blob(),
-    blob: new Blob(),
-    url: "blob:x",
-    corners: null,
-    cornersSource: null,
-    pending: false,
-    ...overrides,
-  };
+async function importFiles(names: string[]) {
+  const files = names.map((name, index) => tinyJpegFile(name, 64, 80, index + 1));
+  fireEvent.change(libraryInput(), { target: { files } });
+  await waitFor(() => expect(document.querySelectorAll("[data-page-grid] [data-page-id]")).toHaveLength(names.length));
+  await waitFor(() => expect(document.querySelectorAll("[data-tile-processing]")).toHaveLength(0));
 }
 
-describe("canGenerate — src/app/scan-to-pdf/ScanToPdfClient.tsx", () => {
-  it("sin capturas, no se puede generar", () => {
-    expect(canGenerate([])).toBe(false);
+const tiles = () => Array.from(document.querySelectorAll<HTMLElement>("[data-page-grid] [data-page-id]"));
+const order = () => tiles().map((tile) => tile.getAttribute("data-page-id"));
+
+describe("inicio", () => {
+  it("un solo camino principal (camara), las fotos como alternativa, los modos y el resumen de privacidad", () => {
+    mount();
+    expect(screen.getAllByRole("button", { name: es.startButton })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: es.pickPhotos })).toHaveLength(1);
+    const group = screen.getByRole("group", { name: es.modeLabel });
+    const chips = within(group).getAllByRole("button");
+    expect(chips.map((chip) => chip.textContent)).toEqual(["Documento", "Identificación", "Recibo", "Libro", "Pizarra", "Foto"]);
+    expect(within(group).getByRole("button", { name: "Documento" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText(es.privacy)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /guardar pdf/i })).toBeNull();
   });
 
-  it("con una captura todavia en deteccion, no se puede generar", () => {
-    expect(canGenerate([capture(), capture({ id: "2", pending: true })])).toBe(
-      false,
-    );
+  it("en ingles todo esta traducido", async () => {
+    mount("en");
+    expect(await screen.findByRole("button", { name: en.startButton })).toBeTruthy();
+    expect(screen.getByRole("button", { name: en.pickPhotos })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ID card" })).toBeTruthy();
   });
 
-  it("con todas las capturas resueltas, se puede generar", () => {
-    expect(canGenerate([capture(), capture({ id: "2" })])).toBe(true);
-  });
-});
-
-describe("ScanToPdfClient — src/app/scan-to-pdf/ScanToPdfClient.tsx", () => {
-  it("no genera el PDF mientras el recorte automatico sigue en curso, y si lo hace en cuanto termina", async () => {
-    scanToPdfMock.mockReturnValue(new Promise<Blob>(() => {}));
-
-    const { container } = render(
-      <LanguageProvider>
-        <ScanToPdfClient />
-      </LanguageProvider>,
-    );
-
-    await addPhoto(container);
-
-    // La deteccion sigue viva: la captura esta `pending`.
-    expect(screen.getByLabelText(s.cropping)).toBeTruthy();
-    for (const button of generateButtons()) expect(button.disabled).toBe(true);
-
-    for (const button of generateButtons()) fireEvent.click(button);
-    expect(scanToPdfMock).not.toHaveBeenCalled();
-
-    // Sin documento detectado: la captura queda sin recorte, pero resuelta.
-    detection.resolveWith(null);
-    await waitFor(() => expect(screen.queryByLabelText(s.cropping)).toBeNull());
-    for (const button of generateButtons()) expect(button.disabled).toBe(false);
-
-    fireEvent.click(generateButtons()[0]);
-    expect(scanToPdfMock).toHaveBeenCalledTimes(1);
+  it("elegir un modo cambia su descripcion y se recuerda en este dispositivo", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Recibo" }));
+    expect(document.querySelector("[data-mode-hint]")?.textContent).toBe(es.modes.receipt.hint);
+    expect(JSON.parse(window.localStorage.getItem("optimuspdf.scan.prefs") ?? "{}").mode).toBe("receipt");
   });
 
-  it("no genera el PDF mientras la foto importada se esta enderezando por su EXIF", async () => {
-    scanToPdfMock.mockReturnValue(new Promise<Blob>(() => {}));
-    orientation.hold();
-
-    const { container } = render(
-      <LanguageProvider>
-        <ScanToPdfClient />
-      </LanguageProvider>,
-    );
-
-    await addPhoto(container);
-
-    // Antes se publicaba la captura solo despues del enderezado: hasta
-    // entonces no habia nada `pending` y el boton quedaba abierto.
-    expect(detection.started).toBe(0);
-    expect(screen.getByLabelText(s.cropping)).toBeTruthy();
-    for (const button of generateButtons()) expect(button.disabled).toBe(true);
-
-    for (const button of generateButtons()) fireEvent.click(button);
-    expect(scanToPdfMock).not.toHaveBeenCalled();
-
-    // Enderezada, pero encadena con la deteccion: el gate sigue cerrado.
-    orientation.release();
-    await waitFor(() => expect(detection.started).toBe(1));
-    expect(screen.getByLabelText(s.cropping)).toBeTruthy();
-    for (const button of generateButtons()) expect(button.disabled).toBe(true);
-
-    detection.resolveWith(null);
-    await waitFor(() => expect(screen.queryByLabelText(s.cropping)).toBeNull());
-    for (const button of generateButtons()) expect(button.disabled).toBe(false);
-  });
-});
-
-/**
- * La rafaga existe porque abrir la app de Camara una vez por pagina es
- * demasiado lento: cada foto que vuelve tiene que reabrirla sola, y el
- * bucle solo lo corta "Terminar" —el `change` del input nunca avisa de un
- * "cancelar"—.
- */
-describe("rafaga con la camara del sistema — src/app/scan-to-pdf/CameraStage.tsx", () => {
-  it("reabre la camara tras cada foto y para al pulsar Terminar", async () => {
-    const openCamera = vi
-      .spyOn(HTMLInputElement.prototype, "click")
-      .mockImplementation(() => {});
-
-    const { container } = render(
-      <LanguageProvider>
-        <ScanToPdfClient />
-      </LanguageProvider>,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: s.nativeCamera }));
-    expect(openCamera).toHaveBeenCalledTimes(1);
-    expect(
-      screen.getByText(s.burstCount.replace("{count}", "0")),
-    ).toBeTruthy();
-
-    fireEvent.change(nativeInput(container), { target: { files: [photo()] } });
-    await waitFor(() =>
-      expect(screen.getByAltText(`${s.captureAlt} 1`)).toBeTruthy(),
-    );
-    expect(openCamera).toHaveBeenCalledTimes(2);
-    expect(
-      screen.getByText(s.burstCount.replace("{count}", "1")),
-    ).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: s.burstDone }));
-    expect(screen.queryByText(s.burstTitle)).toBeNull();
-
-    // Fuera del modo, una foto tardia se guarda pero ya no reabre nada.
-    fireEvent.change(nativeInput(container), { target: { files: [photo()] } });
-    await waitFor(() =>
-      expect(screen.getByAltText(`${s.captureAlt} 2`)).toBeTruthy(),
-    );
-    expect(openCamera).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("ScanToPdfClient — el foco nunca cae a <body> (Wave 6 · V-G)", () => {
-  const originalRects = Element.prototype.getClientRects;
-  beforeAll(() => {
-    // jsdom no calcula cajas: el foco solo se da a elementos pintados.
-    Element.prototype.getClientRects = function getClientRects() {
-      return [{ width: 1, height: 1 }] as unknown as DOMRectList;
-    };
-  });
-  afterAll(() => {
-    Element.prototype.getClientRects = originalRects;
-  });
-
-  async function addTwoPhotos(container: HTMLElement) {
-    const input = container.querySelector<HTMLInputElement>('input[type="file"]:not([capture])');
-    expect(input).not.toBeNull();
-    for (const count of [1, 2]) {
-      fireEvent.change(input!, { target: { files: [photo()] } });
-      await waitFor(() => expect(screen.getAllByAltText(new RegExp(`^${s.captureAlt} `))).toHaveLength(count));
-      detection.resolveWith(null);
-      await waitFor(() => expect(screen.queryByLabelText(s.cropping)).toBeNull());
+  it("los dos inputs de archivo ocultos tienen nombre propio, estan fuera de Tab y fuera del arbol de accesibilidad", () => {
+    mount();
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+    expect(inputs.length).toBeGreaterThanOrEqual(2);
+    for (const input of inputs) {
+      expect(input.getAttribute("aria-label")).toBeTruthy();
+      expect(input.getAttribute("aria-hidden")).toBe("true");
+      expect(input.tabIndex).toBe(-1);
     }
-  }
+    expect(new Set(inputs.map((input) => input.getAttribute("aria-label"))).size).toBe(inputs.length);
+    expect(libraryInput().multiple).toBe(true);
+    expect(libraryInput().accept).toBe("image/*");
+  });
+});
 
-  const removeButtons = () => screen.getAllByRole("button", { name: s.removeCapture }) as HTMLButtonElement[];
-
-  it("descartar una captura (hay mas): el foco va al «Descartar» de la que ocupa su sitio", async () => {
-    const { container } = render(
-      <LanguageProvider>
-        <ScanToPdfClient />
-      </LanguageProvider>,
-    );
-    await addTwoPhotos(container);
-    const [first] = removeButtons();
-    first.focus();
-    fireEvent.click(first);
-    await waitFor(() => expect(removeButtons()).toHaveLength(1));
-    expect(document.activeElement).toBe(removeButtons()[0]);
+describe("importar y revisar", () => {
+  it("varias fotos a la vez: una tarjeta por foto, en el orden elegido, con nombre accesible «Pagina n de N»", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg", "c.jpg"]);
+    expect(engine.controls.createLog).toEqual(["a.jpg", "b.jpg", "c.jpg"]);
+    expect(screen.getByRole("button", { name: "Página 1 de 3" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Página 3 de 3" })).toBeTruthy();
+    // El motor procesa una foto a la vez.
+    expect(engine.controls.peakConcurrent).toBe(1);
+    expect(screen.getByRole("button", { name: es.save(3) })).toBeTruthy();
   });
 
-  it("descartar la ultima captura: el foco va a la camara (nunca <body>)", async () => {
-    const { container } = render(
-      <LanguageProvider>
-        <ScanToPdfClient />
-      </LanguageProvider>,
-    );
-    await addTwoPhotos(container);
-    fireEvent.click(removeButtons()[0]);
-    await waitFor(() => expect(removeButtons()).toHaveLength(1));
-    fireEvent.click(removeButtons()[0]);
-    await waitFor(() => expect(screen.queryAllByRole("button", { name: s.removeCapture })).toHaveLength(0));
-    expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement?.closest("[data-camera-stage]")).toBeTruthy();
+  it("un archivo que no es imagen se omite con aviso y el resto sigue", async () => {
+    mount();
+    const files = [tinyJpegFile("a.jpg"), new File(["hola"], "nota.txt", { type: "text/plain" })];
+    fireEvent.change(libraryInput(), { target: { files } });
+    await waitFor(() => expect(tiles()).toHaveLength(1));
+    await waitFor(() => expect(document.querySelector("[data-scan-live]")?.textContent).toContain(es.notImage));
   });
 
-  it("mover una captura: el foco sigue en una flecha de ESA captura", async () => {
-    const { container } = render(
-      <LanguageProvider>
-        <ScanToPdfClient />
-      </LanguageProvider>,
-    );
-    await addTwoPhotos(container);
-    const firstId = container.querySelector("[data-capture-id]")!.getAttribute("data-capture-id");
-    const down = container.querySelector('[data-capture-id] [data-capture-action="down"]') as HTMLButtonElement;
-    down.focus();
-    fireEvent.click(down);
-    await waitFor(() => expect(container.querySelectorAll("[data-capture-id]")[1].getAttribute("data-capture-id")).toBe(firstId));
-    expect(document.activeElement?.closest("[data-capture-id]")?.getAttribute("data-capture-id")).toBe(firstId);
+  it("chips de calidad con accion de un toque: «En blanco → Quitar» y «Quitar hojas en blanco»", async () => {
+    mount();
+    await importFiles(["a.jpg", "b-blank.jpg", "c.jpg", "d-blank.jpg"]);
+    expect(document.querySelectorAll('[data-quality-chip="blank"]')).toHaveLength(2);
+    expect(document.querySelector('[data-banner="blanks"]')?.textContent).toContain("2 hojas parecen estar en blanco");
+    const ids = order();
+    fireEvent.click(screen.getByRole("button", { name: "Página 2: En blanco. Quitar" }));
+    expect(order()).toEqual([ids[0], ids[2], ids[3]]);
+    fireEvent.click(screen.getByRole("button", { name: es.removeBlanks(1) }));
+    expect(order()).toEqual([ids[0], ids[2]]);
+    // Deshacer y rehacer.
+    fireEvent.click(screen.getByRole("button", { name: es.undo }));
+    expect(order()).toEqual([ids[0], ids[2], ids[3]]);
+    fireEvent.click(screen.getByRole("button", { name: es.redo }));
+    expect(order()).toEqual([ids[0], ids[2]]);
   });
 
-  it("editor de esquinas: el foco entra en el dialogo y «Cerrar sin cambios» lo devuelve a «Editar recorte» de la captura", async () => {
-    const { container } = render(
-      <LanguageProvider>
-        <ScanToPdfClient />
-      </LanguageProvider>,
-    );
-    await addTwoPhotos(container);
-    const edit = container.querySelector('[data-capture-id] [data-capture-action="edit"]') as HTMLButtonElement;
-    const id = edit.closest("[data-capture-id]")!.getAttribute("data-capture-id");
-    edit.focus();
-    fireEvent.click(edit);
-    const close = await screen.findByRole("button", { name: s.cornersCancel });
-    await waitFor(() => expect(document.activeElement).toBe(close));
-    fireEvent.click(close);
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(
-      container.querySelector(`[data-capture-id="${id}"] [data-capture-action="edit"]`),
-    );
+  it("«Repetida → Quitar», «Borrosa» y «Sin documento» muestran su accion", async () => {
+    mount();
+    await importFiles(["a.jpg", "b-blurry.jpg", "c-dup.jpg", "d-nodoc.jpg"]);
+    expect(screen.getByRole("button", { name: "Página 2: Borrosa. Repetir" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Página 3: Repetida. Quitar" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Página 4: Sin documento. Recortar" })).toBeTruthy();
   });
 
-  it("con la hoja de opciones abierta, la barra de fondo y la columna principal estan inertes", async () => {
-    const { container } = render(
-      <LanguageProvider>
-        <ScanToPdfClient />
-      </LanguageProvider>,
-    );
-    const bar = container.querySelector("[data-workspace-bar]") as HTMLElement;
-    expect(bar.hasAttribute("inert")).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Opciones" }));
-    await waitFor(() => expect(bar.hasAttribute("inert")).toBe(true));
+  it("girar, duplicar y borrar con las acciones de la tarjeta; borrar es deshacible y se anuncia en la region viva", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg", "c.jpg"]);
+    const ids = order();
+    fireEvent.click(screen.getByRole("button", { name: "Girar la página 2" }));
+    await waitFor(() => expect(engine.controls.calls.renderPage).toBeGreaterThanOrEqual(1));
+    fireEvent.click(screen.getByRole("button", { name: "Más acciones de la página 1" }));
+    fireEvent.click(await screen.findByRole("button", { name: es.duplicate }));
+    await waitFor(() => expect(tiles()).toHaveLength(4));
+    expect(order()[0]).toBe(ids[0]);
+    expect(order()[2]).toBe(ids[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Borrar la página 3" }));
+    expect(tiles()).toHaveLength(3);
+    await waitFor(() => expect(document.querySelector("[data-scan-live]")?.textContent).toContain("1 página borrada"));
+    fireEvent.click(screen.getByRole("button", { name: es.undo }));
+    expect(tiles()).toHaveLength(4);
+  });
+
+  it("una sola region viva en toda la herramienta", async () => {
+    mount();
+    await importFiles(["a.jpg"]);
+    expect(document.querySelectorAll("[role=status][aria-live]")).toHaveLength(1);
+    expect(document.querySelectorAll("[role=alert]")).toHaveLength(0);
+  });
+
+  it("orientacion automatica: gira las de lado, avisa y el aviso se deshace", async () => {
+    mount();
+    await importFiles(["a.jpg", "b-sideways.jpg"]);
+    await waitFor(() => expect(document.querySelector('[data-banner="orientation"]')?.textContent).toContain("Giramos 1 página que estaba de lado."));
+    fireEvent.click(screen.getByRole("button", { name: es.orientationUndo }));
+    expect(document.querySelector('[data-banner="orientation"]')).toBeNull();
+  });
+
+  it("seleccion multiple: la barra contextual borra lo marcado", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg", "c.jpg", "d.jpg"]);
+    const ids = order();
+    fireEvent.click(screen.getByRole("button", { name: es.select }));
+    fireEvent.click(screen.getByRole("button", { name: /Página 2 de 4/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Página 3 de 4/ }));
+    expect(document.querySelector("[data-selected-count]")?.textContent).toBe("2 seleccionadas");
+    fireEvent.click(screen.getByRole("button", { name: es.bulkDelete }));
+    expect(order()).toEqual([ids[0], ids[3]]);
+  });
+
+  it("reordenar con el teclado desde el asa: flechas y UN solo paso de deshacer", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg", "c.jpg"]);
+    const ids = order();
+    const handle = () => document.querySelector<HTMLElement>(`[data-page-id="${ids[0]}"] [data-drag-handle]`)!;
+    fireEvent.keyDown(handle(), { key: "ArrowRight" });
+    fireEvent.keyDown(handle(), { key: "ArrowRight" });
+    expect(order()).toEqual([ids[1], ids[2], ids[0]]);
+    fireEvent.click(screen.getByRole("button", { name: es.undo }));
+    expect(order()).toEqual(ids);
+  });
+});
+
+describe("persistencia", () => {
+  it("se guarda sola: la sesion esta en el almacen con sus paginas y «Guardado ✓» es visible", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg"]);
+    await waitFor(() => expect(document.querySelector("[data-save-status]")?.textContent).toBe(es.statusSaved), { timeout: 5000 });
+    const list = await store.list();
+    expect(list).toHaveLength(1);
+    expect(list[0].pageCount).toBe(2);
+  });
+
+  it("una sesion que se queda sin paginas se borra del almacen (no queda un «escaneo sin terminar» vacio)", async () => {
+    mount();
+    await importFiles(["a.jpg"]);
+    await waitFor(async () => expect(await store.list()).toHaveLength(1), { timeout: 5000 });
+    fireEvent.click(screen.getByRole("button", { name: "Borrar la página 1" }));
+    await waitFor(async () => expect(await store.list()).toHaveLength(0), { timeout: 5000 });
+    expect(screen.getByText(es.emptyTitle)).toBeTruthy();
+  });
+
+  it("«Retomar escaneo»: banner con nº de paginas; Retomar restaura y «Empezar de nuevo» borra tras confirmar", async () => {
+    const saved: ScanSession = {
+      id: "scan-prev-1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      name: "Contrato",
+      settings: DEFAULT_SCAN_SETTINGS,
+      pages: [makeBarePage("p1"), makeBarePage("p2"), makeBarePage("p3")],
+    };
+    await store.save(saved);
+    mount();
+    const banner = await screen.findByRole("region", { name: es.resumeTitle });
+    expect(banner.textContent).toContain("3 páginas");
+    expect(banner.textContent).toContain("Contrato");
+    fireEvent.click(within(banner).getByRole("button", { name: es.resumeAction }));
+    await waitFor(() => expect(tiles()).toHaveLength(3));
+    expect(order()).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("«Empezar de nuevo» pide confirmacion antes de borrar", async () => {
+    await store.save({ id: "scan-prev-2", createdAt: "", updatedAt: new Date().toISOString(), name: "", settings: DEFAULT_SCAN_SETTINGS, pages: [makeBarePage("p1")] });
+    mount();
+    const banner = await screen.findByRole("region", { name: es.resumeTitle });
+    fireEvent.click(within(banner).getByRole("button", { name: es.resumeDiscard }));
+    fireEvent.click(await screen.findByRole("button", { name: es.resumeKeep }));
+    expect(await store.list()).toHaveLength(1);
+    fireEvent.click(within(banner).getByRole("button", { name: es.resumeDiscard }));
+    fireEvent.click(await screen.findByRole("button", { name: es.resumeDiscardConfirm }));
+    await waitFor(async () => expect(await store.list()).toHaveLength(0));
+    await waitFor(() => expect(screen.queryByRole("region", { name: es.resumeTitle })).toBeNull());
+  });
+
+  it("con `?scan=<id>` se restaura sola; un id que ya no existe lo dice y limpia la direccion", async () => {
+    await store.save({ id: "scan-prev-3", createdAt: "", updatedAt: new Date().toISOString(), name: "", settings: DEFAULT_SCAN_SETTINGS, pages: [makeBarePage("p1"), makeBarePage("p2")] });
+    window.history.replaceState(null, "", "/scan-to-pdf?scan=scan-prev-3");
+    const first = mount();
+    await waitFor(() => expect(tiles()).toHaveLength(2));
+    first.unmount();
+    window.history.replaceState(null, "", "/scan-to-pdf?scan=scan-no-existe");
+    mount();
+    expect(await screen.findByText(es.resumeGone)).toBeTruthy();
+    expect(window.location.search).toBe("");
+  });
+
+  it("si el almacen no puede guardar, lo dice (no guardado) y la hoja de salida avisa de que se perderia", async () => {
+    store.controls.unavailable = true;
+    mount();
+    await importFiles(["a.jpg", "b.jpg"]);
+    await waitFor(() => expect(document.querySelector("[data-save-status]")?.textContent).toBe(es.statusUnavailable), { timeout: 5000 });
+    expect(document.querySelector('[data-banner="storage"]')).not.toBeNull();
+    act(() => {
+      interceptNavigation("/merge-pdf", () => {});
+    });
+    const dialog = await screen.findByRole("dialog", { name: es.leaveTitle });
+    expect(dialog.textContent).toContain(es.leaveBodyUnsaved(2));
+  });
+
+  it("al salir con todo guardado, la hoja lo dice y la opcion segura (seguir) es la primaria", async () => {
+    mount();
+    await importFiles(["a.jpg"]);
+    await waitFor(() => expect(document.querySelector("[data-save-status]")?.textContent).toBe(es.statusSaved), { timeout: 5000 });
+    act(() => {
+      interceptNavigation("/merge-pdf", () => {});
+    });
+    const dialog = await screen.findByRole("dialog", { name: es.leaveTitle });
+    expect(dialog.textContent).toContain(es.leaveBodySaved(1));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: es.leaveStay })).toBe(document.activeElement));
+  });
+
+  it("cuota llena: «No guardado: no hay espacio»", async () => {
+    store.controls.quotaBytes = 1;
+    mount();
+    await importFiles(["a.jpg"]);
+    await waitFor(() => expect(document.querySelector("[data-save-status]")?.textContent).toBe(es.statusQuota), { timeout: 5000 });
+  });
+});
+
+describe("camara y guardar", () => {
+  it("sin camara (jsdom no tiene getUserMedia): pantalla clara y «Elegir fotos» como camino principal que importa", async () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: es.startButton }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(es.cameraErrorTitle);
+    const layer = alert.closest("[data-scan-layer]") as HTMLElement;
+    expect(within(layer).getByRole("button", { name: es.pickPhotos })).toBeTruthy();
+    expect(within(layer).getByRole("button", { name: es.retryCamera })).toBeTruthy();
+  });
+
+  it("guardar: nombre propuesto «Escaneo fecha hora», calidad con «≈», PDF con una pagina por hoja y «Antes → Despues»", async () => {
+    mount();
+    await importFiles(["a.jpg", "title-Contrato_de_servicio.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: es.save(2) }));
+    const nameInput = await screen.findByLabelText(es.nameLabel);
+    await waitFor(() => expect((nameInput as HTMLInputElement).value).toMatch(/^Contrato de servicio · \d{4}-\d{2}-\d{2}$/));
+    expect(document.querySelector("[data-image-quality-estimate]")?.textContent).toContain("≈");
+    expect(screen.getByRole("tab", { name: "Equilibrada" }).getAttribute("aria-selected")).toBe("true");
+    // El nombre editado manda.
+    fireEvent.change(nameInput, { target: { value: "Siniestro 123" } });
+    fireEvent.click(screen.getByRole("button", { name: es.create }));
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+    expect(document.querySelector("[data-download-summary]")?.textContent).toMatch(/Tus fotos: .* → PDF: /);
+    expect(screen.getByText("Siniestro 123.pdf")).toBeTruthy();
+    expect(engine.controls.calls.buildPdf).toBe(1);
+  });
+
+  it("guardar con el texto buscable activado lo pasa al motor; la estimacion lo tiene en cuenta", async () => {
+    const spy = vi.spyOn(engine, "estimateSize");
+    mount();
+    await importFiles(["a.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: es.searchable }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ searchable: true })));
+  });
+
+  it("un fallo del motor al crear el PDF deja las paginas y lo dice", async () => {
+    mount();
+    await importFiles(["a.jpg"]);
+    engine.controls.buildError = "boom";
+    fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
+    fireEvent.click(await screen.findByRole("button", { name: es.create }));
+    await waitFor(() => expect(document.querySelector("[data-save-error]")?.textContent).toBe(es.buildFailed));
+    fireEvent.click(screen.getByRole("button", { name: es.saveBack }));
+    await waitFor(() => expect(tiles()).toHaveLength(1));
+  });
+
+  it("cancelar la creacion vuelve al formulario con las paginas intactas", async () => {
+    mount();
+    await importFiles(["a.jpg", "b.jpg"]);
+    engine.controls.buildDelayMs = 400;
+    fireEvent.click(screen.getByRole("button", { name: es.save(2) }));
+    fireEvent.click(await screen.findByRole("button", { name: es.create }));
+    const cancel = await screen.findByRole("button", { name: /cancelar|cancel/i });
+    fireEvent.click(cancel);
+    await waitFor(() => expect(document.querySelector("[data-save-error]")?.textContent).toBe(es.buildCancelled));
+    await waitFor(() => expect(document.querySelector("[data-scan-live]")?.textContent).toContain(es.buildCancelled));
+  });
+});
+
+describe("regresion: acciones seguidas en el mismo turno", () => {
+  it("dos importaciones consecutivas no se pisan (el estado se aplica al instante)", async () => {
+    mount();
+    const a = [tinyJpegFile("a1.jpg", 64, 80, 1), tinyJpegFile("a2.jpg", 64, 80, 2)];
+    const b = [tinyJpegFile("b1.jpg", 64, 80, 3)];
+    fireEvent.change(libraryInput(), { target: { files: a } });
+    fireEvent.change(libraryInput(), { target: { files: b } });
+    await waitFor(() => expect(tiles()).toHaveLength(3));
+    await waitFor(() => expect(document.querySelectorAll("[data-tile-processing]")).toHaveLength(0));
+    expect(engine.controls.createLog).toEqual(["a1.jpg", "a2.jpg", "b1.jpg"]);
+  });
+
+  it("la cola arranca aunque la importacion ocurra en cuanto monta la pagina (sin esperar a ningun efecto)", async () => {
+    mount();
+    fireEvent.change(libraryInput(), { target: { files: [tinyJpegFile("a.jpg")] } });
+    await waitFor(() => expect(engine.controls.calls.createPage).toBe(1));
+    void tinyJpegBytes;
   });
 });

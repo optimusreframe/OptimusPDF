@@ -32,10 +32,6 @@ vi.mock("@/lib/pdf/summarize", async (importOriginal) => {
     isModelCached: async () => false,
   };
 });
-vi.mock("@/lib/scan/documentDetection", () => ({
-  preloadDocumentDetection: () => {},
-  detectDocumentInBlob: () => new Promise(() => {}),
-}));
 
 beforeAll(() => {
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
@@ -265,25 +261,16 @@ describe("scan-to-pdf — cabecera propia", () => {
     expect(document.body.textContent).not.toContain("Disponible");
   });
 
-  it("sin capturas, generar esta desactivado y dice por que (panel y barra movil)", () => {
+  it("sin escaneo, no hay nada que guardar: el unico camino principal es activar la camara y no existe «Guardar PDF»", () => {
     mount(<ScanToPdfClient />);
-    const buttons = screen.getAllByRole("button", { name: strings.generate }) as HTMLButtonElement[];
-    expect(buttons.length).toBeGreaterThanOrEqual(1);
-    for (const button of buttons) {
-      expect(button.disabled).toBe(true);
-      expect(document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
-        strings.needCapture,
-      );
-    }
+    expect(screen.getAllByRole("button", { name: strings.startButton })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /guardar pdf|crear pdf/i })).toBeNull();
   });
 
-  it("UN solo boton de generar visible en escritorio (el del panel); la barra es solo movil", () => {
+  it("las fotos son la alternativa visible y siguen a mano (boton de 44 px en puntero grueso)", () => {
     mount(<ScanToPdfClient />);
-    const visible = (screen.getAllByRole("button", { name: strings.generate }) as HTMLButtonElement[]).filter(
-      (button) => !button.closest(".md\\:hidden"),
-    );
-    expect(visible).toHaveLength(1);
-    expect(visible[0].closest("aside")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: strings.pickPhotos })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: strings.nativeCamera })).toHaveLength(1);
   });
 
   it("no hay ningun role=alert mientras no haya error", () => {

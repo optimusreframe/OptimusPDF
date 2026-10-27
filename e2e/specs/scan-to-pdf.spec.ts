@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { downloadBytes } from "../helpers/downloads";
 import { getPageCount, getPageOperatorCounts, getPageSize } from "../helpers/pdf-inspection";
 import { renderPageToPixels } from "../helpers/pdf-render-inspection";
+import { installScanFakes } from "../helpers/scan-ui";
 
 /**
  * Corre solo en el proyecto "chromium-fake-camera" (ver playwright.config.ts),
@@ -40,6 +41,11 @@ function expectColorClose(
 }
 
 test.describe("scan-to-pdf", () => {
+  // Motor y almacen FALSOS (con `SCAN_REAL=1` no se inyectan: el mismo spec corre contra el motor real, integracion).
+  test.beforeEach(async ({ page }) => {
+    await installScanFakes(page);
+  });
+
   test("captura un fotograma real de la camara (falsa) y genera un PDF con el frame correcto, sin rotarlo", async ({
     page,
   }) => {
@@ -71,41 +77,37 @@ test.describe("scan-to-pdf", () => {
       page.getByText(/la cámara no está disponible|the camera is not available/i),
     ).toHaveCount(0);
 
-    // "Ajustar": la pagina del PDF final hereda el tamano exacto del
-    // fotograma capturado, sin letterboxing de A4/Carta -- simplifica la
-    // conversion de coordenadas al verificar los cuadrantes despues.
-    await page.getByRole("tab", { name: /ajustar|fit/i }).click();
-
+    // Captura MANUAL con un solo disparo: sin captura automatica, que dispararia sola mientras el
+    // fotograma de prueba esta quieto.
+    await page.locator('[data-camera-action="auto"]').click();
     await page
       .getByRole("button", { name: /capturar página|capture page/i })
       .click();
+    await expect(page.locator("[data-camera-count]")).toHaveText(/^1 (página|page)$/);
 
-    // Confirma que quedo EXACTAMENTE una captura en la tira antes de
-    // generar el PDF (mismo espiritu que el chequeo de "1 zona" en
-    // redact.spec.ts: un contador exacto, no una coincidencia laxa).
-    await expect(page.getByAltText(/^(Captura \d+|Capture \d+)$/i)).toHaveCount(1);
+    // A revisar: EXACTAMENTE una pagina en la cuadricula (un contador exacto, no una coincidencia laxa).
+    await page.getByRole("button", { name: /revisar \(1\)|review \(1\)/i }).click();
+    await expect(page.locator("[data-page-grid] [data-page-id]")).toHaveCount(1);
+    await expect(page.locator("[data-tile-processing]")).toHaveCount(0, { timeout: 30_000 });
 
-    // Escenario fijado a "SIN recorte de perspectiva". Este spec protege
-    // el camino crudo: el fotograma llega al PDF con las dimensiones y los
-    // colores exactos de la camara. Como la correccion de perspectiva se
-    // aplica sola cuando el detector encuentra un documento con confianza,
-    // aqui se espera a que la deteccion termine y se deshace cualquier
-    // recorte antes de generar. El recorte en si se cubre aparte.
-    const editCrop = page.getByRole("button", {
-      name: /editar recorte|edit crop/i,
-    });
-    await expect(editCrop).toBeEnabled();
+    // Escenario fijado a «SIN recorte de perspectiva»: este spec protege el camino crudo (el fotograma llega al PDF con los
+    // colores exactos de la camara y sin girar). Con el motor real el fotograma de prueba no tiene documento y entra entero;
+    // con el motor falso el recorte es un 4 % por lado (se tiene en cuenta abajo). «Toda la foto» fija las esquinas completas.
+    await page.locator('[data-page-grid] [data-page-main]').first().click();
+    await page.locator('[data-editor-action="crop"]').click();
+    await page.getByRole("button", { name: /toda la foto|whole photo/i }).click();
+    await page.getByRole("button", { name: /aplicar recorte|apply crop/i }).click();
+    // Filtro «Color»: el «Auto» de un documento de texto lo pasaria a grises y aqui se comprueban los colores del fotograma.
+    await page.locator('[data-filter="color"]').click();
+    await page.locator('[data-editor-action="done"]').click();
+    await expect(page.locator("[data-tile-processing]")).toHaveCount(0, { timeout: 30_000 });
 
-    const undoCrop = page.getByRole("button", {
-      name: /deshacer recorte|undo crop/i,
-    });
-    if ((await undoCrop.count()) > 0) await undoCrop.click();
-    await expect(undoCrop).toHaveCount(0);
-
-    await page
-      .getByRole("button", { name: /generar pdf|build pdf/i })
-      .first()
-      .click();
+    await page.getByRole("button", { name: /guardar pdf|save pdf/i }).click();
+    // «Ajustar»: la pagina del PDF final hereda el tamano exacto del
+    // fotograma capturado, sin letterboxing de A4/Carta -- simplifica la
+    // conversion de coordenadas al verificar los cuadrantes despues.
+    await page.getByRole("tab", { name: /ajustar|fit/i }).click();
+    await page.locator('[data-save-action="create"]').click();
 
     const bytes = await downloadBytes(page, async () => {
       await page.getByRole("button", { name: /descargar|download/i }).first().click();
@@ -114,7 +116,7 @@ test.describe("scan-to-pdf", () => {
     expect(await getPageCount(bytes)).toBe(1);
 
     const size = await getPageSize(bytes, 1);
-    // "Ajustar" + sin margen: la pagina hereda el pixel size exacto del
+    // «Ajustar» + sin margen: la pagina hereda el pixel size exacto del
     // fotograma (320x240, la resolucion del dispositivo de camara falso).
     // Si el motor rotara la imagen por error, ancho y alto saldrian
     // intercambiados y esta asercion fallaria.

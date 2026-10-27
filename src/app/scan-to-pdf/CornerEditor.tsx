@@ -12,6 +12,7 @@ import {
   isDegenerateQuad,
   type QuadCorners,
 } from "@/lib/scan/perspective";
+import { FullscreenLayer } from "@/app/scan-to-pdf/FullscreenLayer";
 import { STRINGS } from "@/app/scan-to-pdf/strings";
 
 export type CornerEditorProps = {
@@ -137,12 +138,12 @@ export function CornerEditor({
   }, [source]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      data-corner-editor=""
-      aria-label={s.cornersTitle}
-      className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-xl"
+    <FullscreenLayer
+      label={s.cornersTitle}
+      dataAttr="data-corner-editor"
+      initialFocus='[data-editor-action="close"]'
+      onEscape={onCancel}
+      className="bg-background/95 backdrop-blur-xl"
     >
       <header className="flex items-start justify-between gap-4 px-4 pt-5 md:px-6">
         <div className="min-w-0">
@@ -177,12 +178,13 @@ export function CornerEditor({
       </div>
 
       <footer
-        className="bg-surface contrast-more:border-foreground/45 flex items-center gap-3 border-t border-hairline px-4 py-3 md:px-6"
+        className="bg-surface contrast-more:border-foreground/45 flex flex-wrap items-center gap-3 border-t border-hairline px-4 py-3 md:px-6"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
       >
         <Button
           variant="ghost"
           size="md"
+          wrap
           onClick={() => {
             draftRef.current = DEFAULT_QUAD;
             setInvalid(false);
@@ -193,8 +195,9 @@ export function CornerEditor({
           {s.cornersReset}
         </Button>
         <Button
-          fullWidth
           size="md"
+          wrap
+          className="min-w-0 flex-1 basis-40"
           disabled={!ready || invalid}
           onClick={() => onConfirm(draftRef.current)}
         >
@@ -202,6 +205,6 @@ export function CornerEditor({
           {invalid ? s.cornersInvalid : s.cornersApply}
         </Button>
       </footer>
-    </div>
+    </FullscreenLayer>
   );
 }
