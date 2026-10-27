@@ -9,6 +9,8 @@ import {
 } from "@cantoo/pdf-lib";
 import { loadJSZip } from "@/lib/pdf/lazyZip";
 import { createPrepareSession, yieldToMain, type PrepareSession } from "@/lib/image/prepareBrowser";
+import type { ImageProblem } from "@/lib/image/imageIntegrity";
+import { readStoredImagePreset } from "@/lib/image/imageQualityPref";
 import {
   DEFAULT_IMAGE_PRESET,
   ESTIMATE_HEAD_BYTES,
@@ -106,18 +108,36 @@ export function pageSizeInPoints(pageSize: ImagePageSize): { width: number; heig
 import { canvasToBlob } from "@/lib/pdf/canvasBlob";
 export { canvasToBlob };
 
+/**
+ * Lo que necesitan quienes cargan este motor con UN `import()` dinamico (PDF Pro «Nuevo desde imagenes» e «Insertar paginas desde
+ * imagenes»): la sesion de preparacion y la calidad recordada vienen en el mismo trozo de codigo. Con dos `import()` aparte, sin
+ * red el segundo (un trozo diminuto que nadie precargaba) no llegaba y la creacion del documento fallaba sin aviso.
+ */
+export { createPrepareSession, readStoredImagePreset };
+
 type EmbeddedImage = { image: PDFImage; orientation: ExifOrientation };
 
+/** Una foto que NO entro en el PDF y por que (lo ve la persona en la pantalla del resultado). */
+export type SkippedPhoto = {
+  /** Posicion (desde 1) en el orden final de las fotos. */
+  position: number;
+  name: string;
+  problem: ImageProblem;
+};
+
 export type ImageBatchStats = {
+  /** Fotos que entraron en el PDF. */
   photos: number;
-  /** Suma del peso de los archivos originales. */
+  /** Suma del peso de los archivos originales que entraron en el PDF. */
   sourceBytes: number;
   /** Fotos cuyos bytes cambiaron (reducidas, reencodadas o convertidas). */
   changed: number;
+  /** Fotos omitidas por estar vacias, danadas, incompletas o no ser imagenes (solo con `onUnreadable: "skip"`). */
+  skipped: SkippedPhoto[];
 };
 
 export function emptyBatchStats(): ImageBatchStats {
-  return { photos: 0, sourceBytes: 0, changed: 0 };
+  return { photos: 0, sourceBytes: 0, changed: 0, skipped: [] };
 }
 
 /**
@@ -132,13 +152,23 @@ async function embedImage(
   preset: ImagePresetId,
   signal: AbortSignal | undefined,
   stats: ImageBatchStats | undefined,
-  fitMaxSide?: number,
-): Promise<EmbeddedImage> {
+  fitMaxSide: number | undefined,
+  skip: { position: number } | null,
+): Promise<EmbeddedImage | null> {
+  /** Con `skip`, una foto inservible se anota y se omite (`null`); sin el, aborta como siempre. */
+  const reject = (problem: ImageProblem): null => {
+    if (!skip || !stats) throw new PdfError("invalidType");
+    stats.skipped.push({ position: skip.position, name: source instanceof File ? source.name : "", problem });
+    return null;
+  };
   let prepared;
   try {
-    prepared = await session.prepare(source, preset, signal, fitMaxSide);
+    prepared = await session.prepare(source, preset, signal, fitMaxSide, undefined, skip !== null);
   } catch (error) {
-    if (error instanceof ImagePrepareError) throw new PdfError(error.code === "cancelled" ? "cancelled" : "invalidType");
+    if (error instanceof ImagePrepareError) {
+      if (error.code === "cancelled") throw new PdfError("cancelled");
+      return reject(error.problem ?? "unreadable");
+    }
     throw error;
   }
   if (stats) {
@@ -153,7 +183,13 @@ async function embedImage(
   } catch {
     // pdf-lib lanza errores de parseo propios cuando el archivo miente
     // sobre su formato: para el usuario es simplemente un tipo invalido.
-    throw new PdfError("invalidType");
+    if (stats && prepared) {
+      // La foto no llego a incrustarse: no cuenta como preparada.
+      stats.photos -= 1;
+      stats.sourceBytes -= prepared.originalBytes;
+      if (prepared.changed) stats.changed -= 1;
+    }
+    return reject("corrupt");
   }
 }
 
@@ -253,6 +289,12 @@ export type ImagePrep = {
   onPhotoStart?: (position: number, total: number) => void;
   /** Se va rellenando con lo que ocurre: fotos, peso de los originales y cuantas se sustituyeron. */
   stats?: ImageBatchStats;
+  /**
+   * Que hacer con una foto que no se puede leer (vacia, no es imagen, incompleta, danada): `fail` (por defecto) aborta
+   * con `invalidType`; `skip` la omite, la anota en `stats.skipped` y sigue con las demas (el estado se enseña en el
+   * resultado). `skip` necesita `stats`.
+   */
+  onUnreadable?: "fail" | "skip";
 };
 
 /** Proporcion de una foto leida de su cabecera (sin decodificar), o `null` si no se pudo. */
@@ -264,6 +306,11 @@ async function readDisplaySize(source: Blob): Promise<PhotoSize | null> {
   } catch {
     return null;
   }
+}
+
+/** Datos para omitir la foto de la posicion dada, o `null` si este lote aborta ante una foto mala. */
+function skipFor(prep: ImagePrep, position: number): { position: number } | null {
+  return prep.onUnreadable === "skip" && prep.stats ? { position } : null;
 }
 
 /**
@@ -301,11 +348,14 @@ async function buildGridPages(
       throwIfAborted(prep.signal);
       prep.onPhotoStart?.(start + position + 1, total);
       const fit = ppi > 0 ? pixelsNeededForRect(provisional.photos[position].rect, ppi) : undefined;
-      embedded.push(await embedImage(document, group[position], session, preset, prep.signal, prep.stats, fit));
+      const item = await embedImage(document, group[position], session, preset, prep.signal, prep.stats, fit, skipFor(prep, start + position + 1));
+      if (item) embedded.push(item);
       onProgress?.(((start + position + 1) / total) * progressTo);
       // Cede el hilo entre fotos: el progreso se pinta y los toques se atienden aunque no haya nada que decodificar.
       await yieldToMain();
     }
+    // Una hoja cuyas fotos se omitieron todas no se anade; las demas se componen solo con las fotos que entraron.
+    if (embedded.length === 0) continue;
     const [sheet] = layoutPhotoGrid(
       embedded.map(({ image, orientation }) =>
         orientedSize(Math.max(1, image.width), Math.max(1, image.height), orientation),
@@ -345,8 +395,8 @@ export async function buildPdfFromImages(
     for (let index = 0; index < sources.length; index += 1) {
       throwIfAborted(prep.signal);
       prep.onPhotoStart?.(index + 1, sources.length);
-      const { image, orientation } = await embedImage(document, sources[index], session, preset, prep.signal, prep.stats);
-      addImagePage(document, image, layout, orientation);
+      const item = await embedImage(document, sources[index], session, preset, prep.signal, prep.stats, undefined, skipFor(prep, index + 1));
+      if (item) addImagePage(document, item.image, layout, item.orientation);
       onProgress?.(((index + 1) / sources.length) * progressTo);
       await yieldToMain();
     }
@@ -450,6 +500,8 @@ export async function imagesToPdf(
     session,
     onPhotoStart: run.onPhotoStart,
     stats,
+    // Una foto mala (vacia, danada, incompleta, que no es imagen) se omite y se avisa POR NOMBRE en el resultado.
+    onUnreadable: "skip",
   };
 
   try {
@@ -462,6 +514,8 @@ export async function imagesToPdf(
         prep,
       );
       throwIfAborted(run.signal);
+      // Si todas las fotos eran inservibles no hay PDF que dar (la pantalla ya las nombra antes de procesar).
+      if (document.getPageCount() === 0) throw new PdfError("invalidType");
       const blob = await savePdfToBlob(document);
       onProgress?.(1);
       return { blob, kind: "pdf", count: 1, stats };
@@ -470,25 +524,32 @@ export async function imagesToPdf(
     const Zip = await loadJSZip();
     const zip = new Zip();
     const used = new Set<string>();
+    let zipped = 0;
 
     for (let position = 0; position < indices.length; position += 1) {
       throwIfAborted(run.signal);
       const file = files[indices[position]];
+      const skippedBefore = stats.skipped.length;
       const document = await buildPdfFromImages([file], layout, undefined, 1, {
         ...prep,
         onPhotoStart: run.onPhotoStart ? () => run.onPhotoStart?.(position + 1, indices.length) : undefined,
       });
-      const pdf = await savePdfToBlob(document);
-
-      zip.file(uniquePdfEntryName(file.name, used), pdf);
+      // Cada archivo se compone solo: su posicion real en el orden final es la de este bucle.
+      for (let index = skippedBefore; index < stats.skipped.length; index += 1) stats.skipped[index].position = position + 1;
+      if (document.getPageCount() > 0) {
+        const pdf = await savePdfToBlob(document);
+        zip.file(uniquePdfEntryName(file.name, used), pdf);
+        zipped += 1;
+      }
 
       onProgress?.(((position + 1) / indices.length) * 0.9);
     }
 
+    if (zipped === 0) throw new PdfError("invalidType");
     // Sin compresion: un PDF ya viene comprimido y el ZIP solo agrupa.
     const blob = await zip.generateAsync({ type: "blob" });
     onProgress?.(1);
-    return { blob, kind: "zip", count: indices.length, stats };
+    return { blob, kind: "zip", count: zipped, stats };
   } catch (error) {
     throw toPdfError(error);
   } finally {

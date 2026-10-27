@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { STRINGS } from "@/app/jpg-to-pdf/strings";
+import { useProgressiveCount } from "@/lib/useProgressiveCount";
 
 export type ImageOrderGridProps = {
   files: File[];
@@ -87,6 +88,9 @@ function ImageOrderGridInner({
     [moveTo],
   );
 
+  // Cuadriculas largas: las celdas se pintan por trozos (ver `useProgressiveCount`).
+  const visibleCount = useProgressiveCount(order.length);
+
   if (files.length === 0) return null;
 
   return (
@@ -99,7 +103,7 @@ function ImageOrderGridInner({
       <p className="mb-3 text-xs text-muted-foreground">{s.previewHint}</p>
 
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {order.map((fileIndex, position) => {
+        {order.slice(0, visibleCount).map((fileIndex, position) => {
           const file = files[fileIndex];
           if (!file) return null;
           return (

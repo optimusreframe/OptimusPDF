@@ -259,3 +259,49 @@ describe("SegmentedControl: columnas desiguales por una palabra larga", () => {
     }
   });
 });
+
+describe("SegmentedControl con wrap (segmentos que pasan a otra fila)", () => {
+  it("mantiene roles, aria-selected, roving tabindex y flechas; la pista permite varias filas", () => {
+    const onChange = vi.fn();
+    render(<SegmentedControl<Mode> wrap label="Modo" options={[...OPTIONS]} value="type" onChange={onChange} />);
+    const list = screen.getByRole("tablist", { name: "Modo" });
+    expect(list.className).toContain("flex-wrap");
+    expect(list.className).not.toContain("grid-flow-col");
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true", "false"]);
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, 0, -1]);
+    tabs[1].focus();
+    fireEvent.keyDown(tabs[1], { key: "ArrowRight" });
+    expect(onChange).toHaveBeenLastCalledWith("upload");
+    fireEvent.click(tabs[0]);
+    expect(onChange).toHaveBeenLastCalledWith("draw");
+  });
+
+  it("cada segmento mide al menos 44 px de alto y de ancho (min-h-11 / min-w-11) y no hay pulgar suelto: el fondo va dentro del activo", () => {
+    const { container } = render(<SegmentedControl<Mode> wrap options={[...OPTIONS]} value="draw" onChange={() => {}} />);
+    for (const tab of screen.getAllByRole("tab")) {
+      expect(tab.className).toContain("min-h-11");
+      expect(tab.className).toContain("min-w-11");
+    }
+    const list = screen.getByRole("tablist");
+    // Ningun hijo directo de la pista es el pulgar absoluto del modo normal.
+    expect(Array.from(list.children).every((child) => child.getAttribute("role") === "tab")).toBe(true);
+    const thumbs = container.querySelectorAll('[role="tab"] > span[aria-hidden="true"]');
+    expect(thumbs).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: "Dibujar" }).contains(thumbs[0])).toBe(true);
+  });
+
+  it("al cambiar de opcion el fondo pasa al segmento activo", () => {
+    const { rerender } = render(<SegmentedControl<Mode> wrap options={[...OPTIONS]} value="draw" onChange={() => {}} />);
+    rerender(<SegmentedControl<Mode> wrap options={[...OPTIONS]} value="upload" onChange={() => {}} />);
+    expect(screen.getByRole("tab", { name: "Subir" }).querySelector('span[aria-hidden="true"]')).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Dibujar" }).querySelector('span[aria-hidden="true"]')).toBeNull();
+  });
+
+  it("sin wrap sigue como siempre: pista en rejilla con el pulgar suelto", () => {
+    render(<SegmentedControl<Mode> options={[...OPTIONS]} value="draw" onChange={() => {}} />);
+    const list = screen.getByRole("tablist");
+    expect(list.className).toContain("grid-flow-col");
+    expect(list.className).not.toContain("flex-wrap");
+  });
+});

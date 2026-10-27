@@ -86,7 +86,7 @@ export function Header() {
          frente al shorthand del material. */
       style={{ borderWidth: 0 }}
     >
-      <div className="mx-auto flex h-14 max-w-[1200px] items-center gap-4 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))] md:h-16 md:pl-[max(1.5rem,env(safe-area-inset-left,0px))] md:pr-[max(1.5rem,env(safe-area-inset-right,0px))]">
+      <div className="@container mx-auto flex h-14 max-w-[1200px] items-center gap-4 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))] md:h-16 md:pl-[max(1.5rem,env(safe-area-inset-left,0px))] md:pr-[max(1.5rem,env(safe-area-inset-right,0px))]">
         <Logo />
 
         <div ref={navRef} className="relative hidden flex-1 md:block">
@@ -214,22 +214,24 @@ export function Header() {
           </AnimatePresence>
         </div>
 
+        {/* Enlaces secundarios: solo si caben. Con la fuente del sistema al 150 % en un iPad de 834 px sumaban 118 px de desborde
+            horizontal; el umbral esta en rem (consulta de contenedor), asi que se adapta a cualquier tamano de fuente. */}
         <div className="ml-auto flex items-center gap-1 md:ml-0">
           <Link
             href="/documents"
-            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:flex"
+            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:@min-[42rem]:flex"
           >
             {t.nav.documents}
           </Link>
           <Link
             href="/pricing"
-            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:flex"
+            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:@min-[42rem]:flex"
           >
             {t.nav.pricing}
           </Link>
           <Link
             href="/about"
-            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:flex"
+            className="hidden h-9 items-center rounded-full px-3 text-subheadline text-muted-foreground transition-colors pointer-coarse:h-11 hover:text-foreground md:@min-[42rem]:flex"
           >
             {t.nav.about}
           </Link>

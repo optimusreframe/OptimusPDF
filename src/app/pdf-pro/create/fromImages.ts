@@ -23,9 +23,9 @@ export async function createPdfFromImages(
   fileName: string,
   onProgress?: ProgressCallback,
 ): Promise<File> {
-  const { imagesToPdf } = await import("@/lib/pdf/imagesToPdf");
+  // UN solo import(): el motor, la preparacion de fotos y la calidad recordada vienen juntos (sin red no puede faltar ninguno).
+  const { imagesToPdf, readStoredImagePreset } = await import("@/lib/pdf/imagesToPdf");
   // La calidad de imagen es la recordada en este dispositivo (la recomendada por defecto): las fotos grandes se reducen.
-  const { readStoredImagePreset } = await import("@/lib/image/imageQualityPref");
   const result = await imagesToPdf([...files], { ...layout, merge: true, quality: readStoredImagePreset() }, onProgress);
   return new File([result.blob], fileName, { type: "application/pdf", lastModified: Date.now() });
 }

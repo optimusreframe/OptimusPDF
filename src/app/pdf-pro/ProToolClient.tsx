@@ -161,11 +161,20 @@ function ProApp() {
   useEffect(() => {
     if (typeof Worker === "undefined" || typeof navigator === "undefined" || navigator.onLine === false) return;
     const root = window.document.documentElement;
-    // «Nuevo desde imagenes» tambien funciona sin red (modulo ligero: jszip solo se carga en su modo ZIP).
-    void import("@/lib/pdf/imagesToPdf").catch(() => undefined);
+    // «Nuevo desde imagenes» tambien funciona sin red (modulo ligero: jszip solo se carga en su modo ZIP). Se precarga TODO lo
+    // que su ruta necesita: el motor (con la sesion de preparacion y la calidad recordada, que comparten trozo), los modulos de
+    // insertar imagen / marca de agua y el worker de preparacion de fotos. Si el worker no llega, las fotos se preparan en el
+    // hilo principal; si ningun trozo llega, la creacion da el aviso «sin conexion».
+    const imagesReady = Promise.all([
+      import("@/lib/pdf/imagesToPdf"),
+      import("@/lib/image/prepareBrowser").then((module) => module.warmPrepareWorker()),
+      import("@/lib/image/imageQualityPref"),
+    ]);
+    imagesReady.catch(() => undefined);
     void getPdfJs()
       .then(() => fetch(PDF_WORKER_SRC, { cache: "force-cache" }))
       .then((response) => response.arrayBuffer())
+      .then(() => imagesReady)
       // Marca para las pruebas: desde aqui el primer documento abre aunque la red se corte.
       .then(() => root.setAttribute("data-pro-warm", "ready"))
       .catch(() => undefined);

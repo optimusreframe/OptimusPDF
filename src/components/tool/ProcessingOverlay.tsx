@@ -136,7 +136,8 @@ export function ProcessingOverlay({
         <h2 id={titleId} className="mt-4 text-headline text-foreground">
           {t.tool.processingTitle}
         </h2>
-        <p id={descriptionId} className="mt-1 text-subheadline text-muted-foreground">
+        {/* `aria-live`: «Optimizando foto 12 de 40» se anuncia foto a foto (el dialogo modal no relee su descripcion). */}
+        <p id={descriptionId} aria-live="polite" aria-atomic="true" className="mt-1 text-subheadline text-muted-foreground">
           {message}
         </p>
 

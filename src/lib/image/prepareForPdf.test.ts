@@ -15,6 +15,7 @@ import {
   fitWithin,
   isImagePresetId,
   planDownscaleSteps,
+  planNativeDecodeWidth,
   planPreparation,
   prepareImage,
   readImageHeader,
@@ -178,6 +179,93 @@ describe("planDownscaleSteps: limites de lienzo de iOS/Safari (16,7 Mpx y 4096 p
 
   it("una imagen que ya es del tamano pedido da un solo paso", () => {
     expect(planDownscaleSteps(3000, 2000, 3000, 2000)).toEqual([{ width: 3000, height: 2000 }]);
+  });
+});
+
+describe("planDownscaleSteps: pasos de mitad EXACTA (sin aliasing en WebKit)", () => {
+  it("48 Mpx -> 3000: primero la mitad exacta (4032x3024) y despues el ajuste fino", () => {
+    expect(planDownscaleSteps(8064, 6048, 3000, 2250)).toEqual([
+      { width: 4032, height: 3024 },
+      { width: 3000, height: 2250 },
+    ]);
+  });
+
+  it("un origen de menos del doble del objetivo se reduce en un solo paso fino", () => {
+    expect(planDownscaleSteps(5000, 3750, 3000, 2250)).toEqual([{ width: 3000, height: 2250 }]);
+    expect(planDownscaleSteps(6000, 4500, 3000, 2250)).toEqual([{ width: 3000, height: 2250 }]);
+  });
+
+  it("de 24000 px a 1500: el primer lienzo respeta el tope de 4096 px y los siguientes reducen a la mitad (nunca a menos)", () => {
+    const steps = planDownscaleSteps(24000, 3000, 1500, 188);
+    let previous = 24000;
+    steps.forEach((step, index) => {
+      if (index > 0) expect(step.width).toBeGreaterThanOrEqual(Math.ceil(previous / 2) - 1);
+      previous = step.width;
+    });
+    expect(steps[steps.length - 1]).toEqual({ width: 1500, height: 188 });
+    expect(steps[0].width).toBeLessThanOrEqual(CANVAS_SAFE_MAX_SIDE);
+    expect(steps.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("jamas devuelve un paso mayor que el anterior ni que el origen, ni ciclos infinitos con objetivos raros", () => {
+    for (const [sw, sh, tw, th] of [
+      [100, 100, 100, 100],
+      [100, 50, 99, 49],
+      [3, 3, 1, 1],
+      [16000, 100, 640, 4],
+    ] as Array<[number, number, number, number]>) {
+      const steps = planDownscaleSteps(sw, sh, tw, th);
+      expect(steps.length).toBeLessThanOrEqual(33);
+      expect(steps[steps.length - 1]).toEqual({ width: tw, height: th });
+      let previous = { width: sw, height: sh };
+      for (const step of steps) {
+        expect(step.width).toBeLessThanOrEqual(previous.width);
+        expect(step.height).toBeLessThanOrEqual(previous.height);
+        previous = step;
+      }
+    }
+  });
+});
+
+describe("planNativeDecodeWidth: hasta donde decodifica el reductor nativo cuando NO filtra (WebKit)", () => {
+  it("prefiere un multiplo EXACTO del objetivo (objetivo x 2^k) entre el 72 % y el 95 % del origen: el resto son mitades exactas", () => {
+    expect(planNativeDecodeWidth(8064, 3000)).toBe(6000); // 0,744x; luego 6000 -> 3000 es una mitad exacta
+    expect(planNativeDecodeWidth(7000, 3000)).toBe(6000);
+    expect(planNativeDecodeWidth(8064, 1500)).toBe(6000); // 1500 x 4
+    expect(planNativeDecodeWidth(5712, 2200)).toBe(4400); // 0,77x
+  });
+
+  it("si el origen ya es (casi) un multiplo exacto del objetivo se decodifica entero y se baja por pasos de mitad", () => {
+    expect(planNativeDecodeWidth(12000, 3000)).toBeNull();
+    expect(planNativeDecodeWidth(6000, 3000)).toBeNull();
+    expect(planNativeDecodeWidth(6100, 3000)).toBeNull();
+  });
+
+  it("sin multiplo exacto cerca, decodifica al 75 % del origen (nunca menos del doble del objetivo)", () => {
+    expect(planNativeDecodeWidth(8064, 2200)).toBe(6048); // 4400 seria 0,55x (aliasing) y 8800 pasa del origen
+    expect(planNativeDecodeWidth(20000, 3000)).toBe(15000); // 12000 seria 0,6x
+    expect(planNativeDecodeWidth(11000, 3000)).toBe(8250);
+    expect(planNativeDecodeWidth(8064, 4096)).toBeNull(); // 8192 pasa del origen: decodificar entera y bajar a 4096
+  });
+
+  it("la reduccion nativa jamas baja del 72 % del origen ni del doble del objetivo", () => {
+    for (const source of [4001, 5000, 6001, 7000, 8064, 9500, 12000, 16000, 24000, 50000]) {
+      for (const target of [1000, 1500, 2200, 3000, 4096]) {
+        const width = planNativeDecodeWidth(source, target);
+        if (width === null) continue;
+        expect(width).toBeLessThan(source);
+        expect(width).toBeGreaterThanOrEqual(target * 2);
+        expect(width / source).toBeGreaterThanOrEqual(0.72 - 1e-9);
+      }
+    }
+  });
+
+  it("un origen que ya cabe (o es menos del doble) no se reduce al decodificar", () => {
+    expect(planNativeDecodeWidth(3000, 3000)).toBeNull();
+    expect(planNativeDecodeWidth(2000, 3000)).toBeNull();
+    expect(planNativeDecodeWidth(4000, 3000)).toBeNull();
+    expect(planNativeDecodeWidth(5999, 3000)).toBeNull();
+    expect(planNativeDecodeWidth(4000, 0)).toBeNull();
   });
 });
 

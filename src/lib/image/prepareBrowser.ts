@@ -1,3 +1,4 @@
+import { beginHeavyWork } from "@/lib/image/heavyWork";
 import { createBrowserBackend } from "@/lib/image/prepareBackend";
 import {
   ImagePrepareError,
@@ -31,6 +32,24 @@ export function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Un worker que decodifica fotos grandes acumula memoria (lienzos y bitmaps liberados que WebKit no devuelve hasta que el
+ * recolector decide): se cierra y se crea otro cuando ya decodifico tantos pixeles de origen (una foto de 48 Mpx, o ~3 de
+ * 12 Mpx). Terminar un worker devuelve su memoria en el acto. Medido en WebKit/iPad con 39 fotos de 24-48 Mpx en «Equilibrada»:
+ * el aumento del proceso de la pagina baja de ~470 MB a ~35 MB sin tocar el tiempo (+1 s de 12).
+ */
+export const WORKER_RECYCLE_PIXELS = 40_000_000;
+
+/** Calibraciones del codificador JPEG ya hechas por algun worker de esta pagina (se reenvian a los workers nuevos). */
+const knownCalibration = new Map<number, number>();
+
+/**
+ * Un worker que no avisa de que arranco en este tiempo se da por muerto y las fotos siguen en el hilo principal. Sin red, un
+ * `new Worker(url)` cuyo script no esta en cache puede no disparar `error` a tiempo (o nunca): la preparacion no puede quedarse
+ * colgada sin mensaje.
+ */
+export const WORKER_START_TIMEOUT_MS = 10_000;
+
 type WorkerFactory = () => Worker;
 let workerFactory: WorkerFactory | null = null;
 let workersDisabled = false;
@@ -60,16 +79,20 @@ function workerSupported(): boolean {
 
 export type PrepareSession = {
   /** Prepara una foto para el PDF (ver `prepareImage`). Rechaza con `ImagePrepareError` si se cancela o no se puede leer. */
-  prepare(source: Blob, preset: ImagePresetId, signal?: AbortSignal, fitMaxSide?: number, bakeOrientation?: boolean): Promise<PreparedImage>;
+  prepare(source: Blob, preset: ImagePresetId, signal?: AbortSignal, fitMaxSide?: number, bakeOrientation?: boolean, strict?: boolean): Promise<PreparedImage>;
   /** Termina el worker y libera todo. Seguro llamarla varias veces. */
   dispose(): void;
 };
 
 export function createPrepareSession(): PrepareSession {
   let worker: Worker | null = null;
+  /** El worker actual ya envio algun mensaje (arranco bien). */
+  let workerAlive = false;
   let broken = false;
   let nextId = 1;
   const backend = backendOverride ?? createBrowserBackend();
+  /** Mientras la sesion prepara fotos, las miniaturas en cola esperan (nunca dos decodificaciones grandes a la vez). */
+  let endHeavyWork: (() => void) | null = null;
 
   const disposeWorker = (): void => {
     if (!worker) return;
@@ -79,6 +102,7 @@ export function createPrepareSession(): PrepareSession {
       // Ya terminado.
     }
     worker = null;
+    workerAlive = false;
   };
 
   const viaWorker = (source: Blob, plan: TranscodePlan, signal?: AbortSignal): Promise<TranscodeResult | null | "failed"> =>
@@ -95,18 +119,28 @@ export function createPrepareSession(): PrepareSession {
       }
       const id = nextId;
       nextId += 1;
+      let startTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearStart = (): void => {
+        if (startTimer) clearTimeout(startTimer);
+        startTimer = null;
+      };
       const cleanup = (): void => {
+        clearStart();
         instance.removeEventListener("message", onMessage);
         instance.removeEventListener("error", onError);
         signal?.removeEventListener("abort", onAbort);
       };
       const onMessage = (event: MessageEvent<PrepareWorkerResponse>): void => {
+        // Cualquier mensaje (el «listo» del arranque o la respuesta) prueba que el worker vive.
+        workerAlive = true;
+        clearStart();
         if (event.data.id !== id) return;
         cleanup();
         if (!event.data.ok) {
           resolve("failed");
           return;
         }
+        for (const [key, value] of event.data.calibration ?? []) knownCalibration.set(key, value);
         resolve(event.data.result);
       };
       const onError = (): void => {
@@ -127,8 +161,16 @@ export function createPrepareSession(): PrepareSession {
       instance.addEventListener("message", onMessage);
       instance.addEventListener("error", onError);
       signal?.addEventListener("abort", onAbort);
+      if (!workerAlive) {
+        startTimer = setTimeout(() => {
+          cleanup();
+          broken = true;
+          disposeWorker();
+          resolve("failed");
+        }, WORKER_START_TIMEOUT_MS);
+      }
       try {
-        instance.postMessage({ id, source, plan } satisfies PrepareWorkerRequest);
+        instance.postMessage({ id, source, plan, calibration: [...knownCalibration] } satisfies PrepareWorkerRequest);
       } catch {
         cleanup();
         broken = true;
@@ -137,9 +179,17 @@ export function createPrepareSession(): PrepareSession {
       }
     });
 
+  /** Pixeles de origen decodificados por el worker actual (ver `WORKER_RECYCLE_PIXELS`). */
+  let workerPixels = 0;
+
   const run: TranscodeRunner = async (source, plan, signal) => {
     if (!broken && workerSupported()) {
       const viaW = await viaWorker(source, plan, signal);
+      if (plan.hint) workerPixels += plan.hint.width * plan.hint.height;
+      if (workerPixels >= WORKER_RECYCLE_PIXELS) {
+        disposeWorker();
+        workerPixels = 0;
+      }
       if (viaW !== "failed" && viaW !== null) return viaW;
       // `null`: el worker no pudo decodificar esta imagen. Se prueba el respaldo del hilo principal.
     }
@@ -150,9 +200,15 @@ export function createPrepareSession(): PrepareSession {
   };
 
   return {
-    prepare: (source, preset, signal, fitMaxSide, bakeOrientation) =>
-      prepareImage(source, preset, run, { signal, fitMaxSide, bakeOrientation }),
-    dispose: disposeWorker,
+    prepare: (source, preset, signal, fitMaxSide, bakeOrientation, strict) => {
+      endHeavyWork ??= beginHeavyWork();
+      return prepareImage(source, preset, run, { signal, fitMaxSide, bakeOrientation, strict });
+    },
+    dispose: () => {
+      disposeWorker();
+      endHeavyWork?.();
+      endHeavyWork = null;
+    },
   };
 }
 
@@ -168,4 +224,40 @@ export async function prepareImageForPdf(
   } finally {
     session.dispose();
   }
+}
+
+/**
+ * Precarga el worker de preparacion: lo arranca, espera su aviso de «listo» (el script ya esta en la cache HTTP) y lo cierra.
+ * Sirve para que «Nuevo PDF desde imagenes» y compania funcionen aunque la red se corte antes de usarlos. Nunca lanza; devuelve
+ * `false` si no hay worker o no arranco a tiempo (entonces las fotos simplemente se preparan en el hilo principal).
+ */
+export function warmPrepareWorker(timeoutMs = WORKER_START_TIMEOUT_MS): Promise<boolean> {
+  if (!workerSupported()) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let instance: Worker;
+    try {
+      instance = createWorker();
+    } catch {
+      resolve(false);
+      return;
+    }
+    const finish = (ok: boolean): void => {
+      clearTimeout(timer);
+      instance.removeEventListener("message", onMessage);
+      instance.removeEventListener("error", onError);
+      try {
+        instance.terminate();
+      } catch {
+        // Ya terminado.
+      }
+      resolve(ok);
+    };
+    const onMessage = (event: MessageEvent<PrepareWorkerResponse>): void => {
+      if ("ready" in event.data && event.data.ready) finish(true);
+    };
+    const onError = (): void => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    instance.addEventListener("message", onMessage);
+    instance.addEventListener("error", onError);
+  });
 }

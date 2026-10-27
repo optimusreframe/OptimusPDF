@@ -40,11 +40,15 @@ export function tabKey(page: Page, reverse = false): string {
  *   cancela al navegar (recargar o cambiar de pagina con precargas en vuelo). No es un fallo de la aplicacion.
  * - «.../pdf.worker.min.mjs?v=... due to access control checks»: lo mismo para el worker de pdf.js cuando la pagina se
  *   recarga mientras se estaba creando (una carga cancelada, no una carga fallida: esa deja el aviso de error del visor).
+ * - «Cannot load blob:http://localhost:PUERTO/<uuid> due to access control checks» (y su version de excepcion de pagina
+ *   «ttp://localhost:PUERTO/<uuid> due to access control checks»): WebKit lo escribe cuando se navega con una miniatura
+ *   (`<img src=blob:>`) o una lectura de foto en vuelo y la carga se cancela. Medido igual en la version anterior al cambio.
  */
 const BENIGN_ENGINE_NOISE: RegExp[] = [
   /^(?:Uncaught )?ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)\.?$/,
   /\?_rsc=[\w-]+ due to access control checks\.?$/,
   /\/pdf\.worker\.min\.mjs\?v=[\w.]+ due to access control checks\.?$/,
+  /^(?:Cannot load blob:h)?(?:ttp:)?(?:\/\/|http:\/\/)localhost:\d+\/[0-9a-f-]{36} due to access control checks\.?$/,
 ];
 
 export function isBenignEngineNoise(message: string): boolean {

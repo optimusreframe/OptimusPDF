@@ -223,6 +223,11 @@ export type ToolShellProps<TOptions> = {
    */
   resetRef?: RefObject<((patch?: Partial<TOptions>) => void) | null>;
   /**
+   * Se rellena con una funcion que quita varios archivos de la lista de una vez y lleva el foco al vecino del primero (p. ej. las
+   * fotos inservibles de Imagenes a PDF, con «Quitar y continuar»). Los archivos que ya no esten se ignoran.
+   */
+  removeFilesRef?: RefObject<((files: File[]) => void) | null>;
+  /**
    * Se rellena con una funcion que carga archivos y un patch de opciones
    * sin pasar por el dropzone. Lo necesita quien reanuda un borrador
    * guardado (archivo reconstruido desde bytes) o importa una
@@ -310,6 +315,7 @@ export function ToolShell<TOptions>({
   renderDownloadExtras,
   onDownloaded,
   resetRef,
+  removeFilesRef,
   loadRef,
   renderIdle,
   onFilesChanged,
@@ -493,6 +499,23 @@ export function ToolShell<TOptions>({
   const onSkipped = useCallback((files: File[]) => {
     setSkipped(files.map((file) => file.name));
   }, []);
+
+  /** Marca de que vecino debe recibir el foco tras quitar archivos (ver `useFocusTarget`). */
+  const rememberNeighbor = useCallback((index: number) => {
+    neighborIndexRef.current = Math.max(0, index);
+  }, []);
+
+  /** Quita varios archivos a la vez (fotos inservibles) y lleva el foco al vecino del primero. */
+  const removeFiles = useCallback(
+    (list: File[]) => {
+      const present = list.filter((file) => files.includes(file));
+      if (present.length === 0) return;
+      rememberNeighbor(files.indexOf(present[0]));
+      requestFocus("neighbor");
+      onFilesChange(files.filter((file) => !present.includes(file)));
+    },
+    [files, onFilesChange, requestFocus, rememberNeighbor],
+  );
 
   /**
    * Base de `reset()` y del `resetRef` expuesto: vuelve siempre a
@@ -686,6 +709,14 @@ export function ToolShell<TOptions>({
       resetRef.current = null;
     };
   }, [resetWith, resetRef]);
+
+  useEffect(() => {
+    if (!removeFilesRef) return;
+    removeFilesRef.current = removeFiles;
+    return () => {
+      removeFilesRef.current = null;
+    };
+  }, [removeFiles, removeFilesRef]);
 
   useEffect(() => {
     if (!loadRef) return;

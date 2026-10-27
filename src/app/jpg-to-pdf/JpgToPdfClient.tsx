@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ImageQualityPicker } from "@/components/tool/ImageQualityPicker";
@@ -18,16 +18,19 @@ import {
   type ImagesToPdfOptions,
 } from "@/lib/pdf/imagesToPdf";
 import { PHOTOS_PER_PAGE_OPTIONS, gridShape, type PhotosPerPage } from "@/lib/pdf/photoGrid";
-import { estimatePdfSize } from "@/lib/image/estimatePdfSize";
 import { readStoredImagePreset, writeStoredImagePreset } from "@/lib/image/imageQualityPref";
 import type { ImagePresetId } from "@/lib/image/prepareForPdf";
 import { IMAGE_QUALITY_STRINGS, describeResult, fillCopy } from "@/lib/image/qualityStrings";
 import { useImageProbes } from "@/lib/image/useImageProbes";
+import { usePdfSizeEstimate } from "@/lib/image/usePdfSizeEstimate";
+import { useImageProblems } from "@/lib/image/useImageProblems";
 import { getTool } from "@/lib/tools-registry";
 import { ImageOrderGrid } from "@/app/jpg-to-pdf/ImageOrderGrid";
+import { PhotoProblems } from "@/app/jpg-to-pdf/PhotoProblems";
 import { SheetPreview } from "@/app/jpg-to-pdf/SheetPreview";
 import { STRINGS } from "@/app/jpg-to-pdf/strings";
 import { useImageThumbnails } from "@/app/jpg-to-pdf/useImageThumbnails";
+import { useAfterTasks } from "@/lib/useAfterTasks";
 
 const TOOL = getTool("jpg-to-pdf");
 
@@ -58,6 +61,8 @@ export function JpgToPdfClient() {
   const copy = IMAGE_QUALITY_STRINGS[language];
   const locale = localeTag(language);
   const [progressText, setProgressText] = useState("");
+  /** `ToolShell` la rellena: quita varias fotos de la lista (el aviso «Quitar y continuar»). */
+  const removeFilesRef = useRef<((files: File[]) => void) | null>(null);
 
   const process = useCallback(
     async (
@@ -78,7 +83,7 @@ export function JpgToPdfClient() {
       const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
       const described = describeResult(
         copy,
-        { sourceBytes: result.stats.sourceBytes, pdfBytes: result.blob.size, zip: result.kind === "zip" },
+        { sourceBytes: result.stats.sourceBytes, pdfBytes: result.blob.size, zip: result.kind === "zip", skipped: result.stats.skipped },
         (bytes) => formatFileSize(bytes, locale),
         (value) => percent.format(value / 100),
       );
@@ -98,8 +103,9 @@ export function JpgToPdfClient() {
       defaultOptions={DEFAULT_OPTIONS}
       process={process}
       progressMessage={progressText || undefined}
+      removeFilesRef={removeFilesRef}
       renderMain={({ files, options, setOptions }) => (
-        <Workbench files={files} options={options} setOptions={setOptions} />
+        <Workbench files={files} options={options} setOptions={setOptions} removeFilesRef={removeFilesRef} />
       )}
       renderOptions={({ files, options, setOptions }) => (
         <OptionsPanelBody files={files} options={options} setOptions={setOptions} />
@@ -114,23 +120,31 @@ type BodyProps = {
   setOptions: (patch: Partial<JpgToPdfToolOptions>) => void;
 };
 
+type WorkbenchProps = BodyProps & { removeFilesRef: RefObject<((files: File[]) => void) | null> };
+
 /** Fotos por hoja efectivas: con un PDF por imagen (ZIP) cada foto va sola. */
 function effectivePerPage(options: JpgToPdfToolOptions): PhotosPerPage {
   return options.merge ? (options.photosPerPage ?? 1) : 1;
 }
 
 /** Orden de las miniaturas, vista previa de hojas y miniaturas hechas una vez para las dos. */
-function Workbench({ files, options, setOptions }: BodyProps) {
+function Workbench({ files, options, setOptions, removeFilesRef }: WorkbenchProps) {
   const { language } = useI18n();
   const s = STRINGS[language];
   const thumbnails = useImageThumbnails(files);
+  const problems = useImageProblems(files);
   const probes = useImageProbes(files);
   const order = useMemo(() => orderedIndices(files.length, options.order), [files.length, options.order]);
   const orderedProbes = useMemo(() => (probes ? order.map((index) => probes[index]) : null), [probes, order]);
   const orderedThumbs = useMemo(() => order.map((index) => thumbnails[index]), [thumbnails, order]);
+  // El primer pintado se reparte en tareas cortas (ver `useAfterTasks`): la lista de archivos de ToolShell sale ya; la vista previa y
+  // la rejilla de miniaturas, una tarea despues.
+  const ready = useAfterTasks(1);
+  const gridReady = useAfterTasks(2);
   return (
     <>
-      <SheetPreview
+      <PhotoProblems className="mb-8" problems={problems} onRemove={() => removeFilesRef.current?.(problems.map((entry) => entry.file))} />
+      {ready ? <SheetPreview
         className="mb-8"
         count={order.length}
         probes={orderedProbes}
@@ -140,12 +154,12 @@ function Workbench({ files, options, setOptions }: BodyProps) {
         orientation={options.orientation}
         margin={options.margin}
         strings={s}
-      />
-      <ImageOrderGrid
+      /> : null}
+      {gridReady ? <ImageOrderGrid
         files={files}
         thumbnails={thumbnails}
         onOrderChange={(next) => setOptions({ order: next })}
-      />
+      /> : null}
     </>
   );
 }
@@ -159,20 +173,19 @@ function OptionsPanelBody({ files, options, setOptions }: BodyProps) {
     () => orderedIndices(files.length, options.order).map((index) => files[index]),
     [files, options.order],
   );
-  const probes = useImageProbes(ordered);
-  const estimate = useMemo(
-    () =>
-      probes
-        ? estimatePdfSize(probes, quality, {
-            perPage,
-            pageSize: pageSizeInPoints(options.pageSize),
-            orientation: options.orientation,
-            margin: MARGINS[options.margin],
-          })
-        : null,
-    [probes, quality, perPage, options.pageSize, options.orientation, options.margin],
+  const grid = useMemo(
+    () => ({
+      perPage,
+      pageSize: pageSizeInPoints(options.pageSize),
+      orientation: options.orientation,
+      margin: MARGINS[options.margin],
+    }),
+    [perPage, options.pageSize, options.orientation, options.margin],
   );
+  const { estimate, highDetailBytes } = usePdfSizeEstimate(ordered, quality, grid);
 
+  // Las demas opciones salen una tarea despues de la calidad (ver `useAfterTasks`).
+  const restReady = useAfterTasks(1);
   const shape = gridShape(perPage);
   const perPageHint =
     perPage === 1
@@ -186,15 +199,19 @@ function OptionsPanelBody({ files, options, setOptions }: BodyProps) {
       <ImageQualityPicker
         value={quality}
         estimate={estimate}
+        highDetailBytes={highDetailBytes}
         onChange={(next) => {
           setOptions({ quality: next });
           writeStoredImagePreset(next);
         }}
       />
 
+      {restReady ? (
+        <>
       <div>
         <div inert={!options.merge} className={options.merge ? undefined : "opacity-40"}>
           <SegmentedControl<string>
+            wrap
             label={s.perPageLabel}
             value={String(options.photosPerPage ?? 1)}
             onChange={(value) => setOptions({ photosPerPage: Number(value) as PhotosPerPage })}
@@ -210,6 +227,7 @@ function OptionsPanelBody({ files, options, setOptions }: BodyProps) {
       </div>
 
       <SegmentedControl<ImagePageSize>
+        wrap
         label={s.pageSizeLabel}
         value={options.pageSize}
         onChange={(pageSize) => setOptions({ pageSize })}
@@ -223,6 +241,7 @@ function OptionsPanelBody({ files, options, setOptions }: BodyProps) {
       {/* Con «Ajustar» (una foto por hoja), la orientacion la impone la propia imagen. */}
       <div>
         <SegmentedControl<ImageOrientation>
+        wrap
           label={s.orientationLabel}
           value={options.orientation}
           onChange={(orientation) => setOptions({ orientation })}
@@ -245,6 +264,7 @@ function OptionsPanelBody({ files, options, setOptions }: BodyProps) {
       </div>
 
       <SegmentedControl<ImageMargin>
+        wrap
         label={s.marginLabel}
         value={options.margin}
         onChange={(margin) => setOptions({ margin })}
@@ -261,6 +281,8 @@ function OptionsPanelBody({ files, options, setOptions }: BodyProps) {
         onChange={(merge) => setOptions({ merge })}
         hint={options.merge ? s.mergeHintOn : s.mergeHintOff}
       />
+        </>
+      ) : null}
     </>
   );
 }

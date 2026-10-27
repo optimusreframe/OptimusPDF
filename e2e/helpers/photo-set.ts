@@ -113,6 +113,74 @@ export async function qualityAgainstOriginal(embedded: Uint8Array, original: Buf
   return { psnr: psnr(out, reduced), ssim: ssim(out, reduced), width: out.width, height: out.height };
 }
 
+/**
+ * Reduce `source` a `width` x `height` PROMEDIANDO por area (cada pixel nuevo es la media exacta de los pixeles viejos que
+ * cubre): el patron de referencia sin aliasing ni halos, al contrario del `drawImage` de Skia, que con lineas finas de 1-2 px
+ * (juntas de mortero) tambien deja aliasing y no sirve de referencia. Separable (horizontal y luego vertical).
+ */
+export function areaResample(source: Pixels, width: number, height: number): Pixels {
+  const resizeAxis = (input: Float32Array, inW: number, inH: number, outW: number, outH: number): Float32Array => {
+    const out = new Float32Array(outW * outH * 3);
+    const scaleX = inW / outW;
+    const scaleY = inH / outH;
+    // Un eje cada vez: si `outW < inW` se reduce en horizontal, si `outH < inH` en vertical (el otro eje se copia).
+    for (let y = 0; y < outH; y += 1) {
+      const y0 = y * scaleY;
+      const y1 = (y + 1) * scaleY;
+      for (let x = 0; x < outW; x += 1) {
+        const x0 = x * scaleX;
+        const x1 = (x + 1) * scaleX;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let weight = 0;
+        for (let iy = Math.floor(y0); iy < Math.min(inH, Math.ceil(y1)); iy += 1) {
+          const wy = Math.min(iy + 1, y1) - Math.max(iy, y0);
+          for (let ix = Math.floor(x0); ix < Math.min(inW, Math.ceil(x1)); ix += 1) {
+            const wx = Math.min(ix + 1, x1) - Math.max(ix, x0);
+            const w = wx * wy;
+            const at = (iy * inW + ix) * 3;
+            r += input[at] * w;
+            g += input[at + 1] * w;
+            b += input[at + 2] * w;
+            weight += w;
+          }
+        }
+        const at = (y * outW + x) * 3;
+        out[at] = r / weight;
+        out[at + 1] = g / weight;
+        out[at + 2] = b / weight;
+      }
+    }
+    return out;
+  };
+  const rgb = new Float32Array(source.width * source.height * 3);
+  for (let index = 0; index < source.width * source.height; index += 1) {
+    rgb[index * 3] = source.data[index * 4];
+    rgb[index * 3 + 1] = source.data[index * 4 + 1];
+    rgb[index * 3 + 2] = source.data[index * 4 + 2];
+  }
+  // Dos pasadas separables (columnas y filas) para no hacer el producto de ventanas completo.
+  const horizontal = resizeAxis(rgb, source.width, source.height, width, source.height);
+  const reduced = resizeAxis(horizontal, width, source.height, width, height);
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    data[index * 4] = reduced[index * 3];
+    data[index * 4 + 1] = reduced[index * 3 + 1];
+    data[index * 4 + 2] = reduced[index * 3 + 2];
+    data[index * 4 + 3] = 255;
+  }
+  return { width, height, data };
+}
+
+/** PSNR / SSIM de lo incrustado frente al original reducido por PROMEDIO DE AREA (referencia sin aliasing). */
+export async function qualityAgainstAreaReference(embedded: Uint8Array, original: Buffer): Promise<{ psnr: number; ssim: number; width: number; height: number }> {
+  const out = await pixelsOf(embedded);
+  const source = await pixelsOf(original);
+  const reference = out.width === source.width && out.height === source.height ? source : areaResample(source, out.width, out.height);
+  return { psnr: psnr(out, reference), ssim: ssim(out, reference), width: out.width, height: out.height };
+}
+
 /* ------------------------------ medidas del navegador ------------------------------ */
 
 export type RssRow = { pid: number; rss: number; kind: "web" | "gpu" | "other"; name: string };

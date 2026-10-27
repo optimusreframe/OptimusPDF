@@ -175,6 +175,7 @@ const CHUNK_LOAD_HINTS = [
   "error loading dynamically imported module",
   "importing a module script failed",
   "loading chunk",
+  "failed to load chunk",
   "loading css chunk",
   "chunkloaderror",
   "setting up fake worker failed",

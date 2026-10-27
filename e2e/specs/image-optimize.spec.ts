@@ -206,9 +206,10 @@ for (const preset of [
       }
     }
 
-    // Aviso honesto si el PDF sigue pesando mas de ~25 MB (limite habitual del correo) o ~100 MB.
+    // Aviso honesto si el PDF sigue pesando mas de ~20 MB (los adjuntos de correo crecen un 33 % en base64: el limite de 25 MB
+    // deja pasar ~18 MB) o ~100 MB.
     if (run.bytes.length > 100 * MB) expect(run.notices).toContain("más de 100 MB");
-    else if (run.bytes.length > 25 * MB) expect(run.notices).toMatch(/más de 25 MB.*Compacta/);
+    else if (run.bytes.length > 20 * MB) expect(run.notices).toMatch(/más de 20 MB.*Compacta/);
     else expect(run.notices).toBe("");
 
     // «Antes → Despues» en el resultado.
@@ -236,13 +237,18 @@ for (const preset of [
     // 650 MB con las otras; el aumento TOTAL del navegador (pagina + GPU + red, que guarda copias de la descarga) se acota aparte. «Original» conserva ~92 MB de
     // fotos y el PDF de ~92 MB (bytes de las fotos + documento + archivo guardado + Blob): su pico es ~4-5 veces lo que
     // pesan las fotos, inevitable con pdf-lib.
+    // WebKit en macOS: el medidor suma los procesos XPC de TODO WebKit de Playwright de la maquina (no cuelgan de este worker),
+    // asi que otro navegador abierto a la vez (otra prueba, otro agente) infla la cifra: en WebKit la memoria es INFORMATIVA
+    // (se anota en el informe y se acota con un techo muy holgado), no una aserción fina. En Chromium si es estricta.
     const total = run.rss.webDelta + run.rss.gpuDelta + run.rss.otherDelta;
-    if (preset.key === "original") {
+    if (isWebKit) {
+      test.info().annotations.push({ type: "memoria-webkit-informativa", description: `pagina +${run.rss.webDelta.toFixed(0)} MB, GPU +${run.rss.gpuDelta.toFixed(0)} MB, total +${total.toFixed(0)} MB` });
+      expect(total, "aumento total del navegador (techo informativo)").toBeLessThan(CI ? 6000 : 4000);
+    } else if (preset.key === "original") {
       expect(total, "memoria pico del navegador").toBeLessThan((set.totalBytes / MB) * 5.5);
     } else {
-      const webLimit = isWebKit && preset.key !== "compact" ? 650 : 400;
-      expect(run.rss.webDelta, "aumento del proceso de la pagina").toBeLessThan(webLimit);
-      expect(total, "aumento total del navegador").toBeLessThan(isWebKit ? 1300 : 900);
+      expect(run.rss.webDelta, "aumento del proceso de la pagina").toBeLessThan(400);
+      expect(total, "aumento total del navegador").toBeLessThan(900);
     }
   });
 }
@@ -257,12 +263,13 @@ test("el orden de pesos es coherente (original > alta > equilibrada > compacta)"
 test("por defecto la calidad es «Equilibrada» (recomendada), con su descripcion y una estimacion con «≈»", async ({ page }) => {
   await gotoWithPhotos(page);
   await expect(page.getByRole("tab", { name: "Equilibrada", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-image-quality-description]")).toContainText("Recomendada: se ve igual y pesa mucho menos.");
+  await expect(page.locator("[data-image-quality-description]")).toContainText("Recomendada para enviar: se ve igual y pesa mucho menos.");
   const estimate = page.locator("[data-image-quality-estimate]");
   await expect(estimate).toContainText("≈", { timeout: 30_000 });
   await expect(estimate).toContainText("sin optimizar");
   const text = (await estimate.textContent()) ?? "";
-  const numbers = [...text.matchAll(/≈\s*([\d.,]+)\s*(KB|MB|GB)/g)].map((match) => Number(match[1].replace(",", ".")) * ({ KB: 1 / 1024, MB: 1, GB: 1024 }[match[2] as "KB" | "MB" | "GB"]));
+  // «≈ 40,0 MB frente a ≈ 348 MB» o, con incertidumbre alta, «≈ 35,0-45,0 MB frente a ≈ 348 MB» (se toma el extremo alto).
+  const numbers = [...text.matchAll(/≈\s*(?:[\d.,]+-)?([\d.,]+)\s*(KB|MB|GB)/g)].map((match) => Number(match[1].replace(",", ".")) * ({ KB: 1 / 1024, MB: 1, GB: 1024 }[match[2] as "KB" | "MB" | "GB"]));
   expect(numbers).toHaveLength(2);
   // La estimacion con la calidad recomendada es mucho menor que la de «sin optimizar» (~ el peso de las fotos).
   expect(numbers[0]).toBeLessThan(numbers[1] * 0.6);

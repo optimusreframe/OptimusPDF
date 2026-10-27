@@ -9,8 +9,92 @@
 
 export const CALIBRATION_SIZE = 384;
 
-/** Imagen de prueba determinista (RGBA): degradado, textura de media frecuencia, bordes nitidos y grano suave. */
-export function calibrationPixels(): Uint8ClampedArray {
+/**
+ * Imagenes de prueba: una sola no basta, porque el peso relativo de dos codificadores cambia con el CONTENIDO (WebKit pesa
+ * mas que Chromium con una foto de mucha textura y casi igual con una lisa). Se usan tres con contenido distinto y se iguala
+ * la MEDIA GEOMETRICA de los cocientes. `mixed` = degradado + textura + bordes + grano (la original), `smooth` = cielo y
+ * paredes (casi sin detalle), `texture` = follaje, grava, tejas (energia a todas las escalas y bordes duros).
+ */
+export type CalibrationKind = "mixed" | "smooth" | "texture";
+export const CALIBRATION_KINDS: readonly CalibrationKind[] = ["mixed", "smooth", "texture"];
+/** Lado (px) de cada imagen de prueba. */
+export function calibrationSize(kind: CalibrationKind): number {
+  return kind === "mixed" ? CALIBRATION_SIZE : 320;
+}
+
+function xorshift(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return (state >>> 0) / 4294967296;
+  };
+}
+
+/** Cielo y paredes: degradados suaves, dos manchas redondas de bordes blandos y un grano muy fino. */
+function smoothPixels(): Uint8ClampedArray {
+  const size = 320;
+  const data = new Uint8ClampedArray(size * size * 4);
+  const random = xorshift(0x1f123bb5);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const at = (y * size + x) * 4;
+      const fx = x / size;
+      const fy = y / size;
+      const blob1 = 38 * Math.exp(-(((fx - 0.3) * 3.2) ** 2 + ((fy - 0.35) * 3.2) ** 2));
+      const blob2 = 30 * Math.exp(-(((fx - 0.72) * 2.6) ** 2 + ((fy - 0.7) * 2.8) ** 2));
+      const base = 95 + 80 * fy - 25 * fx + blob1 - blob2;
+      const grain = (random() + random() - 1) * 2.2;
+      data[at] = base * 0.92 + 12 + grain;
+      data[at + 1] = base * 0.97 + 8 + grain;
+      data[at + 2] = base * 1.08 + grain;
+      data[at + 3] = 255;
+    }
+  }
+  return data;
+}
+
+/** Follaje y grava: ruido de valor a cuatro escalas con mucha energia, tejas con bordes duros y grano marcado. */
+function texturePixels(): Uint8ClampedArray {
+  const size = 320;
+  const data = new Uint8ClampedArray(size * size * 4);
+  const random = xorshift(0x6c8e9cf5);
+  const lattice = new Float32Array(64 * 64);
+  for (let index = 0; index < lattice.length; index += 1) lattice[index] = random() * 2 - 1;
+  const noise = (x: number, y: number, cell: number): number => {
+    const fx = x / cell;
+    const fy = y / cell;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const at = (ix: number, iy: number): number => lattice[(iy & 63) * 64 + (ix & 63)];
+    return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) + (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+  };
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const at = (y * size + x) * 4;
+      const tile = (Math.floor(y / 24) % 2 === 0 ? (x + 12) % 48 : x % 48) < 3 || y % 24 < 2 ? -46 : 0;
+      const value = 118 + 46 * noise(x, y, 40) + 34 * noise(x, y, 14) + 26 * noise(x, y, 5) + 18 * noise(x, y, 2) + tile + (random() + random() + random() - 1.5) * 9;
+      data[at] = value * 0.9 + 16 * noise(x, y, 60);
+      data[at + 1] = value * 1.02;
+      data[at + 2] = value * 0.78 + 12 * noise(x + 99, y, 33);
+      data[at + 3] = 255;
+    }
+  }
+  return data;
+}
+
+/** Imagen de prueba determinista (RGBA, `calibrationSize(kind)` de lado): la misma, pixel a pixel, en todos los motores. */
+export function calibrationPixels(kind: CalibrationKind = "mixed"): Uint8ClampedArray {
+  if (kind === "smooth") return smoothPixels();
+  if (kind === "texture") return texturePixels();
+  return mixedPixels();
+}
+
+/** Degradado, textura de media frecuencia, bordes nitidos y grano suave. */
+function mixedPixels(): Uint8ClampedArray {
   const size = CALIBRATION_SIZE;
   const data = new Uint8ClampedArray(size * size * 4);
   let state = 0x2545f491;
@@ -48,6 +132,50 @@ export const CALIBRATION_REFERENCE: ReadonlyArray<readonly [number, number]> = [
   [0.92, 33816],
   [0.95, 48260],
 ];
+
+/**
+ * Pesos de las tres imagenes de prueba codificadas por Chromium 151 a cada calidad (`canvas.toBlob`). El WebKit de Playwright
+ * pesa 1,1-2,6 veces mas segun la imagen (la lisa es la mas penalizada): por eso se iguala la media geometrica, no una sola.
+ */
+export const CALIBRATION_REFERENCES: Readonly<Record<CalibrationKind, ReadonlyArray<readonly [number, number]>>> = {
+  mixed: CALIBRATION_REFERENCE,
+  smooth: [
+    [0.5, 2064],
+    [0.6, 2254],
+    [0.7, 2515],
+    [0.8, 3168],
+    [0.87, 4389],
+    [0.92, 7080],
+    [0.95, 11793],
+  ],
+  texture: [
+    [0.5, 14303],
+    [0.6, 16404],
+    [0.7, 19473],
+    [0.8, 24371],
+    [0.87, 31318],
+    [0.92, 41543],
+    [0.95, 53617],
+  ],
+};
+
+/** El codificador puede pesar hasta un 4 % mas que Chromium (media geometrica de las tres imagenes) sin que se corrija la calidad. */
+export const CALIBRATION_MEAN_TOLERANCE = 1.04;
+
+/**
+ * Media geometrica de los cocientes `peso medido / peso de Chromium a la calidad pedida` de las imagenes de prueba. 1 = pesa
+ * igual que Chromium; 2 = el doble. `Infinity` si falta alguna referencia o medida (no se corrige nada).
+ */
+export function geometricMeanRatio(requestedQuality: number, measured: Readonly<Record<CalibrationKind, number>>): number {
+  let logSum = 0;
+  for (const kind of CALIBRATION_KINDS) {
+    const reference = referenceBytesFor(requestedQuality, CALIBRATION_REFERENCES[kind]);
+    const bytes = measured[kind];
+    if (!(reference > 0) || !(bytes > 0) || !Number.isFinite(reference)) return Number.POSITIVE_INFINITY;
+    logSum += Math.log(bytes / reference);
+  }
+  return Math.exp(logSum / CALIBRATION_KINDS.length);
+}
 
 /** Peso de referencia para una calidad cualquiera (interpolado linealmente entre los puntos medidos). */
 export function referenceBytesFor(quality: number, table: ReadonlyArray<readonly [number, number]> = CALIBRATION_REFERENCE): number {

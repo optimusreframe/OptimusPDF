@@ -148,3 +148,48 @@ test("el teclado llega a los segmentos y los cambia (flechas), y el foco es visi
   }
 });
 
+
+/**
+ * Fuente del sistema al 150 % en un iPad de 834 px (ES, la mas larga): antes la pagina desbordaba 118 px (la cabecera con sus
+ * enlaces; EN 7 px), «Compacta» y «Ajustar» quedaban recortados y las pestañas de «Fotos por pagina» median 39 x 66 px. Ahora los
+ * segmentos pasan a otra fila (nunca se recortan) y miden >= 44 px de ancho y de alto con dedo.
+ */
+for (const language of ["es", "en"] as const) {
+  for (const [width, scale] of [[834, 150], [744, 150]] as const) {
+    test(`${width} px con la fuente al ${scale} % · ${language.toUpperCase()}: sin desborde horizontal, segmentos sin recortar y >= 44 px`, async ({ browser }) => {
+      test.setTimeout(120_000);
+      const context = await newContext(browser, width, "light", language);
+      const page = await context.newPage();
+      try {
+        await page.goto("/jpg-to-pdf", { waitUntil: "networkidle" });
+        await page.addStyleTag({ content: `html{font-size:${scale}% !important}` });
+        await page.locator('input[type="file"]').first().setInputFiles(set.paths);
+        await expect(page.getByAltText(/^(Imagen|Image) \d+$/)).toHaveCount(6, { timeout: 60_000 });
+        if (width < 768) await page.getByRole("button", { name: OPEN[language], exact: true }).click();
+        await expect(page.locator("[data-image-quality]")).toBeVisible({ timeout: 60_000 });
+        await page.getByRole("tablist", { name: PER_PAGE[language] }).getByRole("tab", { name: "4", exact: true }).click();
+        await page.waitForTimeout(500);
+        expect(await overflow(page), "desborde horizontal de la pagina").toBe(0);
+        // Cada segmento visible cabe dentro de su pista (nada recortado) y mide >= 44 px en ambos ejes.
+        const clipped = await page.evaluate(() => {
+          const out: string[] = [];
+          for (const list of document.querySelectorAll('[role="tablist"]')) {
+            const box = list.getBoundingClientRect();
+            if (box.width < 2) continue;
+            for (const tab of list.querySelectorAll('[role="tab"]')) {
+              const r = tab.getBoundingClientRect();
+              if (r.left < box.left - 1 || r.right > box.right + 1) out.push(`${tab.textContent} fuera de su pista`);
+              if (tab.scrollWidth > tab.clientWidth + 1) out.push(`${tab.textContent} recortado (${tab.scrollWidth} > ${tab.clientWidth})`);
+              if (Math.min(r.width, r.height) < 43.5) out.push(`${tab.textContent} mide ${Math.round(r.width)}x${Math.round(r.height)}`);
+            }
+          }
+          return out;
+        });
+        expect(clipped).toEqual([]);
+        expect(await runAxe(page), "axe con la fuente grande").toEqual([]);
+      } finally {
+        await context.close();
+      }
+    });
+  }
+}

@@ -519,11 +519,9 @@ export async function applyPageAssembly(
     const imageEntries = plan.filter((entry): entry is ImageEntry => entry.kind === "image");
     const imageLeaves = new Map<ImageEntry, PDFPage>();
     if (imageEntries.length > 0) {
-      const { buildPdfFromImages, DEFAULT_IMAGE_LAYOUT } = await import("@/lib/pdf/imagesToPdf");
       // Las fotos se preparan con la calidad de imagen recordada en este dispositivo (la recomendada por defecto), con un
-      // solo worker para todas las de esta operacion.
-      const { createPrepareSession } = await import("@/lib/image/prepareBrowser");
-      const { readStoredImagePreset } = await import("@/lib/image/imageQualityPref");
+      // solo worker para todas las de esta operacion. UN solo import(): sin red no puede faltar ningun trozo.
+      const { buildPdfFromImages, DEFAULT_IMAGE_LAYOUT, createPrepareSession, readStoredImagePreset } = await import("@/lib/pdf/imagesToPdf");
       const preset = readStoredImagePreset();
       const session = createPrepareSession();
       try {

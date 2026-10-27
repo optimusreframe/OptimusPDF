@@ -193,8 +193,14 @@ export const ACCENT_RING: Record<ToolAccent, string> = {
 
 const PDF_MIME = ["application/pdf"];
 const PDF_EXT = [".pdf"];
-const IMAGE_MIME = ["image/jpeg", "image/png", "image/webp"];
-const IMAGE_EXT = [".jpg", ".jpeg", ".png", ".webp"];
+/**
+ * Imagenes que aceptan Imagenes a PDF y Escanear a PDF. HEIC/HEIF (el formato de alta eficiencia de las fotos de iPhone/iPad)
+ * se acepta porque Safari SI lo decodifica; donde el navegador no puede abrirlo (Chrome, Firefox) la foto se nombra con un
+ * mensaje claro y el resto sigue (ver `imageIntegrity.ts` y `thumbnail.ts`). AVIF, GIF y TIFF NO se ofrecen: el codigo de
+ * conversion de `prepareForPdf.ts` para ellos solo se alcanza renombrando un archivo.
+ */
+const IMAGE_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+const IMAGE_EXT = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
 
 type ToolDefinition = Omit<Tool, "slug" | "accent">;
 

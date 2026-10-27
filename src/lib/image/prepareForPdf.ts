@@ -1,5 +1,6 @@
 import { readJpegOrientation, type ExifOrientation } from "@/lib/pdf/jpegOrientation";
 import { readImageSize, sniffImageFormat } from "@/lib/image/inkDecode";
+import { checkImageBytes, type ImageProblem } from "@/lib/image/imageIntegrity";
 
 /**
  * Preparacion de fotos para meterlas en un PDF («Imagenes a PDF», «Escanear a PDF», PDF Pro...).
@@ -258,8 +259,10 @@ export function fitWithin(
 
 /**
  * Lienzos intermedios para reducir una imagen muy grande SIN pasar de golpe (un `drawImage` de 8000 px a 3000 px de una
- * vez alisa mal en algunos motores): cada paso reduce como mucho a la mitad y NINGUN lienzo supera los topes de iOS. El
- * primero ya respeta `CANVAS_SAFE_MAX_SIDE`/`CANVAS_SAFE_MAX_PIXELS` aunque la imagen sea de 100 Mpx.
+ * vez alisa mal en algunos motores y en WebKit deja dientes y moire): cada paso reduce EXACTAMENTE a la mitad (promedio
+ * de 2x2 pixeles, sin aliasing en ningun motor) hasta que lo que queda es menos del doble del objetivo, y el ultimo paso
+ * es el ajuste fino. NINGUN lienzo supera los topes de iOS (`maxSide`, `maxPixels`): solo una imagen de mas de ~64 Mpx
+ * necesita que el primer lienzo baje mas de la mitad para respetarlos.
  */
 export function planDownscaleSteps(
   sourceWidth: number,
@@ -272,18 +275,16 @@ export function planDownscaleSteps(
   const steps: Array<{ width: number; height: number }> = [];
   let w = sourceWidth;
   let h = sourceHeight;
-  // Primer lienzo: lo mas grande que cabe en los topes sin pasarse del objetivo.
-  const first = fitWithin(w, h, maxSide, maxPixels);
-  if (first.scale < 1) {
-    w = Math.max(first.width, targetWidth);
-    h = Math.max(first.height, targetHeight);
-    steps.push({ width: w, height: h });
-  }
   let guard = 0;
   while ((w > targetWidth || h > targetHeight) && guard < 32) {
     guard += 1;
-    const nextW = Math.max(targetWidth, Math.round(w / 2));
-    const nextH = Math.max(targetHeight, Math.round(h / 2));
+    let nextW = Math.max(targetWidth, Math.round(w / 2));
+    let nextH = Math.max(targetHeight, Math.round(h / 2));
+    const capped = fitWithin(nextW, nextH, maxSide, maxPixels);
+    if (capped.scale < 1) {
+      nextW = Math.max(targetWidth, capped.width);
+      nextH = Math.max(targetHeight, capped.height);
+    }
     if (nextW === w && nextH === h) break;
     w = nextW;
     h = nextH;
@@ -293,6 +294,40 @@ export function planDownscaleSteps(
     steps.push({ width: targetWidth, height: targetHeight });
   }
   return steps;
+}
+
+/**
+ * Fraccion del ancho del origen a la que se decodifica cuando el reductor nativo NO filtra (WebKit) y ningun multiplo exacto del
+ * objetivo cae cerca del origen. Medido con una carta de barras de periodo 2 px reducida 8064 -> 2200 y 3000: reducir ya al
+ * decodificar a 0,55x deja pasar el patron (contraste 0,72), a 0,65x (0,38), a 0,7x (0,16) y a 0,8x (0,05; el objetivo es < 0,15);
+ * decodificar entera (1,0x) da 0,01. Con 0,75x el PSNR frente a la referencia queda por encima del de Chromium.
+ */
+export const NATIVE_DECODE_FRACTION = 0.75;
+/** Por debajo de esta fraccion del origen, la reduccion nativa de WebKit deja aliasing (0,65x ya deja pasar el patron de 2 px). */
+export const NATIVE_DECODE_MIN_FRACTION = 0.72;
+
+/**
+ * Ancho al que se le pide a `createImageBitmap` que decodifique en un motor cuyo reductor NATIVO no filtra (WebKit: al
+ * reducir mucho submuestrea sin promediar y deja aliasing; medido con un patron de 2 px: conserva 0,66-1 del contraste frente
+ * a ~0,05 de Chromium; una panoramica a 0,25x baja de 40 a 36 dB y los morteros salen en dientes con halos al ampliar).
+ *
+ * Se busca un ancho `objetivo x 2^k` que quede entre el 72 % y el 95 % del origen: la reduccion nativa es suave (>= 0,72x) y el
+ * resto lo hace `drawImage` por pasos de mitad EXACTA (promedio 2x2, el filtro de area, sin aliasing ni desenfoque extra). Con
+ * 48 Mpx (8064 px) y objetivo 3000 decodifica a 6000 (108 MB, frente a 195 MB de decodificarla entera). Si ningun multiplo exacto
+ * cae en ese margen, se decodifica al 75 % del origen (nunca menos del doble del objetivo) y el ultimo paso es fraccionario.
+ * `null` = no hace falta reducir al decodificar (decodificar entera y bajar por pasos: el origen ya es casi un multiplo exacto
+ * del objetivo, o es tan pequeno que reducir no compensa).
+ */
+export function planNativeDecodeWidth(sourceWidth: number, targetWidth: number): number | null {
+  if (!(targetWidth > 0) || !(sourceWidth > targetWidth)) return null;
+  for (let k = 1; k <= 6; k += 1) {
+    const exact = targetWidth * 2 ** k;
+    if (exact > sourceWidth * 1.0001) break;
+    if (exact >= sourceWidth * 0.95) return null;
+    if (exact >= sourceWidth * NATIVE_DECODE_MIN_FRACTION) return exact;
+  }
+  const width = Math.max(targetWidth * 2, Math.ceil(sourceWidth * NATIVE_DECODE_FRACTION));
+  return width < sourceWidth * 0.95 ? width : null;
 }
 
 /* ------------------------------------------------------------------------------------------------------------ */
@@ -328,6 +363,10 @@ export type PreparationPlan = { readonly action: "keep"; readonly reason: KeepRe
  *  - PNG pequeno, o que ya cabe y pesa pocos bytes por pixel (grafico/captura): intacto.
  *  - PNG grande: se mira si es foto (-> JPEG) o grafico/transparencia real (-> PNG, solo se reduce si excede el tope).
  *  - WebP/AVIF/HEIC/GIF y lo ilegible: se convierte siempre (foto -> JPEG, grafico/alfa -> PNG).
+ *
+ * Alcanzable desde la interfaz: JPEG, PNG, WebP y HEIC/HEIF (Safari decodifica HEIC; en navegadores que no, la foto se
+ * rechaza con `problem: "heic"`). AVIF, GIF y BMP NO se ofrecen en el selector de archivos (`tools-registry.ts`): su rama de
+ * conversion solo se alcanza con un archivo renombrado y se conserva como red de seguridad, no como funcion.
  */
 export function planPreparation(header: ImageHeader, byteLength: number, preset: ImagePreset): PreparationPlan {
   const isOriginal = preset.id === "original";
@@ -416,10 +455,16 @@ export interface PrepareBackend {
 
 export class ImagePrepareError extends Error {
   readonly code: "cancelled" | "undecodable";
-  constructor(code: "cancelled" | "undecodable") {
+  /**
+   * Por que no se pudo leer la foto (`undecodable`): vacia, no es una imagen, incompleta, danada, HEIC que este navegador
+   * no abre o simplemente que no se pudo decodificar. `null` si se cancelo.
+   */
+  readonly problem: ImageProblem | null;
+  constructor(code: "cancelled" | "undecodable", problem: ImageProblem | null = code === "cancelled" ? null : "unreadable") {
     super(code);
     this.name = "ImagePrepareError";
     this.code = code;
+    this.problem = problem;
   }
 }
 
@@ -562,6 +607,11 @@ export type PreparedImage = {
   changed: boolean;
   originalBytes: number;
   reason: PrepareReason;
+  /**
+   * Lo que dio la reduccion + el reencodado AUNQUE al final se conservara el original (por no ahorrar el 15 %): sirve para
+   * estimar el peso de las demas fotos a partir de una muestra real. `undefined` si no se llego a reencodar.
+   */
+  encoded?: { bytes: number; width: number; height: number };
 };
 
 /**
@@ -588,6 +638,12 @@ export type PrepareOptions = {
   signal?: AbortSignal;
   /** Lado largo que necesita la foto por el sitio que ocupa en la hoja (ver `withFitMaxSide`). */
   fitMaxSide?: number;
+  /**
+   * Comprueba la estructura de la foto antes de usarla (`checkImageBytes`): un archivo que no es imagen, un JPEG/PNG/WebP
+   * cortado o danado rechaza con `ImagePrepareError("undecodable", motivo)` en vez de colarse en el PDF. Lo activan los
+   * que quieren avisar de la foto mala por su nombre (Imagenes a PDF); el resto conserva su comportamiento.
+   */
+  strict?: boolean;
   /**
    * Para quien incrusta el JPEG SIN poder aplicar la orientacion EXIF al dibujar (insertar una imagen en Editar): un JPEG
    * con orientacion distinta de 1 se reencoda siempre ya derecho, aunque pase intacto por la politica y aunque el preset
@@ -617,7 +673,11 @@ export async function prepareImage(
   const preset = withFitMaxSide(IMAGE_PRESETS[presetId] ?? IMAGE_PRESETS[DEFAULT_IMAGE_PRESET], options.fitMaxSide);
   const bytes = new Uint8Array(await source.arrayBuffer());
   throwIfAborted(options.signal);
-  if (bytes.byteLength === 0) throw new ImagePrepareError("undecodable");
+  if (bytes.byteLength === 0) throw new ImagePrepareError("undecodable", "empty");
+  if (options.strict) {
+    const verdict = checkImageBytes(bytes);
+    if (!verdict.ok) throw new ImagePrepareError("undecodable", verdict.problem);
+  }
   const header = readImageHeader(bytes);
   let plan = planPreparation(header, bytes.byteLength, preset);
   if (
@@ -637,8 +697,13 @@ export async function prepareImage(
     });
   }
 
-  const keep = (reason: PrepareReason): PreparedImage => {
-    if (header.kind !== "jpeg" && header.kind !== "png") throw new ImagePrepareError("undecodable");
+  const trial = (result: TranscodeResult | null): PreparedImage["encoded"] =>
+    result ? { bytes: result.bytes.byteLength, width: result.width, height: result.height } : undefined;
+  const keep = (reason: PrepareReason, result: TranscodeResult | null = null): PreparedImage => {
+    // Sin poder convertirla (el navegador no la decodifica) ni incrustarla tal cual: HEIC se dice como es.
+    if (header.kind !== "jpeg" && header.kind !== "png") {
+      throw new ImagePrepareError("undecodable", header.kind === "heic" ? "heic" : "unreadable");
+    }
     return {
       format: header.kind,
       bytes,
@@ -648,6 +713,7 @@ export async function prepareImage(
       changed: false,
       originalBytes: bytes.byteLength,
       reason,
+      encoded: trial(result),
     };
   };
 
@@ -668,7 +734,7 @@ export async function prepareImage(
   }
   throwIfAborted(options.signal);
   const outcome = chooseOutcome(plan, header.kind, bytes.byteLength, result);
-  if (outcome.use === "original" || !result) return keep(outcome.reason);
+  if (outcome.use === "original" || !result) return keep(outcome.reason, result);
   return {
     format: result.format,
     bytes: result.bytes,
@@ -678,6 +744,7 @@ export async function prepareImage(
     changed: true,
     originalBytes: bytes.byteLength,
     reason: outcome.reason,
+    encoded: trial(result),
   };
 }
 

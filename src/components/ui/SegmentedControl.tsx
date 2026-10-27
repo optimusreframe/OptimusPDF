@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -27,6 +28,13 @@ export type SegmentedControlProps<T extends string> = {
   size?: "sm" | "md";
   /** El nombre accesible se queda (`aria-label`) pero no se pinta encima: para filas compactas. */
   hideLabel?: boolean;
+  /**
+   * Los segmentos pasan a una segunda fila cuando no caben en una (fuente grande del sistema en un panel estrecho, p. ej. iPad de
+   * 834 px con la fuente al 150 %): ninguno se recorta ni desborda la pagina y cada uno mide >= 44 px de alto y de ancho. El
+   * pulgar deja de ser un solo elemento que se desliza por porcentajes y es el fondo del segmento activo, que se anima entre
+   * posiciones con `layoutId` (tambien de una fila a otra).
+   */
+  wrap?: boolean;
 };
 
 /**
@@ -59,7 +67,9 @@ export function SegmentedControl<T extends string>({
   className,
   size = "md",
   hideLabel = false,
+  wrap = false,
 }: SegmentedControlProps<T>) {
+  const thumbId = useId();
   const index = Math.max(
     0,
     options.findIndex((option) => option.value === value),
@@ -78,6 +88,7 @@ export function SegmentedControl<T extends string>({
   const [box, setBox] = useState<{ left: number; width: number } | null>(null);
 
   const measure = useCallback(() => {
+    if (wrap) return;
     const tabs = tabsRef.current.slice(0, count);
     if (tabs.length < count || tabs.some((tab) => !tab)) return;
     const widths = tabs.map((tab) => tab!.offsetWidth);
@@ -93,7 +104,7 @@ export function SegmentedControl<T extends string>({
         ? prev
         : next,
     );
-  }, [count, index]);
+  }, [count, index, wrap]);
 
   // Medir antes de pintar (sin parpadeo) al montar y cada vez que cambian
   // el activo, el numero de segmentos o las etiquetas; y al cambiar el ancho
@@ -158,32 +169,37 @@ export function SegmentedControl<T extends string>({
         aria-label={label}
         onKeyDown={onKeyDown}
         className={cn(
-          // Sin padding vertical: cada tab ocupa la altura entera de la pista
-          // (44 px de toque); el pulgar se inseta 4 px por su cuenta.
-          "relative isolate grid w-full auto-cols-[minmax(min-content,1fr)] grid-flow-col rounded-full bg-white/8 px-1",
+          wrap
+            ? // Segmentos que pasan a otra fila: pista con relleno, esquinas amplias en vez de capsula.
+              "relative isolate flex w-full flex-wrap gap-1 rounded-[22px] bg-white/8 p-1"
+            : // Sin padding vertical: cada tab ocupa la altura entera de la pista
+              // (44 px de toque); el pulgar se inseta 4 px por su cuenta.
+              "relative isolate grid w-full auto-cols-[minmax(min-content,1fr)] grid-flow-col rounded-full bg-white/8 px-1",
           // forced-colors: la pista se delimita con borde del sistema.
           "forced-colors:border forced-colors:border-[ButtonText]",
           size === "sm" ? "min-h-9" : "min-h-11",
         )}
       >
-        <motion.span
-          // Al cambiar de modo (porcentaje <-> px) se remonta: no se mezclan unidades.
-          key={box ? "medido" : "iguales"}
-          aria-hidden="true"
-          initial={false}
-          animate={
-            box
-              ? { x: box.left - 4, width: box.width }
-              : { x: `${index * 100}%` }
-          }
-          transition={springs.snappy}
-          // forced-colors: sin relleno ni sombra, el pulgar (opcion activa) es
-          // un anillo grueso en Highlight.
-          className="absolute inset-y-1 left-1 -z-10 rounded-full bg-elevated shadow-elevation-1 will-change-transform forced-colors:border-2 forced-colors:border-[Highlight]"
-          style={
-            box ? undefined : { width: `calc((100% - 0.5rem) / ${count})` }
-          }
-        />
+        {wrap ? null : (
+          <motion.span
+            // Al cambiar de modo (porcentaje <-> px) se remonta: no se mezclan unidades.
+            key={box ? "medido" : "iguales"}
+            aria-hidden="true"
+            initial={false}
+            animate={
+              box
+                ? { x: box.left - 4, width: box.width }
+                : { x: `${index * 100}%` }
+            }
+            transition={springs.snappy}
+            // forced-colors: sin relleno ni sombra, el pulgar (opcion activa) es
+            // un anillo grueso en Highlight.
+            className="absolute inset-y-1 left-1 -z-10 rounded-full bg-elevated shadow-elevation-1 will-change-transform forced-colors:border-2 forced-colors:border-[Highlight]"
+            style={
+              box ? undefined : { width: `calc((100% - 0.5rem) / ${count})` }
+            }
+          />
+        )}
         {options.map((option, optionIndex) => {
           const active = option.value === value;
           return (
@@ -199,7 +215,11 @@ export function SegmentedControl<T extends string>({
               title={option.label}
               onClick={() => onChange(option.value)}
               className={cn(
-                "flex h-full items-center justify-center rounded-full px-1 py-1.5 text-center leading-tight whitespace-normal select-none",
+                wrap
+                  ? // En fila que se parte: crece a lo ancho, nunca baja de 44 px (alto y ancho), y su fondo activo es el pulgar.
+                    "relative min-h-11 min-w-11 flex-[1_1_auto] rounded-full px-3 py-1.5"
+                  : "h-full px-1 py-1.5",
+                "flex items-center justify-center rounded-full text-center leading-tight whitespace-normal select-none",
                 tabText,
                 "font-semibold",
                 "transition-[color,scale,opacity] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
@@ -213,6 +233,14 @@ export function SegmentedControl<T extends string>({
                   : "text-muted-foreground hover:text-foreground active:opacity-70",
               )}
             >
+              {wrap && active ? (
+                <motion.span
+                  layoutId={thumbId}
+                  aria-hidden="true"
+                  transition={springs.snappy}
+                  className="absolute inset-0 -z-10 rounded-full bg-elevated shadow-elevation-1 forced-colors:border-2 forced-colors:border-[Highlight]"
+                />
+              ) : null}
               {option.label}
             </button>
           );

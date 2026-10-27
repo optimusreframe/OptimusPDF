@@ -1,13 +1,16 @@
 import {
-  CALIBRATION_REFERENCE,
-  CALIBRATION_SIZE,
+  CALIBRATION_KINDS,
+  CALIBRATION_MEAN_TOLERANCE,
   calibrationPixels,
+  calibrationSize,
+  geometricMeanRatio,
   pickCalibratedQuality,
-  referenceBytesFor,
+  type CalibrationKind,
 } from "@/lib/image/jpegCalibration";
 import {
   fitWithin,
   planDownscaleSteps,
+  planNativeDecodeWidth,
   type DecodeRequest,
   type PrepareBackend,
   type Raster,
@@ -22,8 +25,17 @@ import {
  * motores que lo hacen bien). Se pide SOLO `resizeWidth`: el alto lo calcula el navegador con la proporcion de la imagen
  * YA girada, asi que si el navegador ignorara la orientacion o la reduccion, el tamano devuelto no coincidiria con el
  * esperado y se detecta (se usa entonces el respaldo, nunca una foto deformada o girada).
- * Respaldo (solo hilo principal): `<img>` + lienzo reducido POR PASOS (`planDownscaleSteps`: cada paso, como mucho, a la
- * mitad y ningun lienzo pasa de los topes de iOS).
+ *
+ * Reduccion SIN aliasing en todos los motores: el reductor nativo de WebKit (iPhone/iPad) NO filtra (submuestrea: un
+ * patron de 2 px conserva 0,8-0,9 del contraste, Chromium ~0,06; una panoramica a 0,25x baja de 40 a 36 dB y los
+ * morteros salen en dientes con halos al ampliar). Por eso `nativeResizeFilters()` lo comprueba UNA vez con una imagen
+ * de prueba (deteccion de capacidad, no de navegador): si filtra (Chromium), la reduccion nativa va directa al objetivo;
+ * si no (WebKit), se decodifica al doble del objetivo (`planNativeDecodeWidth`: la reduccion nativa queda por encima de
+ * 0,5x, sin aliasing) y `drawImage` baja por PASOS DE MITAD exacta (promedio 2x2) hasta el objetivo, liberando cada
+ * lienzo y cada bitmap al instante (el pico es el bitmap del doble del objetivo, 108 MB para 48 Mpx, no los 195 MB de
+ * decodificarla entera).
+ * Respaldo (solo hilo principal): `<img>` + lienzo reducido POR PASOS (`planDownscaleSteps`: cada paso reduce a la
+ * mitad exacta y ningun lienzo pasa de los topes de iOS).
  *
  * (No se codifica el `ImageBitmap` directamente desde un lienzo `bitmaprenderer`: en Chromium el bitmap conserva los pixeles
  * SIN girar y la orientacion EXIF se aplica al dibujarlo, asi que esa via entregaba la foto sin girar.)
@@ -38,6 +50,17 @@ type Drawable = ImageBitmap | HTMLImageElement | Canvas2D;
 
 type Surface = { canvas: Canvas2D; context: Context2D; width: number; height: number };
 
+/**
+ * Opciones del contexto 2D. `colorSpace: "srgb"` es el valor por defecto de los lienzos; se pide explicito porque es lo que
+ * se quiere: un PDF trabaja en sRGB (DeviceRGB) y una foto Display P3 se convierte al dibujarla (los colores muy intensos se
+ * recortan). Medido en Chromium y WebKit de Playwright EN MODO SIN PANTALLA (headless): los valores de una foto P3 pasan sin
+ * conversion ni perfil, igual que con «Original» (sin regresion); la conversion real depende de la gestion de color del
+ * navegador/pantalla y no se pudo observar ahi. El texto de ayuda lo dice con esa prudencia (`colorNote`).
+ */
+function contextOptions(willRead: boolean): CanvasRenderingContext2DSettings {
+  return willRead ? { willReadFrequently: true, colorSpace: "srgb" } : { colorSpace: "srgb" };
+}
+
 function createSurface(width: number, height: number, willRead: boolean): Surface | null {
   const w = Math.max(1, Math.round(width));
   const h = Math.max(1, Math.round(height));
@@ -46,13 +69,13 @@ function createSurface(width: number, height: number, willRead: boolean): Surfac
       const canvas = document.createElement("canvas");
       canvas.width = w;
       canvas.height = h;
-      const context = canvas.getContext("2d", willRead ? { willReadFrequently: true } : undefined);
+      const context = canvas.getContext("2d", contextOptions(willRead));
       if (!context) return null;
       return { canvas, context, width: w, height: h };
     }
     if (typeof OffscreenCanvas !== "undefined") {
       const canvas = new OffscreenCanvas(w, h);
-      const context = canvas.getContext("2d", willRead ? { willReadFrequently: true } : undefined);
+      const context = canvas.getContext("2d", contextOptions(willRead));
       if (!context) return null;
       return { canvas, context, width: w, height: h };
     }
@@ -90,25 +113,59 @@ async function canvasToBytes(canvas: Canvas2D, type: string, quality: number): P
  * calidad y por contexto (hilo principal o worker); si la calibracion falla se usa la calidad pedida.
  */
 const calibrated = new Map<number, Promise<number>>();
+/** Calidades ya calibradas (clave en milesimas): se exportan al hilo principal para que un worker nuevo no repita la calibracion. */
+const calibratedValues = new Map<number, number>();
+
+/** Calibraciones ya hechas en este contexto, para pasarlas a otro (`[calidad x 1000, calidad calibrada]`). */
+export function exportCalibration(): Array<[number, number]> {
+  return [...calibratedValues];
+}
+
+/** Da por hechas calibraciones de otro contexto (el mismo navegador da el mismo resultado: es determinista). */
+export function seedCalibration(entries: ReadonlyArray<readonly [number, number]> | undefined): void {
+  for (const [key, value] of entries ?? []) {
+    if (!calibrated.has(key) && Number.isFinite(value)) {
+      calibrated.set(key, Promise.resolve(value));
+      calibratedValues.set(key, value);
+    }
+  }
+}
+
 function calibratedQuality(quality: number): Promise<number> {
   const key = Math.round(quality * 1000);
   let pending = calibrated.get(key);
   if (!pending) {
     pending = (async () => {
-      const surface = createSurface(CALIBRATION_SIZE, CALIBRATION_SIZE, false);
-      if (!surface) return quality;
+      const surfaces = new Map<CalibrationKind, Surface>();
       try {
-        const pixels = calibrationPixels();
-        // `ImageData` existe en el hilo principal y en workers.
-        surface.context.putImageData(new ImageData(pixels as Uint8ClampedArray<ArrayBuffer>, CALIBRATION_SIZE, CALIBRATION_SIZE), 0, 0);
-        return await pickCalibratedQuality(quality, referenceBytesFor(quality, CALIBRATION_REFERENCE), async (q) => (await canvasToBytes(surface.canvas, "image/jpeg", q)).byteLength);
+        for (const kind of CALIBRATION_KINDS) {
+          const size = calibrationSize(kind);
+          const surface = createSurface(size, size, false);
+          if (!surface) return quality;
+          surfaces.set(kind, surface);
+          // `ImageData` existe en el hilo principal y en workers.
+          surface.context.putImageData(new ImageData(calibrationPixels(kind) as Uint8ClampedArray<ArrayBuffer>, size, size), 0, 0);
+        }
+        // Se iguala la media geometrica de los pesos de las tres imagenes de prueba con la de Chromium: el cociente WebKit/Chromium
+        // depende del contenido (1,8-2,6 segun la imagen), una sola imagen dejaba +8-60 % en las fotos reales.
+        return await pickCalibratedQuality(
+          quality,
+          1,
+          async (q) => {
+            const measured = {} as Record<CalibrationKind, number>;
+            for (const kind of CALIBRATION_KINDS) measured[kind] = (await canvasToBytes((surfaces.get(kind) as Surface).canvas, "image/jpeg", q)).byteLength;
+            return geometricMeanRatio(quality, measured);
+          },
+          CALIBRATION_MEAN_TOLERANCE,
+        );
       } catch {
         return quality;
       } finally {
-        releaseSurface(surface);
+        for (const surface of surfaces.values()) releaseSurface(surface);
       }
     })();
     calibrated.set(key, pending);
+    void pending.then((value) => calibratedValues.set(key, value));
   }
   return pending;
 }
@@ -205,7 +262,74 @@ function renderScaled(
   return result;
 }
 
-/** Decodifica con `createImageBitmap` ya reducido y girado. `null` si el navegador no lo hace bien. */
+/**
+ * ¿El reductor de `createImageBitmap({ resizeQuality: "high" })` de este motor FILTRA (promedia) al reducir mucho?
+ * Se prueba con un JPEG de columnas alternas de 1 px (periodo 2 px) reducido a 0,375x: un reductor con filtro lo deja casi
+ * liso (Chromium: contraste ~0,05); uno que submuestrea conserva el patron (WebKit: ~0,66). Se calcula una vez por contexto
+ * (hilo principal o worker). Si la prueba falla por lo que sea, se supone que NO filtra: el camino por pasos es siempre
+ * correcto (solo gasta mas memoria).
+ */
+export const FILTER_PROBE_MAX_CONTRAST = 0.3;
+let filterProbe: Promise<boolean> | null = null;
+export function nativeResizeFilters(): Promise<boolean> {
+  filterProbe ??= (async () => {
+    // Ancho de la prueba: el reductor nativo de WebKit solo submuestrea por encima de ~3000 px de ancho (medido: 2048 -> 768
+    // filtra bien, 3000 -> 1125 ya no), y solo con JPEG de verdad, asi que la prueba es un JPEG de 3072 x 16 (49 Kpx).
+    const width = 3072;
+    const height = 16;
+    const target = 1152;
+    const surface = createSurface(width, height, true);
+    if (!surface) return false;
+    let small: ImageBitmap | null = null;
+    let readback: Surface | null = null;
+    try {
+      const image = surface.context.createImageData(width, height);
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          const at = (y * width + x) * 4;
+          const value = x % 2 === 0 ? 0 : 255;
+          image.data[at] = value;
+          image.data[at + 1] = value;
+          image.data[at + 2] = value;
+          image.data[at + 3] = 255;
+        }
+      }
+      surface.context.putImageData(image, 0, 0);
+      const jpeg = await canvasToBytes(surface.canvas, "image/jpeg", 1);
+      small = await createImageBitmap(new Blob([jpeg as BlobPart], { type: "image/jpeg" }), {
+        resizeWidth: target,
+        resizeQuality: "high",
+      });
+      readback = createSurface(small.width, small.height, true);
+      if (!readback) return false;
+      readback.context.drawImage(small, 0, 0);
+      const data = readback.context.getImageData(0, 0, small.width, small.height).data;
+      let low = 255;
+      let high = 0;
+      // Se ignoran los bordes (el reductor mezcla con el exterior): solo el centro del patron.
+      for (let x = 3; x < small.width - 3; x += 1) {
+        const value = data[(Math.floor(small.height / 2) * small.width + x) * 4];
+        low = Math.min(low, value);
+        high = Math.max(high, value);
+      }
+      return (high - low) / 255 < FILTER_PROBE_MAX_CONTRAST;
+    } catch {
+      return false;
+    } finally {
+      small?.close();
+      releaseSurface(surface);
+      releaseSurface(readback);
+    }
+  })();
+  return filterProbe;
+}
+
+/** Solo para pruebas: olvida el resultado de la comprobacion del reductor. */
+export function resetNativeResizeProbe(): void {
+  filterProbe = null;
+}
+
+/** Decodifica con `createImageBitmap` ya girado (y reducido a `resize.width` si se pide). `null` si el navegador no lo hace bien. */
 async function decodeNative(
   source: Blob,
   expected: { width: number; height: number } | null,
@@ -262,12 +386,19 @@ export function createBrowserBackend(): PrepareBackend {
       const hint = request.hint;
       const expected = hint ? fitWithin(hint.width, hint.height, request.maxSide, request.maxPixels) : null;
 
-      // 1. Nativo: el navegador decodifica, gira y reduce.
-      const bitmap = await decodeNative(
-        source,
-        expected,
-        expected && expected.scale < 1 ? { width: expected.width } : null,
-      );
+      // 1. Nativo: el navegador decodifica, gira y reduce (hasta el objetivo si su reductor filtra; si no, hasta el doble
+      //    del objetivo y `renderScaled` baja por pasos de mitad).
+      let resizeWidth: number | null = null;
+      if (hint && expected && expected.scale < 1) {
+        resizeWidth = (await nativeResizeFilters()) ? expected.width : planNativeDecodeWidth(hint.width, expected.width);
+      }
+      const bitmapExpected =
+        hint === null
+          ? null
+          : resizeWidth !== null
+            ? { width: resizeWidth, height: Math.max(1, Math.round((hint.height * resizeWidth) / hint.width)) }
+            : { width: hint.width, height: hint.height };
+      const bitmap = await decodeNative(source, bitmapExpected, resizeWidth !== null ? { width: resizeWidth } : null);
       if (bitmap) {
         const target = fitWithin(bitmap.width, bitmap.height, request.maxSide, request.maxPixels);
         const surface = renderScaled(bitmap, bitmap.width, bitmap.height, target, request.willRead);

@@ -1,6 +1,7 @@
 "use client";
 
 import { getThumbnailBlob } from "@/lib/image/thumbnail";
+import { useProgressiveCount } from "@/lib/useProgressiveCount";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Reorder, useDragControls } from "motion/react";
 import { ArrowDown, ArrowUp, FileText, GripVertical, X } from "lucide-react";
@@ -65,6 +66,8 @@ export function FileList({
   const { t, language } = useI18n();
   const locale = localeTag(language);
   const canReorder = reorderable && files.length > 1;
+  // Listas largas (40-117 fotos): las filas se pintan por trozos para no bloquear la pantalla (ver `useProgressiveCount`).
+  const visibleCount = useProgressiveCount(files.length);
   const removeButtonsRef = useRef<(HTMLButtonElement | null)[]>([]);
   /* Indice cuyo boton "Quitar" debe recibir el foco tras el proximo render. */
   const pendingFocusRef = useRef<number | null>(null);
@@ -106,7 +109,7 @@ export function FileList({
         className,
       )}
     >
-      {files.map((file, index) => (
+      {files.slice(0, visibleCount).map((file, index) => (
         <FileRow
           key={fileId(file)}
           file={file}
