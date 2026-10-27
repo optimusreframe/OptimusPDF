@@ -106,6 +106,7 @@ export function UnfinishedSection({
             item.changes !== undefined && item.changes > 0
               ? plural(item.changes, t.recent.changesOne, t.recent.changesMany)
               : null,
+            item.pages !== undefined && item.pages > 0 ? plural(item.pages, t.recent.pagesOne, t.recent.pagesMany) : null,
           ]
             .filter(Boolean)
             .join(" · ");
@@ -152,10 +153,12 @@ export function UnfinishedSection({
                   <button
                     type="button"
                     aria-label={t.recent.discard.replace("{name}", item.fileName)}
+                    aria-describedby={infoId}
                     onClick={() => setConfirmKey(item.key)}
-                    className={`${HIT_44} flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-destructive-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal`}
+                    className={`${HIT_44} inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-ios-sm px-3 text-footnote font-semibold text-muted-foreground transition-colors hover:text-destructive-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal`}
                   >
                     <Trash2 aria-hidden="true" className="size-4" />
+                    {t.recent.discardShort}
                   </button>
                 </div>
               </div>

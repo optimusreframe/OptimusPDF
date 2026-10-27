@@ -1,5 +1,5 @@
 import { test, type Page } from "@playwright/test";
-import { expect, fakeControls, installFakeCamera, installScanFakes, pageIds, waitIdle, waitVideoReady, widthCodedFiles, TEST_TIMEOUT, webkitLinuxCamera, WEBKIT_LINUX_CAMERA_REASON } from "../helpers/scan-ui";
+import { expect, fakeControls, FAKE_ONLY_REASON, installFakeCamera, installScanFakes, pageIds, USE_REAL_ENGINE, waitIdle, waitVideoReady, widthCodedFiles, TEST_TIMEOUT, webkitLinuxCamera, WEBKIT_LINUX_CAMERA_REASON } from "../helpers/scan-ui";
 
 /**
  * Escaner · camara: guia unica en vivo, captura automatica con anillo y enfriamiento (desactivable), rafaga con contador y
@@ -24,6 +24,7 @@ async function openCamera(page: Page) {
 }
 
 test("la guia unica sigue el veredicto del motor y la captura automatica dispara sola con enfriamiento", async ({ page }) => {
+  test.skip(USE_REAL_ENGINE, FAKE_ONLY_REASON);
   await installFakeCamera(page);
   await openCamera(page);
   // Guia: el motor dice «Acércate» -> eso, y solo eso, se ve.
@@ -55,8 +56,9 @@ test("con la captura automatica desactivada nunca dispara; y esa eleccion se rec
   await installFakeCamera(page);
   await openCamera(page);
   await page.locator('[data-camera-action="auto"]').click();
-  await fakeControls(page, (c) => (c.verdict = { hint: "ok", stable: true, stableMs: 2000, shouldAutoCapture: true }));
-  await page.waitForTimeout(1500);
+  // Con el motor falso se fuerza «luz verde»; con el real, la camara falsa (una hoja inmovil) ya la daria si estuviera activa.
+  if (!USE_REAL_ENGINE) await fakeControls(page, (c) => (c.verdict = { hint: "ok", stable: true, stableMs: 2000, shouldAutoCapture: true }));
+  await page.waitForTimeout(USE_REAL_ENGINE ? 4000 : 1500);
   await expect(count(page)).toHaveText("0 páginas");
   await page.getByRole("button", { name: "Capturar página" }).click();
   await expect(count(page)).toHaveText("1 página");
@@ -146,6 +148,7 @@ test("modo Identificacion: anverso y reverso = UNA hoja", async ({ page }) => {
   await expect(tiles(page)).toHaveCount(1);
   await waitIdle(page);
   // La hoja compuesta es una A4 (1240x1754 a 150 ppp), no una de las dos fotos de camara (640x480).
+  if (USE_REAL_ENGINE) return;
   const dims = await page.evaluate(async () => {
     const f = (globalThis as unknown as { __scanFake: { store: { list: () => Promise<{ id: string }[]>; load: (id: string) => Promise<{ pages: { originalWidth: number; originalHeight: number }[] }> } } }).__scanFake;
     await new Promise((resolve) => setTimeout(resolve, 900));
@@ -168,7 +171,7 @@ test("modo Libro: una foto = dos paginas (mitad izquierda y derecha)", async ({ 
   await page.getByRole("button", { name: /Revisar \(2\)/ }).click();
   await expect(tiles(page)).toHaveCount(2);
   await waitIdle(page);
-  expect(await fakeControls(page, (c) => c.calls.splitSpread ?? 0)).toBe(1);
+  if (!USE_REAL_ENGINE) expect(await fakeControls(page, (c) => c.calls.splitSpread ?? 0)).toBe(1);
 });
 
 test("sin camara (permiso denegado): pantalla clara y «Elegir fotos» como camino principal", async ({ page }) => {

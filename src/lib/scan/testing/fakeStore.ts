@@ -22,6 +22,8 @@ export type FakeStoreControls = {
   unavailable: boolean;
   /** `save` devuelve `tooBig` mientras sea `true`. */
   tooBig: boolean;
+  /** El proximo `save` se guarda con ESTE id y responde `forkedAs` (otra pestana modifico antes la sesion); despues se borra. */
+  forkNext: string | null;
   latencyMs: number;
   /** Lo que se pidio guardar (ids de sesion, numero de paginas) en orden. */
   saveLog: Array<{ id: string; pages: number; at: number }>;
@@ -89,6 +91,7 @@ export function createFakeStore(options: FakeStoreOptions = {}): FakeStore {
     quotaBytes: options.quotaBytes ?? null,
     unavailable: false,
     tooBig: false,
+    forkNext: null,
     latencyMs: options.latencyMs ?? 0,
     saveLog: [],
     calls: {},
@@ -145,6 +148,12 @@ export function createFakeStore(options: FakeStoreOptions = {}): FakeStore {
         if (total > controls.quotaBytes) return { ok: false, reason: "quota" };
       }
       try {
+        if (controls.forkNext) {
+          const forkedAs = controls.forkNext;
+          controls.forkNext = null;
+          await write({ ...session, id: forkedAs, updatedAt: new Date().toISOString() });
+          return { ok: true, forkedAs } as Awaited<ReturnType<ScanSessionStore["save"]>>;
+        }
         await write({ ...session, updatedAt: new Date().toISOString() });
         return { ok: true };
       } catch {

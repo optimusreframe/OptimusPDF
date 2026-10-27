@@ -2,6 +2,7 @@ import type { Language } from "@/lib/i18n";
 import type { CameraErrorCode } from "@/lib/pdf/scanToPdf";
 import type { FrameVerdict, ScanFilterMode, ScanMode } from "@/lib/scan/types";
 import type { QualityChipKind } from "@/app/scan-to-pdf/scanState";
+import type { ImportProblemKind } from "@/app/scan-to-pdf/importProblems";
 
 /** Textos propios de «Escanear a PDF» (copy original ES/EN). Las funciones resuelven plurales y numeros. */
 export type ScanToPdfStrings = {
@@ -88,7 +89,19 @@ export type ScanToPdfStrings = {
   redo: string;
   removeBlanks: (count: number) => string;
   blanksBanner: (count: number) => string;
-  orientationNotice: (count: number) => string;
+  /** «Giramos 3 páginas: 2 de lado y 1 cabeza abajo.» Distingue un cuarto de vuelta (de lado) de media vuelta (cabeza abajo). */
+  /** Sufijo del nombre de un escaneo que otra pestaña ya había modificado («Contrato (copia)»). */
+  forkSuffix: string;
+  orientationNotice: (counts: { side: number; flipped: number }) => string;
+  /** Fotos que no se pudieron anadir: por nombre y con el motivo; el resto de la lista sigue. */
+  importProblems: {
+    title: (count: number) => string;
+    kinds: Record<ImportProblemKind, string>;
+    camera: string;
+    more: (count: number) => string;
+    rest: string;
+    dismiss: string;
+  };
   orientationUndo: string;
   lostPages: (count: number) => string;
   save: (count: number) => string;
@@ -145,6 +158,8 @@ export type ScanToPdfStrings = {
     redone: (label: string) => string;
     blanksRemoved: (count: number) => string;
     createFailed: string;
+    photoFailed: (name: string, kind: ImportProblemKind) => string;
+    forked: string;
     saved: string;
     retaken: (n: number) => string;
     inserted: (n: number) => string;
@@ -211,6 +226,13 @@ export type ScanToPdfStrings = {
   marginLarge: string;
   searchable: string;
   searchableHint: string;
+  searchableDownloadNote: string;
+  searchableDownloadConsent: string;
+  searchableNeedConsent: string;
+  searchableFailed: string;
+  createWithoutText: string;
+  searchablePartial: (missing: number, total: number) => string;
+  searchableNoticeTitle: string;
   create: string;
   createMeta: (count: number, size: string) => string;
   sizeBig: string;
@@ -232,7 +254,6 @@ export type ScanToPdfStrings = {
   leaveLeave: string;
   /* Errores */
   noFiles: string;
-  notImage: string;
   storageUnavailableHint: string;
   /* Entradas de archivo ocultas */
   inputFiles: string;
@@ -343,7 +364,26 @@ const ES: ScanToPdfStrings = {
   redo: "Rehacer",
   removeBlanks: (count) => `Quitar hojas en blanco (${count})`,
   blanksBanner: (count) => `${count} ${count === 1 ? "hoja parece estar en blanco" : "hojas parecen estar en blanco"}`,
-  orientationNotice: (count) => `Giramos ${count} ${count === 1 ? "página que estaba" : "páginas que estaban"} de lado.`,
+  forkSuffix: "(copia)",
+  orientationNotice: ({ side, flipped }) => {
+    const total = side + flipped;
+    const lead = `Giramos ${total} ${total === 1 ? "página" : "páginas"}`;
+    if (flipped === 0) return `${lead} que ${side === 1 ? "estaba" : "estaban"} de lado.`;
+    if (side === 0) return `${lead} que ${flipped === 1 ? "estaba" : "estaban"} cabeza abajo.`;
+    return `${lead}: ${side} de lado y ${flipped} cabeza abajo.`;
+  },
+  importProblems: {
+    title: (count) => (count === 1 ? "No se pudo añadir 1 foto" : `No se pudieron añadir ${count} fotos`),
+    kinds: {
+      notImage: "no es una imagen",
+      heic: "formato HEIC, que este navegador no lee (expórtala como JPG)",
+      damaged: "está dañada o incompleta",
+    },
+    camera: "Foto de la cámara",
+    more: (count) => `y ${count} más`,
+    rest: "Las demás siguen en la lista.",
+    dismiss: "Cerrar el aviso de fotos no añadidas",
+  },
   orientationUndo: "Deshacer giro",
   lostPages: (count) => `${count} ${count === 1 ? "página no se pudo recuperar" : "páginas no se pudieron recuperar"} del escaneo guardado.`,
   save: (count) => `Guardar PDF (${count})`,
@@ -405,7 +445,9 @@ const ES: ScanToPdfStrings = {
     undone: (label) => `Deshecho: ${label}`,
     redone: (label) => `Rehecho: ${label}`,
     blanksRemoved: (count) => `${count} ${count === 1 ? "hoja en blanco quitada" : "hojas en blanco quitadas"}. Puedes deshacerlo.`,
-    createFailed: "No se pudo procesar una foto. Se descartó.",
+    createFailed: "No se pudo procesar la foto. No se añadió.",
+    forked: "Otra pestaña había cambiado este escaneo: tus cambios se guardaron aparte, como una copia.",
+    photoFailed: (name, kind) => `No se añadió ${name || "una foto"}: ${kind === "notImage" ? "no es una imagen" : kind === "heic" ? "formato HEIC no compatible" : "está dañada o incompleta"}.`,
     saved: "Escaneo guardado",
     retaken: (n) => `Página ${n} sustituida`,
     inserted: (n) => `Página insertada en la posición ${n}`,
@@ -477,7 +519,14 @@ const ES: ScanToPdfStrings = {
   marginSmall: "Pequeño",
   marginLarge: "Grande",
   searchable: "PDF con texto buscable",
-  searchableHint: "Reconoce el texto en tu dispositivo, sin internet. Es más lento. Desactivado por defecto.",
+  searchableHint: "Reconoce el texto en tu dispositivo y lo deja seleccionable y buscable. Es más lento. Desactivado por defecto.",
+  searchableDownloadNote: "La primera vez se descarga el modelo de reconocimiento de texto (unos MB, solo una vez) y hace falta conexión. Después funciona sin internet. Tus páginas no salen de tu dispositivo.",
+  searchableDownloadConsent: "Permitir descargar el modelo (una sola vez)",
+  searchableNeedConsent: "Marca «Permitir descargar el modelo» para crear el PDF con texto buscable, o desactiva el texto buscable.",
+  searchableFailed: "No se pudo reconocer el texto (la primera vez el modelo necesita conexión). Tus páginas siguen aquí: prueba con conexión o crea el PDF sin texto buscable.",
+  createWithoutText: "Crear el PDF sin texto buscable",
+  searchablePartial: (missing, total) => `${missing} de ${total} ${total === 1 ? "página" : "páginas"} no tienen texto buscable (no se reconoció texto). El PDF es válido.`,
+  searchableNoticeTitle: "Texto buscable",
   create: "Crear PDF",
   createMeta: (count, size) => `${count} ${count === 1 ? "página" : "páginas"} · ${size}`,
   sizeBig: "Pesa más de ~20 MB: algunos correos no lo aceptarán. Prueba la calidad «Compacta».",
@@ -499,7 +548,6 @@ const ES: ScanToPdfStrings = {
   leaveStay: "Seguir escaneando",
   leaveLeave: "Salir",
   noFiles: "Elige al menos una foto.",
-  notImage: "Ese archivo no es una imagen y se ha omitido.",
   storageUnavailableHint: "Este navegador no deja guardar el escaneo (¿modo privado?). Crea el PDF antes de salir.",
   inputFiles: "Selector de fotos y archivos de imagen",
   inputCamera: "Captura con la cámara del sistema",
@@ -609,7 +657,26 @@ const EN: ScanToPdfStrings = {
   redo: "Redo",
   removeBlanks: (count) => `Remove blank sheets (${count})`,
   blanksBanner: (count) => `${count} ${count === 1 ? "sheet looks" : "sheets look"} blank`,
-  orientationNotice: (count) => `We rotated ${count} ${count === 1 ? "page that was" : "pages that were"} sideways.`,
+  forkSuffix: "(copy)",
+  orientationNotice: ({ side, flipped }) => {
+    const total = side + flipped;
+    const lead = `We rotated ${total} ${total === 1 ? "page" : "pages"}`;
+    if (flipped === 0) return `${lead} that ${side === 1 ? "was" : "were"} sideways.`;
+    if (side === 0) return `${lead} that ${flipped === 1 ? "was" : "were"} upside down.`;
+    return `${lead}: ${side} sideways and ${flipped} upside down.`;
+  },
+  importProblems: {
+    title: (count) => (count === 1 ? "1 photo could not be added" : `${count} photos could not be added`),
+    kinds: {
+      notImage: "not an image",
+      heic: "HEIC format, which this browser cannot read (export it as JPG)",
+      damaged: "damaged or incomplete",
+    },
+    camera: "Camera photo",
+    more: (count) => `and ${count} more`,
+    rest: "The rest are still in the list.",
+    dismiss: "Close the notice about photos that were not added",
+  },
   orientationUndo: "Undo rotation",
   lostPages: (count) => `${count} ${count === 1 ? "page" : "pages"} of the saved scan could not be recovered.`,
   save: (count) => `Save PDF (${count})`,
@@ -671,7 +738,9 @@ const EN: ScanToPdfStrings = {
     undone: (label) => `Undone: ${label}`,
     redone: (label) => `Redone: ${label}`,
     blanksRemoved: (count) => `${count} ${count === 1 ? "blank sheet removed" : "blank sheets removed"}. You can undo it.`,
-    createFailed: "A photo could not be processed. It was discarded.",
+    createFailed: "The photo could not be processed. It was not added.",
+    forked: "Another tab had changed this scan: your changes were saved separately, as a copy.",
+    photoFailed: (name, kind) => `${name || "A photo"} was not added: ${kind === "notImage" ? "not an image" : kind === "heic" ? "unsupported HEIC format" : "damaged or incomplete"}.`,
     saved: "Scan saved",
     retaken: (n) => `Page ${n} replaced`,
     inserted: (n) => `Page inserted at position ${n}`,
@@ -743,7 +812,14 @@ const EN: ScanToPdfStrings = {
   marginSmall: "Small",
   marginLarge: "Large",
   searchable: "Searchable PDF",
-  searchableHint: "Recognises the text on your device, without internet. It is slower. Off by default.",
+  searchableHint: "Recognises the text on your device and makes it selectable and searchable. It is slower. Off by default.",
+  searchableDownloadNote: "The first time, the text-recognition model is downloaded (a few MB, only once) and a connection is needed. After that it works offline. Your pages never leave your device.",
+  searchableDownloadConsent: "Allow downloading the model (only once)",
+  searchableNeedConsent: "Tick “Allow downloading the model” to create the PDF with searchable text, or turn searchable text off.",
+  searchableFailed: "The text could not be recognised (the first time the model needs a connection). Your pages are still here: try again online or create the PDF without searchable text.",
+  createWithoutText: "Create the PDF without searchable text",
+  searchablePartial: (missing, total) => `${missing} of ${total} ${total === 1 ? "page has" : "pages have"} no searchable text (no text was recognised). The PDF is valid.`,
+  searchableNoticeTitle: "Searchable text",
   create: "Create PDF",
   createMeta: (count, size) => `${count} ${count === 1 ? "page" : "pages"} · ${size}`,
   sizeBig: "Over ~20 MB: some email services will reject it. Try the “Compact” quality.",
@@ -765,7 +841,6 @@ const EN: ScanToPdfStrings = {
   leaveStay: "Keep scanning",
   leaveLeave: "Leave",
   noFiles: "Choose at least one photo.",
-  notImage: "That file is not an image and was skipped.",
   storageUnavailableHint: "This browser cannot save the scan (private mode?). Create the PDF before leaving.",
   inputFiles: "Photo and image file picker",
   inputCamera: "Capture with the system camera",

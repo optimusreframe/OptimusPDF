@@ -11,6 +11,9 @@ function setup(overrides: Partial<DragLatest> = {}) {
   const container = document.createElement("div");
   container.getBoundingClientRect = () => ({ left: 0, top: 0, right: 343, bottom: 800, width: 343, height: 800, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
   document.body.appendChild(container);
+  const scroller = document.createElement("div");
+  scroller.getBoundingClientRect = () => ({ left: 0, top: 0, right: 343, bottom: 600, width: 343, height: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+  document.body.appendChild(scroller);
   const latest: DragDeps["latest"] = {
     current: {
       layout,
@@ -20,13 +23,12 @@ function setup(overrides: Partial<DragLatest> = {}) {
       announce,
       dragStart: (n) => `mover ${n}`,
       dragCancel: "cancelado",
-      insets: () => ({ top: 0, bottom: 0 }),
       ...overrides,
     },
   };
   const suppress = { current: false };
-  const drag = createGridDrag({ latest, container: { current: container }, setDrag: (state) => states.push(state), suppressClick: suppress });
-  return { drag, states, onDrop, announce, layout, suppress, container };
+  const drag = createGridDrag({ latest, container: { current: container }, scroller: { current: scroller }, setDrag: (state) => states.push(state), suppressClick: suppress });
+  return { drag, states, onDrop, announce, layout, suppress, container, scroller };
 }
 
 const move = (type: string, x: number, y: number, pointerId = 1) => {
@@ -39,7 +41,7 @@ const move = (type: string, x: number, y: number, pointerId = 1) => {
 describe("createGridDrag", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    window.scrollBy = vi.fn() as unknown as typeof window.scrollBy;
+
   });
   afterEach(() => {
     vi.useRealTimers();

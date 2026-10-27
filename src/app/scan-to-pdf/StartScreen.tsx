@@ -9,6 +9,8 @@ import { ACCENT_BG_SOFT, ACCENT_TEXT, getTool } from "@/lib/tools-registry";
 import { useI18n } from "@/lib/i18n";
 import { useBlobUrl } from "@/app/scan-to-pdf/useBlobUrl";
 import { ModeChips } from "@/app/scan-to-pdf/ModeChips";
+import { ImportProblemsBanner } from "@/app/scan-to-pdf/ImportProblemsBanner";
+import type { ImportProblem } from "@/app/scan-to-pdf/importProblems";
 import type { ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
 import type { SavedSummary } from "@/app/scan-to-pdf/useScanSession";
 import type { ScanMode } from "@/lib/scan/types";
@@ -34,6 +36,8 @@ export type StartScreenProps = {
   onMode: (mode: ScanMode) => void;
   saved: SavedSummary | null;
   resumeNotice: string | null;
+  importProblems: ImportProblem[];
+  onDismissProblems: () => void;
   resuming: boolean;
   onResume: (id: string) => void;
   onDiscardSaved: (id: string) => void;
@@ -44,7 +48,7 @@ export type StartScreenProps = {
 };
 
 /** Inicio: retomar lo guardado, elegir el tipo de documento y UN camino principal (activar la camara), con las fotos como alternativa. */
-export function StartScreen({ s, mode, onMode, saved, resumeNotice, resuming, onResume, onDiscardSaved, onCamera, onPhotos, onNative, closeLabel }: StartScreenProps) {
+export function StartScreen({ s, mode, onMode, saved, resumeNotice, importProblems, onDismissProblems, resuming, onResume, onDiscardSaved, onCamera, onPhotos, onNative, closeLabel }: StartScreenProps) {
   const { t, language } = useI18n();
   const Icon = TOOL.icon;
   const thumbUrl = useBlobUrl(saved?.thumb ?? null);
@@ -61,6 +65,10 @@ export function StartScreen({ s, mode, onMode, saved, resumeNotice, resuming, on
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{t.tools["scan-to-pdf"].description}</p>
         </div>
       </header>
+
+      <div className="mb-4 empty:hidden">
+        <ImportProblemsBanner s={s} problems={importProblems} onDismiss={onDismissProblems} />
+      </div>
 
       {resumeNotice ? (
         <p data-resume-notice="" className="mb-4 rounded-ios border border-hairline bg-white/5 p-3 text-subheadline text-foreground">

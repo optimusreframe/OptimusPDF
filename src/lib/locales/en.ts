@@ -438,6 +438,9 @@ export const en: Dictionary = {
     documentsMany: "{n} documents",
     changesOne: "1 change",
     changesMany: "{n} changes",
+    pagesOne: "1 page",
+    pagesMany: "{n} pages",
+    discardShort: "Discard",
     discard: "Discard {name}",
     discardTitle: "Discard “{name}”?",
     discardBody:

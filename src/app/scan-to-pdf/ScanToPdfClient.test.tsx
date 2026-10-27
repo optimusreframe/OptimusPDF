@@ -42,6 +42,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  // jsdom no implementa el desplazamiento de la ventana (cada paso nuevo vuelve arriba): se anota, no se imprime.
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
   engine = createFakeEngine(newControls());
   store = createFakeStore({ backend: "memory" });
@@ -147,7 +149,15 @@ describe("importar y revisar", () => {
     const files = [tinyJpegFile("a.jpg"), new File(["hola"], "nota.txt", { type: "text/plain" })];
     fireEvent.change(libraryInput(), { target: { files } });
     await waitFor(() => expect(tiles()).toHaveLength(1));
-    await waitFor(() => expect(document.querySelector("[data-scan-live]")?.textContent).toContain(es.notImage));
+    await waitFor(() => expect(document.querySelector("[data-scan-live]")?.textContent).toContain("nota.txt"));
+    // El aviso nombra el archivo y dice por que no se anadio.
+    const row = await waitFor(() => {
+      const found = document.querySelector('[data-banner="import-problems"] [data-import-problem="notImage"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(row.textContent).toContain("nota.txt");
+    expect(row.textContent).toContain(es.importProblems.kinds.notImage);
   });
 
   it("chips de calidad con accion de un toque: «En blanco → Quitar» y «Quitar hojas en blanco»", async () => {
@@ -233,6 +243,35 @@ describe("importar y revisar", () => {
   });
 });
 
+describe("fotos que no se pueden anadir", () => {
+  it("la que falla al procesarse se NOMBRA como danada, el plural es correcto y las demas siguen", async () => {
+    mount();
+    const files = [tinyJpegFile("a.jpg", 64, 80, 1), tinyJpegFile("roto-fail.jpg", 64, 80, 2), tinyJpegFile("c-fail.jpg", 64, 80, 3), tinyJpegFile("d.jpg", 64, 80, 4)];
+    fireEvent.change(libraryInput(), { target: { files } });
+    await waitFor(() => expect(document.querySelector('[data-banner="import-problems"]')).not.toBeNull(), { timeout: 8000 });
+    await waitFor(() => expect(tiles()).toHaveLength(2));
+    const banner = document.querySelector('[data-banner="import-problems"]')!;
+    expect(banner.textContent).toContain(es.importProblems.title(2));
+    expect(banner.textContent).toContain("roto-fail.jpg");
+    expect(banner.textContent).toContain("c-fail.jpg");
+    expect(banner.querySelectorAll('[data-import-problem="damaged"]')).toHaveLength(2);
+    expect(banner.textContent).toContain(es.importProblems.kinds.damaged);
+    // Cerrar el aviso lo quita.
+    fireEvent.click(within(banner as HTMLElement).getByRole("button", { name: es.importProblems.dismiss }));
+    expect(document.querySelector('[data-banner="import-problems"]')).toBeNull();
+  });
+
+  it("una foto HEIC que el navegador no lee se nombra como HEIC (no como danada)", async () => {
+    mount();
+    const heic = new File([new Uint8Array(40)], "IMG_0001-fail.HEIC", { type: "image/heic" });
+    fireEvent.change(libraryInput(), { target: { files: [tinyJpegFile("a.jpg", 64, 80, 1), heic] } });
+    await waitFor(() => expect(document.querySelector('[data-import-problem="heic"]')).not.toBeNull(), { timeout: 8000 });
+    expect(document.querySelector('[data-import-problem="heic"]')?.textContent).toContain("IMG_0001-fail.HEIC");
+    expect(document.querySelector('[data-import-problem="damaged"]')).toBeNull();
+    expect(document.querySelector('[data-banner="import-problems"]')?.textContent).toContain(es.importProblems.title(1));
+  });
+});
+
 describe("persistencia", () => {
   it("se guarda sola: la sesion esta en el almacen con sus paginas y «Guardado ✓» es visible", async () => {
     mount();
@@ -269,6 +308,25 @@ describe("persistencia", () => {
     fireEvent.click(within(banner).getByRole("button", { name: es.resumeAction }));
     await waitFor(() => expect(tiles()).toHaveLength(3));
     expect(order()).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("otra pestaña modifico la sesion: la copia de esta se guarda con otro id, con «(copia)» en el nombre y un aviso (Recientes no repite filas identicas)", async () => {
+    await store.save({
+      id: "scan-prev-fork",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      name: "Contrato",
+      settings: DEFAULT_SCAN_SETTINGS,
+      pages: [makeBarePage("p1"), makeBarePage("p2")],
+    });
+    mount();
+    const banner = await screen.findByRole("region", { name: es.resumeTitle });
+    fireEvent.click(within(banner).getByRole("button", { name: es.resumeAction }));
+    await waitFor(() => expect(tiles()).toHaveLength(2));
+    store.controls.forkNext = "scan-fork-0001";
+    fireEvent.click(screen.getByRole("button", { name: "Borrar la página 2" }));
+    await waitFor(async () => expect((await store.list()).map((item) => item.name).sort()).toEqual(["Contrato", "Contrato (copia)"]), { timeout: 8000 });
+    await waitFor(() => expect(document.querySelector("[data-scan-live]")?.textContent).toContain(es.said.forked));
   });
 
   it("«Empezar de nuevo» pide confirmacion antes de borrar", async () => {
@@ -364,6 +422,63 @@ describe("camara y guardar", () => {
     fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
     fireEvent.click(await screen.findByRole("checkbox", { name: es.searchable }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ searchable: true })));
+  });
+
+  it("texto buscable: el texto NO promete «sin internet», pide aceptar la descarga del modelo y no crea hasta aceptar", async () => {
+    mount();
+    await importFiles(["a.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
+    const box = await screen.findByRole("checkbox", { name: es.searchable });
+    expect(es.searchableHint).not.toMatch(/sin internet/i);
+    expect(en.searchableHint).not.toMatch(/without internet|offline/i);
+    // Sin marcar: nada que aceptar.
+    expect(document.querySelector("[data-ocr-download]")).toBeNull();
+    fireEvent.click(box);
+    const note = await waitFor(() => {
+      const found = document.querySelector("[data-ocr-download]");
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(note.textContent).toContain(es.searchableDownloadNote);
+    // Hasta aceptar la descarga, «Crear PDF» no se puede pulsar y dice por que.
+    const create = screen.getByRole("button", { name: es.create }) as HTMLButtonElement;
+    expect(create.disabled).toBe(true);
+    expect(document.querySelector("[data-create-meta]")?.textContent).toBe(es.searchableNeedConsent);
+    fireEvent.click(screen.getByRole("checkbox", { name: es.searchableDownloadConsent }));
+    await waitFor(() => expect(create.disabled).toBe(false));
+    fireEvent.click(create);
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+  });
+
+  it("texto buscable con el modelo ya en el dispositivo: no pide aceptar nada; si alguna pagina salio sin texto, lo avisa (aviso, no error)", async () => {
+    engine.controls.ocrAvailable = true;
+    engine.controls.searchableReport = { total: 3, withText: 1 };
+    mount();
+    await importFiles(["a.jpg", "b.jpg", "c.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: es.save(3) }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: es.searchable }));
+    expect(document.querySelector("[data-ocr-download]")).toBeNull();
+    const create = screen.getByRole("button", { name: es.create }) as HTMLButtonElement;
+    expect(create.disabled).toBe(false);
+    fireEvent.click(create);
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
+    const notices = document.querySelector("[data-download-notices]");
+    expect(notices?.textContent).toContain(es.searchablePartial(2, 3));
+    expect(document.querySelector("[data-save-error]")).toBeNull();
+  });
+
+  it("texto buscable que falla: dice por que, deja las paginas y ofrece crear el PDF sin texto", async () => {
+    engine.controls.buildError = "ocr";
+    mount();
+    await importFiles(["a.jpg"]);
+    fireEvent.click(screen.getByRole("button", { name: es.save(1) }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: es.searchable }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: es.searchableDownloadConsent }));
+    fireEvent.click(screen.getByRole("button", { name: es.create }));
+    await waitFor(() => expect(document.querySelector("[data-save-error]")?.textContent).toBe(es.searchableFailed));
+    engine.controls.buildError = null;
+    fireEvent.click(screen.getByRole("button", { name: es.createWithoutText }));
+    await waitFor(() => expect(document.querySelector("[data-result]")).not.toBeNull(), { timeout: 15000 });
   });
 
   it("un fallo del motor al crear el PDF deja las paginas y lo dice", async () => {

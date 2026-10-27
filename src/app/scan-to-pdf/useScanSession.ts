@@ -30,6 +30,7 @@ import {
 } from "@/app/scan-to-pdf/scanState";
 import { composeIdSheet, splitSpreadFallback } from "@/app/scan-to-pdf/imageTools";
 import { readScanPrefs, writeScanPrefs } from "@/app/scan-to-pdf/scanPrefs";
+import { classifyImportFailure, mergeProblems, type ImportProblem } from "@/app/scan-to-pdf/importProblems";
 import type { ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
 
 /** Silencio (ms) tras el ultimo cambio antes de guardar; se guarda de inmediato si la pagina se oculta. */
@@ -219,6 +220,14 @@ export function useScanSession({ language, strings: s, announce, autosave = true
   /* ---------------- aviso de orientacion automatica ---------------- */
   const [lostPages, setLostPages] = useState(0);
   const [orientationNotice, setOrientationNotice] = useState<{ ids: string[]; deltas: Record<string, number> } | null>(null);
+  /** Fotos que no se pudieron anadir (por nombre y motivo); el aviso las lista y el resto de la lista sigue. */
+  const [importProblems, setImportProblems] = useState<ImportProblem[]>([]);
+  const reportImportProblems = useCallback((problems: ImportProblem[]) => {
+    if (problems.length === 0) return;
+    setImportProblems((current) => mergeProblems(current, problems));
+    for (const problem of problems) announceRef.current(sRef.current.said.photoFailed(problem.name, problem.kind));
+  }, []);
+  const dismissImportProblems = useCallback(() => setImportProblems([]), []);
 
   /* ---------------- altas de paginas ---------------- */
   const createInto = useCallback(
@@ -233,7 +242,7 @@ export function useScanSession({ language, strings: s, announce, autosave = true
           } catch {
             if (epoch !== epochRef.current || !mountedRef.current) return;
             dispatchRef.current({ type: "discard", id: pending.id });
-            announceRef.current(sRef.current.said.createFailed);
+            reportImportProblems([classifyImportFailure(blob)]);
             return;
           }
           if (epoch !== epochRef.current || !mountedRef.current) return;
@@ -262,7 +271,7 @@ export function useScanSession({ language, strings: s, announce, autosave = true
         },
       });
     },
-    [enqueue, scheduleAnalysis],
+    [enqueue, scheduleAnalysis, reportImportProblems],
   );
 
   /** Anade fotos (importadas) en una posicion (por defecto al final). Devuelve los ids reservados. */
@@ -608,7 +617,14 @@ export function useScanSession({ language, strings: s, announce, autosave = true
           result = outcome.ok ? "saved" : outcome.reason === "quota" ? "quota" : outcome.reason === "tooBig" ? "tooBig" : "unavailable";
           // Otra pestana modifico esta sesion antes: la copia de esta se guardo con otro id y se sigue con el.
           const forked = outcome.ok ? forkedAsOf(outcome) : null;
-          if (forked && forked !== stateRef.current.id) dispatchRef.current({ type: "fork", id: forked });
+          if (forked && forked !== stateRef.current.id) {
+            dispatchRef.current({ type: "fork", id: forked });
+            // La copia se distingue en Recientes (si no, dos filas identicas) y se avisa, una sola vez, de por que.
+            const label = sRef.current.forkSuffix;
+            const current = stateRef.current.name.trim();
+            if (current !== "" && !current.endsWith(label)) dispatchRef.current({ type: "name", name: `${current} ${label}`, edited: true });
+            announceRef.current(sRef.current.said.forked);
+          }
         }
         lastSavedRev.current = snapshot.rev;
       } while (againRef.current || stateRef.current.rev !== lastSavedRev.current);
@@ -819,6 +835,9 @@ export function useScanSession({ language, strings: s, announce, autosave = true
     discardSaved,
     startOver,
     orientationNotice,
+    importProblems,
+    reportImportProblems,
+    dismissImportProblems,
     lostPages,
     dismissLostPages: () => setLostPages(0),
     undoOrientation,

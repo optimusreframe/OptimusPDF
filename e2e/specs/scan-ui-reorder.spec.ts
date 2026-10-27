@@ -24,6 +24,9 @@ async function load(page: Page, count: number) {
   return pageIds(page);
 }
 
+/** Lo que se desplaza en Revisar es la zona del medio (la pagina esta fija): su `scrollTop`. */
+const listScroll = (page: Page) => page.evaluate(() => document.querySelector("[data-shell-scroll]")?.scrollTop ?? -1);
+
 async function center(page: Page, selector: string) {
   const box = (await page.locator(selector).first().boundingBox())!;
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -88,13 +91,13 @@ test.describe("raton", () => {
     await page.mouse.move(handle.x, handle.y);
     await page.mouse.down();
     await page.mouse.move(handle.x + 40, handle.y + 60, { steps: 4 });
-    const before = await page.evaluate(() => window.scrollY);
+    const before = await listScroll(page);
     // El puntero se queda quieto en la franja de abajo.
     await page.mouse.move(handle.x + 40, 690, { steps: 6 });
     await page.waitForTimeout(700);
-    const mid = await page.evaluate(() => window.scrollY);
+    const mid = await listScroll(page);
     await page.waitForTimeout(700);
-    const after = await page.evaluate(() => window.scrollY);
+    const after = await listScroll(page);
     expect(mid).toBeGreaterThan(before + 80);
     expect(after).toBeGreaterThan(mid + 80);
     await page.mouse.up();
@@ -118,9 +121,9 @@ test.describe("dedo (CDP, solo Chromium)", () => {
 
     // Un dedo sobre la miniatura que se mueve ANTES de la pulsacion larga desplaza la pagina (no arrastra).
     const body = await center(page, '[data-page-index="1"] [data-page-main]');
-    const y0 = await page.evaluate(() => window.scrollY);
+    const y0 = await listScroll(page);
     await touchDrag(cdp, body, { x: body.x, y: body.y - 220 }, { steps: 10, stepMs: 16 });
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(y0 + 50);
+    await expect.poll(() => listScroll(page)).toBeGreaterThan(y0 + 50);
     expect(await pageIds(page)).toEqual([ids[1], ids[2], ids[3], ids[0], ids[4], ids[5]]);
   });
 
@@ -130,10 +133,10 @@ test.describe("dedo (CDP, solo Chromium)", () => {
     const cdp = await cdpOf(page);
     const from = await center(page, '[data-page-index="0"] [data-page-main]');
     const target = (await page.locator('[data-page-index="1"]').boundingBox())!;
-    const y0 = await page.evaluate(() => window.scrollY);
+    const y0 = await listScroll(page);
     await touchDrag(cdp, from, { x: target.x + target.width * 0.8, y: target.y + target.height / 2 }, { holdMs: 650, steps: 12 });
     await expect.poll(() => pageIds(page)).toEqual([ids[1], ids[0], ids[2], ids[3], ids[4], ids[5]]);
-    expect(await page.evaluate(() => window.scrollY)).toBe(y0);
+    expect(await listScroll(page)).toBe(y0);
   });
 });
 
@@ -171,14 +174,14 @@ test("100 paginas: la cuadricula esta virtualizada, sin tareas largas y arrastra
   // Recorrer la lista de arriba abajo.
   for (let step = 0; step < 12; step += 1) {
     await page.mouse.wheel(0, 1500).catch(() => undefined);
-    await page.evaluate(() => window.scrollBy(0, 1500));
+    await page.evaluate(() => document.querySelector("[data-shell-scroll]")?.scrollBy(0, 1500));
     await page.waitForTimeout(60);
   }
   await expect(page.locator('[data-page-index="99"]')).toBeAttached({ timeout: 10_000 }).catch(() => undefined);
   expect(await tiles(page).count()).toBeLessThan(40);
 
   // Reordenar con teclado en el medio de la lista (la tarjeta con foco nunca se desmonta).
-  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.evaluate(() => document.querySelector("[data-shell-scroll]")?.scrollTo(0, 0));
   await page.locator('[data-page-index="0"] [data-drag-handle]').focus();
   for (let n = 0; n < 5; n += 1) await page.keyboard.press("ArrowRight");
   await expect(page.locator('[data-page-index="5"] [data-drag-handle]')).toBeFocused();

@@ -2,7 +2,7 @@ import { test, type Page } from "@playwright/test";
 import { downloadBytes } from "../helpers/downloads";
 import { getPageCount } from "../helpers/pdf-inspection";
 import { cdpOf, isChromium } from "../helpers/touch-gestures";
-import { docFiles, docFilesOnDisk, expect, fakeControls, importPhotos, installFakeCamera, installScanFakes, pageIds, waitIdle, waitVideoReady, TEST_TIMEOUT, webkitLinuxCamera, WEBKIT_LINUX_CAMERA_REASON } from "../helpers/scan-ui";
+import { docFiles, docFilesOnDisk, expect, fakeControls, FAKE_ONLY_REASON, importPhotos, installFakeCamera, installScanFakes, pageIds, USE_REAL_ENGINE, waitIdle, waitVideoReady, TEST_TIMEOUT, webkitLinuxCamera, WEBKIT_LINUX_CAMERA_REASON } from "../helpers/scan-ui";
 
 /**
  * Escaner · metricas de ergonomia y rendimiento (se IMPRIMEN en el informe y se acotan con holguras):
@@ -27,6 +27,7 @@ const slack = process.env.CI ? 2.5 : 1;
 
 test("abrir -> 10 paginas con captura automatica -> PDF: toques y tiempo", async ({ page, browserName }) => {
   test.skip(webkitLinuxCamera(browserName), WEBKIT_LINUX_CAMERA_REASON);
+  test.skip(USE_REAL_ENGINE, FAKE_ONLY_REASON);
   const started = Date.now();
   await page.goto("/scan-to-pdf");
   const afterLoad = Date.now();
@@ -146,7 +147,7 @@ test("captura -> miniatura y memoria con 100 paginas", async ({ page }) => {
   }
   await waitIdle(page, 120_000);
   for (let step = 0; step < 14; step += 1) {
-    await page.evaluate(() => window.scrollBy(0, 1500));
+    await page.evaluate(() => document.querySelector("[data-shell-scroll]")?.scrollBy(0, 1500));
     await page.waitForTimeout(80);
     peak = Math.max(peak, await heap());
   }

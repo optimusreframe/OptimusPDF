@@ -2458,3 +2458,63 @@ Con las 9 fotos reales (solo cifras): PSNR mínimo/mediano «Equilibrada» 36,6 
 ### No verificado
 
 Safari e iPhone/iPad reales (memoria real, jetsam, color P3, HEIC desde la fototeca con el selector de iOS, CPU de iPhone); fotos reales de 48 MP; la conversión P3 → sRGB (no observable sin pantalla); El primer pintado tras elegir fotos queda en ~40–80 ms en WebKit (más ~50 ms de la inyección de archivos de Playwright, que no cuentan en la prueba de hilo).
+## Escanear a PDF · interfaz y flujo (unidad E2) · ronda de correcciones (scan-ui-fix2)
+
+Esta ronda corrige el fallo del CI de Linux (axe `target-size`) y los defectos de interfaz que un verificador independiente midio con el motor REAL. No cambia el contrato (`src/lib/scan/types.ts`) ni toca `src/lib/scan/*` (salvo `testing/`), `src/lib/pdf/scanToPdf.ts` ni `src/lib/image/**`.
+
+### 1. Maquetacion de Revisar y Guardar: `ScreenShell` (UI-A, UI-B, UI-C, UI-E y el fallo del CI)
+
+**Causa raiz del CI** (reproducida en Docker: Playwright 1.62 noble + DejaVu, `CI=1`, EN, 320 px, claro y oscuro): la barra «Guardar PDF» era `sticky` sobre el desplazamiento de la PAGINA. Cubria a medias miniaturas, asas de arrastre y chips; axe mide la parte visible de cada objetivo y, con la fuente ancha, el asa de las paginas 3 y 4 quedaba bajo la barra (y pegada a los chips). Era el mismo defecto que el verificador vio con el motor real (chips «Brillo» y «Mover la pagina N» bajo la barra) y que hacia que la barra se despegase del borde al final de la lista y que «Guardar PDF» abriera el paso ya desplazado.
+
+**Solucion** (`ScreenShell.tsx`, usado por `ReviewScreen` y `SaveScreen`): tres zonas que NUNCA se solapan.
+
+- La zona de contenido tiene desplazamiento PROPIO (`overflow-y: auto; overscroll-behavior: contain`) y la barra de accion es un hermano debajo, siempre dentro de la ventana, justo encima de la barra de pestañas del movil. La pagina no se desplaza mientras la pantalla esta abierta (`html { overflow: hidden }`, restaurado al salir) y se vuelve arriba al entrar (`window.scrollTo(0,0)` en `goto()` y al montar): el paso nuevo siempre sale desde arriba y el foco va al titulo (`preventScroll`).
+- El alto se MIDE (de donde empieza la pantalla al borde de la ventana visible, `visualViewport`, menos la barra de pestañas) y se recalcula con `ResizeObserver` (cabecera, barra, pestañas, cuerpo) y `resize`.
+- Tres modos elegidos por lo que cabe (`pickMode`, probado): **holgado** (la cabecera se queda arriba, `sticky` dentro de la zona), **justo** (movil pequeño, letra grande: la cabecera se desplaza con la lista para dejar sitio a las hojas) y **aprieto** (< 140 px para la lista, p. ej. movil horizontal: sin alto fijo, la pagina se desplaza y la barra queda `sticky` abajo por encima de las pestañas). `data-shell-mode` lo expone.
+- La cuadricula virtualiza y auto-desplaza sobre ESA zona (`scrollerRef`, `createEdgeAutoScroller` con la region de la zona) y recalcula la ventana visible con un `ResizeObserver` de la zona (el alto cambia tras pintar).
+- Objetivos que no dependen de la letra: asa de arrastre 44×44, acciones de hoja 44×44 (`size-[44px]`), margenes laterales de 16/24 px fijos (en `rem` a 150 % comian 48 px de los 320 y las tres acciones de 44 px no cabian: 43×44), botones de la barra 56 px.
+- **Tarjeta**: franja de 36 px SOBRE la miniatura con el numero (izquierda) y el asa (derecha): nada tapa la foto (UI-F). Chips de calidad `min-h-[32px]` (44 con dedo), uno solo en tarjetas estrechas (< 190 px); el resto sigue en «Mas acciones».
+- **Barra** (UI-E): `flex-wrap`; el boton principal usa `wrap` y `min-h-[56px]` (antes `h-14` en rem: 84 px a 150 %); con letra grande el boton pasa a su propia linea en lugar de estrujarse.
+- La ayuda de Revisar se movio al area desplazable (la cabecera fija ocupa 40 px menos).
+
+### 2. Fotos que no se pudieron anadir (UI-D)
+
+`importProblems.ts` (puro, probado) clasifica cada fallo por nombre y tipo: **no es una imagen** (`.txt`, rechazada por el filtro), **HEIC/HEIF** que este navegador no lee, o **imagen dañada** (el motor no pudo decodificarla). `ImportProblemsBanner` (Revisar e Inicio) lista cada archivo por NOMBRE y motivo, con plural correcto («No se pudo añadir 1 foto» / «No se pudieron añadir 3 fotos»), «y N más» a partir de 5, «Las demás siguen en la lista» y cierre; ademas anuncia cada fallo en la region viva. Un fallo ya no aborta el resto (la cola sigue) y el texto dejo de decir «se descartó» (engañoso si el fallo venia del arranque sin red del motor): dice «No se añadió …».
+
+### 3. Aviso de giro, Recientes, texto buscable (UI-F, UI-G)
+
+- **Giro automatico**: «Giramos 2 páginas que estaban de lado.» / «… cabeza abajo.» / «Giramos 3 páginas: 1 de lado y 2 cabeza abajo.» (`orientationCounts`: 90/270 = de lado, 180 = cabeza abajo; ES y EN).
+- **Recientes** (`src/app/recent/UnfinishedSection.tsx`, `src/lib/locales/{es,en}.ts`): la fila de un escaneo muestra «N páginas» (`recent.pagesOne/pagesMany`, nuevas), «Descartar» pasa a tener etiqueta VISIBLE (`recent.discardShort`) y su nombre accesible sigue siendo «Descartar <nombre>» (contiene el texto visible) + `aria-describedby` con la fila. Cuando otra pestaña ya habia modificado el escaneo (`save` responde `forkedAs`), la copia de esta pestaña se guarda con «(copia)» / «(copy)» en el nombre y se avisa por la region viva: dos filas ya no son identicas.
+- **Texto buscable** (SaveScreen): la casilla dejo de decir «sin internet» (falso la primera vez). Hasta que el motor diga que el modelo esta en el dispositivo se asume que HAY que bajarlo: aparece el aviso «La primera vez se descarga el modelo … y hace falta conexión» con una casilla EXPLICITA «Permitir descargar el modelo (una sola vez)» y «Crear PDF» no se activa hasta aceptar (o desmarcar el texto buscable). Si el PDF sale sin texto en alguna pagina: AVISO (no error) en el resultado («2 de 3 páginas no tienen texto buscable»). Si el reconocimiento falla: mensaje claro, las paginas siguen y se ofrece «Crear el PDF sin texto buscable».
+
+### Punto de integracion con el motor (aditivo, tolerante; `scanServices.ts`)
+
+Lectores tolerantes nuevos, que funcionan igual si el motor no los trae:
+
+| Lector | Campo opcional del motor | Efecto |
+|---|---|---|
+| `ocrStatusOf(engine)` | `ocrAvailable: boolean \| () => boolean` (sincrono) | `true` = modelo en el dispositivo: no se pide aceptar la descarga. Cualquier otra cosa = «hay que descargarlo». |
+| `searchableReportOf(engine)` | `lastSearchableReport: {total, withText} \| () => {…}` | Tras crear el PDF con texto buscable, si `withText < total`, aviso en el resultado. |
+| `forkedAsOf(outcome)` (ya existia) | `forkedAs` en la respuesta de `save` | Cambia el id de la sesion y marca la copia. |
+
+El agente del motor aun no habia publicado su `unit-docs-section.md` al cerrar esta ronda (`scratchpad/scan-engine-fix/`): su copia de trabajo expone `ocrModelAvailable()` (asincrona) y `prepareOcrModel()`. Cuando la fachada del motor quede fija bastara con (a) mapear su disponibilidad a `ocrAvailable` (o ampliar `ocrStatusOf`) y (b) llamar a `prepareOcrModel` al aceptar la descarga; los dos cambios son locales a `scanServices.ts` y `SaveScreen.tsx`.
+
+### Pruebas de esta ronda
+
+- **Vitest**: `importProblems.test.ts` (clasificacion, tope, giro, plurales ES/EN), `ScanToPdfClient.test.tsx` (fotos nombradas como dañadas / HEIC, bifurcacion con «(copia)» y aviso, casilla de texto buscable con consentimiento, aviso de texto parcial y «crear sin texto»), `pieces.test.tsx` (`pickMode`), `gridLayout.test.ts` (franja y que las tres acciones de 44 px caben a 320 px), `RecentView.test.tsx` (etiqueta visible de «Descartar»).
+- **E2E nuevos/ampliados**: `scan-ui-layout.spec.ts` (375×667, 393×852, 320×568: «Guardar PDF» abre desde arriba con titulo, nombre y «Crear PDF» a la vista, foco en el titulo y `scrollY = 0`; la barra no se mueve entre la lista arriba y al final, queda dentro de la ventana y sin tapar la lista, tambien con letra al 150 %; a 150 % y 320 px nada se sale por los lados, el boton principal ≤ 72 px y las acciones de hoja miden 44), `scan-ui-a11y.spec.ts` (nueva comprobacion `[tapado]` con `elementFromPoint`, axe tambien al FINAL de la lista y celdas 320×568 y 393×852 con letra al 150 % en ES/EN), `scan-ui-persist.spec.ts` (aviso de fotos no añadidas por nombre y motivo), `scan-ui-flow.spec.ts` (texto buscable).
+- **`SCAN_REAL=1`**: `helpers/scan-ui.ts` genera ahora fotos REALES por etiqueta (`scanFiles`: en blanco, borrosa, girada, sin documento, repetida) y lee el almacen real (`storeSummary`); los specs que usan ganchos del doble (veredicto forzado, cuota, almacen no disponible, tamaños forzados) se saltan con motivo explicito (`FAKE_ONLY_REASON`) y el resto corre contra el motor y el almacen reales. Dos ajustes que cubren una limitacion del motor y no la esconden: en «cero red» el motor real se calienta CON red antes de cortarla (el arranque sin red es del motor), y «Sin documento → Recortar» solo con el falso (los umbrales de deteccion de bordes los cubre el spec del motor).
+- **Mutaciones**: `python3 scripts/scan-ui-mutate.py` ahora tiene 45 (13 nuevas sobre fotos no añadidas, giro, franja, texto buscable, bifurcacion y modos de pantalla).
+
+### Fuera de alcance / pendiente (no es de esta unidad)
+
+- **Desborde de la cabecera y de la barra de pestañas del sitio con letra al 150 % a 320 px** (`src/components/chrome`): ya a 342 px en el INICIO (antes de abrir la herramienta). Las pruebas de desborde de esta ronda excluyen el chrome del sitio (como las de la ronda anterior) y comprueban que NADA de la herramienta se sale.
+- **Importar sin red con el motor real**: sin la red, el motor real no arranca (dibujo en trabajador cargado bajo demanda); es del agente del motor. La interfaz ya no lo disfraza de «se descartó»: dice que esa foto no se añadió y por que.
+- **Capa de la camara con letra al 150 % (+ fuente ancha) en moviles de 320–393 px**: la columna de herramientas de la derecha y el contador superior se solapan y la fila de modos tapa el disparador (las pruebas la dejaron al descubierto al ampliar la matriz). Ya ocurria antes de esta ronda y no es de Revisar/Guardar; las celdas del 150 % recorren Revisar y Guardar sin abrir la camara. Pendiente: pasar los botones de la columna a px y acotarla entre el contador y el panel inferior.
+- Sin celdas de WebKit en Linux para la camara (limitacion ya documentada: `webkitLinuxCamera`).
+
+### Verificacion (base: main 0c8e2b2; `git apply --check` limpio sobre una copia fresca)
+
+- `tsc --noEmit`, `eslint src e2e` y Vitest completo (646 archivos, 14127 pruebas) en verde; 45 mutaciones de `scan-ui-mutate.py` (las 13 nuevas mueren; las 32 anteriores sin cambios de logica).
+- Docker Linux (Playwright 1.62 noble + DejaVu, `CI=1`, 2 trabajadores, sin reintentos, build de produccion de 0c8e2b2 + parche): `e2e/specs/scan-ui-*` con motor falso **103 de 103**, y con `SCAN_REAL=1` **96 pasan y 7 se saltan con motivo explicito** (ganchos del doble). Incluye las celdas 320 px EN claro/oscuro del fallo del CI y toda la matriz a11y con motor real.
+- Chromium en macOS: ambas variantes en verde; WebKit (`webkit-ipad`) de las pruebas de maquetacion: ver el informe.

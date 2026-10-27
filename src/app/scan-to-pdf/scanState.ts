@@ -386,3 +386,15 @@ export function fileNameFor(name: string, fallback: string): string {
     .slice(0, 120);
   return `${cleaned || fallback}.pdf`;
 }
+
+/** Cuantas hojas se giraron un cuarto de vuelta («de lado») y cuantas media vuelta («cabeza abajo») para el aviso de giro automatico. */
+export function orientationCounts(notice: { ids: string[]; deltas: Record<string, number> }): { side: number; flipped: number } {
+  let side = 0;
+  let flipped = 0;
+  for (const id of notice.ids) {
+    const delta = (((notice.deltas[id] ?? 0) % 360) + 360) % 360;
+    if (delta === 180) flipped += 1;
+    else side += 1;
+  }
+  return { side, flipped };
+}

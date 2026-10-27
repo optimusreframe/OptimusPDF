@@ -38,6 +38,8 @@ export type FakeConfig = {
 };
 
 export const USE_REAL_ENGINE = process.env.SCAN_REAL === "1";
+/** Motivo de saltarse una prueba que solo tiene sentido con el motor/almacen FALSO (sus ganchos de prueba no existen en el real). */
+export const FAKE_ONLY_REASON = "solo con el motor/almacen falso: usa sus ganchos de prueba (etiquetas, fallos y cuota forzados); con el real lo cubren los specs del motor y del almacen";
 
 /** Inyecta el motor y el almacen falsos antes de que cargue la pagina. */
 export async function installScanFakes(page: Page, config: FakeConfig = {}): Promise<void> {
@@ -118,7 +120,7 @@ export async function installFakeCamera(page: Page, options: FakeCameraOptions =
  * Documentos sinteticos (Node, @napi-rs/canvas)
  * ------------------------------------------------------------------ */
 
-export type DocVariant = "text" | "blank" | "dark" | "glare" | "blurry";
+export type DocVariant = "text" | "blank" | "dark" | "glare" | "blurry" | "nodoc";
 
 export type DocOptions = {
   width?: number;
@@ -128,6 +130,8 @@ export type DocOptions = {
   title?: string;
   variant?: DocVariant;
   quality?: number;
+  /** Gira la imagen (como una foto sacada con el movil de lado o al reves). */
+  rotate?: 0 | 90 | 180;
 };
 
 /** Un documento (hoja con texto) como JPEG. */
@@ -156,7 +160,37 @@ export function docJpeg(options: DocOptions = {}): Buffer {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
   }
-  return canvas.toBuffer("image/jpeg", options.quality ?? 80);
+  let out = canvas;
+  if (variant === "blurry") {
+    // Desenfoque fuerte sin filtros del lienzo: se reduce mucho y se vuelve a ampliar.
+    const small = createCanvas(Math.max(8, Math.round(w / 14)), Math.max(8, Math.round(h / 14)));
+    small.getContext("2d").drawImage(canvas, 0, 0, small.width, small.height);
+    out = createCanvas(w, h);
+    out.getContext("2d").drawImage(small, 0, 0, w, h);
+  }
+  if (variant === "nodoc") {
+    // Una foto sin documento: un degradado con ruido, sin hoja ni bordes.
+    out = createCanvas(w, h);
+    const g = out.getContext("2d");
+    const gradient = g.createLinearGradient(0, 0, w, h);
+    gradient.addColorStop(0, "#7a8a6a");
+    gradient.addColorStop(1, "#4a5a7a");
+    g.fillStyle = gradient;
+    g.fillRect(0, 0, w, h);
+    for (let n = 0; n < 900; n += 1) {
+      g.fillStyle = `rgba(${(n * 37) % 255},${(n * 91) % 255},${(n * 53) % 255},0.35)`;
+      g.fillRect((n * 131) % w, (n * 197) % h, 6 + (n % 9), 6 + (n % 7));
+    }
+  }
+  if (options.rotate) {
+    const turned = options.rotate === 180 ? createCanvas(w, h) : createCanvas(h, w);
+    const g = turned.getContext("2d");
+    g.translate(turned.width / 2, turned.height / 2);
+    g.rotate((options.rotate * Math.PI) / 180);
+    g.drawImage(out, -w / 2, -h / 2);
+    out = turned;
+  }
+  return out.toBuffer("image/jpeg", options.quality ?? 80);
 }
 
 export type SyntheticFile = { name: string; mimeType: string; buffer: Buffer };
@@ -184,6 +218,40 @@ export async function fakeStoreInfo(page: Page): Promise<{ saves: number; list: 
   return page.evaluate(async () => {
     const fake = (globalThis as unknown as { __scanFake: { store: { controls: { saveLog: unknown[] }; list: () => Promise<Array<{ id: string; pageCount: number; name: string }>> } } }).__scanFake;
     return { saves: fake.store.controls.saveLog.length, list: await fake.store.list() };
+  });
+}
+
+/**
+ * Las sesiones guardadas, con el almacen que corresponda: el FALSO (memoria / su IndexedDB) o, con `SCAN_REAL=1`, la base real del
+ * navegador (solo lectura; si aun no existe NO se abre, para no crearla vacia y romper su primera apertura).
+ */
+export async function storeSummary(page: Page): Promise<Array<{ id: string; pageCount: number; name: string }>> {
+  if (!USE_REAL_ENGINE) return (await fakeStoreInfo(page)).list;
+  return page.evaluate(async () => {
+    const DB = "optimuspdf-scan-sessions";
+    const known = typeof indexedDB.databases === "function" ? await indexedDB.databases() : [{ name: DB }];
+    if (!known.some((entry) => entry.name === DB)) return [];
+    return new Promise<Array<{ id: string; pageCount: number; name: string }>>((resolve) => {
+      const request = indexedDB.open(DB);
+      request.onerror = () => resolve([]);
+      request.onsuccess = () => {
+        const db = request.result;
+        try {
+          const all = db.transaction("meta", "readonly").objectStore("meta").getAll();
+          all.onsuccess = () => {
+            db.close();
+            resolve((all.result as Array<{ id: string; pageCount: number; name: string }>).map((row) => ({ id: row.id, pageCount: row.pageCount, name: row.name })));
+          };
+          all.onerror = () => {
+            db.close();
+            resolve([]);
+          };
+        } catch {
+          db.close();
+          resolve([]);
+        }
+      };
+    });
   });
 }
 
@@ -236,9 +304,42 @@ export function widthCodedFiles(count: number, options: { names?: string[]; base
   }));
 }
 
+/** Documentos de ALTOS distintos (ancho fijo): el alto de cada pagina del PDF identifica su orden aunque el recorte del motor real varie. */
+export function heightCodedFiles(count: number, options: { base?: number; step?: number; width?: number } = {}): SyntheticFile[] {
+  const base = options.base ?? 520;
+  const step = options.step ?? 140;
+  return Array.from({ length: count }, (_, index) => ({
+    name: `h-${index + 1}.jpg`,
+    mimeType: "image/jpeg",
+    buffer: docJpeg({ seed: index + 1, width: options.width ?? 420, height: base + index * step, title: `Pagina ${index + 1}` }),
+  }));
+}
+
 /** Ancho esperado (pt) de la pagina `index` (0-based) de un `widthCodedFiles` tras el recorte del 4 % por lado del motor falso. */
 export function expectedWidth(index: number, base = 400, step = 40): number {
   return (base + index * step) * 0.92;
+}
+
+/**
+ * Fotos por ETIQUETA en el nombre (`blank`, `blurry`, `glare`, `dark`, `nodoc`, `sideways`, `upsidedown`, `dup`): con el motor
+ * falso solo cuenta el nombre (el lo lee); con el REAL (`SCAN_REAL=1`) la imagen es de verdad en blanco, borrosa, girada, sin
+ * documento o igual a la anterior, para que los mismos avisos salgan de la deteccion de verdad.
+ */
+export function scanFiles(names: string[], options: { base?: number; step?: number; height?: number } = {}): SyntheticFile[] {
+  if (!USE_REAL_ENGINE) return widthCodedFiles(names.length, { names, ...options });
+  const base = options.base ?? 400;
+  const step = options.step ?? 40;
+  const height = options.height ?? 600;
+  return names.map((name, index) => {
+    const tokens = name.replace(/\.[a-z]+$/i, "").split(/[^a-z0-9]+/i).map((token) => token.toLowerCase());
+    const has = (token: string) => tokens.includes(token);
+    const dup = has("dup") && index > 0;
+    const width = base + (dup ? index - 1 : index) * step;
+    const seed = (dup ? index - 1 : index) + 1;
+    const variant: DocVariant = has("blank") ? "blank" : has("blurry") ? "blurry" : has("glare") ? "glare" : has("dark") ? "dark" : has("nodoc") ? "nodoc" : "text";
+    const rotate = has("upsidedown") ? 180 : has("sideways") ? 90 : 0;
+    return { name, mimeType: "image/jpeg", buffer: docJpeg({ seed, width, height, title: `Pagina ${seed}`, variant, rotate }) };
+  });
 }
 
 /** Importa fotos desde la pantalla de inicio o desde Revisar (el input de la fototeca esta siempre montado). */

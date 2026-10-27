@@ -455,6 +455,9 @@ export const es = {
     documentsMany: "{n} documentos",
     changesOne: "1 cambio",
     changesMany: "{n} cambios",
+    pagesOne: "1 página",
+    pagesMany: "{n} páginas",
+    discardShort: "Descartar",
     discard: "Descartar {name}",
     discardTitle: "¿Descartar «{name}»?",
     discardBody:

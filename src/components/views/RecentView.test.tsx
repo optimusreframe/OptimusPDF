@@ -216,7 +216,8 @@ describe("RecentView - Sin terminar", () => {
     renderRecent();
     await screen.findByRole("heading", { name: es.recent.unfinishedTitle });
     const discard = screen.getByRole("button", { name: es.recent.discard.replace("{name}", "informe.pdf") });
-    expect(discard.className).toContain("size-11");
+    expect(discard.className).toContain("min-h-11");
+    expect(discard.textContent).toContain(es.recent.discardShort);
     expect(screen.getByRole("link", { name: es.common.continueLabel }).className).toContain("h-11");
   });
 

@@ -16,13 +16,13 @@ export type DragLatest = {
   announce: (text: string) => void;
   dragStart: (number: number) => string;
   dragCancel: string;
-  /** Alto (px) de las barras fijas arriba y abajo. */
-  insets?: () => { top: number; bottom: number };
 };
 
 export type DragDeps = {
   latest: { current: DragLatest };
   container: { current: HTMLElement | null };
+  /** Zona con desplazamiento propia que contiene la cuadricula (el auto-desplazamiento va sobre ella). */
+  scroller: { current: HTMLElement | null };
   setDrag: (state: DragState | null) => void;
   suppressClick: { current: boolean };
 };
@@ -66,13 +66,15 @@ export function createGridDrag(deps: DragDeps) {
   const scroller = createEdgeAutoScroller({
     pointer: () => (session?.active ? session.client : null),
     region: () => {
-      const inset = deps.latest.current.insets?.() ?? { top: 64, bottom: 140 };
-      return { top: inset.top, bottom: window.innerHeight - inset.bottom, left: 0, right: window.innerWidth };
+      const box = deps.scroller.current?.getBoundingClientRect();
+      return box ? { top: box.top, bottom: box.bottom, left: box.left, right: box.right } : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
     },
     scroll: (_dx, dy) => {
-      const before = window.scrollY;
-      window.scrollBy(0, dy);
-      return { dx: 0, dy: window.scrollY - before };
+      const element = deps.scroller.current;
+      if (!element) return { dx: 0, dy: 0 };
+      const before = element.scrollTop;
+      element.scrollTop = before + dy;
+      return { dx: 0, dy: element.scrollTop - before };
     },
     onTick: refresh,
   });

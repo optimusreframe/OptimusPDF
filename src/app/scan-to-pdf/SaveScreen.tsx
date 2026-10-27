@@ -21,6 +21,8 @@ import { downloadBlob, formatFileSize } from "@/lib/pdf/core";
 import { addRecentEntry } from "@/lib/recent";
 import { toolHref } from "@/lib/tools-registry";
 import { fileNameFor } from "@/app/scan-to-pdf/scanState";
+import { ocrStatusOf, resolveScanEngine, searchableReportOf } from "@/app/scan-to-pdf/scanServices";
+import { ScreenShell } from "@/app/scan-to-pdf/ScreenShell";
 import { useAnnounce } from "@/app/scan-to-pdf/ScanLive";
 import type { ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
 import type { ScanSessionApi } from "@/app/scan-to-pdf/useScanSession";
@@ -61,6 +63,11 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
   const createRef = useRef<HTMLButtonElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const runRef = useRef(0);
+  // Texto buscable: el reconocimiento puede necesitar bajar el modelo de idioma la primera vez (internet). Sin la confirmacion de que
+  // ya esta en este dispositivo, se pide una accion EXPLICITA antes de crear el PDF.
+  const [consent, setConsent] = useState(false);
+  const [failedWhileSearchable, setFailedWhileSearchable] = useState(false);
+  const needsDownload = ocrStatusOf(resolveScanEngine()) !== "ready";
 
   // La calidad recordada solo se conoce ya en el cliente (localStorage).
   const effective: ImagePresetId = preset ?? (isClient ? readStoredImagePreset() : "balanced");
@@ -84,9 +91,12 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
 
   const build = async () => {
     if (pages.length === 0 || phase === "building") return;
+    // El valor vigente en este instante (si viene de «Crear sin texto buscable», `searchable` del render aun es el anterior).
+    const wantsText = api.stateRef.current.settings.searchable;
     const run = runRef.current + 1;
     runRef.current = run;
     setError(null);
+    setFailedWhileSearchable(false);
     setProgress(0);
     setProgressText(s.buildProgress(1, pages.length));
     setPhase("building");
@@ -110,12 +120,17 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
       const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
       const described = describeResult(copy, { sourceBytes, pdfBytes: blob.size }, (bytes) => formatFileSize(bytes, locale), (value) => percent.format(value / 100));
       addRecentEntry("scan-to-pdf", filename);
-      onBuilt({ blob, filename, summary: described.summary, notices: described.notices });
+      // Pidio texto buscable pero el motor dice que alguna pagina salio sin el: un AVISO en el resultado (no un error: el PDF es valido).
+      const report = wantsText ? searchableReportOf(resolveScanEngine()) : null;
+      const missing = report && report.total > 0 && report.withText < report.total ? s.searchablePartial(report.total - report.withText, report.total) : null;
+      const notices = missing ? { title: described.notices?.title ?? s.searchableNoticeTitle, items: [...(described.notices?.items ?? []), missing] } : described.notices;
+      onBuilt({ blob, filename, summary: described.summary, notices });
     } catch (caught) {
       if (runRef.current !== run) return;
       const aborted = (caught as Error)?.name === "AbortError" || controller.signal.aborted;
       setPhase("form");
-      const message = aborted ? s.buildCancelled : s.buildFailed;
+      const message = aborted ? s.buildCancelled : wantsText ? s.searchableFailed : s.buildFailed;
+      setFailedWhileSearchable(!aborted && wantsText);
       // El aviso recibe el foco: el lector lo lee al llegar (anunciarlo ademas por la region viva lo diria dos veces).
       setError(message);
       requestAnimationFrame(() => errorRef.current?.focus({ preventScroll: false }));
@@ -136,16 +151,34 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
   const huge = raw.bytes > SHARE_LIMIT_HUGE;
 
   return (
-    <div className="mx-auto flex min-h-[calc(100svh-11rem)] w-full max-w-[720px] flex-col px-4 pt-4 pb-6 md:px-6 md:pt-8" data-save-screen="">
-      <Button variant="ghost" size="md" data-save-action="back" className="-ml-3" onClick={onBack}>
-        <ArrowLeft aria-hidden="true" className="size-4" />
-        {s.saveBack}
-      </Button>
-      <h2 data-view-heading="" tabIndex={-1} className="mt-1 text-title-2 text-foreground outline-none">
-        {s.saveTitle}
-      </h2>
-
-      <div className="mt-5 flex flex-col gap-6">
+    <>
+      <ScreenShell
+        className="max-w-[720px]"
+        rootProps={{ "data-save-screen": "" }}
+        barProps={{ "data-save-bar": "" }}
+        top={
+          <>
+            <Button variant="ghost" size="md" data-save-action="back" className="-ml-3" onClick={onBack}>
+              <ArrowLeft aria-hidden="true" className="size-4" />
+              {s.saveBack}
+            </Button>
+            <h2 data-view-heading="" tabIndex={-1} className="mt-1 text-title-2 text-foreground outline-none">
+              {s.saveTitle}
+            </h2>
+          </>
+        }
+        bar={
+          <>
+            <Button ref={createRef} size="lg" fullWidth wrap className="min-h-[56px]" data-save-action="create" disabled={pages.length === 0 || (searchable && needsDownload && !consent)} onClick={() => void build()}>
+              {s.create}
+            </Button>
+            <p data-create-meta="" className="mt-1.5 text-center text-footnote text-muted-foreground tabular-nums">
+              {searchable && needsDownload && !consent ? s.searchableNeedConsent : s.createMeta(pages.length, `≈ ${sizeText}`)}
+            </p>
+          </>
+        }
+      >
+      <div className="mt-3 flex flex-col gap-6 pb-6">
         <div>
           <label htmlFor="scan-name" className="ui-label text-muted-foreground">
             {s.nameLabel}
@@ -208,8 +241,17 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
           ]}
         />
 
-        <Checkbox label={s.searchable} hint={s.searchableHint} checked={searchable} onChange={(checked) => api.setSettings({ searchable: checked })} />
+        <div className="flex flex-col gap-2">
+          <Checkbox label={s.searchable} hint={s.searchableHint} checked={searchable} onChange={(checked) => api.setSettings({ searchable: checked })} />
+          {searchable && needsDownload ? (
+            <div data-ocr-download="" className="ml-1 rounded-ios border border-hairline bg-white/5 p-3">
+              <p className="text-footnote text-foreground">{s.searchableDownloadNote}</p>
+              <Checkbox label={s.searchableDownloadConsent} checked={consent} onChange={setConsent} className="mt-1" />
+            </div>
+          ) : null}
+        </div>
       </div>
+
 
       {error ? (
         <p ref={errorRef} tabIndex={-1} data-save-error="" className="mt-5 rounded-ios border border-hairline bg-white/5 p-3 text-subheadline text-foreground outline-none">
@@ -217,17 +259,17 @@ export function SaveScreen({ s, api, onBack, onBuilt, fallbackName }: SaveScreen
         </p>
       ) : null}
 
-      <div className="sticky z-30 -mx-4 mt-auto border-t border-hairline bg-surface px-4 py-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:-mx-6 md:bottom-0 md:px-6">
-        <Button ref={createRef} size="lg" fullWidth data-save-action="create" disabled={pages.length === 0} onClick={() => void build()}>
-          {s.create}
-        </Button>
-        <p data-create-meta="" className="mt-1.5 text-center text-footnote text-muted-foreground tabular-nums">
-          {s.createMeta(pages.length, `≈ ${sizeText}`)}
-        </p>
-      </div>
+        {error && searchable && failedWhileSearchable ? (
+          <div className="mt-3 pb-6">
+            <Button variant="secondary" size="md" fullWidth wrap data-save-action="without-text" onClick={() => { api.setSettings({ searchable: false }); void build(); }}>
+              {s.createWithoutText}
+            </Button>
+          </div>
+        ) : null}
+      </ScreenShell>
 
       <AnimatePresence>{phase === "building" ? <ProcessingOverlay progress={progress} message={progressText || t.tools["scan-to-pdf"].name} onCancel={cancel} /> : null}</AnimatePresence>
-    </div>
+    </>
   );
 }
 

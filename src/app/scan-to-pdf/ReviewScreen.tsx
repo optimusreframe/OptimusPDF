@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { useFocusTarget } from "@/components/tool/useFocusTarget";
 import { cn } from "@/lib/cn";
-import { blankPageIds, type QualityChipKind } from "@/app/scan-to-pdf/scanState";
+import { blankPageIds, orientationCounts, type QualityChipKind } from "@/app/scan-to-pdf/scanState";
 import { FILTER_ORDER } from "@/app/scan-to-pdf/PageEditor";
 import { PageGrid } from "@/app/scan-to-pdf/PageGrid";
+import { ScreenShell } from "@/app/scan-to-pdf/ScreenShell";
+import { ImportProblemsBanner } from "@/app/scan-to-pdf/ImportProblemsBanner";
 import { useAnnounce } from "@/app/scan-to-pdf/ScanLive";
 import type { ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
 import type { ScanSessionApi, SaveStatus } from "@/app/scan-to-pdf/useScanSession";
@@ -59,8 +61,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
   const [moreId, setMoreId] = useState<string | null>(null);
   const [insertAt, setInsertAt] = useState<number | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const topRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const focusArg = useRef<{ index: number; id: string; part: "remove" | "handle" | "main" }>({ index: 0, id: "", part: "main" });
 
   const { request: askFocus } = useFocusTarget<"tile" | "fallback">((target) => {
@@ -165,12 +166,6 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
   const empty = pages.length === 0;
   const notice = api.orientationNotice;
 
-  const insets = useCallback(() => {
-    const top = topRef.current ? Math.max(64, topRef.current.getBoundingClientRect().bottom) : 64;
-    const bottom = bottomRef.current ? bottomRef.current.getBoundingClientRect().height + 80 : 140;
-    return { top: Math.min(top, 140), bottom };
-  }, []);
-
   const filterChoices = (
     <div className="flex flex-col gap-2 pb-2" data-bulk-filter="">
       {FILTER_ORDER.map((filter: ScanFilterMode) => (
@@ -192,8 +187,15 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
   );
 
   return (
-    <div className="mx-auto flex min-h-[calc(100svh-11rem)] w-full max-w-[1200px] flex-col px-4 pt-4 md:px-6 md:pt-6" data-review="">
-      <div ref={topRef} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+    <>
+      <ScreenShell
+        className="max-w-[1200px]"
+        scrollerRef={scrollerRef}
+        rootProps={{ "data-review": "" }}
+        barProps={{ "data-review-bar": "" }}
+        top={
+          <>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="min-w-0">
           <h2 data-view-heading="" tabIndex={-1} className="text-title-3 text-foreground outline-none">
             {s.reviewTitle}
@@ -205,7 +207,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
             {statusText(s, api.saveStatus)}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <IconButton label={s.undo} action="undo" disabled={!api.canUndo} onClick={api.undo}>
             <Undo2 aria-hidden="true" className="size-5" />
           </IconButton>
@@ -225,8 +227,70 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
           </Button>
         </div>
       </div>
+          </>
+        }
+        bar={
+          <>
+        {movingIds ? (
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 text-subheadline text-foreground">{s.moveModeTitle(movingIds.length)}</p>
+            <Button variant="secondary" size="md" data-move-cancel="" onClick={() => setMovingIds(null)}>
+              {s.moveCancel}
+            </Button>
+          </div>
+        ) : selecting ? (
+          <div role="group" aria-label={s.actionsLabel} className="flex flex-col gap-2" data-selection-bar="">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-subheadline font-semibold text-foreground" data-selected-count="">
+                {s.selectedCount(chosen.length)}
+              </p>
+              <Button variant="ghost" size="md" data-review-action="select-all" onClick={() => setSelection(new Set(pages.map((page) => page.id)))}>
+                {s.selectAll}
+              </Button>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              <BarButton label={s.bulkFilter} action="bulk-filter" disabled={chosen.length === 0} onClick={() => setFilterOpen(true)}>
+                <ScanSearch aria-hidden="true" className="size-5" />
+              </BarButton>
+              <BarButton label={s.bulkRotate} action="bulk-rotate" disabled={chosen.length === 0} onClick={() => api.rotateIds(chosen, 90, `rotate:bulk`)}>
+                <RotateCw aria-hidden="true" className="size-5" />
+              </BarButton>
+              <BarButton label={s.bulkDelete} action="bulk-delete" disabled={chosen.length === 0} onClick={() => { const ids = chosen; endSelecting(); remove(ids); }}>
+                <Trash2 aria-hidden="true" className="size-5" />
+              </BarButton>
+              <BarButton label={s.bulkMove} action="bulk-move" disabled={chosen.length === 0} onClick={() => startMove(chosen)}>
+                <Move aria-hidden="true" className="size-5" />
+              </BarButton>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <IconButton label={s.addCamera} action="camera" large onClick={() => onCamera({ kind: "append" })} review>
+              <Camera aria-hidden="true" className="size-6" />
+            </IconButton>
+            <IconButton label={s.addPhotos} action="photos" large onClick={() => onPhotos({ kind: "append" })} review>
+              <Images aria-hidden="true" className="size-6" />
+            </IconButton>
+            <Button
+              size="lg"
+              wrap
+              data-review-action="save"
+              disabled={empty}
+              aria-disabled={!empty && api.pendingCount > 0 ? true : undefined}
+              onClick={() => (api.pendingCount > 0 ? announce(s.saveBlocked) : onSave())}
+              className="min-h-[56px] min-w-0 flex-[1_1_9rem] px-4"
+            >
+              {s.save(pages.length)}
+            </Button>
+          </div>
+        )}
+        {api.pendingCount > 0 && !selecting && !movingIds ? <p className="mt-1.5 text-center text-caption text-muted-foreground">{s.saveBlocked}</p> : null}
+          </>
+        }
+      >
+      <p className="text-footnote text-muted-foreground">{s.reviewHelp}</p>
 
-      <p className="mt-2 text-footnote text-muted-foreground">{s.reviewHelp}</p>
+      <ImportProblemsBanner s={s} problems={api.importProblems} onDismiss={api.dismissImportProblems} />
 
       {blanks.length > 0 ? (
         <div data-banner="blanks" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-ios border border-hairline bg-white/5 px-3 py-2">
@@ -240,7 +304,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
 
       {notice ? (
         <div data-banner="orientation" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-ios border border-hairline bg-white/5 px-3 py-2">
-          <p className="min-w-0 text-footnote text-foreground">{s.orientationNotice(notice.ids.length)}</p>
+          <p className="min-w-0 text-footnote text-foreground">{s.orientationNotice(orientationCounts(notice))}</p>
           <div className="flex items-center gap-1">
             <Button size="sm" variant="secondary" data-review-action="undo-orientation" onClick={api.undoOrientation}>
               <Undo2 aria-hidden="true" className="size-4" />
@@ -275,7 +339,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
         </div>
       ) : null}
 
-      <div className="mt-4 flex-1 pb-6">
+      <div className="mt-4 pb-6">
         {empty ? (
           <div className="surface-card rounded-ios-lg px-6 py-12 text-center">
             <h3 className="text-headline text-foreground">{s.emptyTitle}</h3>
@@ -299,7 +363,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
             onShift={onShift}
             onMoveHere={onMoveHere}
             announce={announce}
-            insets={insets}
+            scrollerRef={scrollerRef}
           />
         )}
         {movingIds && !empty ? (
@@ -310,68 +374,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
           </div>
         ) : null}
       </div>
-
-      {/* Barra inferior: la accion primaria al alcance del pulgar (por encima de la barra de pestañas en movil) */}
-      <div
-        ref={bottomRef}
-        data-review-bar=""
-        className="sticky z-30 -mx-4 border-t border-hairline bg-surface px-4 py-3 md:-mx-6 md:px-6 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:bottom-0"
-      >
-        {movingIds ? (
-          <div className="flex items-center gap-2">
-            <p className="min-w-0 flex-1 text-subheadline text-foreground">{s.moveModeTitle(movingIds.length)}</p>
-            <Button variant="secondary" size="md" data-move-cancel="" onClick={() => setMovingIds(null)}>
-              {s.moveCancel}
-            </Button>
-          </div>
-        ) : selecting ? (
-          <div role="group" aria-label={s.actionsLabel} className="flex flex-col gap-2" data-selection-bar="">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-subheadline font-semibold text-foreground" data-selected-count="">
-                {s.selectedCount(chosen.length)}
-              </p>
-              <Button variant="ghost" size="md" data-review-action="select-all" onClick={() => setSelection(new Set(pages.map((page) => page.id)))}>
-                {s.selectAll}
-              </Button>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              <BarButton label={s.bulkFilter} action="bulk-filter" disabled={chosen.length === 0} onClick={() => setFilterOpen(true)}>
-                <ScanSearch aria-hidden="true" className="size-5" />
-              </BarButton>
-              <BarButton label={s.bulkRotate} action="bulk-rotate" disabled={chosen.length === 0} onClick={() => api.rotateIds(chosen, 90, `rotate:bulk`)}>
-                <RotateCw aria-hidden="true" className="size-5" />
-              </BarButton>
-              <BarButton label={s.bulkDelete} action="bulk-delete" disabled={chosen.length === 0} onClick={() => { const ids = chosen; endSelecting(); remove(ids); }}>
-                <Trash2 aria-hidden="true" className="size-5" />
-              </BarButton>
-              <BarButton label={s.bulkMove} action="bulk-move" disabled={chosen.length === 0} onClick={() => startMove(chosen)}>
-                <Move aria-hidden="true" className="size-5" />
-              </BarButton>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <IconButton label={s.addCamera} action="camera" large onClick={() => onCamera({ kind: "append" })} review>
-              <Camera aria-hidden="true" className="size-6" />
-            </IconButton>
-            <IconButton label={s.addPhotos} action="photos" large onClick={() => onPhotos({ kind: "append" })} review>
-              <Images aria-hidden="true" className="size-6" />
-            </IconButton>
-            <Button
-              size="lg"
-              fullWidth
-              data-review-action="save"
-              disabled={empty}
-              aria-disabled={!empty && api.pendingCount > 0 ? true : undefined}
-              onClick={() => (api.pendingCount > 0 ? announce(s.saveBlocked) : onSave())}
-              className="min-w-0 px-4"
-            >
-              {s.save(pages.length)}
-            </Button>
-          </div>
-        )}
-        {api.pendingCount > 0 && !selecting && !movingIds ? <p className="mt-1.5 text-center text-caption text-muted-foreground">{s.saveBlocked}</p> : null}
-      </div>
+      </ScreenShell>
 
       {/* Mas acciones de una pagina */}
       <Sheet open={moreId !== null && more !== undefined && more !== null} onClose={() => setMoreId(null)} title={s.moreTitle(moreNumber)} closeLabel={closeLabel} inertBackground>
@@ -404,8 +407,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
       <Sheet open={filterOpen} onClose={() => setFilterOpen(false)} title={s.bulkFilterTitle} closeLabel={closeLabel} inertBackground>
         {filterChoices}
       </Sheet>
-
-    </div>
+    </>
   );
 }
 
@@ -420,7 +422,7 @@ function IconButton({ label, action, disabled, onClick, children, large, review 
       onClick={onClick}
       className={cn(
         "flex shrink-0 items-center justify-center rounded-full text-foreground outline-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:pointer-events-none disabled:opacity-35",
-        large ? "size-14 border border-hairline bg-white/5" : "size-11",
+        large ? "size-[56px] border border-hairline bg-white/5" : "size-[44px]",
       )}
     >
       {children}

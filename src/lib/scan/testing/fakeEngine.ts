@@ -55,6 +55,10 @@ export type FakeControls = {
   buildError: string | null;
   /** Solo `splitSpread`: sin lomo detectable. */
   noSplit: boolean;
+  /** Opcional del contrato (aditivo): el modelo de texto buscable ya esta en este dispositivo (sin descarga previa). */
+  ocrAvailable: boolean;
+  /** Opcional del contrato (aditivo): cuantas paginas del ultimo PDF llevaron texto buscable; `null` = el motor no lo informa. */
+  searchableReport: { total: number; withText: number } | null;
 };
 
 export function newControls(): FakeControls {
@@ -72,6 +76,8 @@ export function newControls(): FakeControls {
     peakConcurrent: 0,
     buildError: null,
     noSplit: false,
+    ocrAvailable: false,
+    searchableReport: null,
   };
 }
 
@@ -228,6 +234,9 @@ export type FakeEngine = ScanEngineApi & {
   controls: FakeControls;
   /** Opcional del contrato (aditivo): parte la pagina de un libro abierto en dos (izquierda, derecha). */
   splitSpread: (source: ScanPage, options?: { signal?: AbortSignal }) => Promise<[ScanPage, ScanPage]>;
+  /** Opcionales del contrato (aditivos), leidos de `controls`. */
+  readonly ocrAvailable: boolean;
+  readonly lastSearchableReport: { total: number; withText: number } | null;
 };
 
 export function createFakeEngine(controls: FakeControls = newControls()): FakeEngine {
@@ -439,6 +448,13 @@ export function createFakeEngine(controls: FakeControls = newControls()): FakeEn
       for (const page of pages) bytes += (page.processed?.size ?? page.original.size) * factor + 2048;
       if (options.searchable) bytes *= 1.05;
       return { bytes: Math.round(bytes), low: Math.round(bytes * 0.8), high: Math.round(bytes * 1.25) };
+    },
+
+    get ocrAvailable() {
+      return controls.ocrAvailable;
+    },
+    get lastSearchableReport() {
+      return controls.searchableReport;
     },
 
     async buildPdf(session, options): Promise<Blob> {

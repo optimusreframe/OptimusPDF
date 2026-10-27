@@ -1,5 +1,5 @@
 import { test, type Page } from "@playwright/test";
-import { expect, fakeControls, importPhotos, installFakeCamera, installScanFakes, pageIds, waitIdle, waitVideoReady, widthCodedFiles, TEST_TIMEOUT, webkitLinuxCamera, WEBKIT_LINUX_CAMERA_REASON } from "../helpers/scan-ui";
+import { expect, fakeControls, importPhotos, installFakeCamera, installScanFakes, pageIds, scanFiles, USE_REAL_ENGINE, waitIdle, waitVideoReady, TEST_TIMEOUT, webkitLinuxCamera, WEBKIT_LINUX_CAMERA_REASON } from "../helpers/scan-ui";
 
 /**
  * Escaner · revisar y organizar: chips de calidad con accion de un toque, quitar blancos, orientacion automatica con aviso
@@ -18,7 +18,7 @@ const tiles = (page: Page) => page.locator("[data-page-grid] [data-page-id]");
 
 async function load(page: Page, names: string[]) {
   await page.goto("/scan-to-pdf");
-  await importPhotos(page, widthCodedFiles(names.length, { names }));
+  await importPhotos(page, scanFiles(names));
   await expect(tiles(page)).toHaveCount(names.length);
   await waitIdle(page);
   return pageIds(page);
@@ -64,19 +64,22 @@ test("chips: «Borrosa → Repetir» abre la camara y la nueva captura sustituye
 });
 
 test("chips: «Repetida → Quitar» y «Sin documento → Recortar»", async ({ page }) => {
-  await load(page, ["a.jpg", "a-dup.jpg", "c-nodoc.jpg"]);
+  // «Sin documento» sale de la deteccion de bordes del motor (umbrales propios, cubiertos en su spec): aqui solo con el motor falso.
+  await load(page, USE_REAL_ENGINE ? ["a.jpg", "a-dup.jpg"] : ["a.jpg", "a-dup.jpg", "c-nodoc.jpg"]);
   await expect(page.getByRole("button", { name: /Página 2: Repetida\. Quitar/ })).toBeVisible();
-  await page.getByRole("button", { name: /Página 3: Sin documento\. Recortar/ }).click();
-  await expect(page.locator("[data-page-editor]")).toBeVisible();
-  await page.locator('[data-editor-action="done"]').click();
+  if (!USE_REAL_ENGINE) {
+    await page.getByRole("button", { name: /Página 3: Sin documento\. Recortar/ }).click();
+    await expect(page.locator("[data-page-editor]")).toBeVisible();
+    await page.locator('[data-editor-action="done"]').click();
+  }
   await page.getByRole("button", { name: /Página 2: Repetida\. Quitar/ }).click();
-  await expect(tiles(page)).toHaveCount(2);
+  await expect(tiles(page)).toHaveCount(USE_REAL_ENGINE ? 1 : 2);
 });
 
 test("orientacion automatica: gira las de lado, avisa y el aviso se deshace", async ({ page }) => {
   await load(page, ["a.jpg", "b-sideways.jpg", "c-upsidedown.jpg"]);
   const notice = page.locator('[data-banner="orientation"]');
-  await expect(notice).toContainText("Giramos 2 páginas que estaban de lado.");
+  await expect(notice).toContainText("Giramos 2 páginas: 1 de lado y 1 cabeza abajo.");
   await page.getByRole("button", { name: "Deshacer giro" }).click();
   await expect(notice).toHaveCount(0);
   // Al deshacer el giro, el motor recalcula las dos miniaturas.
@@ -99,7 +102,7 @@ test("duplicar, insertar antes/despues con la fototeca y mover aqui", async ({ p
   await page.locator('[data-more-action="insert-after"]').click();
   const chooser = page.waitForEvent("filechooser");
   await page.locator('[data-insert="library"]').click();
-  await (await chooser).setFiles(widthCodedFiles(1, { names: ["z.jpg"] }));
+  await (await chooser).setFiles(scanFiles(["z.jpg"]));
   await expect(tiles(page)).toHaveCount(5);
   await waitIdle(page);
   const inserted = await pageIds(page);
@@ -126,7 +129,7 @@ test("seleccion multiple: filtro, girar, mover y borrar desde la barra inferior"
   await page.locator('[data-bulk-filter] [data-filter="bw"]').click();
   await page.locator('[data-review-action="bulk-rotate"]').click();
   await waitIdle(page);
-  expect(await fakeControls(page, (c) => c.calls.renderPage ?? 0)).toBeGreaterThanOrEqual(2);
+  if (!USE_REAL_ENGINE) expect(await fakeControls(page, (c) => c.calls.renderPage ?? 0)).toBeGreaterThanOrEqual(2);
 
   // Mover las dos al final.
   await page.locator('[data-review-action="bulk-move"]').click();
@@ -145,12 +148,14 @@ test("editor: filtro, brillo y contraste, «Aplicar a todas», esquinas y hoja c
   // Girar en la cuadricula solo pide la miniatura rapida; el resultado completo llega al abrir la pagina.
   await page.getByRole("button", { name: "Girar la página 1" }).click();
   await waitIdle(page);
-  expect(await fakeControls(page, (c) => c.calls.renderQuick ?? 0)).toBeGreaterThanOrEqual(1);
-  expect(await fakeControls(page, (c) => c.calls.renderFull ?? 0)).toBe(0);
+  if (!USE_REAL_ENGINE) {
+    expect(await fakeControls(page, (c) => c.calls.renderQuick ?? 0)).toBeGreaterThanOrEqual(1);
+    expect(await fakeControls(page, (c) => c.calls.renderFull ?? 0)).toBe(0);
+  }
   await page.locator("[data-page-grid] [data-page-main]").first().click();
   const editor = page.locator("[data-page-editor]");
   await expect(editor).toBeVisible();
-  await expect.poll(() => fakeControls(page, (c) => c.calls.renderFull ?? 0)).toBeGreaterThanOrEqual(1);
+  if (!USE_REAL_ENGINE) await expect.poll(() => fakeControls(page, (c) => c.calls.renderFull ?? 0)).toBeGreaterThanOrEqual(1);
   await expect(editor.locator("[data-editor-processing]")).toHaveCount(0);
   await expect(editor.locator("[data-editor-title]")).toHaveText("Editar página 1 de 3");
   await editor.locator('[data-filter="grayscale"]').click();
@@ -159,9 +164,11 @@ test("editor: filtro, brillo y contraste, «Aplicar a todas», esquinas y hoja c
   await slider.focus();
   await slider.press("ArrowRight");
   await slider.press("ArrowRight");
-  const renders = await fakeControls(page, (c) => c.calls.renderPage ?? 0);
-  // El recalculo llega al soltar (unos 350 ms despues del ultimo cambio).
-  await expect.poll(() => fakeControls(page, (c) => c.calls.renderPage ?? 0)).toBeGreaterThan(renders);
+  if (!USE_REAL_ENGINE) {
+    const renders = await fakeControls(page, (c) => c.calls.renderPage ?? 0);
+    // El recalculo llega al soltar (unos 350 ms despues del ultimo cambio).
+    await expect.poll(() => fakeControls(page, (c) => c.calls.renderPage ?? 0)).toBeGreaterThan(renders);
+  }
   await editor.locator('[data-editor-action="apply-all"]').click();
   await editor.locator('[data-editor-action="next"]').click();
   await expect(editor.locator("[data-editor-title]")).toHaveText("Editar página 2 de 3");

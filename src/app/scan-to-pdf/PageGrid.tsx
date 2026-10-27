@@ -1,13 +1,13 @@
 "use client";
 
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Check, Ellipsis, GripVertical, Loader, RotateCw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { ScanPage } from "@/lib/scan/types";
 import { useBlobUrl } from "@/app/scan-to-pdf/useBlobUrl";
 import { qualityKinds, type QualityChipKind } from "@/app/scan-to-pdf/scanState";
 import { createGridDrag, type DragLatest, type DragState, type GridDrag } from "@/app/scan-to-pdf/gridDrag";
-import { computeLayout, insertionMarker, tilePosition, totalHeight, visibleRange, ACTIONS_H, type GridLayout } from "@/app/scan-to-pdf/gridLayout";
+import { computeLayout, insertionMarker, tilePosition, totalHeight, visibleRange, ACTIONS_H, STRIP_H, type GridLayout } from "@/app/scan-to-pdf/gridLayout";
 import type { ScanToPdfStrings } from "@/app/scan-to-pdf/strings";
 
 /** Desde este numero de paginas solo se pintan las filas a la vista (menos, todo: es mas simple y no hay nada que ahorrar). */
@@ -31,8 +31,8 @@ export type PageGridProps = {
   onShift: (id: string, delta: number) => void;
   onMoveHere: (insertBefore: number) => void;
   announce: (text: string) => void;
-  /** Alto (px) de las barras fijas arriba y abajo, para que el auto-desplazamiento empiece antes de tocarlas. */
-  insets?: () => { top: number; bottom: number };
+  /** Zona con desplazamiento propia que contiene la cuadricula (`ScreenShell`): la ventana visible y el auto-desplazamiento van sobre ella. */
+  scrollerRef: RefObject<HTMLElement | null>;
 };
 
 
@@ -95,7 +95,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
           "relative overflow-hidden rounded-ios border bg-surface",
           selected ? "border-signal ring-2 ring-signal" : "border-hairline",
         )}
-        style={{ height: layout.thumbH }}
+        style={{ height: layout.boxH }}
       >
         <button
           type="button"
@@ -105,7 +105,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
           onClick={() => (selecting ? cb.toggle(page.id) : cb.open(page.id))}
           onPointerDown={(event) => cb.bodyDown(event, page.id)}
           className="absolute inset-0 flex items-center justify-center bg-black/5 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
-          style={{ touchAction: "pan-y" }}
+          style={{ touchAction: "pan-y", paddingTop: STRIP_H }}
         >
           {thumbUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -120,7 +120,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
           ) : null}
         </button>
 
-        <span aria-hidden="true" className="pointer-events-none absolute top-2 left-2 rounded-full bg-black/70 px-2 py-0.5 text-caption font-semibold text-white tabular-nums">
+        <span aria-hidden="true" className="pointer-events-none absolute top-1.5 left-1.5 rounded-full bg-black/70 px-2 py-0.5 text-caption font-semibold text-white tabular-nums">
           {number}
         </span>
 
@@ -128,7 +128,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
           <span
             aria-hidden="true"
             className={cn(
-              "pointer-events-none absolute top-2 right-2 flex size-6 items-center justify-center rounded-full border-2",
+              "pointer-events-none absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-full border-2",
               selected ? "border-signal bg-signal text-[var(--color-on-signal)]" : "border-white bg-black/40",
             )}
           >
@@ -142,10 +142,10 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
             title={s.dragHandleHint}
             onPointerDown={(event) => cb.handleDown(event, page.id)}
             onKeyDown={(event) => cb.handleKey(event, page.id)}
-            className="absolute top-0 right-0 flex size-11 items-center justify-center text-white outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
+            className="absolute top-0 right-0 flex size-[44px] items-center justify-center text-white outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
             style={{ touchAction: "none" }}
           >
-            <span className="flex size-8 items-center justify-center rounded-full bg-black/65">
+            <span className="flex size-[32px] items-center justify-center rounded-full bg-black/65">
               <GripVertical aria-hidden="true" className="size-4" />
             </span>
           </button>
@@ -160,7 +160,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
 
         {!movePick && kinds.length > 0 && !pending ? (
           <div className="absolute inset-x-1.5 bottom-1.5 flex flex-col items-start gap-1">
-            {kinds.slice(0, 2).map((kind) => {
+            {kinds.slice(0, layout.tileW < 190 ? 1 : 2).map((kind) => {
               const q = s.quality[kind];
               return (
                 <button
@@ -170,10 +170,10 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
                   title={q.tip}
                   aria-label={s.chipAction(number, q.label, q.action)}
                   onClick={() => cb.chip(page.id, kind)}
-                  className="on-media inline-flex min-h-8 max-w-full items-center gap-1 rounded-full border border-white/30 bg-black/75 px-2.5 py-1 text-left text-caption leading-tight font-semibold text-white outline-none pointer-coarse:min-h-11 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-signal"
+                  className="on-media inline-flex min-h-[32px] max-w-full items-center gap-1 rounded-full border border-white/30 bg-black/75 px-2.5 py-1 text-left text-caption leading-tight font-semibold text-white outline-none pointer-coarse:min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-signal"
                 >
                   <span className="min-w-0">{q.label}</span>
-                  <span aria-hidden="true" className="shrink-0 text-warning-text underline">
+                  <span aria-hidden="true" className="shrink-0 underline">
                     {q.action}
                   </span>
                 </button>
@@ -187,7 +187,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
             type="button"
             data-move-here=""
             onClick={() => cb.moveHere(index)}
-            className="absolute inset-x-1.5 bottom-1.5 flex h-11 items-center justify-center rounded-full bg-signal px-3 text-footnote font-semibold text-[var(--color-on-signal)] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+            className="absolute inset-x-1.5 bottom-1.5 flex min-h-[44px] items-center justify-center rounded-full bg-signal px-3 text-footnote font-semibold text-[var(--color-on-signal)] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
           >
             {s.moveHere}
           </button>
@@ -218,7 +218,7 @@ function TileButton({ label, action, disabled, onClick, children }: { label: str
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors outline-none hover:bg-white/10 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal disabled:pointer-events-none disabled:opacity-35"
+      className="flex size-[44px] items-center justify-center rounded-full text-muted-foreground transition-colors outline-none hover:bg-white/10 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal disabled:pointer-events-none disabled:opacity-35"
     >
       {children}
     </button>
@@ -247,7 +247,7 @@ function Ghost({ page, pointer, count }: { page: ScanPage; pointer: { x: number;
  *   - «Mover aquí»: elegir la pagina, «Mover a otro sitio» y tocar el destino.
  * El auto-desplazamiento cerca de los bordes es por TIEMPO (`createEdgeAutoScroller`): igual a 60 que a 120 Hz.
  */
-export function PageGrid({ s, pages, pendingIds, selection, selecting, movingIds, onOpen, onToggleSelect, onRotate, onRemove, onMore, onChip, onDrop, onShift, onMoveHere, announce, insets }: PageGridProps) {
+export function PageGrid({ s, pages, pendingIds, selection, selecting, movingIds, onOpen, onToggleSelect, onRotate, onRemove, onMore, onChip, onDrop, onShift, onMoveHere, announce, scrollerRef }: PageGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [scroll, setScroll] = useState({ top: 0, height: 800 });
@@ -273,14 +273,17 @@ export function PageGrid({ s, pages, pendingIds, selection, selecting, movingIds
 
   useEffect(() => {
     if (!virtual) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
     let frame = 0;
     const update = () => {
       frame = 0;
       const element = containerRef.current;
       if (!element) return;
-      const box = element.getBoundingClientRect();
+      // Parte de la cuadricula que esta dentro de la zona visible del contenedor con desplazamiento.
+      const top = scroller.getBoundingClientRect().top - element.getBoundingClientRect().top;
       setScroll((previous) => {
-        const next = { top: Math.max(0, -box.top), height: window.innerHeight };
+        const next = { top: Math.max(0, top), height: scroller.clientHeight || 800 };
         return Math.abs(previous.top - next.top) < 40 && previous.height === next.height ? previous : next;
       });
     };
@@ -288,14 +291,19 @@ export function PageGrid({ s, pages, pendingIds, selection, selecting, movingIds
       if (!frame) frame = requestAnimationFrame(update);
     };
     update();
-    window.addEventListener("scroll", onScroll, { passive: true });
+    scroller.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
+    // El alto de la zona cambia sin que haya desplazamiento ni cambio de ventana (la pantalla se mide tras pintar, entra o sale
+    // el teclado, cambia el alto de la cabecera): se recalcula la ventana visible.
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(onScroll) : null;
+    observer?.observe(scroller);
     return () => {
-      window.removeEventListener("scroll", onScroll);
+      scroller.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
+      observer?.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [virtual, count, layout.cols]);
+  }, [virtual, count, layout.cols, scrollerRef]);
 
   const range = useMemo(
     () => (virtual ? visibleRange(layout, count, scroll.top, scroll.height, 2) : count > 0 ? { first: 0, last: count - 1 } : null),
@@ -331,18 +339,18 @@ export function PageGrid({ s, pages, pendingIds, selection, selecting, movingIds
   const suppressClickRef = useRef(false);
   const dragRef = useRef<GridDrag | null>(null);
   const pageIds = useMemo(() => pages.map((page) => page.id), [pages]);
-  const latest = useRef<DragLatest>({ layout, pageIds, selection, onDrop, announce, dragStart: s.dragStart, dragCancel: s.dragCancel, insets });
+  const latest = useRef<DragLatest>({ layout, pageIds, selection, onDrop, announce, dragStart: s.dragStart, dragCancel: s.dragCancel });
   useEffect(() => {
-    latest.current = { layout, pageIds, selection, onDrop, announce, dragStart: s.dragStart, dragCancel: s.dragCancel, insets };
+    latest.current = { layout, pageIds, selection, onDrop, announce, dragStart: s.dragStart, dragCancel: s.dragCancel };
   });
   useEffect(() => {
-    const controller = createGridDrag({ latest, container: containerRef, setDrag, suppressClick: suppressClickRef });
+    const controller = createGridDrag({ latest, container: containerRef, scroller: scrollerRef, setDrag, suppressClick: suppressClickRef });
     dragRef.current = controller;
     return () => {
       controller.dispose();
       dragRef.current = null;
     };
-  }, []);
+  }, [scrollerRef]);
 
   const cb = useMemo<Callbacks>(
     () => ({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ACTIONS_H, GRID_GAP, MIN_TILE, computeLayout, insertionIndexAt, insertionMarker, tilePosition, totalHeight, visibleRange } from "@/app/scan-to-pdf/gridLayout";
+import { ACTIONS_H, GRID_GAP, MIN_TILE, STRIP_H, computeLayout, insertionIndexAt, insertionMarker, tilePosition, totalHeight, visibleRange } from "@/app/scan-to-pdf/gridLayout";
 
 describe("columnas y tamano de tarjeta", () => {
   it("siempre hay al menos 2 columnas y la tarjeta nunca baja de ~138 px en un telefono de 320 px", () => {
@@ -26,8 +26,15 @@ describe("columnas y tamano de tarjeta", () => {
   it("la miniatura es 3:4 y la fila de acciones tiene alto fijo", () => {
     const layout = computeLayout(343);
     expect(layout.thumbH).toBe(Math.round((layout.tileW * 4) / 3));
-    expect(layout.tileH).toBe(layout.thumbH + ACTIONS_H);
+    // Franja superior (numero y asa) sobre la miniatura: nada tapa la foto.
+    expect(layout.boxH).toBe(layout.thumbH + STRIP_H);
+    expect(layout.tileH).toBe(layout.boxH + ACTIONS_H);
     expect(layout.rowH).toBe(layout.tileH + GRID_GAP);
+  });
+
+  it("a 320 px (y con letra grande) caben las tres acciones de 44 px en la tarjeta", () => {
+    const layout = computeLayout(320 - 32);
+    expect(layout.tileW).toBeGreaterThanOrEqual(3 * 44);
   });
 });
 

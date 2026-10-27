@@ -8,11 +8,15 @@ export const GRID_GAP = 12;
 export const MIN_TILE = 148;
 /** Alto fijo (px) de la fila de acciones bajo la miniatura (3 botones de 44 px). */
 export const ACTIONS_H = 48;
+/** Alto (px) de la franja superior de la tarjeta: numero de pagina a la izquierda y asa a la derecha, SIN tapar la miniatura. */
+export const STRIP_H = 36;
 
 export type GridLayout = {
   cols: number;
   tileW: number;
   thumbH: number;
+  /** Caja con borde: franja + miniatura. */
+  boxH: number;
   tileH: number;
   rowH: number;
   gap: number;
@@ -24,8 +28,9 @@ export function computeLayout(width: number, minTile = MIN_TILE, gap = GRID_GAP)
   const cols = Math.max(2, Math.floor((usable + gap) / (minTile + gap)));
   const tileW = Math.max(1, (usable - gap * (cols - 1)) / cols);
   const thumbH = Math.round((tileW * 4) / 3);
-  const tileH = thumbH + ACTIONS_H;
-  return { cols, tileW, thumbH, tileH, rowH: tileH + gap, gap, width: usable };
+  const boxH = thumbH + STRIP_H;
+  const tileH = boxH + ACTIONS_H;
+  return { cols, tileW, thumbH, boxH, tileH, rowH: tileH + gap, gap, width: usable };
 }
 
 export function totalHeight(layout: GridLayout, count: number): number {

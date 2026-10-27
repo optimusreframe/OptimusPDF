@@ -25,6 +25,11 @@ URL = DIR + "scanUrl.ts"
 PREFS = DIR + "scanPrefs.ts"
 SESSION = DIR + "useScanSession.ts"
 GRID = DIR + "PageGrid.tsx"
+PROBLEMS = DIR + "importProblems.ts"
+STRINGS = DIR + "strings.ts"
+SERVICES = DIR + "scanServices.ts"
+SAVE = DIR + "SaveScreen.tsx"
+SHELL = DIR + "ScreenShell.tsx"
 REVIEW = DIR + "ReviewScreen.tsx"
 STORE = "src/lib/scan/testing/fakeStore.ts"
 ENGINE = "src/lib/scan/testing/fakeEngine.ts"
@@ -37,6 +42,7 @@ T_URL = [DIR + "scanUrl.test.tsx"]
 T_PIECES = [DIR + "pieces.test.tsx"]
 T_CLIENT = [DIR + "ScanToPdfClient.test.tsx"]
 T_FAKES = ["src/lib/scan/testing/fakes.test.ts"]
+T_PROBLEMS = [DIR + "importProblems.test.ts"]
 
 # (id, archivo, texto original, texto mutado, descripcion, pruebas que deben matarla). El original debe aparecer.
 MUTATIONS = [
@@ -72,6 +78,19 @@ MUTATIONS = [
     ("M30", SESSION, "if (snapshot.pages.length === 0) {\n          await store.remove(snapshot.id);", "if (false) {\n          await store.remove(snapshot.id);", "guardado: una sesion vaciada se borra del almacen", T_CLIENT),
     ("M31", ENGINE, "if (tokens.includes(\"fail\")) throw new Error(\"fake-create-failed\");", "", "doble de prueba: `fail` rechaza", T_FAKES),
     ("M32", GRID, "export const VIRTUALIZE_FROM = 30;", "export const VIRTUALIZE_FROM = 3000;", "cuadricula: virtualiza con muchas paginas", T_PIECES),
+    ("M33", PROBLEMS, "const HEIC_NAME = /\\.(heic|heif|hif)$/i;", "const HEIC_NAME = /\\.(heif|hif)$/i;", "fotos no anadidas: HEIC por la extension", T_PROBLEMS),
+    ("M34", PROBLEMS, "looksLikeImage ? \"damaged\" : \"notImage\"", "looksLikeImage ? \"notImage\" : \"damaged\"", "fotos no anadidas: imagen danada frente a no-imagen", T_PROBLEMS),
+    ("M35", PROBLEMS, "return merged.slice(0, limit);", "return merged;", "fotos no anadidas: el aviso tiene tope", T_PROBLEMS),
+    ("M36", STATE, "if (delta === 180) flipped += 1;", "if (delta === 90) flipped += 1;", "aviso de giro: media vuelta = cabeza abajo", T_PROBLEMS),
+    ("M37", STRINGS, "if (side === 0) return `${lead} que ${flipped === 1 ? \"estaba\" : \"estaban\"} cabeza abajo.`;", "if (side === 0) return `${lead} que ${flipped === 1 ? \"estaba\" : \"estaban\"} de lado.`;", "aviso de giro: texto de las hojas cabeza abajo", T_PROBLEMS),
+    ("M38", LAYOUT, "const boxH = thumbH + STRIP_H;", "const boxH = thumbH;", "tarjeta: franja superior sobre la miniatura (nada tapa la foto)", T_LAYOUT),
+    ("M39", SERVICES, "return resolved === true ? \"ready\" : \"download\";", "return \"ready\";", "texto buscable: sin dato del motor se asume que hay que descargar el modelo", T_CLIENT),
+    ("M40", SAVE, "disabled={pages.length === 0 || (searchable && needsDownload && !consent)}", "disabled={pages.length === 0}", "texto buscable: no se crea hasta aceptar la descarga", T_CLIENT),
+    ("M41", SESSION, "if (current !== \"\" && !current.endsWith(label))", "if (false)", "bifurcacion: la copia se distingue en Recientes", T_CLIENT),
+    ("M42", SAVE, "report.withText < report.total ? s.searchablePartial", "report.withText > report.total ? s.searchablePartial", "texto buscable: aviso si alguna pagina salio sin texto", T_CLIENT),
+    ("M43", SESSION, "reportImportProblems([classifyImportFailure(blob)]);", "void blob;", "fotos no anadidas: la que falla al procesarse se nombra", T_CLIENT),
+    ("M44", SHELL, "const ROOMY_LIST = 240;", "const ROOMY_LIST = 24;", "pantalla: la cabecera fija solo si queda sitio para la lista", T_PIECES),
+    ("M45", SHELL, "const FLOW_BELOW = 140;", "const FLOW_BELOW = 14;", "pantalla: aprieto = la pagina se desplaza y la barra queda pegada", T_PIECES),
 ]
 
 

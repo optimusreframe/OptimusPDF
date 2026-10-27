@@ -69,3 +69,22 @@ export function forkedAsOf(outcome: { ok: boolean }): string | null {
   const forked = (outcome as { forkedAs?: unknown }).forkedAs;
   return typeof forked === "string" && forked !== "" ? forked : null;
 }
+
+/**
+ * Texto buscable: ¿el modelo de reconocimiento esta ya en este dispositivo? El motor puede exponerlo (aditivo, opcional) como
+ * `ocrAvailable` (booleano o funcion sincrona). Sin dato se asume que HAY que descargarlo (la primera vez necesita internet).
+ */
+export function ocrStatusOf(engine: ScanEngineApi): "ready" | "download" {
+  const value = (engine as unknown as { ocrAvailable?: unknown }).ocrAvailable;
+  const resolved = typeof value === "function" ? (value as () => unknown).call(engine) : value;
+  return resolved === true ? "ready" : "download";
+}
+
+/** Informe del ultimo PDF con texto buscable (aditivo, opcional): cuantas paginas llevan texto. `null` si el motor no lo da. */
+export function searchableReportOf(engine: ScanEngineApi): { total: number; withText: number } | null {
+  const raw = (engine as unknown as { lastSearchableReport?: unknown }).lastSearchableReport;
+  const report = typeof raw === "function" ? (raw as () => unknown).call(engine) : raw;
+  if (!report || typeof report !== "object") return null;
+  const { total, withText } = report as { total?: unknown; withText?: unknown };
+  return typeof total === "number" && typeof withText === "number" ? { total, withText } : null;
+}

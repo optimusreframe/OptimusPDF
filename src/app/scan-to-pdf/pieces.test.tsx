@@ -194,6 +194,7 @@ describe("PageGrid", () => {
         selection={new Set()}
         selecting={false}
         movingIds={null}
+        scrollerRef={{ current: null }}
         onOpen={noop}
         onToggleSelect={noop}
         onRotate={noop}
@@ -233,7 +234,7 @@ describe("PageGrid", () => {
   it("nombres accesibles: «Pagina n de N, aviso»; cada accion con el numero de su pagina", () => {
     const pages = [makeBarePage("a"), makeBarePage("b", { flags: { blurry: true } })];
     render(
-      <PageGrid s={s} pages={pages} pendingIds={[]} selection={new Set()} selecting={false} movingIds={null} onOpen={noop} onToggleSelect={noop} onRotate={noop} onRemove={noop} onMore={noop} onChip={noop} onDrop={noop} onShift={noop} onMoveHere={noop} announce={noop} />,
+      <PageGrid s={s} pages={pages} pendingIds={[]} selection={new Set()} selecting={false} movingIds={null} scrollerRef={{ current: null }} onOpen={noop} onToggleSelect={noop} onRotate={noop} onRemove={noop} onMore={noop} onChip={noop} onDrop={noop} onShift={noop} onMoveHere={noop} announce={noop} />,
     );
     expect(screen.getByRole("button", { name: "Página 2 de 2, borrosa" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Girar la página 1" })).toBeTruthy();
@@ -288,7 +289,7 @@ describe("PageGrid", () => {
   it("una pagina aun procesandose se marca y no ofrece avisos de calidad", () => {
     const pages = [makeBarePage("a", { thumb: null, flags: { blank: true } })];
     const { container } = render(
-      <PageGrid s={s} pages={pages} pendingIds={["a"]} selection={new Set()} selecting={false} movingIds={null} onOpen={noop} onToggleSelect={noop} onRotate={noop} onRemove={noop} onMore={noop} onChip={noop} onDrop={noop} onShift={noop} onMoveHere={noop} announce={noop} />,
+      <PageGrid s={s} pages={pages} pendingIds={["a"]} selection={new Set()} selecting={false} movingIds={null} scrollerRef={{ current: null }} onOpen={noop} onToggleSelect={noop} onRotate={noop} onRemove={noop} onMore={noop} onChip={noop} onDrop={noop} onShift={noop} onMoveHere={noop} announce={noop} />,
     );
     expect(container.querySelector("[data-tile-processing]")).not.toBeNull();
     expect(container.querySelector("[data-quality-chip]")).toBeNull();
@@ -379,5 +380,22 @@ describe("PageEditor", () => {
   it("mientras se recalcula muestra el aviso de proceso", () => {
     mount(handlers(), "b", false);
     expect(document.querySelector("[data-editor-processing]")).not.toBeNull();
+  });
+});
+
+describe("ScreenShell · modo segun lo que cabe", () => {
+  it("holgado: la cabecera se queda arriba; justo: la cabecera se desplaza con la lista; aprieto: la pagina se desplaza", async () => {
+    const { pickMode } = await import("@/app/scan-to-pdf/ScreenShell");
+    // 393x852: ~720 de alto, barra de 81 y cabecera de 124.
+    expect(pickMode(720, 81, 124)).toEqual({ flow: false, sticky: true });
+    // 320x568: ~436 de alto: queda poco para la lista si la cabecera ocupa sitio.
+    expect(pickMode(436, 123, 163)).toEqual({ flow: false, sticky: false });
+    // Movil en horizontal o letra muy grande: casi no cabe nada.
+    expect(pickMode(210, 100, 150)).toEqual({ flow: true, sticky: false });
+    // El umbral exacto de cada modo.
+    expect(pickMode(81 + 140, 81, 0).flow).toBe(false);
+    expect(pickMode(81 + 139, 81, 0).flow).toBe(true);
+    expect(pickMode(81 + 124 + 240, 81, 124).sticky).toBe(true);
+    expect(pickMode(81 + 124 + 239, 81, 124).sticky).toBe(false);
   });
 });

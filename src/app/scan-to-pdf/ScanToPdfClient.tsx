@@ -16,6 +16,7 @@ import { ReviewScreen, type AddTarget } from "@/app/scan-to-pdf/ReviewScreen";
 import { ResultScreen, SaveScreen, type ScanResult } from "@/app/scan-to-pdf/SaveScreen";
 import { ScanLiveProvider, useAnnounce } from "@/app/scan-to-pdf/ScanLive";
 import { StartScreen } from "@/app/scan-to-pdf/StartScreen";
+import { rejectedFile } from "@/app/scan-to-pdf/importProblems";
 import { readScanFromSearch, hideScanFromUrl } from "@/app/scan-to-pdf/scanUrl";
 import { STRINGS } from "@/app/scan-to-pdf/strings";
 import { useScanLeaveGuard } from "@/app/scan-to-pdf/useScanLeaveGuard";
@@ -72,6 +73,8 @@ function ScanFlow() {
 
   const goto = useCallback(
     (next: View) => {
+      // Un paso nuevo se ve desde arriba: la pagina no conserva el desplazamiento del paso anterior.
+      window.scrollTo(0, 0);
       setView(next);
       askFocus(next === "done" ? "download" : "heading");
     },
@@ -130,10 +133,10 @@ function ScanFlow() {
     (list: FileList | File[] | null): File[] => {
       const files = Array.from(list ?? []);
       const accepted = files.filter((file) => matchesAccept(file, TOOL.accept, TOOL.extensions));
-      if (accepted.length < files.length) announce(s.notImage);
+      if (accepted.length < files.length) api.reportImportProblems(files.filter((file) => !accepted.includes(file)).map(rejectedFile));
       return accepted;
     },
-    [announce, s],
+    [api],
   );
 
   const addLibrary = useCallback(
@@ -268,6 +271,8 @@ function ScanFlow() {
           onMode={onSettingsMode}
           saved={api.saved}
           resumeNotice={resumeNotice}
+          importProblems={api.importProblems}
+          onDismissProblems={api.dismissImportProblems}
           resuming={resuming}
           onResume={(id) => void onResume(id)}
           onDiscardSaved={(id) => {

@@ -1,6 +1,6 @@
 import { test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { STRINGS } from "../../src/app/scan-to-pdf/strings";
-import { expect, importPhotos, WEBKIT_LINUX_CAMERA_REASON, webkitLinuxCamera, installFakeCamera, installScanFakes, waitIdle, waitVideoReady, widthCodedFiles } from "../helpers/scan-ui";
+import { expect, importPhotos, scanFiles, WEBKIT_LINUX_CAMERA_REASON, webkitLinuxCamera, installFakeCamera, installScanFakes, waitIdle, waitVideoReady, widthCodedFiles } from "../helpers/scan-ui";
 
 /**
  * Escaner · accesibilidad y tamano de objetivos: axe (WCAG 2.0/2.1/2.2 A y AA, incluida `target-size`) con 0 violaciones en
@@ -21,10 +21,10 @@ const WIDE_CSS = `html *, html *::before, html *::after {
 test.use({ locale: "es-ES", actionTimeout: 15_000 });
 test.setTimeout(240_000);
 
-async function newContext(browser: Browser, opts: { width: number; theme: Theme; language: Language; wide?: boolean; touch?: boolean }): Promise<BrowserContext> {
+async function newContext(browser: Browser, opts: { width: number; height?: number; theme: Theme; language: Language; wide?: boolean; touch?: boolean; fontScale?: number }): Promise<BrowserContext> {
   const touch = opts.touch ?? true;
   const context = await browser.newContext({
-    viewport: { width: opts.width, height: opts.width >= 744 ? 1000 : 780 },
+    viewport: { width: opts.width, height: opts.height ?? (opts.width >= 744 ? 1000 : 780) },
     colorScheme: opts.theme,
     hasTouch: touch,
     isMobile: touch && opts.width < 744,
@@ -47,7 +47,7 @@ async function newContext(browser: Browser, opts: { width: number; theme: Theme;
         /* sin almacenamiento */
       }
     },
-    [opts.theme, opts.language, opts.wide ? WIDE_CSS : ""],
+    [opts.theme, opts.language, `${opts.wide ? WIDE_CSS : ""}${opts.fontScale ? `html { font-size: ${opts.fontScale}% !important; }` : ""}`],
   );
   return context;
 }
@@ -113,6 +113,41 @@ async function check(page: Page, problems: Problems, label: string, scope: strin
   for (const o of over.offenders) problems.push(`[desborde] ${label}: <${o.tag} class="${o.cls}"> «${o.text}» ${o.left}..${o.right}`);
 }
 
+/**
+ * Nada de lo que se ve en la zona de contenido de Revisar queda TAPADO: la barra inferior no invade la zona, esta dentro de la
+ * ventana, y el punto central de cada control visible es de ese control (no de la barra ni de otra capa).
+ */
+async function coverage(page: Page, problems: Problems, label: string) {
+  const found = await page.evaluate(() => {
+    const scroller = document.querySelector("[data-shell-scroll]");
+    const bar = document.querySelector("[data-shell-bar]");
+    if (!scroller) return [];
+    const out: string[] = [];
+    const area = scroller.getBoundingClientRect();
+    const head = document.querySelector("[data-shell-top]");
+    const stuck = head && getComputedStyle(head).position === "sticky" ? head.getBoundingClientRect().bottom : area.top;
+    const flow = document.querySelector("[data-screen-shell]")?.getAttribute("data-shell-mode") === "flow";
+    if (bar) {
+      const box = bar.getBoundingClientRect();
+      if (!flow && area.bottom > box.top + 1) out.push(`la barra (${Math.round(box.top)}) invade la zona de contenido (${Math.round(area.bottom)})`);
+      if (box.bottom > window.innerHeight + 1 || box.top < 0) out.push(`la barra queda fuera de la ventana (${Math.round(box.top)}..${Math.round(box.bottom)} de ${window.innerHeight})`);
+    }
+    for (const element of scroller.querySelectorAll("button, a[href], input, [role=button]")) {
+      const box = element.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1 || element.closest("[inert]")) continue;
+      const x = box.left + box.width / 2;
+      const y = box.top + box.height / 2;
+      if (y < Math.max(area.top, stuck) + 1 || y > area.bottom - 1 || x < 0 || x > window.innerWidth) continue;
+      const hit = document.elementFromPoint(x, y);
+      // Una casilla va debajo de su rotulo (el rotulo ES el objetivo): no cuenta como tapada.
+      if (element instanceof HTMLInputElement && hit && Array.from(element.labels ?? []).some((label) => label.contains(hit))) continue;
+      if (hit && !element.contains(hit) && !hit.contains(element)) out.push(`${element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 24)} tapado por <${hit.tagName.toLowerCase()} ${String(hit.getAttribute("data-shell-bar") ?? hit.getAttribute("class") ?? "").slice(0, 40)}>`);
+    }
+    return out.slice(0, 6);
+  });
+  for (const item of found) problems.push(`[tapado] ${label}: ${item}`);
+}
+
 /** La fuente forzada ES mas ancha que Arial (si no, la prueba no probaria nada en esta maquina). */
 async function expectWideFontActive(page: Page): Promise<void> {
   const ratio = await page.evaluate(() => {
@@ -127,7 +162,7 @@ async function expectWideFontActive(page: Page): Promise<void> {
 }
 
 /** Recorre todas las pantallas de la herramienta en una celda de la matriz. */
-async function tour(page: Page, language: Language, wide = false, camera = true): Promise<Problems> {
+async function tour(page: Page, language: Language, wide = false, camera = true, onlyReview = false): Promise<Problems> {
   const s = STRINGS[language];
   const problems: Problems = [];
   await installScanFakes(page);
@@ -145,11 +180,19 @@ async function tour(page: Page, language: Language, wide = false, camera = true)
 
   // Revisar con avisos de calidad
   const names = ["a.jpg", "b-blank.jpg", "c-blurry.jpg", "d-glare.jpg", "e-sideways.jpg", "f-dup.jpg", "g-nodoc.jpg"];
-  await importPhotos(page, widthCodedFiles(names.length, { names }));
+  await importPhotos(page, scanFiles(names));
   await expect(page.locator("[data-review]")).toBeVisible();
   await waitIdle(page);
   await page.waitForTimeout(400);
   await check(page, problems, "revisar", null);
+  await coverage(page, problems, "revisar");
+  // Al final de la lista: la barra sigue pegada abajo y nada queda tapado ni solapado.
+  await page.locator("[data-shell-scroll]").evaluate((node) => node.scrollTo(0, node.scrollHeight));
+  await page.waitForTimeout(300);
+  await check(page, problems, "revisar (final de la lista)", null);
+  await coverage(page, problems, "revisar (final de la lista)");
+  await page.locator("[data-shell-scroll]").evaluate((node) => node.scrollTo(0, 0));
+  if (onlyReview) return problems;
 
   // Mas acciones
   await page.locator('[data-tile-action="more"]').first().click();
@@ -195,6 +238,7 @@ async function tour(page: Page, language: Language, wide = false, camera = true)
   await expect(page.locator("[data-save-screen]")).toBeVisible();
   await page.waitForTimeout(400);
   await check(page, problems, "guardar", null);
+  await coverage(page, problems, "guardar");
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(800);
@@ -240,6 +284,22 @@ test.describe("con raton (sin tacto): los objetivos miden >= 24 px reales (axe t
   }
 });
 
+test.describe("letra al 150 % (ajuste de accesibilidad del sistema)", () => {
+  for (const [width, height] of [[320, 568], [393, 852]] as const) {
+    for (const language of ["es", "en"] as const) {
+      test(`sin desborde ni violaciones ni controles tapados · ${language} · ${width}px`, async ({ browser }) => {
+        // Letra al 150 % Y fuente ancha a la vez: lo peor que puede pasar en un movil Android pequeño.
+        const context = await newContext(browser, { width, height, theme: "light", language, fontScale: 150, wide: true });
+        const page = await context.newPage();
+        // Sin camara: su capa a pantalla completa con letra al 150 % es otra pantalla (ver «Fuera de alcance» de la documentacion).
+        const problems = await tour(page, language, true, false, true);
+        await context.close();
+        expect(problems, problems.join("\n")).toEqual([]);
+      });
+    }
+  }
+});
+
 test.describe("tipografia ancha (DejaVu del CI de Linux)", () => {
   for (const width of [320, 375] as const) {
     for (const language of ["es", "en"] as const) {
@@ -278,7 +338,7 @@ test("objetivos tactiles: >= 44 px con el dedo en los controles de la camara, la
   await waitIdle(page);
   await measure("cuadricula", "[data-page-grid] button");
   await measure("barra", "[data-review-bar] button");
-  await measure("cabecera", "[data-review] > div:first-child button");
+  await measure("cabecera", "[data-review] [data-shell-top] button");
   expect(small, small.join("\n")).toEqual([]);
   await context.close();
 });
