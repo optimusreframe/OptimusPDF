@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildNameSuggestion, credibleDocumentDate, fallbackName, findDates, isoDate, pickTitle, sanitizeFileName, tidyTitle } from "@/lib/scan/naming";
+import { buildNameSuggestion, credibleDocumentDate, dominantMode, fallbackName, findDates, isoDate, pickTitle, sanitizeFileName, tidyTitle } from "@/lib/scan/naming";
 import type { OcrLine, OcrResult } from "@/lib/scan/ocr";
 
 function line(text: string, y0: number, height: number, confidence = 90): OcrLine {
@@ -90,5 +90,25 @@ describe("nombre sugerido — src/lib/scan/naming.ts", () => {
     const suggestion = buildNameSuggestion(ocr([line("Anexo A/B: Condiciones", 60, 44)]), "es", NOW);
     expect(suggestion.title).toBe("Anexo A/B: Condiciones");
     expect(suggestion.name).toBe("Anexo A B Condiciones · 2026-10-26");
+  });
+
+  it("el nombre SIN OCR lleva el tipo de lo escaneado (identificacion, recibo, libro, pizarra, fotos) y la fecha", () => {
+    const date = new Date(2026, 9, 26, 14, 32);
+    expect(fallbackName(date, "es", "document")).toBe("Escaneo 2026-10-26 14.32");
+    expect(fallbackName(date, "es", "id-card")).toBe("Identificación 2026-10-26 14.32");
+    expect(fallbackName(date, "es", "receipt")).toBe("Recibo 2026-10-26 14.32");
+    expect(fallbackName(date, "es", "book")).toBe("Libro 2026-10-26 14.32");
+    expect(fallbackName(date, "es", "whiteboard")).toBe("Pizarra 2026-10-26 14.32");
+    expect(fallbackName(date, "es", "photo")).toBe("Fotos 2026-10-26 14.32");
+    expect(fallbackName(date, "en", "photo")).toBe("Photos 2026-10-26 14.32");
+    expect(fallbackName(date, "en", "id-card")).toBe("ID 2026-10-26 14.32");
+    expect(buildNameSuggestion(null, "es", date, "photo")).toMatchObject({ title: null, source: "date", name: "Fotos 2026-10-26 14.32" });
+  });
+
+  it("dominantMode: el modo mas repetido; sin paginas o sin modo, `document`", () => {
+    expect(dominantMode(["photo", "photo", "document"])).toBe("photo");
+    expect(dominantMode([undefined, undefined, "receipt"])).toBe("document");
+    expect(dominantMode([])).toBe("document");
+    expect(dominantMode(["book", "receipt"])).toBe("book");
   });
 });

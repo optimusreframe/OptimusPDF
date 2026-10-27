@@ -4,6 +4,7 @@ import {
   MAX_SCAN_SESSION_BYTES,
   SCAN_DB_NAME,
   SCAN_SESSION_TTL_MS,
+  __resetScanStagingForTests,
   __resetScanStoreMemoryForTests,
   __setScanOpenTimeoutForTests,
   __setScanStorageModeForTests,
@@ -121,6 +122,7 @@ async function rawDelete(storeName: string, key: string): Promise<void> {
 }
 
 beforeEach(async () => {
+  __resetScanStagingForTests();
   __setScanStorageModeForTests("blob");
   __resetScanStoreMemoryForTests();
   __setScanTabIdForTests("t-main");
@@ -577,5 +579,67 @@ describe("navegadores que no guardan Blob en IndexedDB (Safari privado, algunos 
     });
     expect(await store.save(session([page(1)]))).toEqual({ ok: false, reason: "quota" });
     expect(scanStorageMode()).toBe("blob");
+  });
+});
+
+describe("lo apuntado (stage) y flush: un cambio de ultima hora no se pierde", () => {
+  it("stage NO escribe por si solo; flush escribe YA la ultima version apuntada (aunque el autoguardado aun no haya tocado)", async () => {
+    const input = session([page(1), page(2)]);
+    await store.save(input);
+    // El usuario gira la pagina 2 y la interfaz apunta el cambio; el autoguardado aun esperaba.
+    const changed = { ...input, pages: [input.pages[0], { ...input.pages[1], rotation: 90 as const }] };
+    store.stage?.(changed);
+    expect(((await store.load(input.id)) as ScanSession).pages[1].rotation).toBe(0);
+    await store.flush?.();
+    __resetScanStoreMemoryForTests();
+    expect(((await store.load(input.id)) as ScanSession).pages[1].rotation).toBe(90);
+  });
+
+  it("flush escribe la ULTIMA version apuntada de cada sesion y espera a los guardados en vuelo", async () => {
+    const a = session([page(1)], { name: "A" });
+    const b = session([page(2)], { name: "B" });
+    store.stage?.(a);
+    store.stage?.({ ...a, name: "A2" });
+    store.stage?.(b);
+    const inFlight = store.save({ ...b, name: "B en vuelo" });
+    await store.flush?.();
+    await inFlight;
+    expect(((await store.load(a.id)) as ScanSession).name).toBe("A2");
+    expect((await store.load(b.id))?.name).toBe("B");
+  });
+
+  it("un save posterior del mismo objeto apuntado lo da por escrito (flush ya no vuelve a escribir)", async () => {
+    const input = session([page(1)]);
+    store.stage?.(input);
+    expect((await store.save(input)).ok).toBe(true);
+    const puts: string[] = [];
+    const real = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      puts.push(this.name);
+      return real.call(this, value, key);
+    });
+    await store.flush?.();
+    expect(puts).toEqual([]);
+  });
+
+  it("flush sin nada apuntado, o con una sesion invalida apuntada, no lanza ni escribe", async () => {
+    await expect(store.flush?.()).resolves.toBeUndefined();
+    store.stage?.({ ...session([page(1)]), id: "../mal" });
+    store.stage?.(null as unknown as ScanSession);
+    await expect(store.flush?.()).resolves.toBeUndefined();
+    expect(await rawAll("meta")).toEqual([]);
+  });
+
+  it("el filtro resuelto y la muestra de peso de cada pagina se guardan y se recuperan", async () => {
+    const input = session([page(1, { resolvedFilter: "enhance", jpegSample: { side: 640, bytesPerPixel: 0.21 } }), page(2)]);
+    await store.save(input);
+    __resetScanStoreMemoryForTests();
+    const loaded = (await store.load(input.id)) as ScanSession;
+    expect(loaded.pages[0].resolvedFilter).toBe("enhance");
+    expect(loaded.pages[0].jpegSample).toEqual({ side: 640, bytesPerPixel: 0.21 });
+    expect(loaded.pages[1].resolvedFilter).toBeUndefined();
+    // Cambiarlos reescribe esa pagina (cuentan para el guardado incremental).
+    await store.save({ ...loaded, pages: [{ ...loaded.pages[0], resolvedFilter: "color" }, loaded.pages[1]] });
+    expect(((await store.load(input.id)) as ScanSession).pages[0].resolvedFilter).toBe("color");
   });
 });

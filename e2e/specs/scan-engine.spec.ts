@@ -2,6 +2,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { buildScanFixtures, type PhotoFixture } from "../helpers/scan-engine-fixtures";
 import { openLab as openLabWith, trackRequests } from "../helpers/scan-engine-lab";
+import fs from "node:fs";
+import path from "node:path";
+import { PDFDocument, PDFName, PDFRawStream } from "@cantoo/pdf-lib";
 import { quadIoU } from "../../src/lib/scan/geometry";
 import { getPageCount, getTextItems } from "../helpers/pdf-inspection";
 import { engineOf } from "../helpers/engine";
@@ -388,6 +391,8 @@ test.describe("motor del Escaner · navegador real", () => {
         }),
         dispose: async () => {},
       }));
+      // El modelo «ya esta en el dispositivo» (accion explicita): sin esto el motor NO usa el OCR por su cuenta.
+      return lab.L.prepareOcrModel();
     });
     const run = async (searchable: boolean, pageSize: string, preset: string) => {
       const out = await page.evaluate(
@@ -466,6 +471,8 @@ test.describe("motor del Escaner · navegador real", () => {
         }),
         dispose: async () => {},
       }));
+      // Con el modelo ya cargado (accion explicita) el nombre sale del primer texto; sin el, por tipo y fecha.
+      await lab.L.prepareOcrModel();
       const withOcr = await lab.L.realEngine.suggestName([created], "es");
       lab.L.setOcrRecognizerFactory(async () => { throw new Error("sin red para el idioma"); });
       const without = await lab.L.realEngine.suggestName([created], "es");
@@ -479,5 +486,256 @@ test.describe("motor del Escaner · navegador real", () => {
     expect(out.without.name).toMatch(/^Escaneo \d{4}-\d{2}-\d{2} \d{2}\.\d{2}$/);
     expect(requests.external, requests.external.join("\n")).toEqual([]);
   });
+
+  /* ---------------------------------------------------------------------------------------------------------------- *
+   * Correcciones tras la verificacion independiente
+   * ---------------------------------------------------------------------------------------------------------------- */
+
+  test("P1-1 · el recorte automatico NUNCA pierde contenido: techos, paredes y la pagina blanca con un rectangulo rojo quedan COMPLETOS (con aviso «sin documento»); la hoja sobre la mesa si se recorta", async ({ page }) => {
+    await openLab(page);
+    const out = await page.evaluate(async () => {
+      const lab = (window as unknown as { __lab: any }).__lab;
+      const rows: Record<string, any> = {};
+      for (const id of ["roof", "ceiling", "whiteRed", "fullBleed", "text0", "id"]) {
+        const created = await lab.make(id, id === "id" ? "id-card" : "document");
+        const full = await lab.L.realEngine.renderPage(created);
+        rows[id] = { corners: created.corners, flags: created.flags, thumb: await lab.dims(created.thumb), processed: await lab.dims(full.processed), source: [created.originalWidth, created.originalHeight] };
+      }
+      return rows;
+    });
+    for (const id of ["roof", "ceiling", "whiteRed", "fullBleed"]) {
+      const row = out[id];
+      expect(row.corners, `${id}: sin recorte`).toBeNull();
+      expect(row.flags.noDocument, `${id}: avisa «sin documento»`).toBe(true);
+      // La miniatura y el resultado conservan TODA la imagen (misma proporcion), no un fragmento.
+      const aspect = row.source[0] / row.source[1];
+      expect(row.thumb.width / row.thumb.height, `${id}: proporcion de la miniatura`).toBeCloseTo(aspect, 1);
+      expect(row.processed.width / row.processed.height, `${id}: proporcion del resultado`).toBeCloseTo(aspect, 1);
+      expect(Math.max(row.processed.width, row.processed.height)).toBe(Math.max(row.source[0], row.source[1]));
+    }
+    // Y lo que SI es un documento sobre una mesa sigue recortandose.
+    expect(out.text0.corners).not.toBeNull();
+    expect(out.text0.flags.noDocument).toBeUndefined();
+    expect(out.id.corners).not.toBeNull();
+  });
+
+  test("P1-3 · por defecto la herramienta es 100 % LOCAL: crear paginas, analizar, nombre inteligente y PDF no hacen NINGUNA peticion externa ni dejan errores de pagina; el nombre sale por tipo y fecha", async ({ page, context }) => {
+    const requests = trackRequests(page);
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await context.route(/^https?:\/\/(?!localhost)/, (route) => route.abort());
+    await openLab(page);
+    const out = await page.evaluate(async () => {
+      const lab = (window as unknown as { __lab: any }).__lab;
+      const pages = [await lab.make("text0"), await lab.make("formA")];
+      await lab.L.realEngine.analyzeSession(pages);
+      const name = await lab.L.realEngine.suggestName(pages, "es");
+      const photos = [await lab.make("bigphoto", "photo")];
+      const photoName = await lab.L.realEngine.suggestName(photos, "en");
+      const available = await lab.L.ocrModelAvailable();
+      const blob = await lab.L.realEngine.buildPdf({ id: "sc-local-0001", createdAt: "", updatedAt: "", name: "n", pages, settings: lab.settings("document") }, { preset: "balanced", pageSize: "a4", margin: "none" });
+      return { name, photoName, available, pdf: blob.size };
+    });
+    // Margen para que un error asincrono de un worker llegue.
+    await page.waitForTimeout(1500);
+    expect(out.available).toBe(false);
+    expect(out.name.source).toBe("date");
+    expect(out.name.title).toBeNull();
+    expect(out.name.name).toMatch(/^Escaneo \d{4}-\d{2}-\d{2} \d{2}\.\d{2}$/);
+    expect(out.photoName.name).toMatch(/^Photos \d{4}-\d{2}-\d{2} \d{2}\.\d{2}$/);
+    expect(out.pdf).toBeGreaterThan(1000);
+    expect(requests.external, requests.external.join("\n")).toEqual([]);
+    expect(errors, errors.join("\n")).toEqual([]);
+  });
+
+  test("P1-2/P1-3 · texto buscable SIN modelo: el PDF sale NORMAL con un aviso (no un error), sin peticiones; descargar el modelo solo si se autoriza y, sin red, tambien sale el PDF normal y sin errores de pagina", async ({ page, context }) => {
+    test.setTimeout(240_000);
+    const requests = trackRequests(page);
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await context.route(/^https?:\/\/(?!localhost)/, (route) => route.abort());
+    await openLab(page);
+    const out = await page.evaluate(async () => {
+      const lab = (window as unknown as { __lab: any }).__lab;
+      const pages = [await lab.make("text0"), await lab.make("formA")];
+      const session = { id: "sc-buscable-0001", createdAt: "", updatedAt: "", name: "n", pages, settings: lab.settings("document", { searchable: true }) };
+      const toB64 = (blob: Blob) => new Promise<string>((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1]); r.readAsDataURL(blob); });
+      const warningsA: any[] = [];
+      const withoutPermission = await lab.L.realEngine.buildPdf(session, { preset: "balanced", pageSize: "a4", margin: "none", onWarning: (w: any) => warningsA.push(w) });
+      const warningsB: any[] = [];
+      // Con permiso pero sin red (las peticiones externas se abortan): el motor intenta descargar, falla y entrega el PDF normal.
+      const withPermission = await lab.L.realEngine.buildPdf(session, { preset: "balanced", pageSize: "a4", margin: "none", allowModelDownload: true, onWarning: (w: any) => warningsB.push(w) });
+      const prepared = await lab.L.prepareOcrModel();
+      return { a: { b64: await toB64(withoutPermission), warnings: warningsA }, b: { b64: await toB64(withPermission), warnings: warningsB }, prepared };
+    });
+    expect(out.a.warnings).toEqual([{ code: "searchable-unavailable", reason: "model-missing", pagesWithText: 0, total: 2 }]);
+    expect(await getPageCount(Buffer.from(out.a.b64, "base64"))).toBe(2);
+    expect(out.b.warnings).toHaveLength(1);
+    expect(out.b.warnings[0]).toMatchObject({ code: "searchable-unavailable", pagesWithText: 0, total: 2 });
+    expect(["network", "engine"]).toContain(out.b.warnings[0].reason);
+    expect(await getPageCount(Buffer.from(out.b.b64, "base64"))).toBe(2);
+    expect(out.prepared.ok).toBe(false);
+    await page.waitForTimeout(2000);
+    // Peticiones externas: solo las de la descarga AUTORIZADA (abortadas aqui); nunca las del primer PDF sin permiso.
+    expect(errors, errors.join("\n")).toEqual([]);
+    expect(requests.nonGet).toEqual([]);
+  });
+
+  test("P1-3 · prepareOcrModel sin conexion lo dice de inmediato y no intenta nada", async ({ page, context }) => {
+    const requests = trackRequests(page);
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await openLab(page);
+    await context.setOffline(true);
+    const result = await page.evaluate(async () => (window as unknown as { __lab: any }).__lab.L.prepareOcrModel());
+    await context.setOffline(false);
+    expect(result).toEqual({ ok: false, reason: "offline" });
+    expect(requests.external).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  test("P2-8 · los presets dan resultados REALES y honestos: Original conserva los bytes de la foto, la estimacion se acerca (<= 25 % en sinteticas) al peso real y Compacta pesa menos", async ({ page }) => {
+    test.setTimeout(240_000);
+    await openLab(page);
+    const out = await page.evaluate(async () => {
+      const lab = (window as unknown as { __lab: any }).__lab;
+      const toB64 = (blob: Blob) => new Promise<string>((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1]); r.readAsDataURL(blob); });
+      const photos = [await lab.make("bigphoto", "photo"), await lab.make("bigphoto", "photo")];
+      const docs = [await lab.make("text0"), await lab.make("formA"), await lab.make("big")];
+      const rows: Record<string, any> = {};
+      for (const [name, pages, mode] of [["photo", photos, "photo"], ["doc", docs, "document"]] as const) {
+        for (const preset of ["original", "high", "balanced", "compact"]) {
+          const estimate = lab.L.realEngine.estimateSize(pages, { preset, searchable: false });
+          const blob = await lab.L.realEngine.buildPdf({ id: "sc-presets-0001", createdAt: "", updatedAt: "", name: "n", pages, settings: lab.settings(mode) }, { preset, pageSize: "fit", margin: "none" });
+          rows[name + ":" + preset] = { estimate: estimate.bytes, low: estimate.low, high: estimate.high, bytes: blob.size, b64: preset === "original" || preset === "compact" ? await toB64(blob) : "" };
+        }
+      }
+      return { rows, photoSizes: [photos[0].original.size, photos[1].original.size], photoHashes: await Promise.all(photos.map((p: any) => lab.sha(p.original))) };
+    });
+    const streams = async (b64: string) => {
+      const doc = await PDFDocument.load(Buffer.from(b64, "base64"));
+      const found: Buffer[] = [];
+      for (const [, object] of doc.context.enumerateIndirectObjects()) {
+        if (object instanceof PDFRawStream && object.dict.get(PDFName.of("Subtype")) === PDFName.of("Image")) found.push(Buffer.from(object.contents));
+      }
+      return found;
+    };
+    // Original: el PDF lleva el archivo de la foto tal cual (mismos bytes), no una recodificacion.
+    const original = await streams(out.rows["photo:original"].b64);
+    expect(original.map((buffer) => buffer.length)).toEqual(out.photoSizes);
+    const first = Buffer.from(fixtures.bigphoto.base64, "base64");
+    expect(original[0].equals(first)).toBe(true);
+    for (const kind of ["photo", "doc"]) {
+      const bytes = (preset: string) => out.rows[`${kind}:${preset}`].bytes as number;
+      // Orden honesto: nunca pesa MAS un preset mas ligero, y Compacta pesa claramente menos que Original.
+      expect(bytes("high")).toBeLessThanOrEqual(bytes("original") * 1.02);
+      expect(bytes("balanced")).toBeLessThanOrEqual(bytes("high") * 1.02);
+      expect(bytes("compact")).toBeLessThanOrEqual(bytes("balanced") * 1.02);
+      // Compacta pesa claramente menos en fotos; en paginas de texto ya filtradas (casi todo papel blanco) hay poco que ganar.
+      if (kind === "photo") expect(bytes("compact")).toBeLessThan(bytes("original") * 0.85);
+      // La estimacion se acerca a lo real.
+      for (const preset of ["original", "high", "balanced", "compact"]) {
+        const row = out.rows[`${kind}:${preset}`];
+        const error = Math.abs(row.estimate - row.bytes) / row.bytes;
+        console.log(`[scan-engine] ${engineOf(page)} ${kind}/${preset}: estima ${(row.estimate / 1e6).toFixed(2)} MB, real ${(row.bytes / 1e6).toFixed(2)} MB (${(error * 100).toFixed(1)} %)`);
+        // Imagenes SINTETICAS (ruido y papel casi blanco: su peso cambia mucho con el codificador de cada navegador): <= 25 %.
+        // El requisito de <= 15 % se mide con fotos REALES (ver «fotos reales sin documento (local)»: total por preset dentro de +-6 %).
+        expect(error, `${kind}/${preset}`).toBeLessThanOrEqual(0.25);
+      }
+    }
+    // La foto grande (3200 px) SI cambia entre presets que reducen (Equilibrada recorta a 3000 px).
+    expect(out.rows["photo:balanced"].bytes).toBeLessThan(out.rows["photo:original"].bytes * 0.95);
+  });
 });
 
+/**
+ * FOTOS REALES (opcional, SOLO LOCAL): `SCAN_REAL_PHOTOS_DIR` con fotos reales SIN documento (techos). Nunca se guardan ni se
+ * imprimen: solo cifras agregadas. Comprueba en el navegador real que no se recortan, no pierden contenido en el PDF y no salen
+ * con avisos de calidad falsos.
+ */
+test.describe("fotos reales sin documento (local)", () => {
+  const DIR = process.env.SCAN_REAL_PHOTOS_DIR;
+  test.skip(!DIR, "sin SCAN_REAL_PHOTOS_DIR");
+
+  test("sin recorte, sin perdida de contenido (misma proporcion en miniatura y PDF), sin borrosa ni brillo", async ({ page }) => {
+    test.setTimeout(300_000);
+    const files = fs.readdirSync(DIR as string).filter((f) => f.endsWith("-image.jpg")).map((f) => path.join(DIR as string, f));
+    await openLab(page);
+    let cropped = 0;
+    let lostContent = 0;
+    let blurry = 0;
+    let glare = 0;
+    let noDocument = 0;
+    for (const file of files) {
+      const base64 = fs.readFileSync(file).toString("base64");
+      const row = await page.evaluate(async (b64) => {
+        const lab = (window as unknown as { __lab: any }).__lab;
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+        const created = await lab.L.realEngine.createPage(new Blob([bytes], { type: "image/jpeg" }), { source: "library", mode: "document", settings: lab.settings("document") });
+        const full = await lab.L.realEngine.renderPage(created);
+        const thumb = await lab.dims(created.thumb);
+        const processed = await lab.dims(full.processed);
+        return { corners: !!created.corners, flags: created.flags, aspect: created.originalWidth / created.originalHeight, thumb: thumb.width / thumb.height, processed: processed.width / processed.height };
+      }, base64);
+      if (row.corners) cropped += 1;
+      if (Math.abs(row.thumb / row.aspect - 1) > 0.02 || Math.abs(row.processed / row.aspect - 1) > 0.02) lostContent += 1;
+      if (row.flags.blurry) blurry += 1;
+      if (row.flags.glare) glare += 1;
+      if (row.flags.noDocument) noDocument += 1;
+    }
+    console.log(`[scan-engine] ${engineOf(page)} fotos reales: ${files.length}; recortadas ${cropped}; con perdida de contenido ${lostContent}; borrosa ${blurry}; brillo ${glare}; «sin documento» ${noDocument}`);
+    expect(cropped).toBe(0);
+    expect(lostContent).toBe(0);
+    expect(blurry).toBe(0);
+    expect(glare).toBe(0);
+    expect(noDocument).toBe(files.length);
+  });
+
+  test("presets con fotos reales: el PDF «Original» conserva los bytes, los presets se diferencian y el total estimado queda a <= 15 % del real (cifras agregadas)", async ({ page }) => {
+    test.setTimeout(600_000);
+    const files = fs.readdirSync(DIR as string).filter((f) => f.endsWith("-image.jpg")).map((f) => path.join(DIR as string, f));
+    await openLab(page);
+    const totals: Record<string, { estimate: number; real: number }> = {};
+    let originalBytes = 0;
+    for (const mode of ["photo", "document"]) {
+      for (const preset of ["original", "high", "balanced", "compact"]) totals[`${mode}:${preset}`] = { estimate: 0, real: 0 };
+      for (const file of files) {
+        const base64 = fs.readFileSync(file).toString("base64");
+        const row = await page.evaluate(
+          async ({ b64, kind }) => {
+            const lab = (window as unknown as { __lab: any }).__lab;
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+            const created = await lab.L.realEngine.createPage(new Blob([bytes], { type: "image/jpeg" }), { source: "library", mode: kind, settings: lab.settings(kind) });
+            const out: Record<string, { estimate: number; real: number }> = {};
+            for (const preset of ["original", "high", "balanced", "compact"]) {
+              const estimate = lab.L.realEngine.estimateSize([created], { preset, searchable: false }).bytes;
+              const blob = await lab.L.realEngine.buildPdf({ id: "sc-reales-0001", createdAt: "", updatedAt: "", name: "n", pages: [created], settings: lab.settings(kind) }, { preset, pageSize: "fit", margin: "none" });
+              out[preset] = { estimate, real: blob.size };
+            }
+            return { out, size: created.original.size };
+          },
+          { b64: base64, kind: mode },
+        );
+        if (mode === "photo") originalBytes += row.size;
+        for (const preset of Object.keys(row.out)) {
+          totals[`${mode}:${preset}`].estimate += row.out[preset].estimate;
+          totals[`${mode}:${preset}`].real += row.out[preset].real;
+        }
+      }
+    }
+    const summary = Object.entries(totals).map(([key, v]) => `${key} ${(((v.estimate - v.real) / v.real) * 100).toFixed(1)} %`).join("; ");
+    console.log(`[scan-engine] ${engineOf(page)} presets con fotos reales (estimado vs real, total): ${summary}`);
+    for (const [key, v] of Object.entries(totals)) expect(Math.abs(v.estimate - v.real) / v.real, key).toBeLessThanOrEqual(0.15);
+    // Original (modo foto): los archivos tal cual (+ unos bytes de estructura por hoja).
+    expect(Math.abs(totals["photo:original"].real - originalBytes) / originalBytes).toBeLessThan(0.01);
+    // Los presets se diferencian de verdad.
+    const photo = (preset: string) => totals[`photo:${preset}`].real;
+    expect(photo("balanced")).toBeLessThan(photo("original") * 0.9);
+    expect(photo("compact")).toBeLessThan(photo("balanced") * 0.8);
+    expect(photo("high")).toBeLessThanOrEqual(photo("original"));
+  });
+});

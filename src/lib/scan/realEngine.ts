@@ -1,9 +1,10 @@
-import { chooseCorners, detectDocumentCorners } from "@/lib/scan/documentDetection";
+import { selectCrop } from "@/lib/scan/cropGate";
+import { detectDocumentCorners } from "@/lib/scan/documentDetection";
 import { detectLiveQuad } from "@/lib/scan/liveDetect";
 import { buildScanPdf } from "@/lib/scan/buildPdf";
 import { estimateScanSize, PROCESSED_MAX_SIDE } from "@/lib/scan/estimate";
-import { buildNameSuggestion, fallbackName, sanitizeFileName, isoDate } from "@/lib/scan/naming";
-import { isOcrReady, withRecognizer } from "@/lib/scan/ocr";
+import { buildNameSuggestion, dominantMode, fallbackName, sanitizeFileName, isoDate } from "@/lib/scan/naming";
+import { isOcrReady, ocrModelAvailable, withRecognizer } from "@/lib/scan/ocr";
 import { ocrOrientation } from "@/lib/scan/orientation";
 import { areDuplicates, type PageSignature } from "@/lib/scan/similarity";
 import { findSpine } from "@/lib/scan/spine";
@@ -98,11 +99,11 @@ async function decodeSmallForDetection(source: Blob, token: string, signal?: Abo
   return result.image;
 }
 
-/** scanic (preciso) + detector ligero (color), combinados con `chooseCorners`. */
-async function findCorners(image: { data: Uint8ClampedArray<ArrayBuffer>; width: number; height: number }): Promise<QuadCorners | null> {
+/** scanic (preciso) + detector ligero, combinados y pasados por la puerta del recorte (solo se recorta si es MUY fiable). */
+async function findCorners(image: { data: Uint8ClampedArray<ArrayBuffer>; width: number; height: number }, mode: ScanMode): Promise<QuadCorners | null> {
   const found = await detectDocumentCorners(new ImageData(image.data, image.width, image.height));
   const live = detectLiveQuad(image);
-  return chooseCorners(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, image, live?.confidence ?? 0);
+  return selectCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, image, mode, live?.confidence ?? 0).quad;
 }
 
 export const realEngine: ScanEngineApi = {
@@ -127,7 +128,7 @@ export const realEngine: ScanEngineApi = {
     if (mode !== "photo") {
       token = `${id}:detect`;
       const small = await decodeSmallForDetection(original, token, signal);
-      corners = await findCorners(small);
+      corners = await findCorners(small, mode);
     }
     if (signal?.aborted) throw new ScanCancelled();
     // 3. Miniatura + calidad + firma, de la hoja ya recortada.
@@ -149,11 +150,13 @@ export const realEngine: ScanEngineApi = {
     };
     const result = rendered(
       await enqueueTask(
-        { kind: "render", source: original, job: jobOf(page, CREATE_CROP_SIDE), decodeMax: 1280, token, thumbSide: THUMB_SIDE, encodeProcessed: false, measure: true, signature: true },
+        { kind: "render", source: original, job: jobOf(page, CREATE_CROP_SIDE), decodeMax: 1280, token, thumbSide: THUMB_SIDE, encodeProcessed: false, measure: true, signature: true, sampleBytes: true },
         signal,
       ),
     );
     page.thumb = result.thumb;
+    page.resolvedFilter = result.resolved;
+    if (result.jpegSample) page.jpegSample = result.jpegSample;
     if (!header) {
       page.originalWidth = result.sourceSize.width;
       page.originalHeight = result.sourceSize.height;
@@ -178,6 +181,8 @@ export const realEngine: ScanEngineApi = {
           encodeProcessed: full,
           measure: true,
           signature: true,
+          passthroughCandidate: full,
+          sampleBytes: !full,
         },
         signal,
       ),
@@ -192,12 +197,16 @@ export const realEngine: ScanEngineApi = {
     // Con esquinas puestas a mano (o confirmadas) ya no «falta el documento».
     if (page.corners) delete flags.noDocument;
     if (result.signature && result.quality) remember(analysisKey(page), { signature: result.signature, quality: result.quality });
+    // Sin recorte, giro, filtro ni ajuste el resultado ES el original: sus bytes no se recodifican (el PDF «Original» lo conserva).
+    const processed = full ? (result.passthrough ? page.original : result.processed) : null;
     return {
       ...page,
-      processed: full ? result.processed : null,
+      processed,
       ...(full && result.processedSize ? { processedSize: result.processedSize } : { processedSize: undefined }),
       thumb: result.thumb ?? page.thumb,
       flags,
+      resolvedFilter: result.resolved,
+      ...(result.jpegSample ? { jpegSample: result.jpegSample } : {}),
     };
   },
 
@@ -270,20 +279,23 @@ export const realEngine: ScanEngineApi = {
 
   async suggestName(pages, locale, signal) {
     const now = new Date();
+    const mode = dominantMode(pages.map((page) => page.mode));
     const fallback = () => {
-      const name = sanitizeFileName(fallbackName(now, locale));
+      const name = sanitizeFileName(fallbackName(now, locale, mode));
       return { title: null, date: isoDate(now), source: "date" as const, name };
     };
     const first = pages.find((page) => !page.flags.blank) ?? pages[0];
-    if (!first) return fallback();
+    // 100 % local por defecto: el OCR solo se usa si el modelo YA esta en el dispositivo (o ya esta cargado). Si no, nombre por
+    // tipo y fecha, sin ninguna peticion ni error.
+    if (!first || (!isOcrReady() && !(await ocrModelAvailable()))) return fallback();
     try {
       const sample = await enqueueTask({ kind: "sample", source: first.original, corners: first.corners, rotation: first.rotation, mode: pageMode(first), maxSide: 1100, topFraction: 0.55 }, signal);
       if (sample.kind !== "sample") return fallback();
       const ocr = await withRecognizer((recognizer) => recognizer.recognize(sample.image, { signal }), signal);
-      return buildNameSuggestion(ocr, locale, now);
+      return buildNameSuggestion(ocr, locale, now, mode);
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
-      // Sin OCR (sin red para el idioma, sin worker...): nombre con la fecha, nunca un error.
+      // El OCR no arranco (por ejemplo sin conexion y sin los scripts en cache): nombre por tipo y fecha, nunca un error.
       return fallback();
     }
   },
@@ -299,6 +311,12 @@ export const realEngine: ScanEngineApi = {
         const result = await realEngine.renderPage(page, { signal });
         if (!result.processed) throw new Error("render produced no output");
         return result.processed;
+      },
+      async ocrGate(allowDownload) {
+        if (isOcrReady() || (await ocrModelAvailable())) return { ok: true };
+        if (!allowDownload) return { ok: false, reason: "model-missing" };
+        if (typeof navigator !== "undefined" && navigator.onLine === false) return { ok: false, reason: "offline" };
+        return { ok: true };
       },
       async recognize(processed, signal) {
         const decoded = await enqueueTask({ kind: "decode", source: processed, maxSide: 2200, token: "ocr" }, signal);

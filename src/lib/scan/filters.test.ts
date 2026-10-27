@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustLookup, applyAdjust, applyFilterTo, decideAutoFilter, enhanceDocument, enhanceWhiteboard, resolveFilter, toBlackAndWhite, toEnhanced, toGrayscale } from "@/lib/scan/filters";
+import { adjustLookup, applyAdjust, applyFilterTo, backgroundMapsFor, decideAutoFilter, enhanceDocument, enhanceWhiteboard, resolveFilter, toBlackAndWhite, toEnhanced, toGrayscale } from "@/lib/scan/filters";
 import type { Rgba } from "@/lib/scan/pixels";
 
 function make(width: number, height: number, pixel: (x: number, y: number) => [number, number, number]): Rgba {
@@ -152,5 +152,36 @@ describe("filtro automatico", () => {
     const c = make(4, 4, () => [100, 120, 140]);
     await applyFilterTo(c, "grayscale", { brightness: 0, contrast: 0 });
     expect(c.data[0]).toBe(c.data[2]);
+  });
+
+  it("un fragmento filtrado con el FONDO de la hoja entera sale como en la hoja entera: el fondo se busca en SU posicion", async () => {
+    // Hoja de 400 x 200 con una sombra de izquierda (claro) a derecha (oscuro) y lineas de texto.
+    const page = make(400, 200, (x, y) => {
+      const light = 240 - (x / 400) * 130;
+      return y % 20 >= 8 && y % 20 < 11 && x > 10 && x < 390 ? [20, 20, 20] : [light, light, light];
+    });
+    const whole = { data: new Uint8ClampedArray(page.data), width: 400, height: 200 };
+    await enhanceDocument(whole);
+    const crop = (image: typeof page, x: number, y: number, size: number) => {
+      const data = new Uint8ClampedArray(size * size * 4);
+      for (let row = 0; row < size; row += 1) data.set(image.data.subarray(((y + row) * image.width + x) * 4, ((y + row) * image.width + x + size) * 4), row * size * 4);
+      return { data, width: size, height: size };
+    };
+    const paper = (image: { data: Uint8ClampedArray; width: number }) => image.data[(2 * image.width + 4) * 4];
+    const expected = crop(whole, 300, 100, 80);
+    const maps = backgroundMapsFor(page, 400, 200);
+    const right = crop(page, 300, 100, 80);
+    await enhanceDocument(right, { background: { maps, x: 300, y: 100 } });
+    // En la zona oscura del lado derecho el papel queda tan blanco como en la hoja entera...
+    expect(paper(expected)).toBeGreaterThan(240);
+    expect(Array.from(right.data)).toEqual(Array.from(expected.data));
+    // ...pero con el fondo de OTRA posicion (la izquierda, clara) queda gris: la posicion cuenta.
+    const wrongSpot = crop(page, 300, 100, 80);
+    await enhanceDocument(wrongSpot, { background: { maps, x: 0, y: 100 } });
+    expect(paper(wrongSpot)).toBeLessThan(paper(right) - 40);
+    // applyFilterTo lo pasa al filtro.
+    const viaApply = crop(page, 300, 100, 80);
+    await applyFilterTo(viaApply, "enhance", { brightness: 0, contrast: 0 }, { background: { maps, x: 300, y: 100 } });
+    expect(Array.from(viaApply.data)).toEqual(Array.from(right.data));
   });
 });

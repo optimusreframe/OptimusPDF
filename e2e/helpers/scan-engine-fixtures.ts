@@ -1,5 +1,5 @@
 import { createCanvas } from "@napi-rs/canvas";
-import { renderBlankPage, renderBookSpread, renderDamagePhoto, renderFormPage, renderIdCard, renderTextPage, type PageRender } from "../../src/lib/scan/__fixtures__/pages";
+import { renderBlankPage, renderBookSpread, renderCeilingStains, renderDamagePhoto, renderFormPage, renderFullBleedPage, renderIdCard, renderRoofTiles, renderTextPage, renderWhiteWithRect, type PageRender } from "../../src/lib/scan/__fixtures__/pages";
 import { composeScene, type SceneParams } from "../../src/lib/scan/__fixtures__/scene";
 import type { Rgba } from "../../src/lib/scan/pixels";
 import type { QuadCorners } from "../../src/lib/scan/perspective";
@@ -34,6 +34,34 @@ function make(id: string, page: PageRender, scene: SceneParams, hasQuad = true):
   return { id, base64: jpeg.toString("base64"), width: result.image.width, height: result.image.height, quad: hasQuad ? result.quad : null, neededRotation: result.neededRotation, title: page.title };
 }
 
+/** Foto que ES la imagen (sin escritorio): el lienzo tal cual, sin recorte posible. */
+function plain(id: string, render: PageRender & { width?: number; height?: number }): PhotoFixture {
+  const jpeg = render.canvas.toBuffer("image/jpeg", 92);
+  return { id, base64: jpeg.toString("base64"), width: render.canvas.width, height: render.canvas.height, quad: null, neededRotation: 0, title: render.title };
+}
+
+/** Foto grande de «dano» (3200 x 2400, con textura): para los presets de calidad y el peso. */
+function bigPhoto(): PhotoFixture {
+  const base = renderDamagePhoto(9);
+  const canvas = createCanvas(3200, 2400);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(base.canvas, 0, 0, 3200, 2400);
+  let seed = 12345;
+  for (let i = 0; i < 60_000; i += 1) {
+    seed = (seed * 16807) % 2147483647;
+    const x = seed % 3200;
+    seed = (seed * 16807) % 2147483647;
+    const y = seed % 2400;
+    seed = (seed * 16807) % 2147483647;
+    const v = seed % 255;
+    ctx.fillStyle = `rgba(${v},${(v * 7) % 255},${(v * 13) % 255},0.3)`;
+    ctx.fillRect(x, y, 3, 3);
+  }
+  // Calidad ~90 (la de una camara de movil): el modelo de recodificado de `prepareForPdf` esta calibrado para ese rango.
+  const jpeg = canvas.toBuffer("image/jpeg", 90);
+  return { id: "bigphoto", base64: jpeg.toString("base64"), width: 3200, height: 2400, quad: null, neededRotation: 0, title: null };
+}
+
 export function buildScanFixtures(): Record<string, PhotoFixture> {
   const text = () => renderTextPage({ seed: 41, title: "Contrato de servicio", letterhead: true, date: "2026-03-12" });
   const fixtures: Record<string, PhotoFixture> = {};
@@ -57,5 +85,7 @@ export function buildScanFixtures(): Record<string, PhotoFixture> {
   add(make("photo", renderDamagePhoto(7), { seed: 26, width: 800, height: 600 }, false));
   // Foto grande (~7,7 Mpx): decodificacion, procesado a resolucion completa y cancelacion.
   add(make("big", renderTextPage({ seed: 81, title: "Presupuesto de reparación", letterhead: true }), { seed: 27, desk: "dark", width: 2400, height: 3200, angleDeg: -2 }));
+  // Sin documento (el recorte NO debe tocarlas) y la pagina blanca a sangre con un rectangulo rojo dentro (480 x 60 sobre 600 x 800).
+  for (const fixture of [plain("roof", renderRoofTiles(61)), plain("ceiling", renderCeilingStains(71)), plain("whiteRed", renderWhiteWithRect()), plain("fullBleed", renderFullBleedPage(95)), bigPhoto()]) add(fixture);
   return fixtures;
 }

@@ -2,7 +2,7 @@ import { maxCornerShift, quadArea } from "@/lib/scan/geometry";
 import { detectLiveQuad } from "@/lib/scan/liveDetect";
 import { downscaleRgba, toGray, type Gray, type Rgba } from "@/lib/scan/pixels";
 import type { QuadCorners } from "@/lib/scan/perspective";
-import { glareOf, medianLevel, sharpnessOf, DARK_PAPER_THRESHOLD } from "@/lib/scan/quality";
+import { glareOf, medianLevel, reblurRatio, sharpnessOf, DARK_PAPER_THRESHOLD } from "@/lib/scan/quality";
 import type { FrameVerdict, ScanMode } from "@/lib/scan/types";
 
 /**
@@ -25,6 +25,8 @@ export const MAX_COVERAGE = 0.96;
 export const MIN_LIVE_CONFIDENCE = 0.6;
 /** Acutancia minima en vivo (a 320 px; calibrada con el corpus). */
 export const LIVE_SHARPNESS_THRESHOLD = 0.31;
+/** Y, ademas, el borde apenas pierde al desenfocarlo (a 320 px: borrosas <= 0,21; nitidas >= 0,54). */
+export const LIVE_REBLUR_THRESHOLD = 0.35;
 
 /** Cobertura minima segun el modo: una tarjeta o un recibo ocupan menos encuadre que una hoja. */
 export function minCoverageFor(mode: ScanMode | undefined): number {
@@ -63,7 +65,7 @@ export function resetFrameTracker(tracker: FrameTracker): void {
 }
 
 /** Mascara (1 = dentro) del cuadrilatero, erosionada `inset` px, sobre una muestra de gris. */
-function quadMask(quad: QuadCorners, width: number, height: number, inset: number): Uint8Array {
+export function quadMask(quad: QuadCorners, width: number, height: number, inset: number): Uint8Array {
   const pts = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft].map((p) => ({ x: p.x * width, y: p.y * height }));
   const mask = new Uint8Array(width * height);
   const sign = Math.sign(
@@ -100,6 +102,12 @@ export type FrameReading = {
   gray: Gray;
 };
 
+/** Segunda opinion (re-desenfoque) antes de dar un fotograma por borroso: evita falsos avisos con poco contraste o detalle fino. */
+function isLiveBlurry(gray: Gray): boolean {
+  const reblur = reblurRatio(gray);
+  return reblur !== null && reblur < LIVE_REBLUR_THRESHOLD;
+}
+
 /** Lee un fotograma SIN estado temporal (deteccion + calidad). En modo `photo` no se busca documento: solo luz y reflejos. */
 export function readFrame(frame: Rgba, mode?: ScanMode): FrameReading {
   const sample = frame.width > LIVE_SAMPLE_WIDTH ? downscaleRgba(frame, LIVE_SAMPLE_WIDTH) : frame;
@@ -133,7 +141,7 @@ export function readFrame(frame: Rgba, mode?: ScanMode): FrameReading {
     confidence: live.confidence,
     coverage,
     sharpness,
-    blurry: sharpness !== null && sharpness < LIVE_SHARPNESS_THRESHOLD,
+    blurry: sharpness !== null && sharpness < LIVE_SHARPNESS_THRESHOLD && isLiveBlurry(gray),
     glare,
     dark: paper < DARK_PAPER_THRESHOLD,
     cutOff: nearEdge >= 2 && coverage > 0.8,

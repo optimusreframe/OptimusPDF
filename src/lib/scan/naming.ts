@@ -1,5 +1,5 @@
 import type { OcrLine, OcrResult } from "@/lib/scan/ocr";
-import type { ScanSession } from "@/lib/scan/types";
+import type { ScanMode, ScanSession } from "@/lib/scan/types";
 
 /**
  * Nombre inteligente del escaneo: titulo del primer texto reconocible (la linea mas grande del encabezado de la primera
@@ -22,9 +22,36 @@ export function isoDate(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** Nombre de respaldo: «Escaneo AAAA-MM-DD HH.mm» (sin dos puntos: no valen en nombres de archivo). */
-export function fallbackName(date: Date, locale: "es" | "en"): string {
-  return `${locale === "es" ? "Escaneo" : "Scan"} ${isoDate(date)} ${pad(date.getHours())}.${pad(date.getMinutes())}`;
+const KIND_LABELS: Record<ScanMode, { es: string; en: string }> = {
+  document: { es: "Escaneo", en: "Scan" },
+  "id-card": { es: "Identificación", en: "ID" },
+  receipt: { es: "Recibo", en: "Receipt" },
+  book: { es: "Libro", en: "Book" },
+  whiteboard: { es: "Pizarra", en: "Whiteboard" },
+  photo: { es: "Fotos", en: "Photos" },
+};
+
+/** Modo que mas se repite entre las paginas (empata: el primero); `document` sin paginas. */
+export function dominantMode(modes: readonly (ScanMode | undefined)[]): ScanMode {
+  const counts = new Map<ScanMode, number>();
+  for (const mode of modes) counts.set(mode ?? "document", (counts.get(mode ?? "document") ?? 0) + 1);
+  let best: ScanMode = "document";
+  let bestCount = 0;
+  for (const [mode, count] of counts) {
+    if (count > bestCount) {
+      best = mode;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/**
+ * Nombre SIN red ni OCR: «<tipo> AAAA-MM-DD HH.mm» (sin dos puntos: no valen en nombres de archivo). El tipo sale del modo
+ * («Escaneo», «Identificación», «Recibo», «Libro», «Pizarra», «Fotos»).
+ */
+export function fallbackName(date: Date, locale: "es" | "en", mode: ScanMode = "document"): string {
+  return `${KIND_LABELS[mode][locale]} ${isoDate(date)} ${pad(date.getHours())}.${pad(date.getMinutes())}`;
 }
 
 /** Quita lo que no vale en un nombre de archivo y lo acota. */
@@ -143,14 +170,14 @@ export function credibleDocumentDate(text: string, now: Date): Date | null {
  * Propone el nombre. `ocr` es la lectura de la primera pagina (o `null` si no hay OCR / no se leyo nada): sin titulo se usa el
  * nombre de respaldo con la hora del escaneo.
  */
-export function buildNameSuggestion(ocr: OcrResult | null, locale: "es" | "en", now: Date): NameSuggestion {
+export function buildNameSuggestion(ocr: OcrResult | null, locale: "es" | "en", now: Date, mode: ScanMode = "document"): NameSuggestion {
   const title = ocr ? pickTitle(ocr) : null;
   const documentDate = ocr ? credibleDocumentDate(ocr.text, now) : null;
   const date = isoDate(documentDate ?? now);
   if (title) {
-    const name = sanitizeFileName(`${title} · ${date}`) || fallbackName(now, locale);
+    const name = sanitizeFileName(`${title} · ${date}`) || fallbackName(now, locale, mode);
     return { title, date, source: "ocr", name };
   }
-  const name = sanitizeFileName(fallbackName(now, locale));
+  const name = sanitizeFileName(fallbackName(now, locale, mode));
   return { title: null, date, source: "date", name };
 }

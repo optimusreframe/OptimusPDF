@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { LIVE_TRUST_CONFIDENCE, MAX_TRUSTED_QUAD_AREA, chooseCorners, edgeSupport } from "@/lib/scan/documentDetection";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { LIVE_TRUST_CONFIDENCE, MAX_TRUSTED_QUAD_AREA, __setScanicImporterForTests, chooseCorners, detectDocumentCorners, edgeSupport } from "@/lib/scan/documentDetection";
 import type { QuadCorners } from "@/lib/scan/perspective";
 
 const rect = (x0: number, y0: number, x1: number, y1: number): QuadCorners => ({ topLeft: { x: x0, y: y0 }, topRight: { x: x1, y: y0 }, bottomRight: { x: x1, y: y1 }, bottomLeft: { x: x0, y: y1 } });
@@ -61,5 +61,33 @@ describe("elegir el cuadrilatero del documento — src/lib/scan/documentDetectio
     // Sin imagen para medir el apoyo se decide solo por la confianza.
     expect(chooseCorners(a, b, undefined, 0.99)).toBe(b);
     expect(chooseCorners(a, b)).toBe(a);
+  });
+});
+
+describe("carga de scanic sin conexion — src/lib/scan/documentDetection.ts", () => {
+  afterEach(() => __setScanicImporterForTests(null));
+
+  const image = { data: new Uint8ClampedArray(40 * 40 * 4), width: 40, height: 40 } as unknown as ImageData;
+
+  it("un fallo al cargar el modulo (sin conexion) devuelve null, NO se guarda el rechazo y la siguiente captura lo reintenta", async () => {
+    let calls = 0;
+    const scanDocument = vi.fn(async () => ({
+      success: true,
+      confidence: 0.9,
+      corners: { topLeft: { x: 4, y: 4 }, topRight: { x: 30, y: 4 }, bottomRight: { x: 30, y: 30 }, bottomLeft: { x: 4, y: 30 } },
+    }));
+    __setScanicImporterForTests(async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("Failed to fetch dynamically imported module");
+      return { scanDocument } as never;
+    });
+    expect(await detectDocumentCorners(image)).toBeNull();
+    expect(calls).toBe(1);
+    const second = await detectDocumentCorners(image);
+    expect(calls).toBe(2);
+    expect(second?.corners.topLeft.x).toBeCloseTo(4 / 40, 6);
+    // Ya cargado: no se vuelve a pedir.
+    await detectDocumentCorners(image);
+    expect(calls).toBe(2);
   });
 });

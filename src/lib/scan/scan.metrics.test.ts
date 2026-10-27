@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildCorpus, type Corpus, type CorpusItem } from "@/lib/scan/__fixtures__/corpus";
 import { fakeOcr, installScanicEnvironment, rectify, toNapiImageData } from "@/lib/scan/__fixtures__/testUtils";
 import { quadIoU } from "@/lib/scan/geometry";
-import { chooseCorners, detectDocumentCorners } from "@/lib/scan/documentDetection";
+import { selectCrop } from "@/lib/scan/cropGate";
+import { detectDocumentCorners } from "@/lib/scan/documentDetection";
 import { detectLiveQuad } from "@/lib/scan/liveDetect";
 import { buildNameSuggestion } from "@/lib/scan/naming";
 import { detectTextOrientation } from "@/lib/scan/orientation";
@@ -155,22 +156,48 @@ describe("deteccion del documento", () => {
     expect(hit / items.length).toBeGreaterThanOrEqual(0.9);
   }, 240_000);
 
-  it("scanic + detector ligero combinados (lo que usa createPage): >= 0,95 con IoU >= 0,9, tambien tarjetas y libros", async () => {
+  it("recorte AUTOMATICO (lo que usa createPage: scanic + ligero + puerta): >= 0,95 de los documentos recortados con IoU >= 0,9 y NINGUN recorte en escenas sin documento", async () => {
     const items = everything().filter((i) => i.truth.hasDocument && i.truth.quad);
     let hit = 0;
+    let wrongCrop = 0;
+    let notCropped = 0;
     const misses: string[] = [];
     for (const item of items) {
       const small = downscaleRgba(item.image, 800);
       const found = await detectDocumentCorners(toNapiImageData(small));
       const live = detectLiveQuad(small);
-      const chosen = chooseCorners(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, small, live?.confidence ?? 0);
-      const iou = chosen && item.truth.quad ? quadIoU(chosen, item.truth.quad) : 0;
+      const { quad, verdict } = selectCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, small, item.mode, live?.confidence ?? 0);
+      if (!quad) {
+        notCropped += 1;
+        misses.push(`${item.id}:sin-recorte(${verdict?.reason ?? "sin-cuadrilatero"})`);
+        continue;
+      }
+      const iou = quadIoU(quad, item.truth.quad as QuadCorners);
       if (iou >= 0.9) hit += 1;
-      else misses.push(`${item.id}:${iou.toFixed(2)}`);
+      else {
+        wrongCrop += 1;
+        misses.push(`${item.id}:${iou.toFixed(2)}`);
+      }
     }
-    record("detect.combined.cases", items.length);
-    record("detect.combined.iou90", hit / items.length);
-    record("detect.combined.misses", misses.join(" ") || "-");
+    // Sin documento: nada se recorta (techos, paredes, un cuadro, una pagina blanca a sangre con un rectangulo rojo...).
+    const falseCrops: string[] = [];
+    for (const item of [...corpus.noDocument, ...corpus.special.filter((i) => i.kind === "photo")]) {
+      const small = downscaleRgba(item.image, 800);
+      const found = await detectDocumentCorners(toNapiImageData(small));
+      const live = detectLiveQuad(small);
+      const { quad } = selectCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, small, "document", live?.confidence ?? 0);
+      if (quad) falseCrops.push(item.id);
+    }
+    record("crop.cases", items.length);
+    record("crop.correctIou90", hit / items.length);
+    record("crop.wrongCrop", wrongCrop);
+    record("crop.notCroppedFullPage", notCropped);
+    record("crop.misses", misses.join(" ") || "-");
+    record("crop.noDocumentCases", corpus.noDocument.length + corpus.special.filter((i) => i.kind === "photo").length);
+    record("crop.falseCropsOnNoDocument", falseCrops.join(" ") || 0);
+    expect(falseCrops).toEqual([]);
+    // Lo que se recorta se recorta BIEN: ninguno con IoU < 0,9 (ante la duda, pagina completa).
+    expect(wrongCrop).toBe(0);
     expect(hit / items.length).toBeGreaterThanOrEqual(0.95);
   }, 240_000);
 

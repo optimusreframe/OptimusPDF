@@ -31,10 +31,21 @@ const FULL_FRAME_EPSILON = 0.02;
 type ScanicModule = typeof import("scanic");
 
 let modulePromise: Promise<ScanicModule> | null = null;
+let importer: () => Promise<ScanicModule> = () => import("scanic");
+
+/** Solo para pruebas: sustituye la carga de scanic (`null` restaura la normal) y olvida lo cargado. */
+export function __setScanicImporterForTests(next: (() => Promise<ScanicModule>) | null): void {
+  importer = next ?? (() => import("scanic"));
+  modulePromise = null;
+}
 
 /** Carga (una sola vez) el chunk diferido de scanic. */
 function loadScanic(): Promise<ScanicModule> {
-  modulePromise ??= import("scanic");
+  // Un rechazo (sin conexion al pedir el chunk, por ejemplo) NO se guarda: la proxima captura vuelve a intentarlo.
+  modulePromise ??= importer().catch((error: unknown) => {
+    modulePromise = null;
+    throw error;
+  });
   return modulePromise;
 }
 

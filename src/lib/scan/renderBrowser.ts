@@ -32,11 +32,20 @@ export function workerSupported(): boolean {
 }
 
 let worker: Worker | null = null;
-let broken = false;
+/** Hasta cuando no se vuelve a probar el worker tras un fallo (el hilo principal lo sustituye): un fallo NO es para siempre. */
+let brokenUntil = 0;
+const WORKER_RETRY_MS = 15_000;
+const isBroken = (): boolean => Date.now() < brokenUntil;
 let nextId = 1;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 /** Un worker sin tareas durante este tiempo se termina (memoria). */
-const WORKER_IDLE_MS = 30_000;
+const WORKER_IDLE_MS = 600_000;
+
+/** Solo para pruebas: olvida un fallo anterior del worker. */
+export function __resetScanWorkerStateForTests(): void {
+  brokenUntil = 0;
+  disposeScanWorker();
+}
 
 export function disposeScanWorker(): void {
   if (idleTimer) clearTimeout(idleTimer);
@@ -72,7 +81,7 @@ function viaWorker(request: TaskRequest, signal?: AbortSignal): Promise<ViaWorke
       worker ??= createWorker();
       instance = worker;
     } catch {
-      broken = true;
+      brokenUntil = Date.now() + WORKER_RETRY_MS;
       disposeScanWorker();
       resolve({ ok: false, code: "failed" });
       return;
@@ -92,7 +101,7 @@ function viaWorker(request: TaskRequest, signal?: AbortSignal): Promise<ViaWorke
     };
     const onError = (): void => {
       cleanup();
-      broken = true;
+      brokenUntil = Date.now() + WORKER_RETRY_MS;
       disposeScanWorker();
       resolve({ ok: false, code: "failed" });
     };
@@ -115,11 +124,30 @@ function viaWorker(request: TaskRequest, signal?: AbortSignal): Promise<ViaWorke
       instance.postMessage({ id, request } satisfies WorkerRequest);
     } catch {
       cleanup();
-      broken = true;
+      brokenUntil = Date.now() + WORKER_RETRY_MS;
       disposeScanWorker();
       resolve({ ok: false, code: "failed" });
     }
   });
+}
+
+/**
+ * Arranca el worker YA (mientras hay conexion y la persona aun esta eligiendo): asi no hace falta pedir su script en el
+ * momento de importar fotos, que puede ser sin red. Si falla, el procesado sigue en el hilo principal. Nunca lanza.
+ */
+export function warmScanWorker(): void {
+  if (isBroken() || worker || !workerSupported()) return;
+  try {
+    worker = createWorker();
+    worker.addEventListener("error", () => {
+      brokenUntil = Date.now() + WORKER_RETRY_MS;
+      disposeScanWorker();
+    });
+    touchIdle();
+  } catch {
+    brokenUntil = Date.now() + WORKER_RETRY_MS;
+    disposeScanWorker();
+  }
 }
 
 let tail: Promise<unknown> = Promise.resolve();
@@ -133,7 +161,7 @@ export function renderStats(): { worker: number; main: number } {
 
 async function execute(request: TaskRequest, signal?: AbortSignal): Promise<TaskResult> {
   if (signal?.aborted) throw new ScanCancelled();
-  if (!broken && workerSupported()) {
+  if (!isBroken() && workerSupported()) {
     const outcome = await viaWorker(request, signal);
     if (outcome.ok) {
       workerRuns += 1;

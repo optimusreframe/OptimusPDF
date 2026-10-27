@@ -253,4 +253,38 @@ test.describe("sesion persistente · navegador real", () => {
     const left = await page.evaluate(async (id) => ({ list: (await (window as unknown as { __lab: any }).__lab.L.scanSessionStore.list()).length, load: await (window as unknown as { __lab: any }).__lab.L.scanSessionStore.load(id) }), made.id);
     expect(left).toEqual({ list: 0, load: null });
   });
+
+  test("P2-10 · un cambio hecho justo antes de recargar (girar y recargar a los 100 ms) NO se pierde: lo apuntado con stage se vuelca al irse la pagina", async ({ page }) => {
+    await open(page);
+    const made = await makeSession(page, ["text0", "formA"]);
+    await page.evaluate(async () => {
+      const lab = (window as unknown as { __lab: any; __session: any }).__lab;
+      await lab.L.scanSessionStore.save((window as unknown as { __session: any }).__session);
+    });
+    // La persona gira la pagina 2 y la interfaz apunta el cambio; el autoguardado (500 ms) aun no ha escrito.
+    await page.evaluate(() => {
+      const lab = (window as unknown as { __lab: any; __session: any }).__lab;
+      const session = (window as unknown as { __session: any }).__session;
+      const changed = { ...session, pages: session.pages.map((p: any, i: number) => (i === 1 ? { ...p, rotation: 90 } : p)) };
+      lab.L.scanSessionStore.stage(changed);
+    });
+    await page.reload();
+    await open(page);
+    const rotations = await page.evaluate(async (id) => (await (window as unknown as { __lab: any }).__lab.L.scanSessionStore.load(id)).pages.map((p: any) => p.rotation), made.id);
+    expect(rotations).toEqual([0, 90]);
+  });
+
+  test("P2-10 · flush() escribe lo apuntado a peticion y espera a que termine", async ({ page }) => {
+    await open(page);
+    const made = await makeSession(page, ["text0"]);
+    const rotation = await page.evaluate(async (id) => {
+      const lab = (window as unknown as { __lab: any; __session: any }).__lab;
+      const session = (window as unknown as { __session: any }).__session;
+      await lab.L.scanSessionStore.save(session);
+      lab.L.scanSessionStore.stage({ ...session, pages: [{ ...session.pages[0], rotation: 270 }] });
+      await lab.L.scanSessionStore.flush();
+      return (await lab.L.scanSessionStore.load(id)).pages[0].rotation;
+    }, made.id);
+    expect(rotation).toBe(270);
+  });
 });

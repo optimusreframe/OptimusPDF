@@ -439,3 +439,105 @@ export function canvasToRgba(canvas: Canvas): Rgba {
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
   return { data: new Uint8ClampedArray(image.data), width: canvas.width, height: canvas.height };
 }
+
+/* ------------------------------------------------------------------ *
+ * Escenas SIN documento (techos, paredes, suelos...) y casos trampa: el recorte automatico NO debe tocarlas.
+ * ------------------------------------------------------------------ */
+
+function noise(ctx: SKRSContext2D, width: number, height: number, rng: Rng, amount: number): void {
+  for (let i = 0; i < width * height * 0.04; i += 1) {
+    const v = rng.int(-amount, amount);
+    ctx.fillStyle = `rgba(${v > 0 ? 255 : 0},${v > 0 ? 255 : 0},${v > 0 ? 255 : 0},${Math.abs(v) / 255})`;
+    ctx.fillRect(rng.int(0, width - 1), rng.int(0, height - 1), 2, 2);
+  }
+}
+
+/** Tejado de tejas (hileras con sombra): bordes fuertes y regulares, sin papel. */
+export function renderRoofTiles(seed: number): PageRender & { width: number; height: number } {
+  const rng = makeRng(seed);
+  const width = 1000;
+  const height = 640;
+  ensureFonts();
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  const sky = ctx.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0, "rgb(150,180,210)");
+  sky.addColorStop(1, "rgb(110,130,150)");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, width, height);
+  for (let row = 0; row < 14; row += 1) {
+    for (let col = -1; col < 18; col += 1) {
+      const shade = rng.int(90, 150);
+      ctx.fillStyle = `rgb(${shade + 40},${shade - 10},${shade - 30})`;
+      ctx.fillRect(col * 62 + (row % 2) * 31, 120 + row * 38, 58, 34);
+    }
+  }
+  noise(ctx, width, height, rng, 40);
+  return { canvas, lines: [], title: null, date: null, blank: false, inkBox: null, width, height };
+}
+
+/** Techo de yeso gris con manchas de humedad y un panel de luz rectangular (el caso «rectangulo claro» de un techo). */
+export function renderCeilingStains(seed: number): PageRender & { width: number; height: number } {
+  const rng = makeRng(seed);
+  const width = 960;
+  const height = 720;
+  ensureFonts();
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgb(190,188,182)";
+  ctx.fillRect(0, 0, width, height);
+  for (let i = 0; i < 40; i += 1) {
+    const g = ctx.createRadialGradient(rng.int(0, width), rng.int(0, height), 5, rng.int(0, width), rng.int(0, height), rng.int(60, 220));
+    g.addColorStop(0, `rgba(${rng.int(120, 150)},${rng.int(100, 130)},${rng.int(70, 100)},0.45)`);
+    g.addColorStop(1, "rgba(190,188,182,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, height);
+  }
+  ctx.fillStyle = "rgb(246,246,238)";
+  ctx.fillRect(rng.int(160, 300), rng.int(120, 220), 360, 120);
+  noise(ctx, width, height, rng, 30);
+  return { canvas, lines: [], title: null, date: null, blank: false, inkBox: null, width, height };
+}
+
+/** Pared blanca con un cuadro enmarcado. */
+export function renderWallFrame(seed: number): PageRender & { width: number; height: number } {
+  const rng = makeRng(seed);
+  const width = 900;
+  const height = 700;
+  ensureFonts();
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgb(238,236,230)";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "rgb(60,44,30)";
+  ctx.fillRect(250, 150, 400, 330);
+  ctx.fillStyle = "rgb(210,60,50)";
+  ctx.fillRect(268, 168, 364, 294);
+  noise(ctx, width, height, rng, 20);
+  return { canvas, lines: [], title: null, date: null, blank: false, inkBox: null, width, height };
+}
+
+/** Pagina blanca a sangre (ya es TODA documento) con un rectangulo rojo interior (480x60 sobre 600x800): el caso trampa. */
+export function renderWhiteWithRect(): PageRender & { width: number; height: number } {
+  ensureFonts();
+  const width = 600;
+  const height = 800;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#d02020";
+  ctx.fillRect(60, 120, 480, 60);
+  return { canvas, lines: [], title: null, date: null, blank: false, inkBox: { x: 60, y: 120, w: 480, h: 60 }, width, height };
+}
+
+/** Pagina de texto a sangre (sin escritorio visible) con una franja de color arriba (membrete) y una foto grande: tampoco se recorta. */
+export function renderFullBleedPage(seed: number): PageRender & { width: number; height: number } {
+  const text = renderTextPage({ seed, title: "Informe de siniestro", letterhead: true });
+  const ctx = text.canvas.getContext("2d");
+  ctx.fillStyle = "rgb(30,70,150)";
+  ctx.fillRect(0, 0, PAGE_W, 60);
+  ctx.fillStyle = "rgb(150,160,170)";
+  ctx.fillRect(380, 420, 260, 200);
+  return { ...text, width: PAGE_W, height: PAGE_H };
+}

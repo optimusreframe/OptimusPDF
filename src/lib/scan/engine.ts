@@ -52,7 +52,47 @@ export const unavailableEngine: ScanEngineApi = {
   splitSpread: unavailableAsync,
 };
 
-const real = () => import("@/lib/scan/realEngine").then((module) => module.realEngine);
+let realPromise: Promise<ScanEngineApi> | null = null;
+let realImporter: () => Promise<ScanEngineApi> = () => import("@/lib/scan/realEngine").then((module) => module.realEngine);
+
+/** Solo para pruebas: sustituye la carga del motor real (`null` restaura la normal) y olvida lo cargado. */
+export function __setRealEngineImporterForTests(next: (() => Promise<ScanEngineApi>) | null): void {
+  realImporter = next ?? (() => import("@/lib/scan/realEngine").then((module) => module.realEngine));
+  realPromise = null;
+}
+
+/** Carga el motor real una vez; un rechazo (chunk no disponible, sin conexion) NO se guarda: el siguiente uso lo reintenta. */
+const real = (): Promise<ScanEngineApi> => {
+  realPromise ??= realImporter().catch((error: unknown) => {
+    realPromise = null;
+    throw error;
+  });
+  return realPromise;
+};
+
+/**
+ * Deja todo cargado y caliente (motor, detector scanic, worker de procesado) mientras hay conexion, para que importar fotos
+ * funcione tambien SIN ella. Se llama sola al cargar la herramienta (ver abajo); la interfaz puede llamarla de nuevo. Nunca lanza.
+ */
+export async function preloadScanEngine(): Promise<void> {
+  try {
+    await real();
+    const [{ preloadDocumentDetection }, { warmScanWorker }] = await Promise.all([import("@/lib/scan/documentDetection"), import("@/lib/scan/renderBrowser")]);
+    preloadDocumentDetection();
+    warmScanWorker();
+  } catch {
+    // Sin conexion o sin el chunk: se reintenta al usar el motor.
+  }
+}
+
+if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
+  // Fuera del camino critico de la pagina; en pruebas Node no hay `window`.
+  const idle = (window as { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }).requestIdleCallback;
+  if (typeof idle === "function") idle.call(window, () => void preloadScanEngine(), { timeout: 2500 });
+  else setTimeout(() => void preloadScanEngine(), 400);
+}
+
+export { ocrModelAvailable, prepareOcrModel, type PrepareOcrResult } from "@/lib/scan/ocr";
 
 /** Implementacion por defecto: el motor real (el analisis en vivo y la estimacion, estaticos; lo demas, bajo demanda). */
 export const defaultEngine: ScanEngineApi = {

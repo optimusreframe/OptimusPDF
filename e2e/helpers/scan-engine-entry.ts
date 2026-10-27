@@ -4,7 +4,7 @@
  * sesion persistente (IndexedDB) y el OCR sustituible (sin red). Solo para las pruebas E2E; no forma parte del producto.
  */
 export { realEngine } from "../../src/lib/scan/realEngine";
-export { setOcrRecognizerFactory } from "../../src/lib/scan/ocr";
+export { ocrModelAvailable, prepareOcrModel, setOcrRecognizerFactory } from "../../src/lib/scan/ocr";
 export { renderStats, setScanWorkerFactory, disposeScanWorker } from "../../src/lib/scan/renderBrowser";
 export { analyzeLiveFrame, createFrameTracker } from "../../src/lib/scan/liveFrame";
 export { quadIoU } from "../../src/lib/scan/geometry";
@@ -12,6 +12,7 @@ export { DEFAULT_SCAN_SETTINGS } from "../../src/lib/scan/types";
 export {
   SCAN_DB_NAME,
   SCAN_SESSION_TTL_MS,
+  __resetScanStagingForTests,
   __resetScanStoreMemoryForTests,
   __setScanTabIdForTests,
   clearScanSessions,
@@ -19,6 +20,7 @@ export {
   listScanSessionSummaries,
   newScanSessionId,
   scanSessionStore,
+  scanStorageMode,
   subscribeToScanSessions,
 } from "../../src/lib/scan/sessionStore";
 export { areDuplicates, comparePages, computeSignature } from "../../src/lib/scan/similarity";

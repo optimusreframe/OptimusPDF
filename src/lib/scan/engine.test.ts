@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SCAN_ENGINE_TEST_HOOK,
+  __setRealEngineImporterForTests,
+  preloadScanEngine,
   ScanEngineUnavailableError,
   analyzeFrame,
   buildPdf,
@@ -22,6 +24,7 @@ const verdict: FrameVerdict = { quad: null, confidence: 0, stable: false, stable
 const frame = { data: new Uint8ClampedArray(320 * 240 * 4).fill(120), width: 320, height: 240 } as unknown as ImageData;
 
 afterEach(() => {
+  __setRealEngineImporterForTests(null);
   setScanEngine(null);
   delete (globalThis as Record<string, unknown>)[SCAN_ENGINE_TEST_HOOK];
 });
@@ -92,5 +95,36 @@ describe("fachada del motor — src/lib/scan/engine.ts", () => {
     const bare = { ...unavailableEngine, splitSpread: undefined } as unknown as Parameters<typeof setScanEngine>[0];
     setScanEngine(bare);
     await expect(splitSpread({} as ScanPage)).rejects.toBeInstanceOf(ScanEngineUnavailableError);
+  });
+
+  it("cargar el motor real sin conexion falla UNA vez y NO queda cacheado: el siguiente uso lo reintenta y funciona", async () => {
+    let calls = 0;
+    const fakePage = { id: "p-reintento" } as ScanPage;
+    __setRealEngineImporterForTests(async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("Failed to fetch dynamically imported module");
+      return { createPage: async () => fakePage } as never;
+    });
+    const info = { source: "library" as const, mode: "document" as const, settings: DEFAULT_SCAN_SETTINGS };
+    await expect(createPage(new Blob([]), info)).rejects.toThrow("Failed to fetch");
+    expect(await createPage(new Blob([]), info)).toBe(fakePage);
+    expect(calls).toBe(2);
+    // Cargado: no se vuelve a pedir.
+    await createPage(new Blob([]), info);
+    expect(calls).toBe(2);
+  });
+
+  it("preloadScanEngine deja todo cargado y nunca lanza, aunque no haya conexion", async () => {
+    __setRealEngineImporterForTests(async () => {
+      throw new TypeError("offline");
+    });
+    await expect(preloadScanEngine()).resolves.toBeUndefined();
+    let loaded = 0;
+    __setRealEngineImporterForTests(async () => {
+      loaded += 1;
+      return {} as never;
+    });
+    await preloadScanEngine();
+    expect(loaded).toBe(1);
   });
 });

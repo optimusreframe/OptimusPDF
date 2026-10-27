@@ -58,7 +58,21 @@ export type ScanPage = {
   mode?: ScanMode;
   /** ADITIVO. Dimensiones (px) de `processed`, para estimar el tamano del PDF sin decodificar. */
   processedSize?: { width: number; height: number };
+  /**
+   * ADITIVO. Filtro realmente aplicado la ultima vez que se proceso (`auto` ya resuelto). Con `original`/`color`, sin recorte,
+   * giro ni ajuste, `processed` ES el `original` (sus bytes no se tocan) y el PDF «Original» conserva el archivo tal cual.
+   */
+  resolvedFilter?: ScanResolvedFilter;
+  /**
+   * ADITIVO. Peso por pixel de un parche del resultado medido a la RESOLUCION NATIVA del original (JPEG calidad 0,9, con el
+   * filtro y el ajuste de la pagina): permite estimar el PDF antes de procesar la pagina entera sin que el ruido de la foto
+   * se pierda por reducirla. `side` = lado del parche (px).
+   */
+  jpegSample?: { side: number; bytesPerPixel: number };
 };
+
+/** Filtro ya resuelto (lo que se aplico de verdad). */
+export type ScanResolvedFilter = "color" | "grayscale" | "bw" | "enhance" | "original" | "whiteboard";
 
 export type ScanSettings = {
   mode: ScanMode;
@@ -119,6 +133,16 @@ export type FrameVerdict = {
   shouldAutoCapture: boolean;
 };
 
+/**
+ * ADITIVO. Aviso de `buildPdf`: el PDF se entrego pero SIN (todo) el texto buscable pedido.
+ *  - `model-missing`: el modelo de OCR no esta en local y no se pidio descargarlo;
+ *  - `offline`: hace falta descargarlo y no hay conexion;
+ *  - `network`: la descarga fallo (CDN inalcanzable, bloqueador, proxy);
+ *  - `engine`: el OCR fallo por otra razon.
+ * `pagesWithText` de `total` paginas llevan texto (las demas, no).
+ */
+export type ScanBuildWarning = { code: "searchable-unavailable"; reason: "model-missing" | "offline" | "network" | "engine"; pagesWithText: number; total: number };
+
 export type ScanSizeEstimate = { bytes: number; low: number; high: number };
 
 /**
@@ -156,7 +180,21 @@ export interface ScanEngineApi {
   /** Construye el PDF (usa `prepareForPdf`, 1 pagina por hoja, texto buscable opcional) con progreso cancelable. */
   buildPdf(
     session: ScanSession,
-    options: { preset: string; pageSize: "a4" | "letter" | "fit"; margin: "none" | "small" | "large"; signal?: AbortSignal; onProgress?: (done: number, total: number) => void },
+    options: {
+      preset: string;
+      pageSize: "a4" | "letter" | "fit";
+      margin: "none" | "small" | "large";
+      signal?: AbortSignal;
+      onProgress?: (done: number, total: number) => void;
+      /**
+       * ADITIVO. Con texto buscable el motor SOLO usa el OCR si el modelo ya esta en local (`ocrModelAvailable()`); descargarlo
+       * (una peticion a la red) exige que la persona lo acepte: la interfaz pone `true` tras esa confirmacion. Sin modelo y sin
+       * permiso el PDF sale normal y se avisa por `onWarning` (no es un error).
+       */
+      allowModelDownload?: boolean;
+      /** ADITIVO. Avisos que NO impiden entregar el PDF (p. ej. no se pudo anadir el texto buscable). */
+      onWarning?: (warning: ScanBuildWarning) => void;
+    },
   ): Promise<Blob>;
   /**
    * ADITIVO (modo `book`): parte la foto de un libro abierto en DOS paginas (izquierda, derecha) por el lomo detectado o por
@@ -178,4 +216,12 @@ export interface ScanSessionStore {
   remove(id: string): Promise<void>;
   /** Borra sesiones de mas de 14 dias. */
   purgeExpired(now?: number): Promise<number>;
+  /**
+   * ADITIVO. Apunta la ULTIMA version de la sesion SIN escribir nada (barato: solo guarda la referencia). La interfaz lo llama en
+   * cada cambio y `save` (con su espera de autoguardado) cuando toque: si la pagina se cierra o se recarga antes, el almacen
+   * escribe lo apuntado al instante (`pagehide`, `visibilitychange`, `beforeunload`).
+   */
+  stage?(session: ScanSession): void;
+  /** ADITIVO. Escribe ya lo apuntado con `stage` (y espera a los guardados en vuelo). Nunca lanza. */
+  flush?(): Promise<void>;
 }

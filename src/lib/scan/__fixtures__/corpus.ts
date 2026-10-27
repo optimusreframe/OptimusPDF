@@ -10,8 +10,13 @@ import {
   renderFormPage,
   renderIdCard,
   renderReceipt,
+  renderCeilingStains,
+  renderFullBleedPage,
+  renderRoofTiles,
   renderTextPage,
+  renderWallFrame,
   renderWhiteboard,
+  renderWhiteWithRect,
   type PageRender,
   type TruthLine,
 } from "@/lib/scan/__fixtures__/pages";
@@ -228,12 +233,39 @@ export function buildSpecialSet(): CorpusItem[] {
   return items;
 }
 
+/**
+ * Escenas SIN documento y casos trampa: la foto ES lo unico que hay (techos, paredes, un cuadro) o ya es toda documento (pagina
+ * blanca a sangre con un rectangulo rojo dentro). El recorte automatico NO debe aplicarse a ninguna (`hasDocument = false`).
+ */
+export function buildNoDocumentSet(): CorpusItem[] {
+  const items: CorpusItem[] = [];
+  // La foto ES la imagen (sin escritorio alrededor): se usa el lienzo tal cual.
+  const add = (id: string, render: PageRender & { width: number; height: number }) => {
+    const image = canvasToRgba(render.canvas);
+    items.push({
+      id,
+      kind: "photo",
+      mode: "document",
+      image,
+      page: image,
+      truth: { hasDocument: false, quad: null, neededRotation: null, title: null, date: null, blank: false, duplicateGroup: null, formFamily: null, sharp: true, glare: false, dark: false, lines: render.lines, pageWidth: render.width, pageHeight: render.height, spine: null },
+    });
+  };
+  for (let n = 0; n < 3; n += 1) add(`roof-${n}`, renderRoofTiles(60 + n));
+  for (let n = 0; n < 3; n += 1) add(`ceiling-${n}`, renderCeilingStains(70 + n));
+  for (let n = 0; n < 2; n += 1) add(`wall-${n}`, renderWallFrame(80 + n));
+  add("white-red-rect", renderWhiteWithRect());
+  add("fullbleed-text", renderFullBleedPage(95));
+  return items;
+}
+
 export type Corpus = {
   documents: CorpusItem[];
   blanks: CorpusItem[];
   quality: CorpusItem[];
   session: CorpusItem[];
   special: CorpusItem[];
+  noDocument: CorpusItem[];
 };
 
 export function buildCorpus(): Corpus {
@@ -243,5 +275,6 @@ export function buildCorpus(): Corpus {
     quality: buildQualitySet(),
     session: buildSessionSet(),
     special: buildSpecialSet(),
+    noDocument: buildNoDocumentSet(),
   };
 }

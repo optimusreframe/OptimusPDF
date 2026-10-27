@@ -36,6 +36,11 @@ SPINE = f"{D}/spine.ts"
 RES = "src/lib/resumeLinks.ts"
 UNF = "src/app/recent/unfinishedWork.ts"
 DISC = "src/app/recent/discardDraft.ts"
+GATE = f"{D}/cropGate.ts"
+OCR = f"{D}/ocr.ts"
+RBR = f"{D}/renderBrowser.ts"
+ENG = f"{D}/engine.ts"
+EST = f"{D}/estimate.ts"
 
 # (id, archivo, texto original, texto mutado, descripcion). El original debe aparecer; se reemplazan TODAS sus apariciones.
 MUTATIONS = [
@@ -47,7 +52,7 @@ MUTATIONS = [
     ("S06", LIVE, "if (sinceLast > 1500) {", "if (sinceLast > 1500000) {", "una pausa larga ya no reinicia la quietud"),
     ("S07", LDET, "if (share < MIN_AREA || share > MAX_REGION_SHARE) return null;", "if (share < MIN_AREA) return null;", "un fotograma liso se toma por documento"),
     ("S08", QUAL, "export const BLANK_MAX_CELLS = 48;", "export const BLANK_MAX_CELLS = 5;", "hoja en blanco: un sello pequeno ya no cuenta"),
-    ("S09", QUAL, "blurry: sharpness !== null && !isBlankPage(ink) && sharpness < BLUR_ACUTANCE_THRESHOLD,", "blurry: sharpness !== null && sharpness < BLUR_ACUTANCE_THRESHOLD,", "una hoja en blanco se marca borrosa"),
+    ("S09", QUAL, "blurry: !isBlankPage(ink) && isBlurry(sharpness, reblur),", "blurry: isBlurry(sharpness, reblur),", "una hoja en blanco se marca borrosa"),
     ("S10", QUAL, "dark: paperLevel < DARK_PAPER_THRESHOLD,", "dark: paperLevel > DARK_PAPER_THRESHOLD,", "oscuridad: comparacion invertida"),
     ("S11", FILT, "const document = median >= 55 &&", "const document = median >= 255 &&", "auto: un documento con poca luz se trata como foto"),
     ("S12", FILT, "if (mode === \"photo\") return \"original\";", "if (mode === \"photo\") return filter === \"auto\" ? \"color\" : filter;", "modo foto: se filtra aunque se pida sin tocar"),
@@ -73,17 +78,48 @@ MUTATIONS = [
     ("S32", BUILD, "const steps = searchable ? 3 : 2;", "const steps = 2;", "PDF: el progreso no cuenta el paso del OCR"),
     ("S33", DETECT, "if (quadIoU(a, b) >= 0.85) return a;", "if (quadIoU(a, b) >= 0.85) return b;", "deteccion: con acuerdo se prefiere el ligero al preciso"),
     ("S34", SPINE, "const confidence = interior ? Math.max(0, Math.min(1, contrast / 0.25)) : 0;", "const confidence = Math.max(0, Math.min(1, contrast / 0.25));", "lomo: una sombra en el borde de la ventana cuenta"),
+    # --- Correcciones tras la verificacion independiente (P1-1 recorte, P1-2/P1-3 OCR, P1-4 sin conexion, P2-7 avisos, P2-8 presets, P2-10 volcado)
+    ("P01", GATE, "if (area < limits.minArea || area > 0.9) return { accept: false, reason: \"area\", features };", "if (area > 0.9) return { accept: false, reason: \"area\", features };", "recorte: una mota de hoja se recorta"),
+    ("P02", GATE, "if (!aspectIn(aspect, limits.aspect)) return { accept: false, reason: \"aspect\", features };", "", "recorte: una franja de proporcion imposible se recorta (el rectangulo rojo interior)"),
+    ("P03", GATE, "export const MIN_EDGE_SUPPORT = 0.9;", "export const MIN_EDGE_SUPPORT = 0;", "recorte: no hace falta que los lados sean bordes reales"),
+    ("P04", GATE, "if (limits.paper && !(features.paperShare", "if (false && !(features.paperShare", "recorte: el interior no tiene que parecer papel (un objeto de color se recorta)"),
+    ("P05", GATE, "if (features.lumaGap < MIN_LUMA_GAP && features.colorGap < MIN_COLOR_GAP) return", "if (false) return", "recorte: se recorta aunque el exterior sea igual que el interior (la foto ya es toda documento)"),
+    ("P06", GATE, "if (mode === \"photo\") return { quad: null, verdict: null };", "", "recorte: el modo foto tambien recorta"),
+    ("P07", QUAL, "return sharpness !== null && reblur !== null && sharpness < BLUR_ACUTANCE_THRESHOLD && reblur < BLUR_REBLUR_THRESHOLD;", "return sharpness !== null && sharpness < BLUR_ACUTANCE_THRESHOLD;", "avisos: borrosa solo por acutancia (falsos «Borrosa» en fotos reales nitidas)"),
+    ("P08", QUAL, "blob.box / (width * height) <= GLARE_MAX_BOX", "true", "avisos: el blanco de una hoja con texto cuenta como reflejo"),
+    ("P09", QUAL, "const surrounded = total > 0 && paper >= total * 0.15 && reference <= GLARE_PAPER_MAX;", "const surrounded = true;", "avisos: una escena oscura con una luz o una pared blanca cuentan como reflejo"),
+    ("P10", BUILD, "      if (!gate.ok) {", "      if (false) {", "PDF buscable: sin modelo en local se intenta igualmente el OCR (y falla o descarga sin permiso)"),
+    ("P11", BUILD, "warn(code === \"ocrNetworkFailure\" ? \"network\" : \"engine\", withText);", "warn(\"engine\", withText);", "PDF buscable: el aviso no distingue un fallo de red"),
+    ("P12", BUILD, "          // El OCR no se pudo hacer (sin red para el modelo, motor roto): se entrega el PDF sin el texto que falte.\n", "          throw error;\n", "PDF buscable: un fallo del OCR rompe el PDF en vez de degradar"),
+    ("P13", OCR, "      return present.every(Boolean);", "      return present.some(Boolean);", "OCR: con solo un idioma en la cache se da el modelo por disponible"),
+    ("P14", OCR, "    if (!known.some((db) => db.name === TESSERACT_CACHE_DB)) return false;", "", "OCR: se abre la base de tesseract.js aunque no exista (la dejaria rota)"),
+    ("P15", OCR, "if (typeof navigator !== \"undefined\" && navigator.onLine === false) return { ok: false, reason: \"offline\" };", "", "OCR: se intenta descargar el modelo sin conexion"),
+    ("P16", RBR, "const WORKER_RETRY_MS = 15_000;", "const WORKER_RETRY_MS = 1_000_000_000_000;", "sin conexion: el worker que fallo una vez no se vuelve a probar nunca"),
+    ("P17", RBR, "if (!isBroken() && workerSupported()) {", "if (workerSupported()) {", "sin conexion: cada tarea vuelve a pagar un worker roto"),
+    ("P18", DETECT, "    modulePromise = null;\n    throw error;\n  });\n  return modulePromise;", "    throw error;\n  });\n  return modulePromise;", "sin conexion: el rechazo de scanic queda cacheado hasta recargar"),
+    ("P19", ENG, "  realPromise ??= realImporter().catch((error: unknown) => {\n    realPromise = null;\n    throw error;\n  });", "  realPromise ??= realImporter();", "sin conexion: el rechazo del motor real queda cacheado hasta recargar"),
+    ("P20", EST, "  if (mode === \"photo\") return true;", "  if (mode === \"photo\") return false;", "presets: una foto sin tocar se estima como si se recodificara"),
+    ("P21", FILT, "backgroundAt(maps[c], x + ox, y + oy));\n          data[o + c] = DOC_CURVE", "backgroundAt(maps[c], x, y));\n          data[o + c] = DOC_CURVE", "presets: el fondo de un fragmento se busca en la posicion equivocada"),
+    ("P22", STORE, "  staged.set(session.id, session);\n  installLeaveHooks();", "  installLeaveHooks();", "volcado: lo apuntado con stage no se guarda"),
+    ("P23", STORE, "  window.addEventListener(\"pagehide\", flushStagedOnLeave);", "", "volcado: pagehide no vuelca lo apuntado"),
+    ("P26", EST, "export const KEEP_RULE_MAX_WEIGHT = 0.8;", "export const KEEP_RULE_MAX_WEIGHT = 0;", "presets: la estimacion de Alta ignora la regla del 15 % (extremo optimista)"),
+    ("P27", OCR, "    if (typeof listing !== \"function\") return false;", "    if (typeof listing !== \"function\") return true;", "OCR: sin indexedDB.databases() se da el modelo por disponible sin mirarlo"),
+    ("P25", STORE, "  if (!db || !validSession(session)) return false;\n  const asBytes", "  if (!db || storageMode !== \"blob\" || !validSession(session)) return false;\n  const asBytes", "volcado: sin Blob en IndexedDB (WebKit) el volcado al irse no empieza la transaccion en el acto"),
+    ("P24", STORE, "    if (document.visibilityState === \"hidden\") flushStagedOnLeave();", "    if (false) flushStagedOnLeave();", "volcado: ocultar la pestana no vuelca lo apuntado"),
 ]
 
 FAST = ["npx", "vitest", "run", "--project", "engines", "--exclude", "src/lib/scan/scan.metrics.test.ts", "src/lib/scan", "src/app/recent", "src/lib/resumeLinks"]
 FULL = ["npx", "vitest", "run", "--project", "engines", "src/lib/scan", "src/app/recent", "src/lib/resumeLinks"]
 TESTS = FAST if "--fast" in sys.argv else FULL
+# Las pruebas de componentes de lo del Escaner (jsdom: OCR, volcado al irse la pagina) tambien cuentan para matar una mutacion.
+COMPONENTS = ["npx", "vitest", "run", "--project", "components", "src/lib/scan"]
 
 
 def run_tests() -> bool:
     """True si las pruebas PASAN (la mutacion sobrevive)."""
-    result = subprocess.run(TESTS, cwd=ROOT, capture_output=True, text=True)
-    return result.returncode == 0
+    if subprocess.run(TESTS, cwd=ROOT, capture_output=True, text=True).returncode != 0:
+        return False
+    return subprocess.run(COMPONENTS, cwd=ROOT, capture_output=True, text=True).returncode == 0
 
 
 def main() -> int:

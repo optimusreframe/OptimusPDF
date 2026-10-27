@@ -10,7 +10,7 @@ import {
   resetFrameTracker,
   type FrameReading,
 } from "@/lib/scan/liveFrame";
-import type { Rgba } from "@/lib/scan/pixels";
+import { boxBlur, type Rgba } from "@/lib/scan/pixels";
 import type { QuadCorners } from "@/lib/scan/perspective";
 import { detectLiveQuad, convexHull, circumscribedQuad } from "@/lib/scan/liveDetect";
 
@@ -34,13 +34,19 @@ function frame(options: { paper?: [number, number, number]; box?: [number, numbe
         const row = (y - y0) % 14;
         if (row >= 5 && row < 8 && x > x0 + 12 && x < x1 - 12 && (x - x0) % 9 < 6) v = [28, 28, 32];
       }
-      if (options.blur && inside) {
-        const t = ((y - y0) % 14) / 14;
-        v = [paper[0] - 40 * Math.sin(t * Math.PI), paper[1] - 40 * Math.sin(t * Math.PI), paper[2] - 40 * Math.sin(t * Math.PI)];
-      }
       if (options.glare && inside && (x - 160) ** 2 + (y - 120) ** 2 < 55 ** 2) v = [255, 255, 255];
       const n = (rand() - 0.5) * (options.noise ?? 0);
       data.set([v[0] + n, v[1] + n, v[2] + n, 255], (y * width + x) * 4);
+    }
+  }
+  if (options.blur) {
+    // Desenfoque real de TODO el fotograma (movimiento o falta de enfoque): el borde de la hoja tambien se emborrona.
+    for (let channel = 0; channel < 3; channel += 1) {
+      const plane = new Float32Array(width * height);
+      for (let i = 0; i < plane.length; i += 1) plane[i] = data[i * 4 + channel];
+      let blurred: Float32Array = plane;
+      for (let pass = 0; pass < 3; pass += 1) blurred = boxBlur(blurred, width, height, 3);
+      for (let i = 0; i < plane.length; i += 1) data[i * 4 + channel] = blurred[i];
     }
   }
   return { data, width, height };

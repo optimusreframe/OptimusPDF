@@ -6,6 +6,7 @@ import {
   type ScanPage,
   type ScanPageFlags,
   type ScanPageSource,
+  type ScanResolvedFilter,
   type ScanRotation,
   type ScanSession,
   type ScanSessionStore,
@@ -116,6 +117,8 @@ type PageRow = {
   flags: ScanPageFlags;
   ocrText?: string;
   mode?: ScanMode;
+  resolvedFilter?: ScanResolvedFilter;
+  jpegSample?: { side: number; bytesPerPixel: number };
   thumb: Blob | null;
   thumbBytes?: ArrayBuffer;
   thumbType?: string;
@@ -134,13 +137,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
+/** Un Blob puede venir de otro «realm» (iframe, entorno de pruebas): se mira la forma, no solo la clase. */
 function isBlobLike(value: unknown): value is Blob {
-  return typeof Blob !== "undefined" && value instanceof Blob;
+  if (typeof Blob !== "undefined" && value instanceof Blob) return true;
+  const tag = Object.prototype.toString.call(value);
+  return (tag === "[object Blob]" || tag === "[object File]") && typeof (value as Blob).size === "number" && typeof (value as Blob).slice === "function";
 }
 
 const MODES: readonly string[] = ["document", "id-card", "receipt", "book", "whiteboard", "photo"];
 const FILTERS: readonly string[] = ["auto", "color", "grayscale", "bw", "enhance", "original"];
 const SOURCES: readonly string[] = ["camera", "library", "file"];
+
+const RESOLVED: readonly string[] = ["color", "grayscale", "bw", "enhance", "original", "whiteboard"];
+function isResolvedFilter(value: unknown): value is ScanResolvedFilter {
+  return typeof value === "string" && RESOLVED.includes(value);
+}
+function isJpegSample(value: unknown): value is { side: number; bytesPerPixel: number } {
+  return isRecord(value) && isFiniteNumber(value.side) && isFiniteNumber(value.bytesPerPixel) && value.side > 0 && value.bytesPerPixel > 0;
+}
 
 function isCorners(value: unknown): value is QuadCorners {
   if (!isRecord(value)) return false;
@@ -370,6 +384,8 @@ function pageSignature(page: ScanPage): string {
     page.flags,
     page.ocrText ?? null,
     page.mode ?? null,
+    page.resolvedFilter ?? null,
+    page.jpegSample ?? null,
     blobId(page.thumb),
   ]);
 }
@@ -394,6 +410,21 @@ async function enoughQuota(extraBytes: number): Promise<boolean> {
   }
 }
 
+/**
+ * Bytes de las miniaturas ya leidas en modo `bytes` (WebKit sin Blob en IndexedDB). Permite que el volcado al irse la pagina,
+ * que no puede esperar a `arrayBuffer()`, escriba igualmente los cambios de una pagina (girar, filtro, ajuste, orden, borrar).
+ * Solo miniaturas (pequenas): los originales no se guardan aqui para no duplicar fotos en memoria.
+ */
+const thumbBytesCache = new WeakMap<object, ArrayBuffer>();
+
+async function thumbBytesOf(thumb: Blob): Promise<ArrayBuffer> {
+  const known = thumbBytesCache.get(thumb);
+  if (known) return known;
+  const bytes = await thumb.arrayBuffer();
+  thumbBytesCache.set(thumb, bytes);
+  return bytes;
+}
+
 function pageRowOf(sid: string, page: ScanPage, thumbBytes?: ArrayBuffer): PageRow {
   return {
     key: rowKey(sid, page.id),
@@ -410,6 +441,8 @@ function pageRowOf(sid: string, page: ScanPage, thumbBytes?: ArrayBuffer): PageR
     flags: page.flags,
     ...(page.ocrText !== undefined ? { ocrText: page.ocrText } : {}),
     ...(page.mode !== undefined ? { mode: page.mode } : {}),
+    ...(page.resolvedFilter !== undefined ? { resolvedFilter: page.resolvedFilter } : {}),
+    ...(page.jpegSample !== undefined ? { jpegSample: page.jpegSample } : {}),
     thumb: thumbBytes ? null : page.thumb,
     ...(thumbBytes ? { thumbBytes, thumbType: page.thumb?.type ?? "" } : {}),
     originalBytes: page.original.size,
@@ -515,8 +548,8 @@ async function saveSessionNow(input: ScanSession): Promise<SaveResult> {
     const buffers = new Map<string, { original: ArrayBuffer | undefined; thumb: ArrayBuffer | undefined }>();
     let coverBytes: ArrayBuffer | undefined;
     if (asBytes) {
-      for (const page of dirtyPages) buffers.set(page.id, { original: dirtyOriginals.has(page.id) ? await page.original.arrayBuffer() : undefined, thumb: page.thumb ? await page.thumb.arrayBuffer() : undefined });
-      if (input.pages[0]?.thumb) coverBytes = await input.pages[0].thumb.arrayBuffer();
+      for (const page of dirtyPages) buffers.set(page.id, { original: dirtyOriginals.has(page.id) ? await page.original.arrayBuffer() : undefined, thumb: page.thumb ? await thumbBytesOf(page.thumb) : undefined });
+      if (input.pages[0]?.thumb) coverBytes = await thumbBytesOf(input.pages[0].thumb);
       if (coverBytes) {
         meta.cover = null;
         meta.coverBytes = coverBytes;
@@ -542,6 +575,8 @@ async function saveSessionNow(input: ScanSession): Promise<SaveResult> {
     }
     tx.objectStore(META_STORE).put(meta);
     await txDone(tx);
+    // Lo apuntado ya esta escrito (si no cambio mientras tanto).
+    if (staged.get(input.id) === input) staged.delete(input.id);
 
     const next = new Map<string, WrittenPage>();
     for (const page of input.pages) next.set(page.id, { signature: pageSignature(page), original: blobId(page.original) });
@@ -570,6 +605,7 @@ async function saveSessionNow(input: ScanSession): Promise<SaveResult> {
 const saveQueues = new Map<string, Promise<unknown>>();
 
 function saveSession(input: ScanSession): Promise<SaveResult> {
+  void warmConnection();
   const key = isRecord(input) && typeof input.id === "string" ? input.id : "";
   const previous = saveQueues.get(key) ?? Promise.resolve();
   const run = previous.then(
@@ -632,6 +668,8 @@ async function loadSession(id: string): Promise<ScanSession | null> {
         flags: row.flags,
         ...(row.ocrText !== undefined ? { ocrText: row.ocrText } : {}),
         ...(row.mode !== undefined ? { mode: row.mode } : {}),
+        ...(isResolvedFilter(row.resolvedFilter) ? { resolvedFilter: row.resolvedFilter } : {}),
+        ...(isJpegSample(row.jpegSample) ? { jpegSample: row.jpegSample } : {}),
       });
     }
     const session: ScanSession = {
@@ -768,10 +806,176 @@ export async function clearScanSessions(): Promise<void> {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Ultima version apuntada y volcado al irse de la pagina
+ * ------------------------------------------------------------------ */
+
+/**
+ * Un cambio hecho justo antes de recargar o cerrar (girar y recargar a los 200 ms) no debe perderse aunque el autoguardado de la
+ * interfaz espere (p. ej. 500 ms): la interfaz apunta la ULTIMA version con `stage(session)` en cada cambio (barato: solo guarda la
+ * referencia) y llama a `save` cuando toque. Si la pagina se oculta, se cierra o se recarga (`pagehide`, `visibilitychange`,
+ * `beforeunload`) lo apuntado se vuelca YA, empezando la transaccion de IndexedDB de forma SINCRONA sobre una conexion abierta de
+ * antemano (una pagina que se va no espera a abrir la base). `flush()` hace lo mismo a peticion y espera a que termine.
+ */
+const staged = new Map<string, ScanSession>();
+let warmDb: IDBDatabase | null = null;
+let warming: Promise<void> | null = null;
+let hooksInstalled = false;
+
+function dropWarm(db: IDBDatabase): void {
+  if (warmDb === db) warmDb = null;
+  try {
+    db.close();
+  } catch {
+    // Ya cerrada.
+  }
+}
+
+/** Deja abierta la conexion de volcado. Idempotente y silenciosa. */
+function warmConnection(): Promise<void> {
+  if (warmDb) return Promise.resolve();
+  warming ??= openDb()
+    .then((db) => {
+      if (warmDb) {
+        db.close();
+        return;
+      }
+      warmDb = db;
+      db.onversionchange = () => dropWarm(db);
+      db.onclose = () => {
+        if (warmDb === db) warmDb = null;
+      };
+    })
+    .catch(() => {})
+    .finally(() => {
+      warming = null;
+    });
+  return warming;
+}
+
+/** Solo para tests: cierra y olvida la conexion de volcado y lo apuntado. */
+export function __resetScanStagingForTests(): void {
+  if (warmDb) dropWarm(warmDb);
+  staged.clear();
+}
+
+/**
+ * Empieza YA la escritura de `session` (sin esperas antes de crear la transaccion). `false` si no se puede hacer asi (sin
+ * conexion abierta, almacenamiento en bytes, sesion invalida...): el llamador usa entonces el guardado normal.
+ */
+function writeNow(session: ScanSession): boolean {
+  const db = warmDb;
+  if (!db || !validSession(session)) return false;
+  const asBytes = storageMode === "bytes";
+  const targetId = forks.get(session.id) ?? session.id;
+  const written = writtenBySession.get(targetId) ?? new Map<string, WrittenPage>();
+  const keep = new Set(session.pages.map((page) => page.id));
+  const dirtyPages = session.pages.filter((page) => written.get(page.id)?.signature !== pageSignature(page) || written.get(page.id)?.original !== blobId(page.original));
+  const dirtyOriginals = new Set(session.pages.filter((page) => written.get(page.id)?.original !== blobId(page.original)).map((page) => page.id));
+  const removed = [...written.keys()].filter((id) => !keep.has(id));
+  if (dirtyPages.length === 0 && removed.length === 0 && metaSignatureBySession.get(targetId) === metaSignature(session)) return true;
+  // En modo `bytes` solo se puede empezar ya si no hay fotos nuevas y las miniaturas ya se leyeron (si no, guardado normal).
+  const cachedThumb = (page: ScanPage | undefined): ArrayBuffer | undefined => (page?.thumb ? thumbBytesCache.get(page.thumb) : undefined);
+  if (asBytes) {
+    if (dirtyOriginals.size > 0) return false;
+    if (session.pages[0]?.thumb && !cachedThumb(session.pages[0])) return false;
+    if (dirtyPages.some((page) => page.thumb && !cachedThumb(page))) return false;
+  }
+  const rev = (tab.knownRevs.get(targetId) ?? 0) + 1;
+  const now = Date.now();
+  const meta: MetaRow = {
+    schema: SCAN_SCHEMA,
+    id: targetId,
+    name: session.name,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    savedAt: new Date(now).toISOString(),
+    expiresAt: now + SCAN_SESSION_TTL_MS,
+    settings: session.settings,
+    ...(session.nameSuggested ? { nameSuggested: session.nameSuggested } : {}),
+    order: session.pages.map((page) => page.id),
+    pageCount: session.pages.length,
+    cover: session.pages[0]?.thumb ?? null,
+    bytes: sessionBytes(session),
+    rev,
+    writerId: tab.id,
+  };
+  const coverBytes = asBytes ? cachedThumb(session.pages[0]) : undefined;
+  if (coverBytes) {
+    meta.cover = null;
+    meta.coverBytes = coverBytes;
+    meta.coverType = session.pages[0].thumb?.type ?? "";
+  }
+  try {
+    const tx = db.transaction([META_STORE, PAGES_STORE, ORIGINALS_STORE], "readwrite");
+    const pages = tx.objectStore(PAGES_STORE);
+    const originals = tx.objectStore(ORIGINALS_STORE);
+    for (const page of dirtyPages) {
+      pages.put(pageRowOf(targetId, page, asBytes ? cachedThumb(page) : undefined));
+      if (dirtyOriginals.has(page.id)) originals.put({ key: rowKey(targetId, page.id), sid: targetId, pid: page.id, blob: page.original } satisfies OriginalRow);
+    }
+    for (const pid of removed) {
+      pages.delete(rowKey(targetId, pid));
+      originals.delete(rowKey(targetId, pid));
+    }
+    tx.objectStore(META_STORE).put(meta);
+    // Lo escrito solo se da por escrito cuando la transaccion termina (si falla, el siguiente guardado normal lo repite).
+    tx.oncomplete = () => {
+      const next = new Map<string, WrittenPage>();
+      for (const page of session.pages) next.set(page.id, { signature: pageSignature(page), original: blobId(page.original) });
+      writtenBySession.set(targetId, next);
+      metaSignatureBySession.set(targetId, metaSignature(session));
+      tab.knownRevs.set(targetId, rev);
+      announce({ id: targetId, rev });
+    };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Vuelca lo apuntado (al irse la pagina). Lo que no pueda empezar de forma sincrona cae al guardado normal. */
+function flushStagedOnLeave(): void {
+  for (const session of [...staged.values()]) {
+    if (!writeNow(session)) void saveSession(session);
+  }
+}
+
+function installLeaveHooks(): void {
+  if (hooksInstalled || typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+  hooksInstalled = true;
+  window.addEventListener("pagehide", flushStagedOnLeave);
+  window.addEventListener("beforeunload", flushStagedOnLeave);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushStagedOnLeave();
+  });
+}
+
+function stageSession(session: ScanSession): void {
+  if (!isRecord(session) || !isValidScanSessionId(session.id)) return;
+  staged.set(session.id, session);
+  installLeaveHooks();
+  void warmConnection();
+  // Sin Blob en IndexedDB (modo `bytes`) el volcado al irse necesita las miniaturas ya leidas: se leen de antemano.
+  if (storageMode === "bytes") {
+    for (const page of session.pages) {
+      if (isBlobLike(page?.thumb) && !thumbBytesCache.has(page.thumb)) void thumbBytesOf(page.thumb).catch(() => {});
+    }
+  }
+}
+
+async function flushStaged(): Promise<void> {
+  const pending = [...staged.values()];
+  await Promise.all(pending.map((session) => saveSession(session)));
+  await Promise.all([...saveQueues.values()].map((queue) => queue.catch(() => undefined)));
+}
+
 export const scanSessionStore: ScanSessionStore = {
   save: saveSession,
   load: loadSession,
   list: async () => (await listScanSessionSummaries()).map(({ id, name, updatedAt, pageCount, thumb }) => ({ id, name, updatedAt, pageCount, thumb })),
   remove: removeSession,
   purgeExpired: (now) => purge(now ?? Date.now()),
+  stage: stageSession,
+  flush: flushStaged,
 };

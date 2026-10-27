@@ -2518,3 +2518,119 @@ El agente del motor aun no habia publicado su `unit-docs-section.md` al cerrar e
 - `tsc --noEmit`, `eslint src e2e` y Vitest completo (646 archivos, 14127 pruebas) en verde; 45 mutaciones de `scan-ui-mutate.py` (las 13 nuevas mueren; las 32 anteriores sin cambios de logica).
 - Docker Linux (Playwright 1.62 noble + DejaVu, `CI=1`, 2 trabajadores, sin reintentos, build de produccion de 0c8e2b2 + parche): `e2e/specs/scan-ui-*` con motor falso **103 de 103**, y con `SCAN_REAL=1` **96 pasan y 7 se saltan con motivo explicito** (ganchos del doble). Incluye las celdas 320 px EN claro/oscuro del fallo del CI y toda la matriz a11y con motor real.
 - Chromium en macOS: ambas variantes en verde; WebKit (`webkit-ipad`) de las pruebas de maquetacion: ver el informe.
+## Correcciones del motor tras la verificación independiente (E1 · fix)
+
+Defectos P1-1 a P2-10 del informe del verificador. Todo es aditivo respecto al contrato anterior; la interfaz (`src/app/scan-to-pdf/*`) no
+necesita cambios para seguir funcionando, pero SÍ debe adoptar las acciones de la lista «Qué debe hacer la interfaz».
+
+### P1-1 · El recorte automático nunca pierde contenido (`cropGate.ts`)
+
+Regla de oro: **no se pierde contenido en silencio**. Lo que proponen scanic y el detector ligero (`chooseCorners`) pasa antes por una
+puerta (`selectCrop` / `evaluateCrop`); si algo falla, la página queda COMPLETA, sin recorte, con `flags.noDocument = true`
+(«sin documento detectado, ajusta el recorte»). El modo `photo` nunca recorta.
+
+El cuadrilátero solo se aplica si cumple TODO:
+
+| Regla | Valor |
+|---|---|
+| Cobertura del encuadre | documento ≥ 0,22; recibo ≥ 0,07; carnet ≥ 0,08; libro y pizarra ≥ 0,25; y ≤ 0,90 en todos |
+| Proporción (ancho/alto de la hoja enderezada, en cualquier orientación) | documento 0,45–2,1; carnet 1,35–1,85; recibo 0,13–0,62; libro 0,9–2,3; pizarra 1,0–2,6 |
+| Apoyo de borde (`edgeSupport`, los cuatro lados son saltos reales contra el fondo) | ≥ 0,90 (`MIN_EDGE_SUPPORT`) |
+| Por dentro parece papel (salvo carnet) | ≥ 72 % de celdas de papel, ≤ 8 % con color, nivel de papel ≥ 55 |
+| Por fuera es OTRA cosa | diferencia de brillo ≥ 22 o de color ≥ 34 (si no: `same-as-outside`, la foto ya es toda documento) |
+
+Motivos de rechazo (`CropVerdict.reason`): `area`, `aspect`, `edges`, `not-paper`, `same-as-outside`. Cubierto con fotos de techos
+reales (sin recorte), documentos sintéticos sobre un escritorio (recorte) y un rectángulo rojo interior en una página blanca a sangre
+(sin recorte). Los límites son constantes exportadas de `cropGate.ts`.
+
+### P1-2 y P1-3 · 100 % local por defecto; PDF buscable que degrada
+
+Por defecto la herramienta NO hace ninguna petición de red: crear páginas, analizar, nombre inteligente, orientación y PDF.
+
+- `ocrModelAvailable(): Promise<boolean>` (de `@/lib/scan/engine`): ¿están ya en este dispositivo los datos de idioma español + inglés
+  (caché de tesseract.js en IndexedDB `keyval-store`) o hay un reconocedor cargado? Nunca lanza, nunca toca la red y nunca crea esa
+  base (abrir una inexistente la dejaría rota). Sin `indexedDB.databases()` da `false`.
+- `prepareOcrModel({ signal? }): Promise<{ ok: true } | { ok: false; reason: "offline" | "network" | "engine" | "cancelled" }>`:
+  ACCIÓN EXPLÍCITA que descarga el modelo (peticiones a la CDN de tesseract.js la primera vez; luego queda en el dispositivo). Sin
+  conexión no lo intenta (`offline`). Antes de crear el worker de tesseract.js hace una comprobación previa de la CDN (`preflight`) para
+  que una CDN bloqueada salga como `network` y NO como errores sin capturar del worker (`pageerror`).
+- `suggestName` y `detectOrientation` solo usan OCR si `ocrModelAvailable()`; si no, nombre por fecha y tipo (p. ej. «Escaneo AAAA-MM-DD…» y el tipo dominante: documento, recibo, carnet…) y orientación sin OCR, sin peticiones ni errores.
+- `buildPdf(session, { …, allowModelDownload?, onWarning? })` con `searchable`:
+  - modelo local → PDF con texto;
+  - sin modelo y sin `allowModelDownload` → PDF normal + `onWarning({ code: "searchable-unavailable", reason: "model-missing", pagesWithText, total })`;
+  - `allowModelDownload: true` (la persona lo aceptó) → intenta bajar el modelo; sin conexión o con la red caída degrada igual
+    (`offline`, `network`) y un fallo del motor de OCR (`engine`) también. **Nunca es un error**: el PDF se entrega siempre.
+
+### P1-4 · Importar sin conexión
+
+- `preloadScanEngine()` (también se dispara solo en reposo al cargar `engine.ts`) precarga el motor real, scanic y el worker.
+- Un rechazo de `import()` o de la creación del worker NO se cachea: el siguiente intento reintenta (`loadScanic`, `real()` en `engine.ts`).
+- Si el worker no carga, la tarea pasa al hilo principal y el worker queda en enfriamiento 15 s (`brokenUntil`), luego se vuelve a probar.
+  Reposo del worker: 600 s.
+
+### P2-7 · Avisos de calidad calibrados (`quality.ts`)
+
+- Borrosa = acutancia baja **Y** re-desenfoque bajo (`BLUR_ACUTANCE_THRESHOLD` y `BLUR_REBLUR_THRESHOLD = 0,27`); una hoja en blanco
+  nunca. En vivo: `LIVE_REBLUR_THRESHOLD = 0,35`.
+- Brillo = mancha quemada con papel claro visible alrededor y caja acotada (`GLARE_MAX_FRACTION 0,6`, `GLARE_PAPER_MIN 150`,
+  `GLARE_PAPER_MAX 242`, `GLARE_MAX_BOX 0,85`). Un documento blanco puro ya no es «Brillo».
+
+### P2-8 · Presets reales y estimación honesta
+
+- Modo `photo` / filtros `original` y `color` sin recorte, giro ni ajuste: `processed` ES el archivo original (mismos bytes). El preset
+  «Original» del PDF conserva el archivo tal cual; Alta, Equilibrada y Compacta usan la política de `prepareForPdf` (nunca amplía, solo
+  recodifica si ahorra ≥ 15 %).
+- `ScanPage.jpegSample` guarda el peso por píxel medido a resolución nativa (rejilla 5×5 de parches de 128 px con el fondo de toda la
+  imagen); `estimateSize` lo combina con `estimatePreparedBytes`. Cerca del umbral del 15 % el resultado real depende del codificador
+  del navegador (en Chromium recodifica, en WebKit suele quedar el original), así que la estimación da el valor esperado
+  (`KEEP_RULE_*` en `estimate.ts`), no un extremo.
+- Texto buscable: +2,5 kB por página en la estimación.
+
+### P2-10 · Volcado al irse la página (`sessionStore.ts`)
+
+Un cambio hecho menos de 500 ms antes de recargar ya no se pierde.
+
+- `scanSessionStore.stage(session)`: apunta la ÚLTIMA versión sin escribir (barato, solo la referencia).
+- `scanSessionStore.flush()`: escribe lo apuntado y espera a los guardados en vuelo. Nunca lanza.
+- Al `pagehide`, `beforeunload` o `visibilitychange` oculto, lo apuntado se escribe YA: la transacción de IndexedDB se crea de forma
+  síncrona sobre una conexión abierta de antemano. En navegadores sin Blob en IndexedDB (modo `bytes`, WebKit) también, siempre que
+  las miniaturas ya se hayan leído (se precargan en `stage`) y no haya fotos nuevas; si no, cae al guardado normal.
+
+### Contrato: cambios aditivos en `types.ts`
+
+`ScanPage.resolvedFilter?`, `ScanPage.jpegSample?`, `ScanResolvedFilter`, `ScanBuildWarning`, `buildPdf(..., { allowModelDownload?, onWarning? })`,
+`ScanSessionStore.stage?`, `ScanSessionStore.flush?`. Exportaciones nuevas de `engine.ts`: `ocrModelAvailable`, `prepareOcrModel`,
+`PrepareOcrResult`, `preloadScanEngine`. No se quita ni cambia nada anterior. Tampoco hay claves nuevas de `localStorage`.
+
+### Qué debe hacer la interfaz (otro agente)
+
+1. Mostrar el chip «Sin documento detectado · ajusta el recorte» cuando `page.flags.noDocument`.
+2. Llamar a `scanSessionStore.stage(session)` en CADA cambio y a `save` tras su espera de autoguardado; opcionalmente `await flush()` antes de navegar.
+3. Para el texto buscable: si `!(await ocrModelAvailable())`, ofrecer una acción explícita «Descargar el modelo de texto (≈ X MB)»;
+   al aceptarla, `prepareOcrModel()` y/o `buildPdf(..., { allowModelDownload: true })`. Mostrar el texto de `onWarning` (no es un error).
+4. No llamar a OCR por su cuenta antes de comprobar `ocrModelAvailable()`.
+
+### Pruebas y métricas de las correcciones
+
+Cada defecto tiene pruebas que fallan sin el arreglo (`cropGate.test.ts`, `quality.test.ts`, `buildPdf.test.ts`, `naming.test.ts`,
+`ocr.availability.test.tsx`, `renderBrowser.test.ts`, `documentDetection.test.ts`, `engine.test.ts`, `estimate.test.ts`,
+`sessionStore.leave.test.tsx`, `liveFrame.test.ts`, `filters.test.ts`, y E2E `scan-engine.spec.ts`, `scan-engine-persist.spec.ts`,
+`scan-engine-offline.spec.ts`). Las fotos reales de techos se prueban SOLO en local (`SCAN_REAL_PHOTOS_DIR`, `scan.realPhotos.test.ts` y
+el bloque «fotos reales sin documento» de `scan-engine.spec.ts`): nunca se guardan en el repositorio ni se imprimen, solo cifras agregadas.
+
+| Métrica | Antes | Después |
+|---|---|---|
+| Fotos reales (techos) recortadas con pérdida de contenido | 5 de 9 | 0 de 13 (las 13 marcadas «sin documento») |
+| Fotos reales nítidas marcadas «Borrosa» | 7 de 9 | 0 de 13 (las variantes desenfocadas, 13 de 13 detectadas) |
+| Fotos reales con «Brillo» falso | 1 | 0 de 13 |
+| Corpus sintético: recorte correcto (IoU ≥ 0,9) | 0,985 (scanic) / 0,993 (combinado) | 0,993; 0 recortes erróneos; 0 falsos recortes en el conjunto sin documento |
+| PDF «Original», fotos | recodificado (3,14 → 2,35 MB) | bytes del archivo sin tocar |
+| Peso total de 13 fotos reales por preset (original / Alta / Equilibrada / Compacta) | idénticos | 16,28 / 13,92 / 10,80 / 6,67 MB (medido en Chromium) |
+| Error de la estimación, 13 fotos reales, total por preset (Chromium) | hasta ≈ +74 % (Original estimaba 8,9 MB frente a 5,13) | foto −0,3 a +7,1 %; documento −2,1 a +5,6 % |
+| Error de la estimación, 13 fotos reales (WebKit iPad) | — | foto −8,4 a +11,4 %; documento −9,6 a +7,9 % |
+| Importar sin conexión | fotos descartadas y fallo cacheado | importan, sin errores de página |
+| Cambio hecho < 500 ms antes de recargar | se perdía | se conserva (Chromium y WebKit) |
+
+Límites conocidos: la estimación con imágenes SINTÉTICAS (ruido y papel casi blanco) tiene tolerancia 25 % en las pruebas E2E porque su
+peso varía mucho con el codificador de cada navegador; el requisito de ≤ 15 % se mide con fotos reales. Sin probar en Safari/iPhone reales
+ni OCR real de tesseract.js sin red (se prueba con un reconocedor sustituto y una CDN bloqueada).

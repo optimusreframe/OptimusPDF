@@ -3,10 +3,10 @@ import { createCanvas } from "@napi-rs/canvas";
 import { PDFArray, PDFDocument, PDFRawStream, decodePDFRawStream } from "@cantoo/pdf-lib";
 import { getPageSize, getTextItems } from "../../../e2e/helpers/pdf-inspection";
 import { buildScanPdf, type BuildPdfDeps } from "@/lib/scan/buildPdf";
-import { estimateScanSize, expectedProcessed, PROCESSED_MAX_SIDE } from "@/lib/scan/estimate";
+import { estimateScanSize, expectedProcessed, isIdentityPage, PROCESSED_MAX_SIDE, SAMPLE_BPP_EXPONENT } from "@/lib/scan/estimate";
 import { drawTextLayer, imagePlacement, marginPoints } from "@/lib/scan/textLayer";
 import type { OcrResult } from "@/lib/scan/ocr";
-import { DEFAULT_SCAN_SETTINGS, type ScanPage, type ScanSession } from "@/lib/scan/types";
+import { DEFAULT_SCAN_SETTINGS, type ScanBuildWarning, type ScanPage, type ScanSession } from "@/lib/scan/types";
 import { StandardFonts } from "@cantoo/pdf-lib";
 
 /**
@@ -51,6 +51,7 @@ const session = (pages: ScanPage[], searchable = false): ScanSession => ({ id: "
 
 const deps = (patch: Partial<BuildPdfDeps> = {}): BuildPdfDeps => ({
   processedBlob: async (p) => p.processed as Blob,
+  ocrGate: async () => ({ ok: true }),
   recognize: async () => {
     throw new Error("no debe leerse");
   },
@@ -167,8 +168,82 @@ describe("buildScanPdf — src/lib/scan/buildPdf.ts", () => {
     expect(order).toEqual(pages.map((p) => p.id));
   });
 
-  it("un fallo del OCR (sin red) sale como error clasificado, no como un PDF a medias", async () => {
-    await expect(buildScanPdf(session([page(300, 400)], true), { preset: "original", pageSize: "a4", margin: "none" }, deps({ recognize: async () => { throw new Error("boom"); } }))).rejects.toBeDefined();
+  it("texto buscable SIN modelo en local y sin permiso: el PDF sale NORMAL (una pagina por hoja), no se llama al OCR y se avisa", async () => {
+    const recognize = vi.fn(async () => ocrOf(300, 400));
+    const warnings: ScanBuildWarning[] = [];
+    const ocrGate = vi.fn(async (allow: boolean) => (allow ? ({ ok: true } as const) : ({ ok: false, reason: "model-missing" } as const)));
+    const blob = await buildScanPdf(session([page(300, 400), page(300, 400)], true), { preset: "original", pageSize: "a4", margin: "none", onWarning: (w) => warnings.push(w) }, deps({ recognize, ocrGate }));
+    expect(ocrGate).toHaveBeenCalledWith(false);
+    expect(recognize).not.toHaveBeenCalled();
+    expect(warnings).toEqual([{ code: "searchable-unavailable", reason: "model-missing", pagesWithText: 0, total: 2 }]);
+    const bytes = Buffer.from(await blob.arrayBuffer());
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2);
+    expect(await getTextItems(bytes, 1)).toEqual([]);
+  });
+
+  it("con permiso para descargar el modelo (allowModelDownload) la puerta lo sabe y el texto SI se anade", async () => {
+    const ocrGate = vi.fn(async (allow: boolean) => (allow ? ({ ok: true } as const) : ({ ok: false, reason: "model-missing" } as const)));
+    const warnings: ScanBuildWarning[] = [];
+    const blob = await buildScanPdf(
+      session([page(600, 800)], true),
+      { preset: "original", pageSize: "a4", margin: "none", allowModelDownload: true, onWarning: (w) => warnings.push(w) },
+      deps({ ocrGate, recognize: async () => ocrOf(600, 800) }),
+    );
+    expect(ocrGate).toHaveBeenCalledWith(true);
+    expect(warnings).toEqual([]);
+    expect((await getTextItems(Buffer.from(await blob.arrayBuffer()), 1)).length).toBeGreaterThan(0);
+  });
+
+  it("sin conexion para descargar el modelo: PDF normal y aviso `offline`", async () => {
+    const warnings: ScanBuildWarning[] = [];
+    const blob = await buildScanPdf(
+      session([page(300, 400)], true),
+      { preset: "original", pageSize: "a4", margin: "none", allowModelDownload: true, onWarning: (w) => warnings.push(w) },
+      deps({ ocrGate: async () => ({ ok: false, reason: "offline" }) }),
+    );
+    expect(warnings).toEqual([{ code: "searchable-unavailable", reason: "offline", pagesWithText: 0, total: 1 }]);
+    expect((await PDFDocument.load(Buffer.from(await blob.arrayBuffer()))).getPageCount()).toBe(1);
+  });
+
+  it("el OCR falla a mitad (sin red / motor roto): se entrega el PDF con el texto de las paginas leidas y se avisa del motivo", async () => {
+    for (const [code, reason] of [["ocrNetworkFailure", "network"], ["ocrEngineFailure", "engine"], [undefined, "engine"]] as const) {
+      let calls = 0;
+      const warnings: ScanBuildWarning[] = [];
+      const progress: Array<[number, number]> = [];
+      const blob = await buildScanPdf(
+        session([page(600, 800), page(600, 800), page(600, 800)], true),
+        { preset: "original", pageSize: "a4", margin: "none", onWarning: (w) => warnings.push(w), onProgress: (d, t) => progress.push([d, t]) },
+        deps({
+          recognize: async () => {
+            calls += 1;
+            if (calls === 2) throw Object.assign(new Error("boom"), code ? { code } : {});
+            return ocrOf(600, 800);
+          },
+        }),
+      );
+      expect(warnings).toEqual([{ code: "searchable-unavailable", reason, pagesWithText: 1, total: 3 }]);
+      expect(calls).toBe(2);
+      // El progreso llega al final aunque se salte lo que falta.
+      expect(progress.at(-1)).toEqual([9, 9]);
+      const bytes = Buffer.from(await blob.arrayBuffer());
+      expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);
+      expect((await getTextItems(bytes, 1)).length).toBeGreaterThan(0);
+      expect(await getTextItems(bytes, 3)).toEqual([]);
+    }
+  });
+
+  it("cancelar durante el OCR sigue interrumpiendo (no se confunde con un fallo del motor)", async () => {
+    const controller = new AbortController();
+    const warnings: ScanBuildWarning[] = [];
+    await expect(
+      buildScanPdf(session([page(300, 400)], true), { preset: "original", pageSize: "a4", margin: "none", signal: controller.signal, onWarning: (w) => warnings.push(w) }, deps({
+        recognize: async () => {
+          controller.abort();
+          throw Object.assign(new Error("Aborted"), { name: "AbortError" });
+        },
+      })),
+    ).rejects.toMatchObject({ code: "cancelled" });
+    expect(warnings).toEqual([]);
   });
 });
 
@@ -228,5 +303,45 @@ describe("estimacion del peso — src/lib/scan/estimate.ts", () => {
     const turned = expectedProcessed({ ...base, rotation: 90 });
     expect([turned.width, turned.height]).toEqual([full.height, full.width]);
     expect(cropped.bytes).toBeLessThan(full.bytes);
+  });
+
+  it("una pagina SIN recorte, giro ni ajuste con filtro original/color ES su original: se estima por los bytes del archivo (el preset Original no lo toca)", () => {
+    const original = new Blob([new Uint8Array(3_140_000)], { type: "image/jpeg" });
+    const photo = page(4032, 3024, { processed: null, processedSize: undefined, original, mode: "photo" });
+    expect(isIdentityPage(photo)).toBe(true);
+    expect(expectedProcessed(photo)).toMatchObject({ width: 4032, height: 3024, bytes: 3_140_000, kind: "jpeg" });
+    // Original: se conserva tal cual (peso del archivo + la hoja); Compacta baja.
+    const originalEstimate = estimateScanSize([photo], { preset: "original", searchable: false });
+    expect(Math.abs(originalEstimate.bytes - 3_140_000)).toBeLessThan(10_000);
+    expect(estimateScanSize([photo], { preset: "compact", searchable: false }).bytes).toBeLessThan(originalEstimate.bytes * 0.7);
+    // Un filtro que si toca los pixeles, un giro, un ajuste o un recorte lo sacan del caso.
+    expect(isIdentityPage({ ...photo, mode: "document", filter: "bw", resolvedFilter: undefined })).toBe(false);
+    expect(isIdentityPage({ ...photo, mode: "document", resolvedFilter: "enhance" })).toBe(false);
+    expect(isIdentityPage({ ...photo, mode: "document", resolvedFilter: "color" })).toBe(true);
+    expect(isIdentityPage({ ...photo, rotation: 90 })).toBe(false);
+    expect(isIdentityPage({ ...photo, adjust: { brightness: 0.1, contrast: 0 } })).toBe(false);
+    expect(isIdentityPage({ ...photo, mode: "document", resolvedFilter: "color", corners: { topLeft: { x: 0.1, y: 0.1 }, topRight: { x: 0.9, y: 0.1 }, bottomRight: { x: 0.9, y: 0.9 }, bottomLeft: { x: 0.1, y: 0.9 } } })).toBe(false);
+  });
+
+  it("sin procesado completo se estima con el peso por pixel MEDIDO a resolucion nativa en un parche del resultado, que SUBE al reducir la foto", () => {
+    const base = page(3000, 4000, { processed: null, processedSize: undefined, mode: "document", resolvedFilter: "enhance", original: new Blob([new Uint8Array(4_000_000)], { type: "image/jpeg" }) });
+    const sample = { side: 128, bytesPerPixel: 0.2 };
+    const expected = expectedProcessed({ ...base, jpegSample: sample });
+    const scale = expected.width / 3000;
+    expect(scale).toBeLessThan(1);
+    expect(Math.max(expected.width, expected.height)).toBeLessThanOrEqual(PROCESSED_MAX_SIDE);
+    expect(expected.bytes).toBeCloseTo(0.2 * scale ** -SAMPLE_BPP_EXPONENT * expected.width * expected.height, 0);
+    // Una muestra mas densa pesa mas; sin muestra se usa la regla antigua; sin reducir (scale 1) el peso por pixel es el medido.
+    expect(expectedProcessed({ ...base, jpegSample: { side: 128, bytesPerPixel: 0.4 } }).bytes).toBeGreaterThan(expected.bytes * 1.9);
+    expect(expectedProcessed(base).bytes).toBeGreaterThan(0);
+    const small = page(1200, 1600, { processed: null, processedSize: undefined, mode: "document", resolvedFilter: "enhance", jpegSample: { side: 128, bytesPerPixel: 0.1 } });
+    expect(expectedProcessed(small).bytes).toBeCloseTo(0.1 * 1200 * 1600, 0);
+  });
+
+  it("con el resultado ya procesado se usa su peso y sus dimensiones reales (sin estimar)", () => {
+    const p = page(2000, 3000);
+    const exact = expectedProcessed(p);
+    expect(exact.bytes).toBe((p.processed as Blob).size);
+    expect([exact.width, exact.height]).toEqual([2000, 3000]);
   });
 });

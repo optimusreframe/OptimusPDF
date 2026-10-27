@@ -1,5 +1,5 @@
 import { boxBlur, clampByte, downscaleGray, histogram256, lumaOf, percentileOf, toGray, type Gray, type Rgba } from "@/lib/scan/pixels";
-import type { ScanFilterMode, ScanMode, ScanPageAdjust } from "@/lib/scan/types";
+import type { ScanFilterMode, ScanMode, ScanPageAdjust, ScanResolvedFilter } from "@/lib/scan/types";
 
 /**
  * Filtros de pagina del Escaner (puros, sobre buffers RGBA, sin canvas): los clasicos de `scanToPdf.ts` (`color`,
@@ -111,7 +111,19 @@ function dilateMax(source: Float32Array, width: number, height: number, radius: 
   return out;
 }
 
+/** Fondo ya calculado de la imagen ENTERA y posicion (x, y) del fragmento que se esta filtrando dentro de ella. */
+export type BackgroundContext = { maps: BackgroundMap[]; x: number; y: number };
+
 export type BackgroundMap = { data: Float32Array; width: number; height: number; scaleX: number; scaleY: number };
+
+/** Fondo de las tres componentes de color de una imagen, calculado sobre `image` (que puede ser una copia reducida) pero expresado en las coordenadas de una imagen de `fullWidth` x `fullHeight`. */
+export function backgroundMapsFor(image: Rgba, fullWidth: number, fullHeight: number): BackgroundMap[] {
+  return ([0, 1, 2] as const).map((channel) => {
+    const plane = new Uint8Array(image.width * image.height);
+    for (let i = 0, p = channel; i < plane.length; i += 1, p += 4) plane[i] = image.data[p];
+    return backgroundOfPlane({ data: plane, width: image.width, height: image.height }, fullWidth, fullHeight);
+  });
+}
 
 /** Fondo de UN canal (0 = R, 1 = G, 2 = B, 3 = luminancia) a baja resolucion. */
 export function estimateBackground(image: Rgba, channel: 0 | 1 | 2 | 3 = 3): BackgroundMap {
@@ -167,9 +179,11 @@ const DOC_CURVE = (() => {
  * queda blanco) y refuerza el contraste de la tinta, que conserva su color (azul, sellos). Procesa por bandas de filas para
  * que quien llama ceda el hilo entre ellas (`onBand`).
  */
-export async function enhanceDocument(image: Rgba, options: { onBand?: () => Promise<void> | void; band?: number } = {}): Promise<void> {
+export async function enhanceDocument(image: Rgba, options: { onBand?: () => Promise<void> | void; band?: number; background?: BackgroundContext } = {}): Promise<void> {
   const { data, width, height } = image;
-  const maps = [estimateBackground(image, 0), estimateBackground(image, 1), estimateBackground(image, 2)];
+  const maps = options.background?.maps ?? [estimateBackground(image, 0), estimateBackground(image, 1), estimateBackground(image, 2)];
+  const ox = options.background?.x ?? 0;
+  const oy = options.background?.y ?? 0;
   const band = Math.max(16, options.band ?? 128);
   for (let y0 = 0; y0 < height; y0 += band) {
     const y1 = Math.min(height, y0 + band);
@@ -177,7 +191,7 @@ export async function enhanceDocument(image: Rgba, options: { onBand?: () => Pro
       for (let x = 0; x < width; x += 1) {
         const o = (y * width + x) * 4;
         for (let c = 0; c < 3; c += 1) {
-          const bg = Math.max(40, backgroundAt(maps[c], x, y));
+          const bg = Math.max(40, backgroundAt(maps[c], x + ox, y + oy));
           data[o + c] = DOC_CURVE[Math.min(1099, Math.round((data[o + c] / bg) * 1000))];
         }
       }
@@ -187,9 +201,11 @@ export async function enhanceDocument(image: Rgba, options: { onBand?: () => Pro
 }
 
 /** Pizarra: aplanado de fondo fuerte, blanco limpio y rotuladores saturados. */
-export async function enhanceWhiteboard(image: Rgba, options: { onBand?: () => Promise<void> | void; band?: number } = {}): Promise<void> {
+export async function enhanceWhiteboard(image: Rgba, options: { onBand?: () => Promise<void> | void; band?: number; background?: BackgroundContext } = {}): Promise<void> {
   const { data, width, height } = image;
-  const maps = [estimateBackground(image, 0), estimateBackground(image, 1), estimateBackground(image, 2)];
+  const maps = options.background?.maps ?? [estimateBackground(image, 0), estimateBackground(image, 1), estimateBackground(image, 2)];
+  const ox = options.background?.x ?? 0;
+  const oy = options.background?.y ?? 0;
   const band = Math.max(16, options.band ?? 128);
   for (let y0 = 0; y0 < height; y0 += band) {
     const y1 = Math.min(height, y0 + band);
@@ -197,7 +213,7 @@ export async function enhanceWhiteboard(image: Rgba, options: { onBand?: () => P
       for (let x = 0; x < width; x += 1) {
         const o = (y * width + x) * 4;
         for (let c = 0; c < 3; c += 1) {
-          const bg = Math.max(40, backgroundAt(maps[c], x, y));
+          const bg = Math.max(40, backgroundAt(maps[c], x + ox, y + oy));
           const ratio = Math.min(1.1, data[o + c] / bg);
           const t = Math.min(1, Math.max(0, (ratio - 0.3) / 0.62));
           // Curva en S fuerte: el fondo a 255, el trazo mas oscuro y vivo.
@@ -213,7 +229,7 @@ export async function enhanceWhiteboard(image: Rgba, options: { onBand?: () => P
  * Decision del filtro automatico
  * ------------------------------------------------------------------ */
 
-export type AutoDecision = { kind: "document" | "photo"; paperLevel: number; colorfulShare: number; paperShare: number };
+export type AutoDecision = { kind: "document" | "photo"; paperLevel: number; colorfulShare: number; paperShare: number; inkShare: number };
 
 /**
  * `auto`: ¿es un documento de texto sobre papel (-> mejorado) o una foto/pieza de color (-> color)? Papel claro y
@@ -240,7 +256,7 @@ export function decideAutoFilter(image: Rgba): AutoDecision {
   const paperShare = near / total;
   const inkShare = ink / total;
   const document = median >= 55 && colorful < 0.08 && paperShare >= 0.6 && inkShare >= 0.002 && inkShare <= 0.45;
-  return { kind: document ? "document" : "photo", paperLevel: median, colorfulShare: colorful, paperShare };
+  return { kind: document ? "document" : "photo", paperLevel: median, colorfulShare: colorful, paperShare, inkShare };
 }
 
 function downscaleGrayFromRgba(image: Rgba, side: number): { gray: Gray; colorful: number } {
@@ -305,7 +321,7 @@ export function applyAdjust(data: Uint8ClampedArray, adjust: ScanPageAdjust): vo
 }
 
 /** Filtro realmente aplicado tras resolver `auto` y el modo (para mostrarlo y para probarlo). */
-export type ResolvedFilter = "color" | "grayscale" | "bw" | "enhance" | "original" | "whiteboard";
+export type ResolvedFilter = ScanResolvedFilter;
 
 export function resolveFilter(filter: ScanFilterMode, mode: ScanMode, image: Rgba): ResolvedFilter {
   if (mode === "photo") return "original";
@@ -325,7 +341,7 @@ export async function applyFilterTo(
   image: Rgba,
   filter: ResolvedFilter,
   adjust: ScanPageAdjust,
-  hooks: { onBand?: () => Promise<void> | void; band?: number } = {},
+  hooks: { onBand?: () => Promise<void> | void; band?: number; background?: BackgroundContext } = {},
 ): Promise<void> {
   const band = Math.max(16, hooks.band ?? Math.floor(600_000 / Math.max(1, image.width)));
   switch (filter) {
@@ -340,10 +356,10 @@ export async function applyFilterTo(
       await inBands(image.data, image.width, band, toBlackAndWhite, hooks.onBand);
       break;
     case "enhance":
-      await enhanceDocument(image, { onBand: hooks.onBand, band });
+      await enhanceDocument(image, { onBand: hooks.onBand, band, background: hooks.background });
       break;
     case "whiteboard":
-      await enhanceWhiteboard(image, { onBand: hooks.onBand, band });
+      await enhanceWhiteboard(image, { onBand: hooks.onBand, band, background: hooks.background });
       break;
   }
   const lookup = adjustLookup(adjust);
