@@ -75,7 +75,7 @@ async function deliver(page: Page, paths: string[]): Promise<void> {
 const gaps = (page: Page): Promise<Array<[number, number]>> =>
   page.evaluate(() => (window as unknown as { __gaps: { gaps: Array<[number, number]> } }).__gaps.gaps);
 
-test(`${PHOTOS} fotos: ni el primer pintado ni las miniaturas bloquean el hilo principal mas de 100 ms`, async ({ page }) => {
+test(`${PHOTOS} fotos: ni el primer pintado ni las miniaturas bloquean el hilo principal mas de 100 ms`, { tag: "@perf" }, async ({ page }) => {
   test.setTimeout(420_000);
   await installGapMonitor(page);
   await openTool(page, "jpg-to-pdf");

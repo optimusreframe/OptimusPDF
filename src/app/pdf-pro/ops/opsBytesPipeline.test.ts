@@ -88,6 +88,8 @@ async function corpus(): Promise<{ name: string; bytes: Uint8Array }[]> {
 
 describe("core · savePdfToBytes / pdfBytesToBlob", () => {
   it("savePdfToBytes da EXACTAMENTE los bytes de savePdfToBlob (misma llamada a save)", async () => {
+    // pdf-lib sella ModDate con la hora actual al guardar: con el reloj libre dos guardados pueden caer en segundos distintos.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
     const bytes = await makePdfBytes(3);
     const first = await PDFDocument.load(bytes);
     const second = await PDFDocument.load(bytes);
@@ -95,6 +97,7 @@ describe("core · savePdfToBytes / pdfBytesToBlob", () => {
     const viaBlob = await bytesOf(await savePdfToBlob(second));
     expect(viaBytes).toBeInstanceOf(Uint8Array);
     expect(same(viaBytes, viaBlob)).toBe(true);
+    vi.useRealTimers();
   });
 
   it("pdfBytesToBlob envuelve los mismos bytes en un Blob application/pdf", async () => {
