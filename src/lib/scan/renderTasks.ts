@@ -4,6 +4,7 @@ import { abortIfNeeded, cropAndRotate, needsWarp, renderRgba, thumbnailOf, type 
 import { detectTextOrientation, type OrientationReading } from "@/lib/scan/orientation";
 import { resolveFilter, type ResolvedFilter } from "@/lib/scan/filters";
 import { cropRgba, downscaleRgba, type Rgba } from "@/lib/scan/pixels";
+import { findDocumentCorners } from "@/lib/scan/findCorners";
 import { computeSignature, type PageSignature } from "@/lib/scan/similarity";
 import type { QuadCorners } from "@/lib/scan/perspective";
 import type { ScanFilterMode, ScanMode, ScanRotation } from "@/lib/scan/types";
@@ -19,6 +20,11 @@ export type PageQualityReading = { blurry: boolean; glare: boolean; dark: boolea
 export type TaskRequest =
   /** Decodifica reducido (para detectar el documento en el hilo principal). Deja la imagen en cache bajo `token`. */
   | { kind: "decode"; source: Blob; maxSide: number; token: string }
+  /**
+   * Decodifica reducido (como `decode`, con la misma cache por `token`) y busca el documento: scanic + detector ligero + puerta
+   * y ajuste del recorte. Devuelve solo las esquinas (o `null`): ningun pixel vuelve al hilo principal.
+   */
+  | { kind: "detect"; source: Blob; maxSide: number; mode: ScanMode; token: string }
   /** Procesa la pagina: recorte+giro+filtro, miniatura, JPEG final, calidad y firma. */
   | {
       kind: "render";
@@ -51,6 +57,7 @@ export type TaskRequest =
 
 export type TaskResult =
   | { kind: "decode"; image: Rgba }
+  | { kind: "detect"; corners: QuadCorners | null }
   | {
       kind: "render";
       processed: Blob | null;
@@ -173,6 +180,13 @@ export async function runTask(request: TaskRequest, hooks: RenderHooks = {}): Pr
       cache = { token: request.token, image };
       // El llamador recibe una copia: la cache conserva la suya (el buffer enviado se transfiere).
       return { kind: "decode", image: { data: new Uint8ClampedArray(image.data), width: image.width, height: image.height } };
+    }
+    case "detect": {
+      const image = await decodeToRgba(request.source, request.maxSide, hooks.signal);
+      cache = { token: request.token, image };
+      const corners = await findDocumentCorners(image, request.mode, hooks.yield);
+      abortIfNeeded(hooks.signal);
+      return { kind: "detect", corners };
     }
     case "render": {
       const cached = request.token && cache && cache.token === request.token ? cache.image : null;

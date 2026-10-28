@@ -143,6 +143,7 @@ export function warmScanWorker(): void {
       brokenUntil = Date.now() + WORKER_RETRY_MS;
       disposeScanWorker();
     });
+    worker.postMessage({ warm: true } satisfies WorkerRequest);
     touchIdle();
   } catch {
     brokenUntil = Date.now() + WORKER_RETRY_MS;
@@ -180,7 +181,7 @@ async function execute(request: TaskRequest, signal?: AbortSignal): Promise<Task
     throw error;
   } finally {
     // La cache de tareas del hilo principal no debe retener una foto grande entre paginas.
-    if (request.kind !== "decode") clearTaskCache();
+    if (request.kind !== "decode" && request.kind !== "detect") clearTaskCache();
   }
 }
 

@@ -2995,3 +2995,48 @@ en las 13 fotos reales nítidas.
 - WebKit: una pestaña que se cierra en el mismo instante de un cambio (< ~30 ms) pierde ese cambio.
 - Una página con un número de página en el 5 % exterior del papel no enciende ninguna celda (el margen se ignora para no confundir sombra con tinta) y sale `blank`.
 - Linux con WebKit (Playwright): ver el informe de pruebas.
+
+## Cuarta ronda del motor (E1 · fix 4): la detección del documento sale del hilo principal
+
+Sin cambios de contrato para la interfaz (`types.ts` no se toca): `createPage` devuelve lo mismo que antes.
+
+### Qué fallaba
+
+En el CI de GitHub (runner ~2× más lento que Docker) la prueba «tareas largas: crear 8 páginas y procesar 4 a resolución completa»
+medía una pausa de hilo principal de 279 ms (límite `100 × 2,5 + 20 = 270`). Las tareas largas eran las **primeras páginas**: scanic
+(~100 ms la primera vez: módulo + WASM + JIT; 50-70 ms la segunda), la puerta del recorte `pickCrop` (~75 ms la primera vez) y el ajuste
+de lados `refineCrop` (38-52 ms en alguna). Todo corría en el hilo principal.
+
+### Qué se hizo
+
+| Pieza | Cambio |
+|---|---|
+| `findCorners.ts` (nuevo) | `findDocumentCorners(image, mode, yieldNow)`: scanic + detector ligero + `pickCrop` + `finishCrop`, la lógica de antes sin cambios. Recibe una COPIA de los píxeles para el detector (la imagen decodificada la reutiliza el render siguiente). |
+| `renderTasks.ts` | Tarea nueva **`detect`**: decodifica reducido (800 px, misma caché por `token` que `decode`) y busca el documento. Devuelve solo `{ kind: "detect", corners }`: ningún píxel vuelve al hilo principal. `decode` se conserva. |
+| `renderWorker.ts` | Corre `detect` en el Web Worker (scanic usa `OffscreenCanvas` en modo `detect`, sin `document`). Mensaje nuevo `{ warm: true }`: precarga el detector (el chunk de scanic) al calentar el worker. |
+| `renderBrowser.ts` | `warmScanWorker` manda `{ warm: true }`. Sin worker (o si falla) `detect` corre en el hilo principal como antes, **cediendo el hilo** entre fases (`yieldNow`). La caché de la imagen se conserva tras `detect` (como tras `decode`). |
+| `realEngine.ts` | `createPage` pide `detect` (con el modo de la página y el `token` que reusa el `render`) en vez de decodificar + detectar en el hilo principal. |
+| `engine.ts` | `preloadScanEngine`: el hilo principal solo precarga scanic si NO hay worker (respaldo); con worker lo precarga el propio worker. |
+
+### Medidas (Docker Linux, Playwright `CI=1`, 1 worker, `@perf`, spec `scan-engine.spec.ts` «tareas largas…», mayor pausa del hilo principal)
+
+| `--cpus` | Antes | Después |
+|---|---|---|
+| 1,0 (≈ runner de GitHub: 279 ms allí) | Chromium 171 / 201 / 257 ms; tareas largas [102, 83, 68, 53, 50] | Chromium 32 / 50 / 35 ms y 53 / 53 / 42 ms, **sin tareas largas** |
+| 1,5 | Chromium 151 / 155 / 177 ms | Chromium 15 / 30 / 15 ms |
+| 1,5 | WebKit 103 / 129 / 136 ms | WebKit 98-107 ms (sin API de tareas largas; no cambia: no lo dominaba la detección) |
+
+Límite de la prueba en CI: 270 ms. El umbral NO se ha tocado.
+
+### Comprobaciones
+
+- Unitarias nuevas: `findCorners.test.ts`, `renderTasks.detect.test.ts`, `renderWorker.test.ts`, `realEngine.detect.test.ts` y casos nuevos en `renderBrowser.test.ts`. Mutaciones nuevas `W01`-`W09` en `scripts/scan-engine-mutate.py` (todas mueren).
+- El build real de Next/Turbopack carga el chunk de scanic DENTRO del worker (10 recursos del worker frente a 7 antes) y detecta las hojas igual en Chromium y WebKit.
+- Los resultados de recorte y calidad no cambian: es la misma lógica sobre los mismos píxeles (mismo `ImageData`, misma rama `OffscreenCanvas` de scanic).
+
+### Observación aparte (no es de esta ronda, ya presente en main)
+
+`scan-ui-persist.spec.ts` «girar y recargar de INMEDIATO…» (solo con `SCAN_REAL=1`, no corre en el CI) es inestable con el almacén real: tras una
+recarga SIN guardado con Blob en esa carga, `blobVerified` sigue en `false` y el volcado de `pagehide` (`writeNow`) devuelve `false`, así que un
+borrado seguido de recarga a los ~7 ms cae al guardado normal, que la recarga corta. Se reproduce en el commit base (eb1eb09). Candidato a una ronda
+propia (p. ej. dar por verificado el Blob en Chromium al abrir la conexión de volcado).

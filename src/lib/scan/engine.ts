@@ -126,8 +126,9 @@ const real = (): Promise<ScanEngineApi> => {
 export async function preloadScanEngine(): Promise<void> {
   try {
     await real();
-    const [{ preloadDocumentDetection }, { warmScanWorker }] = await Promise.all([import("@/lib/scan/documentDetection"), import("@/lib/scan/renderBrowser")]);
-    preloadDocumentDetection();
+    const [{ preloadDocumentDetection }, { warmScanWorker, workerSupported }] = await Promise.all([import("@/lib/scan/documentDetection"), import("@/lib/scan/renderBrowser")]);
+    // El detector corre en el worker (que lo precarga al arrancar): el hilo principal solo lo carga si no hay worker (respaldo).
+    if (!workerSupported()) preloadDocumentDetection();
     warmScanWorker();
   } catch {
     // Sin conexion o sin el chunk: se reintenta al usar el motor.

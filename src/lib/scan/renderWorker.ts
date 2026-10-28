@@ -1,13 +1,14 @@
+import { preloadDocumentDetection } from "@/lib/scan/documentDetection";
 import { runTask, type TaskRequest, type TaskResult } from "@/lib/scan/renderTasks";
 
 /**
  * Web Worker del procesado del Escaner (`renderBrowser.ts`): decodifica, recorta, filtra y codifica FUERA del hilo
  * principal (`createImageBitmap` + `OffscreenCanvas`). Recibe `{ id, request }` y responde `{ id, ok: true, result }` (los
  * pixeles viajan por transferencia) o `{ id, ok: false, code }`; `{ cancel: id }` aborta la tarea en curso (se comprueba
- * entre bandas).
+ * entre bandas); `{ warm: true }` precarga el detector.
  */
 
-export type WorkerRequest = { id: number; request: TaskRequest } | { cancel: number };
+export type WorkerRequest = { id: number; request: TaskRequest } | { cancel: number } | { warm: true };
 export type WorkerResponse = { id: number; ok: true; result: TaskResult } | { id: number; ok: false; code: "cancelled" | "undecodable" | "failed"; message: string };
 
 const scope = self as unknown as {
@@ -28,6 +29,11 @@ const yieldWorker = (): Promise<void> => new Promise((resolve) => setTimeout(res
 
 scope.onmessage = (event) => {
   const message = event.data;
+  if ("warm" in message) {
+    // Descarga y evalua el detector (scanic) YA, con conexion: la primera hoja ya no lo espera ni, sin red, lo pierde.
+    preloadDocumentDetection();
+    return;
+  }
   if ("cancel" in message) {
     running.get(message.cancel)?.abort();
     return;

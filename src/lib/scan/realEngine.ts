@@ -1,6 +1,3 @@
-import { finishCrop, pickCrop } from "@/lib/scan/cropGate";
-import { detectDocumentCorners } from "@/lib/scan/documentDetection";
-import { detectLiveQuad } from "@/lib/scan/liveDetect";
 import { buildScanPdf } from "@/lib/scan/buildPdf";
 import { estimateScanSize, PROCESSED_MAX_SIDE } from "@/lib/scan/estimate";
 import { buildNameSuggestion, dominantMode, fallbackName, sanitizeFileName, isoDate } from "@/lib/scan/naming";
@@ -111,24 +108,6 @@ function jobOf(page: ScanPage, maxSide: number): RenderJob {
   return { corners: page.corners, rotation: page.rotation, filter: page.filter, adjust: page.adjust, mode: pageMode(page), maxSide };
 }
 
-async function decodeSmallForDetection(source: Blob, token: string, signal?: AbortSignal) {
-  const result = await enqueueTask({ kind: "decode", source, maxSide: DETECT_SIDE, token }, signal);
-  if (result.kind !== "decode") throw new Error("unexpected task result");
-  return result.image;
-}
-
-/** scanic (preciso) + detector ligero, combinados y pasados por la puerta del recorte (solo se recorta si es MUY fiable). */
-async function findCorners(image: { data: Uint8ClampedArray<ArrayBuffer>; width: number; height: number }, mode: ScanMode): Promise<QuadCorners | null> {
-  const found = await detectDocumentCorners(new ImageData(image.data, image.width, image.height));
-  // El detector, la puerta y el ajuste de los lados corren en el hilo principal: se cede el hilo entre ellos (cada trozo, < ~15 ms).
-  await yieldToMain();
-  const live = detectLiveQuad(image);
-  const picked = pickCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, image, mode, live?.confidence ?? 0);
-  if (!picked.candidate || !picked.verdict?.accept) return null;
-  await yieldToMain();
-  return finishCrop(image, picked.candidate, picked.verdict, mode).quad;
-}
-
 export const realEngine: ScanEngineApi = {
   analyzeFrame(frame, previous, now, options): FrameVerdict {
     return analyzeLiveFrame(frame, sharedFrameTracker, previous, now ?? (typeof performance !== "undefined" ? performance.now() : Date.now()), options);
@@ -150,8 +129,9 @@ export const realEngine: ScanEngineApi = {
     let token: string | undefined;
     if (mode !== "photo") {
       token = `${id}:detect`;
-      const small = await decodeSmallForDetection(original, token, signal);
-      corners = await findCorners(small, mode);
+      // Decodifica reducido, detecta el documento y ajusta los lados DENTRO del worker (sin pixeles de vuelta al hilo principal).
+      const detected = await enqueueTask({ kind: "detect", source: original, maxSide: DETECT_SIDE, mode, token }, signal);
+      corners = detected.kind === "detect" ? detected.corners : null;
     }
     if (signal?.aborted) throw new ScanCancelled();
     // 3. Miniatura + calidad + firma, de la hoja ya recortada.

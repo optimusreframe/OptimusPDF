@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskRequest, TaskResult } from "@/lib/scan/renderTasks";
 
 const runTask = vi.fn(async (): Promise<TaskResult> => ({ kind: "sample", image: { data: new Uint8ClampedArray(4), width: 1, height: 1 } }));
-vi.mock("@/lib/scan/renderTasks", () => ({ runTask: (...args: unknown[]) => (runTask as (...a: unknown[]) => unknown)(...args), clearTaskCache: () => {} }));
+const clearTaskCache = vi.fn();
+vi.mock("@/lib/scan/renderTasks", () => ({ runTask: (...args: unknown[]) => (runTask as (...a: unknown[]) => unknown)(...args), clearTaskCache: () => clearTaskCache() }));
 
 import { ScanCancelled, __resetScanWorkerStateForTests, disposeScanWorker, enqueueTask, renderStats, setScanWorkerFactory, warmScanWorker, workerSupported } from "@/lib/scan/renderBrowser";
 
@@ -37,6 +38,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(2026, 9, 26, 12, 0, 0));
   runTask.mockClear();
+  clearTaskCache.mockClear();
   __resetScanWorkerStateForTests();
   setScanWorkerFactory(null);
 });
@@ -98,6 +100,32 @@ describe("cola de procesado — src/lib/scan/renderBrowser.ts", () => {
     await enqueueTask(request);
     expect(creations).toBe(2);
     expect(renderStats().worker).toBe(before.worker + 1);
+  });
+
+  it("sin worker, `decode` y `detect` dejan la imagen en la cache de tareas para el render siguiente; las demas tareas la liberan", async () => {
+    setScanWorkerFactory(null, { disabled: true });
+    const source = new Blob([]);
+    await enqueueTask({ kind: "decode", source, maxSide: 800, token: "a" });
+    await enqueueTask({ kind: "detect", source, maxSide: 800, mode: "document", token: "b" });
+    expect(clearTaskCache).not.toHaveBeenCalled();
+    await enqueueTask(request);
+    expect(clearTaskCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("warmScanWorker le pide al worker que precargue el detector (un solo aviso, sin tarea ni id)", () => {
+    const messages: unknown[] = [];
+    setScanWorkerFactory(() => {
+      const worker = fakeWorker();
+      const post = worker.postMessage.bind(worker) as (message: unknown) => void;
+      (worker as unknown as { postMessage: (message: unknown) => void }).postMessage = (message) => {
+        messages.push(message);
+        post(message);
+      };
+      return worker;
+    });
+    warmScanWorker();
+    warmScanWorker();
+    expect(messages).toEqual([{ warm: true }]);
   });
 
   it("warmScanWorker arranca el worker por adelantado una sola vez y nunca lanza (aunque la fabrica falle)", () => {

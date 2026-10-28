@@ -38,6 +38,11 @@ UNF = "src/app/recent/unfinishedWork.ts"
 DISC = "src/app/recent/discardDraft.ts"
 GATE = f"{D}/cropGate.ts"
 OCR = f"{D}/ocr.ts"
+FIND = f"{D}/findCorners.ts"
+TASKS = f"{D}/renderTasks.ts"
+QUEUE = f"{D}/renderBrowser.ts"
+WORKER = f"{D}/renderWorker.ts"
+REAL = f"{D}/realEngine.ts"
 RBR = f"{D}/renderBrowser.ts"
 ENG = f"{D}/engine.ts"
 EST = f"{D}/estimate.ts"
@@ -149,6 +154,15 @@ MUTATIONS = [
     ("T13", STORE, "      request.onerror = () => done(true);", "      request.onerror = () => done(false);", "guardado: un fallo al abrir la base de pruebas se toma por falta de Blob"),
     ("P25", STORE, "  if (!db || !validSession(session)) return false;\n  const asBytes", "  if (!db || storageMode !== \"blob\" || !validSession(session)) return false;\n  const asBytes", "volcado: sin Blob en IndexedDB (WebKit) el volcado al irse no empieza la transaccion en el acto"),
     ("P24", STORE, "    if (document.visibilityState === \"hidden\") flushStagedOnLeave();", "    if (false) flushStagedOnLeave();", "volcado: ocultar la pestana no vuelca lo apuntado"),
+    ("W01", FIND, "  await yieldNow();\n  const live = detectLiveQuad(image);", "  const live = detectLiveQuad(image);", "deteccion: no se cede el hilo tras el detector (sin worker, una tarea larga)"),
+    ("W02", FIND, "  await yieldNow();\n  return finishCrop", "  return finishCrop", "deteccion: no se cede el hilo antes de ajustar los lados (sin worker, una tarea larga)"),
+    ("W03", FIND, "new ImageData(new Uint8ClampedArray(image.data), image.width, image.height)", "new ImageData(image.data, image.width, image.height)", "deteccion: el detector recibe la imagen decodificada y no una copia"),
+    ("W04", TASKS, "      cache = { token: request.token, image };\n      const corners = await findDocumentCorners", "      const corners = await findDocumentCorners", "deteccion: la imagen decodificada no se deja en cache para el render (se decodifica dos veces)"),
+    ("W05", TASKS, "      const corners = await findDocumentCorners(image, request.mode, hooks.yield);", "      const corners = await findDocumentCorners(image, request.mode);", "deteccion: la tarea no pasa la cesion del hilo al buscar el documento"),
+    ("W06", QUEUE, 'if (request.kind !== "decode" && request.kind !== "detect") clearTaskCache();', 'if (request.kind !== "decode") clearTaskCache();', "deteccion: sin worker, la cache de la imagen se libera antes de que el render la use"),
+    ("W07", QUEUE, "    worker.postMessage({ warm: true } satisfies WorkerRequest);\n", "", "worker: no se le pide precargar el detector al calentarlo"),
+    ("W08", WORKER, "    preloadDocumentDetection();\n    return;", "    return;", "worker: el aviso de calentar no precarga el detector"),
+    ("W09", REAL, 'const detected = await enqueueTask({ kind: "detect", source: original, maxSide: DETECT_SIDE, mode, token }, signal);', 'const detected = await enqueueTask({ kind: "detect", source: original, maxSide: DETECT_SIDE, mode: "photo", token }, signal);', "deteccion: la tarea de detectar no recibe el modo de la pagina"),
 ]
 
 FAST = ["npx", "vitest", "run", "--project", "engines", "--exclude", "src/lib/scan/scan.metrics.test.ts", "src/lib/scan", "src/app/recent", "src/lib/resumeLinks"]
