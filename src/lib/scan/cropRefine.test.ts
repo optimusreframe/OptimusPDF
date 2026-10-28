@@ -163,4 +163,45 @@ describe("ajuste de los lados del recorte — src/lib/scan/cropRefine.ts", () =>
     // El recorte propuesto empieza 14 px dentro por la izquierda (4 % de 300 = 12 px; el tope de lo medible es ~18 px).
     expect(refineCrop(scene({ box: BOX }), quadOf([104, 60, 310, 270]))).toMatchObject({ ok: false, reason: "paper-continues", side: 3 });
   });
+  it("REGRESION (fuzz, semilla 5 escena 61): un borde INCLINADO detras del lado que solo se puede medir en parte (cerca del cruce queda a menos de 7 px) se detecta si es una recta limpia", () => {
+    const body: [number, number, number, number] = [90, 90, 310, 270];
+    // Tono parecido al de la mesa (salto de ~32 niveles: solo lo delata el borde). Banda sin alto a la izquierda que sube 0,05 px por px: el 64 % de las posiciones la tiene a menos de 7 px (no medible) y el resto
+    // forma una recta limpia (el 33 % de todas: no llega al 70 % de la regla general, si al 70 % de lo medible).
+    const image = scene({ box: body, desk: [170, 150, 120], header: { height: 0, color: [138, 118, 92], slope: 0.05 } });
+    expect(refineCrop(image, quadOf(body))).toMatchObject({ ok: false, reason: "content-beyond", side: 0 });
+  });
+
+  it("REGRESION (fuzz, semilla 777 escena 84): un membrete que se funde con la mesa y cuyo texto es POCO (casi tan poco como el umbral de la franja entera) se detecta por el texto pegado al lado", () => {
+    const body: [number, number, number, number] = [90, 90, 310, 270];
+    const image = scene({ box: body, desk: [70, 72, 76], header: { height: 36, color: [68, 75, 87] } });
+    // Cuatro trazos blancos de 5 x 2 px a 18-19 px del lado (letras sueltas): 16 puntos ajenos en 8 posiciones; contra TODA la franja de
+    // detras (3136 puntos) son el 0,5 %, bajo el umbral de la regla general (0,8 %); contra la franja cercana (1536), el 1,0 %.
+    for (const x of [130, 160, 190, 220]) {
+      for (let y = 70; y < 72; y += 1) {
+        for (let dx = 0; dx < 5; dx += 1) image.data.set([255, 255, 255, 255], (y * W + x + dx) * 4);
+      }
+    }
+    expect(refineCrop(image, quadOf(body))).toMatchObject({ ok: false, reason: "content-beyond", side: 0 });
+  });
+
+  it("trazos sueltos de UN solo punto de alto junto al lado (polvo, antialiasing) NO se toman por contenido de un membrete", () => {
+    const body: [number, number, number, number] = [90, 90, 310, 270];
+    const lone = scene({ box: body, desk: [70, 72, 76] });
+    // Diez trazos blancos de 5 x 1 px a 10 px del lado: un solo punto ajeno por posicion.
+    for (let i = 0; i < 10; i += 1) for (let dx = 0; dx < 5; dx += 1) lone.data.set([255, 255, 255, 255], (80 * W + 110 + i * 19 + dx) * 4);
+    expect(refineCrop(lone, quadOf(body)).ok).toBe(true);
+  });
+  it("una sombra corta pegada al lado (rampa suave de 10 px, oscura solo en los 2 primeros puntos de la franja que se mira) NO se toma por texto de un membrete: no tiene saltos bruscos", () => {
+    const body: [number, number, number, number] = [90, 90, 310, 270];
+    const desk: Rgb = [201, 184, 150];
+    const image = scene({ box: body, desk });
+    // Sobre 30 px del lado de arriba (11 posiciones): un 70 % de oscuridad a 3 px del lado que baja a 0 a 13 px (14 niveles por punto).
+    for (let x = 150; x < 180; x += 1) {
+      for (let d = 3; d < 13; d += 1) {
+        const k = 1 - 0.7 * (1 - (d - 3) / 10);
+        image.data.set([desk[0] * k, desk[1] * k, desk[2] * k, 255], ((89 - d) * W + x) * 4);
+      }
+    }
+    expect(refineCrop(image, quadOf(body)).ok).toBe(true);
+  });
 });

@@ -163,6 +163,12 @@ MUTATIONS = [
     ("W07", QUEUE, "    worker.postMessage({ warm: true } satisfies WorkerRequest);\n", "", "worker: no se le pide precargar el detector al calentarlo"),
     ("W08", WORKER, "    preloadDocumentDetection();\n    return;", "    return;", "worker: el aviso de calentar no precarga el detector"),
     ("W09", REAL, 'const detected = await enqueueTask({ kind: "detect", source: original, maxSide: DETECT_SIDE, mode, token }, signal);', 'const detected = await enqueueTask({ kind: "detect", source: original, maxSide: DETECT_SIDE, mode: "photo", token }, signal);', "deteccion: la tarea de detectar no recibe el modo de la pagina"),
+    ("X01", CREF, "      if (stepAt.length >= measurable * STEP_MIN_SHARE) return", "      if (false) return", "lados: un borde inclinado que solo se mide en parte (cerca del cruce queda a menos de `first` px) no se detecta"),
+    ("X02", CREF, "        if (position >= first && position <= reach) measurable += 1;", "        measurable += 1;", "lados: las posiciones donde el borde no se puede medir cuentan como si no se hubiera visto (se exige el 70 % de TODAS)"),
+    ("X03", CREF, "          if (hits >= OUTLIER_MIN_HITS) {\n            outliers += hits;", "          if (hits >= 1) {\n            outliers += hits;", "lados: un solo punto ajeno por posicion cuenta como contenido de membrete (la franja cercana)"),
+    ("X04", CREF, "            if (sharp) hits += 1;", "            hits += 1;", "lados: una sombra (rampa suave) cuenta como contenido de membrete en la franja cercana"),
+    ("X05", CREF, "        if (outliers / near.length >= OUTLIER_MIN_SHARE && columns >= OUTLIER_MIN_COLUMNS) return", "        if (false) return", "lados: el texto escaso de un membrete pegado al lado no se detecta en la franja cercana"),
+    ("X06", CREF, "const zoneTo = zoneFrom + Math.max(24, Math.round(minSide * OUTLIER_ZONE_FRACTION));", "const zoneTo = zoneFrom + 400;", "lados: la franja cercana abarca toda la de detras (el texto vuelve a diluirse)"),
 ]
 
 FAST = ["npx", "vitest", "run", "--project", "engines", "--exclude", "src/lib/scan/scan.metrics.test.ts", "src/lib/scan", "src/app/recent", "src/lib/resumeLinks"]

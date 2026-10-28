@@ -57,6 +57,15 @@ describe("fuzz del recorte automatico", () => {
     }, 600_000);
   }
 
+  it("REGRESION del fuzz: escenas que en una plataforma quedaban recortadas perdiendo papel (membrete que se funde con la mesa, borde inclinado medible solo en parte)", async () => {
+    // semilla 777 escena 84 (CI de Linux: se conservaba el 94,9 %: su texto quedaba a un punto del umbral) y semilla 5 escena 61 (98,3 % en Linux).
+    for (const [seed, index] of [[777, 84], [5, 61]] as const) {
+      const { name, spec } = fuzzSpecs(index + 1, seed)[index];
+      const r = await crop(spec, 100 + index);
+      expect(r.kept, `${name} (semilla ${seed})`).toBeGreaterThanOrEqual(0.99);
+    }
+  }, 120_000);
+
   it("membrete oscuro o de color pegado a un papel girado sobre una mesa (informe del verificador): se recorta TODO o no se recorta", async () => {
     const base = { bg: "wood-dark", shadow: 1, paper: { cx: 0.5, cy: 0.5, pw: 0.62, ph: 0.8 } } as const;
     const header = [

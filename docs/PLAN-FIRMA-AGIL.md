@@ -3040,3 +3040,52 @@ Límite de la prueba en CI: 270 ms. El umbral NO se ha tocado.
 recarga SIN guardado con Blob en esa carga, `blobVerified` sigue en `false` y el volcado de `pagehide` (`writeNow`) devuelve `false`, así que un
 borrado seguido de recarga a los ~7 ms cae al guardado normal, que la recarga corta. Se reproduce en el commit base (eb1eb09). Candidato a una ronda
 propia (p. ej. dar por verificado el Blob en Chromium al abrir la conexión de volcado).
+
+## Quinta ronda del motor (E1 · fix 5): el recorte no puede perder papel en ninguna plataforma
+
+Sin cambios de contrato (`types.ts` no se toca). Todo es de `cropRefine.ts` (el ajuste y la comprobación de los lados) y solo AÑADE motivos de rechazo:
+lo que antes se rechazaba se sigue rechazando; se rechaza además lo que perdía papel.
+
+### Qué falló
+
+El CI de Linux dio `scan.cropFuzz.test.ts` (semilla 777, escena 84, `fuzz-84-hdr`) recortada con el 94,9 % del papel (`reason: "ok"`; límite 99 %).
+No era del parche anterior: el código de recorte es idéntico en eb1eb09 y el fallo se reproduce igual en Docker (node 24) con
+`FUZZ_SEED=777 FUZZ_START=84 FUZZ_COUNT=1`.
+
+### Causa raíz (medida, no supuesta)
+
+Escena 84: membrete `#222831` que se degrada a `#444b57` (≈ el color de la mesa, `70,72,76`) sobre una hoja girada 17,8°. Scanic dejó el lado superior como una
+cuerda que empieza en el borde de arriba del membrete (izquierda) y termina en el borde de abajo (derecha): ~39 px de membrete fuera en el extremo
+derecho. El borde exterior del membrete es invisible donde se funde con la mesa, así que solo lo delata su texto blanco («MEMBRETE EMPRESA»), y esa
+comprobación (`OUTLIER_MIN_SHARE`) medía los puntos ajenos contra TODA la franja de detrás (6272 puntos, mesa incluida): **50 puntos = 0,797 % frente a un
+umbral de 0,8 %**. En macOS el antialiasing de `canvas` daba unos puntos más y rechazaba; en Linux, uno menos y recortaba. El umbral estaba a un punto del
+límite en las dos plataformas.
+
+Midiendo más semillas en el mismo código se encontraron otros dos casos latentes con la misma familia de causa (borde medible solo en parte), que también
+rompían la invariante: semilla 5 escena 61 en Linux (98,3 %), semilla 1 escena 4 en macOS (98,5 %) y una tarjeta (semilla de tarjetas 99, `card-15`, 92,5 %) en Linux.
+
+### Qué se hizo (`cropRefine.ts`)
+
+| Regla nueva (solo rechaza) | Para qué |
+|---|---|
+| **Contenido nítido pegado al lado**: se miran solo los puntos ajenos (≥ `OUTLIER_DELTA`) que están junto a un salto brusco (`OUTLIER_EDGE` = 30 entre dos puntos contiguos, `OUTLIER_EDGE_REACH` = 2) dentro de la franja cercana (`OUTLIER_ZONE_FRACTION` = 7 % del lado menor, mínimo 24 px); una posición cuenta con ≥ `OUTLIER_MIN_HITS` = 2 puntos. Mismo umbral (0,8 %, 6 posiciones) pero sobre la franja que importa. | El texto de un membrete va pegado al lado y tiene bordes de trazo; una sombra es una rampa y un objeto suelto de la mesa está lejos. Escena 84: 33 de 2688 = 1,23 % (antes 0,797 %), 10 posiciones. |
+| **Borde inclinado medible solo en parte**: con ≥ `STEP_LINE_MIN_SAMPLES` = 16 saltos sobre una recta limpia (desviación ≤ `STEP_LINE_TOLERANCE`), basta con que cubran el 70 % de las posiciones donde ESA recta cae en la zona medible (`first`…fin del perfil), no el 70 % de las 64. | Cerca del cruce del lado con el borde real, este queda a menos de `first` px y no se puede medir; con un membrete en degradado, además se funde en un extremo. Semilla 5 escena 61: 42 saltos, recta de 0,65 px de desviación, 66 % de las 64 posiciones pero 100 % de las medibles (38). |
+
+La regla anterior se conserva TAL CUAL (no se acepta nada que antes se rechazara). `OUTLIER_*` y `STEP_*` antiguos no cambian de valor.
+
+### Medidas (mismas escenas, código anterior → nuevo)
+
+| Corrida | Antes | Después |
+|---|---|---|
+| Docker Linux (node 24), semillas 12345 (160) + 777 (100) | 153 recortadas, **1** con pérdida > 1 % (`fuzz-84-hdr`, 94,9 %) | 152 recortadas, **0**; el único cambio es `fuzz-84-hdr` |
+| Docker Linux, 6 semillas extra × 100 (1-6) | 350 recortadas, **1** con pérdida (`fuzz-61-hdr`, semilla 5, 98,3 %) | 349, **0**; el único cambio es esa escena |
+| Docker Linux, 400 tarjetas (10 semillas × 40, modo `id-card`) | 293 recortadas, **1** con pérdida (`card-15`, 92,5 %) | 292, **0**; el único cambio es esa tarjeta |
+| macOS, las mismas 860 escenas | 575 recortadas, **1** con pérdida (semilla 1, `fuzz-4-hdr`, 98,5 %) | 573, **0**; cambian `fuzz-4-hdr` y `fuzz-130` (esta última se rechaza sin necesidad: 99,4 % conservado) |
+| macOS, 12 documentos reales / 36 páginas / 180 casos y 13 fotos sin documento (agregados) | 127 recortados, 0 con pérdida, calidad igual | idéntico |
+
+### Pruebas
+
+- `cropRefine.test.ts`: dos regresiones deterministas (sin `canvas`) que FALLAN con el código anterior y pasan con el nuevo (borde inclinado medible en parte, texto escaso de un membrete que se funde con la mesa), y dos de no sobre-rechazo (trazos de un punto, rampa suave de sombra).
+- `scan.cropFuzz.test.ts`: caso explícito con las dos escenas (777/84 y 5/61); falla con el código anterior en Docker (94,9 %).
+- Mutantes nuevos `X01`-`X06` en `scripts/scan-engine-mutate.py` (los seis mueren).
+- Los umbrales de la prueba (99 %, 0,7 de hojas lisas, 0,35 de recortes) NO se han tocado; ninguna escena se ha quitado.

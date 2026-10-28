@@ -52,6 +52,28 @@ export const MAX_SHIFT_FRACTION = 0.04;
 export const OUTLIER_DELTA = 90;
 export const OUTLIER_MIN_SHARE = 0.008;
 export const OUTLIER_MIN_COLUMNS = 6;
+/**
+ * Segunda lectura del mismo contenido, SOLO CERCA del lado y con bordes nitidos. La anterior mide contra TODA la franja de detras (mesa
+ * incluida), asi que el texto de un membrete queda diluido y cae al borde del umbral: en el fuzz (semilla 777, escena 84; membrete oscuro
+ * que se funde con la mesa) eran 50 de 6272 puntos = 0,797 % frente a un umbral de 0,8 %; en macOS salia justo por encima y en Linux
+ * justo por debajo, y el recorte perdia el 5 % del papel. El contenido de un membrete va PEGADO al lado y tiene saltos bruscos (trazos de
+ * letras); una sombra es una rampa suave y un objeto suelto de la mesa suele estar lejos. Por eso aqui solo cuentan los puntos ajenos
+ * junto a un salto brusco (>= OUTLIER_EDGE entre dos puntos contiguos, a +-OUTLIER_EDGE_REACH) dentro de la franja cercana
+ * (OUTLIER_ZONE_FRACTION del lado menor, minimo 24 px), y una posicion cuenta como columna con contenido con >= OUTLIER_MIN_HITS puntos.
+ * Es una condicion MAS para rechazar, nunca una que acepte lo que antes se rechazaba.
+ */
+export const OUTLIER_EDGE = 30;
+export const OUTLIER_EDGE_REACH = 2;
+export const OUTLIER_ZONE_FRACTION = 0.07;
+export const OUTLIER_MIN_HITS = 2;
+/**
+ * Borde detras del lado INCLINADO respecto a el (el final de un membrete cuando el detector se queda girado): cerca del cruce el borde
+ * queda a menos de `first` px y no se puede medir, y si ademas se funde con la mesa en un extremo (membrete en degradado), solo se ve
+ * en una parte. Se exige una recta limpia (STEP_LINE_TOLERANCE) con al menos STEP_LINE_MIN_SAMPLES saltos y que cubra STEP_MIN_SHARE de
+ * las posiciones donde ESA recta cae en la zona medible (en el fuzz, semilla 5 escena 61: 42 saltos sobre una recta de desviacion
+ * 0,65 px, 66 % de las 64 posiciones pero el 100 % de las medibles, y el recorte perdia el 1,7 % del papel).
+ */
+export const STEP_LINE_MIN_SAMPLES = 16;
 
 export type RefineResult =
   | { ok: true; quad: QuadCorners; shifts: number[] }
@@ -138,6 +160,21 @@ function lineResidual(points: Array<{ k: number; position: number }>): number {
   let sq = 0;
   for (const p of points) sq += (p.position - (meanP + slope * (p.k - meanK))) ** 2;
   return Math.sqrt(sq / n);
+}
+
+/** Recta de minimos cuadrados (posicion = intercept + slope * k) de los saltos medidos. */
+function lineFit(points: Array<{ k: number; position: number }>): { intercept: number; slope: number } {
+  const n = points.length;
+  const meanK = points.reduce((a, p) => a + p.k, 0) / n;
+  const meanP = points.reduce((a, p) => a + p.position, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (const p of points) {
+    num += (p.k - meanK) * (p.position - meanP);
+    den += (p.k - meanK) ** 2;
+  }
+  const slope = den > 1e-9 ? num / den : 0;
+  return { intercept: meanP - slope * meanK, slope };
 }
 
 function lineIntersection(p1: Vec, d1: Vec, p2: Vec, d2: Vec): Vec | null {
@@ -264,6 +301,16 @@ export function refineCrop(source: Rgba, quad: QuadCorners, options: { margin?: 
       if (position >= 0) stepAt.push({ k, position });
     });
     if (stepAt.length >= SAMPLES * STEP_MIN_SHARE && lineResidual(stepAt) <= STEP_LINE_TOLERANCE) return { ok: false, reason: "content-beyond", side };
+    if (stepAt.length >= STEP_LINE_MIN_SAMPLES && lineResidual(stepAt) <= STEP_LINE_TOLERANCE) {
+      const fit = lineFit(stepAt);
+      const reach = (profiles[0]?.length ?? 0) - STEP_WIDE - 2;
+      let measurable = 0;
+      for (let k = 0; k < SAMPLES; k += 1) {
+        const position = fit.intercept + fit.slope * k;
+        if (position >= first && position <= reach) measurable += 1;
+      }
+      if (stepAt.length >= measurable * STEP_MIN_SHARE) return { ok: false, reason: "content-beyond", side };
+    }
 
     // Contenido ajeno al fondo (texto o logo de un membrete) en la franja de detras.
     const beyond: Array<[number, number, number]> = [];
@@ -282,6 +329,40 @@ export function refineCrop(source: Rgba, quad: QuadCorners, options: { margin?: 
         if (hits > 0) columns += 1;
       }
         if (outliers / beyond.length >= OUTLIER_MIN_SHARE && columns >= OUTLIER_MIN_COLUMNS) return { ok: false, reason: "content-beyond", side };
+    }
+    {
+      const zoneFrom = Math.ceil(edge) + 3;
+      const zoneTo = zoneFrom + Math.max(24, Math.round(minSide * OUTLIER_ZONE_FRACTION));
+      const near: Array<[number, number, number]> = [];
+      for (const profile of profiles) for (let d = zoneFrom; d < Math.min(zoneTo, profile.length); d += 1) if (profile[d]) near.push(profile[d] as [number, number, number]);
+      if (near.length > 200) {
+        const typical: [number, number, number] = [median(near.map((c) => c[0])), median(near.map((c) => c[1])), median(near.map((c) => c[2]))];
+        let outliers = 0;
+        let columns = 0;
+        for (const profile of profiles) {
+          let hits = 0;
+          for (let d = zoneFrom; d < Math.min(zoneTo, profile.length); d += 1) {
+            const c = profile[d];
+            if (!c || channelGap(c, typical) < OUTLIER_DELTA) continue;
+            // Junto a un salto brusco (borde de un trazo), no en una rampa suave (sombra) ni en el interior liso de un objeto.
+            let sharp = false;
+            for (let j = Math.max(0, d - OUTLIER_EDGE_REACH); j < Math.min(profile.length - 1, d + OUTLIER_EDGE_REACH); j += 1) {
+              const p = profile[j];
+              const q = profile[j + 1];
+              if (p && q && channelGap(p, q) >= OUTLIER_EDGE) {
+                sharp = true;
+                break;
+              }
+            }
+            if (sharp) hits += 1;
+          }
+          if (hits >= OUTLIER_MIN_HITS) {
+            outliers += hits;
+            columns += 1;
+          }
+        }
+        if (outliers / near.length >= OUTLIER_MIN_SHARE && columns >= OUTLIER_MIN_COLUMNS) return { ok: false, reason: "content-beyond", side };
+      }
     }
 
     shifts.push(edge);
