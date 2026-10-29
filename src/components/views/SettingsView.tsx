@@ -20,6 +20,7 @@ import { StripSavedSignatures } from "@/app/sign-pdf/StripSavedSignatures";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { clearAllEditDrafts } from "@/app/edit-pdf/editDrafts";
 import { clearLocalProData } from "@/app/pdf-pro/proDrafts";
+import { clearScanSessions } from "@/lib/scan/sessionStore";
 import { clearHandoff } from "@/app/pdf-pro/proHandoff";
 import {
   PRO_FEATURE_FLAGS,
@@ -199,13 +200,14 @@ export function SettingsView() {
                 // terminaron BIEN los borradores y el baul de firmas (que se
                 // borra aunque su flag este apagado). Si falla alguno se dice
                 // cual y el boton sigue sirviendo para reintentar. Los borradores
-                // del editor y de PDF Pro (otras bases de IndexedDB) se vacian a la vez.
+                // del editor, de PDF Pro y las sesiones del escaner (otras bases de IndexedDB) se vacian a la vez.
                 setCleared(false);
                 setFailed([]);
                 void Promise.all([
                   clearLocalSignData(),
                   clearAllEditDrafts(),
                   clearLocalProData(),
+                  clearScanSessions(),
                 ]).then(([failures, editDrafts, proFailures]) => {
                   const all: (ClearFailure | "editDrafts" | "proDrafts")[] = [
                     ...failures,
