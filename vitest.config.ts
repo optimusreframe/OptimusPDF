@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 /**
  * Configuracion de Vitest en dos proyectos, porque conviven dos clases de
@@ -37,6 +37,14 @@ const alias = { "@": path.resolve(__dirname, "./src") };
 const TEST_TIMEOUT_MS = 30_000;
 const HOOK_TIMEOUT_MS = 30_000;
 
+/**
+ * Pruebas del Escaner que dibujan cientos de escenas en canvas nativos: medido en local llegan a ~2,4 GB (`scan.cropFuzz`) y
+ * ~1,7 GB (`scan.metrics`) de memoria residente cada una. Junto a los demas workers agotaban los 7 GB del runner de GitHub y este
+ * recibia la senal de apagado (sin ningun fallo de prueba). Viven en su propio proyecto "scan-heavy": en CI corren solas y con un
+ * unico worker (`--project scan-heavy --maxWorkers=1`) y los fragmentos normales las excluyen (`--project engines --project components`).
+ */
+const HEAVY_TESTS = ["src/lib/scan/scan.cropFuzz.test.ts", "src/lib/scan/scan.metrics.test.ts"];
+
 export default defineConfig({
   resolve: { alias },
   test: {
@@ -49,6 +57,17 @@ export default defineConfig({
           testTimeout: TEST_TIMEOUT_MS,
           hookTimeout: HOOK_TIMEOUT_MS,
           include: ["src/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, ...HEAVY_TESTS],
+        },
+      },
+      {
+        resolve: { alias },
+        test: {
+          name: "scan-heavy",
+          environment: "node",
+          testTimeout: 600_000,
+          hookTimeout: HOOK_TIMEOUT_MS,
+          include: HEAVY_TESTS,
         },
       },
       {

@@ -57,7 +57,24 @@ jobs:
 
       - run: npm ci
 
-      - run: npx vitest run --shard=${{ matrix.shard }}/3
+      - run: npx vitest run --project engines --project components --shard=${{ matrix.shard }}/3
+
+  # Fuzz y metricas del recorte del Escaner: ~2,4 GB y ~1,7 GB de memoria cada uno, solos y con un unico worker para no agotar el runner.
+  unit-heavy:
+    name: Unit tests (Escaner, fuzz y metricas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx vitest run --project scan-heavy --maxWorkers=1
 
   e2e:
     name: E2E (Playwright, Chromium)
