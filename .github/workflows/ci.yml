@@ -16,7 +16,7 @@ env:
 
 jobs:
   quality:
-    name: Quality (types, lint, unit tests, build)
+    name: Quality (types, lint, build)
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -35,9 +35,29 @@ jobs:
 
       - run: npm run lint
 
-      - run: npm test
-
       - run: npm run build
+
+  # Las pruebas unitarias (~14 500) tardaban ~35 min en un solo runner y este llegaba a recibir la senal de apagado a mitad
+  # (sin ningun fallo de prueba): se reparten en 3 fragmentos en paralelo (~12 min cada uno).
+  unit:
+    name: Unit tests (Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx vitest run --shard=${{ matrix.shard }}/3
 
   e2e:
     name: E2E (Playwright, Chromium)
