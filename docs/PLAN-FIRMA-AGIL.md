@@ -3172,3 +3172,60 @@ fechas del paquete y compruebe `rev` en la misma transacción (conservar el venc
   **59 pasan, 1 omitida (la omite el propio spec según el motor), 2 fallaron** (el H4 de `settings-package-fix` esperaba «no incluye: Plantillas y documentos, Borradores, Ajustes» y ahora son cuatro módulos; actualizado, repetido: pasa).
 - **No verificado**: `webkit-ipad` (no hay WebKit instalado en esta máquina; por eso `settings-package-scan` NO se añadió a `CROSS_SPECS` de `playwright.config.ts`), Safari real de iPad (cuota real de IndexedDB con cientos de MB, `navigator.share`), un paquete de ~250 MB real
   (el tope se prueba con un presupuesto bajo inyectado `__setScanSessionsPackageBudgetForTests`, y el peso grande con el tamaño de los `Blob` sustituido), la compensación ante una cuota que falla a mitad de importación (se prueba con el tope del almacén), Firefox.
+
+## Sexta ronda del motor (E1 · fix 6): el último cambio no se pierde al irse de la página
+
+Solo `sessionStore.ts`. Sin firmas públicas nuevas ni cambiadas (solo internas): `sessionBackup.ts` puede usar la API pública sin cambios.
+
+### Qué fallaba (reproducido de forma determinista)
+
+Tras recargar la herramienta SIN que esa carga haya terminado ningún guardado normal con Blob (lo habitual: se abre una sesión, se mira, se
+cambia algo y se recarga o se cierra), `blobVerified` seguía en `false` y `writeNow` (el volcado de `pagehide`/`beforeunload`/`visibilitychange`
+sobre la conexión ya abierta) devolvía `false`: el cambio caía al guardado normal, que abre la base DESPUÉS de varios `await` y que una recarga
+inmediata corta. Se perdía el último cambio (borrar una hoja, girarla, reordenar, filtro, ajuste).
+
+- Reproducción sin depender de la carga (`e2e/specs/scan-ui-persist.spec.ts`, prueba nueva «…que la pagina MUERA justo despues…»): tras recargar, se deja
+  sin respuesta `indexedDB.open` (el guardado normal no puede avanzar: la página «muere»), se borra una hoja y se lanza `pagehide`. **Código anterior
+  (Chromium, Docker): 6 de 6 fallos. Con el arreglo: 6/6 y 20/20 en Chromium y 20/20 en WebKit (1,0 CPU).** WebKit no fallaba: allí el almacén ya
+  trabaja en modo `bytes` (no hay Blob) y su volcado siempre fue síncrono.
+- Misma reproducción a nivel unitario (`sessionStore.leave.test.tsx`, fake-indexeddb): «REGRESION (scan-ui-persist:185)…», más giro con miniatura nueva,
+  filtro sin regenerar miniatura y cambio de la primera página. Las tres primeras fallan con el código anterior.
+- La inestabilidad de `scan-ui-persist.spec.ts:185` («girar y recargar de INMEDIATO…») era esta misma causa: el borrado seguido de recarga a los ~7 ms
+  llega a `pagehide` antes de los ~30 ms del guardado anticipado.
+
+### Qué se hizo
+
+`writeNow` ya no se niega cuando el modo es `blob` y aún no está verificado: escribe SIN ningún Blob nuevo en la transacción (como ya hacía en modo `bytes`),
+que no puede dejar colgada la base en WebKit («Error preparing Blob/File data»), y empieza la transacción en el acto, sin esperar a la sonda.
+
+| Qué se escribe en ese volcado | Cómo |
+|---|---|
+| Borrados, orden, ajustes de la sesión, giros, filtros, ajustes de página | Filas y meta normales (sin Blob). |
+| Miniatura de una página cuyos parámetros cambian pero la miniatura NO (filtro, ajuste) y portada de Recientes | Se reescribe el MISMO Blob que vino de la base (`storedBlobs`: ya está guardado, no hay nada que preparar). En `bytes`, los bytes que se guardan al restaurar (`thumbBytesCache` se rellena al restaurar). |
+| Miniatura NUEVA sin guardar (la acaba de regenerar un giro) | Sin miniatura: al restaurar la interfaz la vuelve a generar (el cambio, el giro, no se pierde). Igual que ya ocurría en `bytes`. |
+| Fotos recién importadas (Blob nuevo) | Sigue yendo por el guardado normal (devuelve `false`). Es el único caso que arriesgaría una transacción con Blob sin verificar. |
+
+Lo que NO se hace, y por qué: leer la fila vieja dentro de la transacción para conservar miniatura y portada. Probado: cada ida y vuelta dentro de la
+transacción retrasa el commit y la página se va antes (Chromium, 8 de 14 fallos con la prueba de «INMEDIATO»; WebKit, 2 de 20 que pasaban sin ello).
+
+### Medidas (Docker Linux, Playwright `CI=1`, `SCAN_REAL=1`, 1 worker, `--cpus 1.0`)
+
+| Prueba | Chromium | WebKit (iPad) |
+|---|---|---|
+| `scan-ui-persist.spec.ts:185` (código anterior) | de 1 fallo de 10 a 5 de 6 según la carga del host (a 1,5 CPU) | 20/20 |
+| `scan-ui-persist.spec.ts:185` (arreglo) | **40/40** | **20/20** |
+| «…que la pagina MUERA justo despues…» (código anterior) | **0/6** | 6/6 |
+| «…que la pagina MUERA justo despues…» (arreglo) | **20/20** | **20/20** |
+
+También en verde (Docker, 1,5 CPU, Chromium y WebKit, motor falso y real): `scan-ui-persist`, `scan-ui-flow` y `scan-engine-persist` completos. Unitarias de
+`src/lib/scan`, `src/app/recent`, `src/app/scan-to-pdf` y `src/lib/resumeLinks`. Mutantes nuevos `Y01`-`Y06` (más `R24` y `R26` reescritos para el código nuevo): todos mueren.
+
+### Límite de WebKit: cierre inmediato de la pestaña (medido)
+
+`page.close()` en WebKit (Docker) justo después del cambio: **no entrega `pagehide`** en la mayoría de los casos (la traza con `console.debug` solo mostraba el
+`stage`, no el `leave`), y un clic seguido de cierre en menos de ~30 ms puede no haber llegado ni a la página. Persistencia observada (4-5 pruebas por
+punto, 1,5 CPU): girar → 0/4 a 0 y 5 ms, 0/5 a 10 ms, 2/4 a 20 ms, 4/5 a 30 ms, 5/5 a 40 y 50 ms, 4/4 a 60 ms (código anterior: 0/4 hasta 20 ms, 4/4 a 60 ms);
+**borrar → 4/4 incluso a 0 ms**. Se probó un prototipo de «escritura al apuntar» (empezar la transacción en `stage`, sin esperar a los ~30 ms):
+no mejora (0/4 a 20 ms, 3/4 a 60 ms), y la latencia de commit de IndexedDB en WebKit es de ~1 ms (máx. 24 ms), así que no es la transacción. Conclusión: con el
+cierre de pestaña de WebKit, la ventana de pérdida es de ~30 ms tras el cambio (el guardado anticipado de 30 ms más el commit) y no se puede acotar más desde
+el almacén sin saltarse la detección de conflictos entre pestañas (una escritura al apuntar no lee la base). No se ha implantado.

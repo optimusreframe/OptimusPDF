@@ -134,9 +134,9 @@ MUTATIONS = [
     ("R21", ENG, "{ reason: \"load-failed\", needsReload, cause: lastError }", "{ reason: \"not-installed\", needsReload, cause: lastError }", "motor: el fallo de carga se confunde con «sin motor»"),
     ("R22", SIM, "    await pause();", "", "analisis: comparar hojas no cede el hilo"),
     ("R23", SIM, "    yield;\n  }", "  }", "analisis: la busqueda de alineacion de un bloque no cede el hilo"),
-    ("R24", STORE, "  if (!asBytes && !blobVerified) return false;", "", "volcado: en modo blob sin guardado normal previo se arriesga una transaccion al irse (WebKit se cuelga)"),
+    ("R24", STORE, '  const asBytes = storageMode === "bytes" || !blobVerified;', '  const asBytes = storageMode === "bytes";', "volcado: en modo blob sin guardado normal previo se arriesga una transaccion CON Blob al irse (WebKit se cuelga)"),
     ("R25", STORE, "let storageMode: \"blob\" | \"bytes\" = readModeHint();", "let storageMode: \"blob\" | \"bytes\" = \"blob\";", "volcado: tras recargar se vuelve a probar Blob en un navegador que ya se sabe que no los guarda"),
-    ("R26", STORE, "      if (asBytes && !row.thumbBytes) row.thumb = null;", "", "volcado: una pagina con miniatura nueva sin leer escribe un Blob en modo bytes"),
+    ("R26", STORE, "      if (asBytes && !row.thumbBytes && !storedThumb(page)) row.thumb = null;", "", "volcado: una pagina con miniatura nueva sin leer escribe un Blob en modo bytes"),
     ("R27", CREF, "    if (fit && fit.start <= maxShift && fit.end <= maxShift) {", "    if (false) {", "lados: un lado girado respecto al borde no se endereza (la cuña de papel de una esquina queda fuera)"),
     # --- Tercera ronda (tarjetas con cabecera, bordes inclinados, en blanco/casi vacia, desenfoque extremo, guardado en WebKit, guardado anticipado)
     ("T01", CREF, "lineResidual(stepAt) <= STEP_LINE_TOLERANCE", "lineResidual(stepAt) <= 0", "lados: un borde de membrete INCLINADO respecto al lado no se detecta"),
@@ -152,7 +152,7 @@ MUTATIONS = [
     ("T11", STORE, "  await settleStorageMode();\n  let db: IDBDatabase;", "  let db: IDBDatabase;", "guardado: no se prueba si el navegador guarda Blob antes de escribir"),
     ("T12", STORE, "  scheduleEarlySave(session.id);", "", "guardado: lo apuntado con stage no se guarda hasta el autoguardado largo o el pagehide"),
     ("T13", STORE, "      request.onerror = () => done(true);", "      request.onerror = () => done(false);", "guardado: un fallo al abrir la base de pruebas se toma por falta de Blob"),
-    ("P25", STORE, "  if (!db || !validSession(session)) return false;\n  const asBytes", "  if (!db || storageMode !== \"blob\" || !validSession(session)) return false;\n  const asBytes", "volcado: sin Blob en IndexedDB (WebKit) el volcado al irse no empieza la transaccion en el acto"),
+    ("P25", STORE, "  if (!db || !validSession(session)) return false;\n  // Sin Blob NUEVO en la transaccion", "  if (!db || storageMode !== \"blob\" || !validSession(session)) return false;\n  // Sin Blob NUEVO en la transaccion", "volcado: sin Blob en IndexedDB (WebKit) el volcado al irse no empieza la transaccion en el acto"),
     ("P24", STORE, "    if (document.visibilityState === \"hidden\") flushStagedOnLeave();", "    if (false) flushStagedOnLeave();", "volcado: ocultar la pestana no vuelca lo apuntado"),
     ("W01", FIND, "  await yieldNow();\n  const live = detectLiveQuad(image);", "  const live = detectLiveQuad(image);", "deteccion: no se cede el hilo tras el detector (sin worker, una tarea larga)"),
     ("W02", FIND, "  await yieldNow();\n  return finishCrop", "  return finishCrop", "deteccion: no se cede el hilo antes de ajustar los lados (sin worker, una tarea larga)"),
@@ -169,6 +169,12 @@ MUTATIONS = [
     ("X04", CREF, "            if (sharp) hits += 1;", "            hits += 1;", "lados: una sombra (rampa suave) cuenta como contenido de membrete en la franja cercana"),
     ("X05", CREF, "        if (outliers / near.length >= OUTLIER_MIN_SHARE && columns >= OUTLIER_MIN_COLUMNS) return", "        if (false) return", "lados: el texto escaso de un membrete pegado al lado no se detecta en la franja cercana"),
     ("X06", CREF, "const zoneTo = zoneFrom + Math.max(24, Math.round(minSide * OUTLIER_ZONE_FRACTION));", "const zoneTo = zoneFrom + 400;", "lados: la franja cercana abarca toda la de detras (el texto vuelve a diluirse)"),
+    ("Y01", STORE, '  const asBytes = storageMode === "bytes" || !blobVerified;', '  const asBytes = storageMode === "bytes";\n  if (!asBytes && !blobVerified) return false;', "volcado: tras recargar sin guardado con Blob el volcado al irse vuelve a caer al guardado normal (se pierde el ultimo cambio)"),
+    ("Y02", STORE, "    } else if (storedThumb(session.pages[0])) meta.cover = session.pages[0].thumb;", "    }", "volcado sin Blob nuevo: la portada de Recientes se deja en blanco aunque no haya cambiado"),
+    ("Y03", STORE, "      if (asBytes && !row.thumbBytes && !storedThumb(page)) row.thumb = null;", "      if (asBytes && !row.thumbBytes) row.thumb = null;", "volcado sin Blob nuevo: una pagina cambiada sin regenerar su miniatura pierde la miniatura ya guardada"),
+    ("Y04", STORE, "  if (thumb && isBytes(row.thumbBytes)) thumbBytesCache.set(thumb, row.thumbBytes);", "", "bytes: la miniatura restaurada no recuerda sus bytes y el volcado al irse la deja en blanco"),
+    ("Y05", STORE, "    storedBlobs.add(row.thumb);\n", "", "blob: la miniatura restaurada no se reconoce como ya guardada y el volcado al irse la deja en blanco"),
+    ("Y06", STORE, '  const storedThumb = (page: ScanPage | undefined): boolean => storageMode === "blob" && !!page?.thumb && storedBlobs.has(page.thumb);', '  const storedThumb = (page: ScanPage | undefined): boolean => !!page?.thumb;', "volcado sin Blob nuevo: una miniatura NUEVA (sin guardar) se escribe como Blob en una transaccion sin verificar (WebKit se cuelga)"),
 ]
 
 FAST = ["npx", "vitest", "run", "--project", "engines", "--exclude", "src/lib/scan/scan.metrics.test.ts", "src/lib/scan", "src/app/recent", "src/lib/resumeLinks"]

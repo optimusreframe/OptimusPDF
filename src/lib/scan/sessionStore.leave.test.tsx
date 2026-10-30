@@ -169,16 +169,31 @@ describe("volcado al irse de la pagina — src/lib/scan/sessionStore.ts", () => 
       const restored = await scanSessionStore.load(base.id);
       expect(restored?.pages).toHaveLength(2);
       scanSessionStore.stage?.({ ...(restored as ScanSession), pages: (restored as ScanSession).pages.slice(0, 1) });
-      window.dispatchEvent(new Event("pagehide"));
+      // Sin lecturas dentro de la transaccion de volcado en bytes: cada ida y vuelta retrasa el commit de una pagina que se va (WebKit).
+      const originalGet = IDBObjectStore.prototype.get;
+      let reads = 0;
+      IDBObjectStore.prototype.get = function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["get"]>) {
+        reads += 1;
+        return originalGet.apply(this, args);
+      } as typeof originalGet;
+      try {
+        window.dispatchEvent(new Event("pagehide"));
+      } finally {
+        IDBObjectStore.prototype.get = originalGet;
+      }
+      expect(reads).toBe(0);
       await tick(80);
       const loaded = await scanSessionStore.load(base.id);
       expect(loaded?.pages.map((p) => p.id)).toEqual([base.pages[0].id]);
+      // La miniatura de la pagina que se queda y la portada de Recientes (restauradas en bytes) se escriben igual: no se pierden.
+      expect(loaded?.pages[0].thumb?.size).toBeGreaterThan(0);
+      expect((await scanSessionStore.list())[0].thumb?.size).toBeGreaterThan(0);
     } finally {
       __setScanStorageModeForTests("blob");
     }
   });
 
-  it("modo blob sin ningun guardado normal terminado en esta carga: el volcado al irse NO arriesga una transaccion (WebKit se quedaria colgado): usa el guardado normal", async () => {
+  it("modo blob sin ningun guardado normal terminado en esta carga y con una FOTO NUEVA (lleva un Blob nuevo): el volcado al irse NO arriesga una transaccion (WebKit se quedaria colgado): usa el guardado normal", async () => {
     const fresh = session([page(0)]);
     scanSessionStore.stage?.(fresh);
     await tick(60);
@@ -208,6 +223,110 @@ describe("volcado al irse de la pagina — src/lib/scan/sessionStore.ts", () => 
       sessionStorage.removeItem("optimuspdf.scan.bytesMode");
       vi.resetModules();
     }
+  });
+
+  /**
+   * Como una pagina que MUERE al irse: tras el evento nada asincrono continua. Se simula dejando sin respuesta `indexedDB.open` (el
+   * guardado normal, que abre la base despues de un `await`, ya no puede avanzar) y mirando lo escrito desde otra conexion.
+   */
+  async function dyingPage<T>(run: () => void, afterwards: () => Promise<T>): Promise<T> {
+    const realOpen = indexedDB.open.bind(indexedDB);
+    let blocked = true;
+    const spy = vi.spyOn(indexedDB, "open").mockImplementation(((name: string, version?: number) => {
+      if (blocked) return {} as IDBOpenDBRequest;
+      return realOpen(name, version);
+    }) as typeof indexedDB.open);
+    try {
+      run();
+      await tick(60);
+      blocked = false;
+      return await afterwards();
+    } finally {
+      blocked = false;
+      spy.mockRestore();
+    }
+  }
+
+  async function reloaded(base: ScanSession): Promise<ScanSession> {
+    // Como tras recargar: se olvida lo que la pestana creia haber escrito y el estado de la carga (sin guardado normal terminado).
+    __resetScanStagingForTests();
+    __resetScanStoreMemoryForTests();
+    const restored = await scanSessionStore.load(base.id);
+    expect(restored).not.toBeNull();
+    // La conexion de volcado se abre en segundo plano al cargar.
+    await tick(60);
+    return restored as ScanSession;
+  }
+
+  it("REGRESION (scan-ui-persist:185): recargar sin guardado con Blob y borrar una pagina: el volcado al irse escribe el borrado EN EL ACTO aunque la pagina muera sin guardado normal", async () => {
+    const base = session([page(0), page(90)]);
+    expect((await scanSessionStore.save(base)).ok).toBe(true);
+    const restored = await reloaded(base);
+    scanSessionStore.stage?.({ ...restored, pages: restored.pages.slice(0, 1) });
+    const original = IDBDatabase.prototype.transaction;
+    let started = 0;
+    IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase["transaction"]>) {
+      started += 1;
+      return original.apply(this, args);
+    } as typeof original;
+    try {
+      const loaded = await dyingPage(
+        () => {
+          window.dispatchEvent(new Event("pagehide"));
+          expect(started).toBeGreaterThan(0);
+        },
+        () => scanSessionStore.load(base.id),
+      );
+      expect(loaded?.pages.map((p) => p.id)).toEqual([base.pages[0].id]);
+      // La miniatura y la portada que ya estaban guardadas se conservan (no se dejan en blanco por escribir sin Blob).
+      expect(loaded?.pages[0].thumb?.size).toBeGreaterThan(0);
+      expect((await scanSessionStore.list())[0].thumb?.size).toBeGreaterThan(0);
+    } finally {
+      IDBDatabase.prototype.transaction = original;
+    }
+  });
+
+  it("REGRESION: recargar sin guardado con Blob, girar una pagina (miniatura NUEVA sin leer) y irse: el giro queda escrito (sin miniatura nueva, se regenera) y la otra pagina conserva la suya", async () => {
+    const base = session([page(0), page(0)]);
+    expect((await scanSessionStore.save(base)).ok).toBe(true);
+    const restored = await reloaded(base);
+    const regenerated = new NodeBlob([new Uint8Array([7, 7, 7])], { type: "image/jpeg" }) as unknown as Blob;
+    scanSessionStore.stage?.({ ...restored, pages: restored.pages.map((p, i) => (i === 1 ? { ...p, rotation: 90 as const, thumb: regenerated } : p)) });
+    const loaded = await dyingPage(
+      () => window.dispatchEvent(new Event("pagehide")),
+      () => scanSessionStore.load(base.id),
+    );
+    expect(loaded?.pages.map((p) => p.rotation)).toEqual([0, 90]);
+    expect(loaded?.pages[1].thumb ?? null).toBeNull();
+    expect(loaded?.pages[0].thumb?.size).toBeGreaterThan(0);
+  });
+
+  it("recargar sin guardado con Blob y cambiar un parametro de una pagina SIN regenerar su miniatura (filtro): se escribe el cambio y se conserva la miniatura ya guardada", async () => {
+    const base = session([page(0), page(0)]);
+    expect((await scanSessionStore.save(base)).ok).toBe(true);
+    const restored = await reloaded(base);
+    scanSessionStore.stage?.({ ...restored, pages: restored.pages.map((p, i) => (i === 0 ? { ...p, filter: "bw" as const } : p)) });
+    const loaded = await dyingPage(
+      () => window.dispatchEvent(new Event("pagehide")),
+      () => scanSessionStore.load(base.id),
+    );
+    expect(loaded?.pages.map((p) => p.filter)).toEqual(["bw", "auto"]);
+    expect(loaded?.pages[0].thumb?.size).toBeGreaterThan(0);
+    expect((await scanSessionStore.list())[0].thumb?.size).toBeGreaterThan(0);
+  });
+
+  it("recargar sin guardado con Blob y cambiar la PRIMERA pagina (otra portada): se escribe el cambio y la portada pasa a ser la de la nueva primera pagina", async () => {
+    const base = session([page(0), page(0)]);
+    expect((await scanSessionStore.save(base)).ok).toBe(true);
+    const restored = await reloaded(base);
+    scanSessionStore.stage?.({ ...restored, pages: [restored.pages[1], restored.pages[0]] });
+    const loaded = await dyingPage(
+      () => window.dispatchEvent(new Event("pagehide")),
+      () => scanSessionStore.load(base.id),
+    );
+    expect(loaded?.pages.map((p) => p.id)).toEqual([base.pages[1].id, base.pages[0].id]);
+    // La portada pasa a ser la miniatura de la nueva primera pagina (ya guardada, restaurada de la base): se escribe tal cual.
+    expect((await scanSessionStore.list())[0].thumb?.size).toBeGreaterThan(0);
   });
 
   it("sin nada apuntado el evento no escribe nada", async () => {

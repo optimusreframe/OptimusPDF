@@ -221,6 +221,33 @@ test("girar y recargar de INMEDIATO conserva el giro (el almacen apunta cada cam
   await expect(tiles(page).first()).toHaveAttribute("data-rotation", turned);
 });
 
+test("borrar una pagina y que la pagina MUERA justo despues (sin guardado normal posible) no pierde el borrado, tras una recarga sin guardado con Blob", async ({ page }) => {
+  // Determinista: no depende de la carga de la maquina ni de carreras con el guardado anticipado (~30 ms). Tras la recarga NO hay ningun guardado con
+  // Blob terminado en esta carga (`blobVerified` en `false`); la pagina «muere» al irse porque `indexedDB.open` deja de contestar (el guardado normal,
+  // que abre la base despues de un `await`, no puede avanzar): solo el volcado de `pagehide` sobre la conexion ya abierta puede escribir el borrado.
+  test.skip(!USE_REAL_ENGINE, "solo con el almacen real: el volcado al irse la pagina es de `scanSessionStore`");
+  await startScan(page, 2);
+  await page.reload();
+  await expect(tiles(page)).toHaveCount(2);
+  await waitIdle(page);
+  // El almacen abre su conexion de volcado en segundo plano tras la primera carga (nadie borra una hoja en los primeros 100 ms de abrir la pagina).
+  await page.waitForTimeout(1_000);
+  const ids = await pageIds(page);
+  await page.getByRole("button", { name: "Borrar la página 2" }).evaluate(async (button) => {
+    (indexedDB as unknown as { open: unknown }).open = () => ({});
+    (button as HTMLButtonElement).click();
+    while (document.querySelectorAll("[data-page-grid] [data-page-id]").length > 1) await new Promise((resolve) => setTimeout(resolve, 1));
+    // Un turno para que la interfaz apunte el cambio con `stage`, y la pagina se va.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    window.dispatchEvent(new Event("pagehide"));
+  });
+  // La pagina «murio»: se recarga (la base real, sin el `open` anulado) y lo que quedo escrito es lo que vuelve.
+  await page.reload();
+  await expect(tiles(page)).toHaveCount(1);
+  await waitIdle(page);
+  expect(await pageIds(page)).toEqual(ids.slice(0, 1));
+});
+
 test("con el almacen falso cada cambio se apunta con `stage` al instante y se vuelca con `flush`", async ({ page }) => {
   test.skip(USE_REAL_ENGINE, FAKE_ONLY_REASON);
   await startScan(page, 2);

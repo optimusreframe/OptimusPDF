@@ -460,6 +460,24 @@ async function thumbBytesOf(thumb: Blob): Promise<ArrayBuffer> {
   return bytes;
 }
 
+/** Blobs que vienen de la base (restaurados): ya estan guardados, volver a escribirlos no obliga al navegador a prepararlos de nuevo. */
+const storedBlobs = new WeakSet<object>();
+
+/**
+ * Miniatura de una fila al restaurar. Si vino como Blob se recuerda que ya esta guardada; si vino en bytes (almacenamiento sin Blob) se
+ * recuerdan esos bytes: el volcado al irse la pagina (que no puede esperar a `arrayBuffer()`) escribe asi la misma miniatura, sin
+ * perderla ni leerla otra vez de la base.
+ */
+function restoredThumb(row: PageRow): Blob | null {
+  if (row.thumb) {
+    storedBlobs.add(row.thumb);
+    return row.thumb;
+  }
+  const thumb = blobFrom(null, row.thumbBytes, row.thumbType);
+  if (thumb && isBytes(row.thumbBytes)) thumbBytesCache.set(thumb, row.thumbBytes);
+  return thumb;
+}
+
 function pageRowOf(sid: string, page: ScanPage, thumbBytes?: ArrayBuffer): PageRow {
   return {
     key: rowKey(sid, page.id),
@@ -824,7 +842,7 @@ async function loadSession(id: string): Promise<ScanSession | null> {
         filter: row.filter,
         adjust: row.adjust,
         processed: null,
-        thumb: row.thumb ?? blobFrom(null, row.thumbBytes, row.thumbType),
+        thumb: restoredThumb(row),
         flags: row.flags,
         ...(row.ocrText !== undefined ? { ocrText: row.ocrText } : {}),
         ...(row.mode !== undefined ? { mode: row.mode } : {}),
@@ -1031,8 +1049,13 @@ export function __resetScanStagingForTests(): void {
 function writeNow(session: ScanSession): boolean {
   const db = warmDb;
   if (!db || !validSession(session)) return false;
-  const asBytes = storageMode === "bytes";
-  if (!asBytes && !blobVerified) return false;
+  // Sin Blob NUEVO en la transaccion (`asBytes`): modo `bytes` (WebKit sin Blob en IndexedDB) O modo `blob` todavia NO verificado en esta
+  // carga (ningun guardado normal con Blob ha terminado: p. ej. tras recargar). Una transaccion sin Blob nuevo no puede dejar colgada la
+  // base en WebKit («Error preparing Blob/File data»), asi que el ultimo cambio (girar, borrar, reordenar, filtro, ajuste) se escribe
+  // igual y en el acto aunque la sonda del Blob no haya terminado; lo que lleva un Blob NUEVO (fotos recien importadas) sigue yendo por el
+  // guardado normal. Antes este caso devolvia `false` y la recarga cortaba el guardado normal: se perdia el ultimo cambio. Y nada de
+  // lecturas dentro de la transaccion: cada ida y vuelta retrasa el commit de una pagina que se esta yendo y la transaccion se aborta.
+  const asBytes = storageMode === "bytes" || !blobVerified;
   const targetId = forks.get(session.id) ?? session.id;
   const written = writtenBySession.get(targetId) ?? new Map<string, WrittenPage>();
   const keep = new Set(session.pages.map((page) => page.id));
@@ -1045,6 +1068,8 @@ function writeNow(session: ScanSession): boolean {
   // generar, y es mejor que perder el cambio. (No se leen de antemano: leer un Blob mientras IndexedDB trabaja con otro dejaba
   // colgadas las transacciones en WebKit.)
   const cachedThumb = (page: ScanPage | undefined): ArrayBuffer | undefined => (page?.thumb ? thumbBytesCache.get(page.thumb)?.slice(0) : undefined);
+  // Solo en modo `blob`: una miniatura que vino de la base (restaurada) se vuelve a escribir tal cual. En `bytes` no hay Blob en la base.
+  const storedThumb = (page: ScanPage | undefined): boolean => storageMode === "blob" && !!page?.thumb && storedBlobs.has(page.thumb);
   if (asBytes) {
     if (dirtyOriginals.size > 0) return false;
   }
@@ -1068,13 +1093,14 @@ function writeNow(session: ScanSession): boolean {
     writerId: tab.id,
   };
   if (asBytes) {
-    // Sin Blob en IndexedDB: la portada va en bytes si ya se leyo, y si no, sin portada hasta el siguiente guardado normal.
+    // Sin Blob nuevo: la portada va en bytes si ya se leyo, o como el Blob que YA esta guardado (restaurado de la base: no hay nada que
+    // preparar); si no, sin portada hasta el siguiente guardado normal.
     meta.cover = null;
     const coverBytes = cachedThumb(session.pages[0]);
     if (coverBytes) {
       meta.coverBytes = coverBytes;
       meta.coverType = session.pages[0].thumb?.type ?? "";
-    }
+    } else if (storedThumb(session.pages[0])) meta.cover = session.pages[0].thumb;
   }
   try {
     const tx = db.transaction([META_STORE, PAGES_STORE, ORIGINALS_STORE], "readwrite");
@@ -1082,7 +1108,7 @@ function writeNow(session: ScanSession): boolean {
     const originals = tx.objectStore(ORIGINALS_STORE);
     for (const page of dirtyPages) {
       const row = pageRowOf(targetId, page, asBytes ? cachedThumb(page) : undefined);
-      if (asBytes && !row.thumbBytes) row.thumb = null;
+      if (asBytes && !row.thumbBytes && !storedThumb(page)) row.thumb = null;
       pages.put(row);
       if (dirtyOriginals.has(page.id)) originals.put({ key: rowKey(targetId, page.id), sid: targetId, pid: page.id, blob: page.original } satisfies OriginalRow);
     }
