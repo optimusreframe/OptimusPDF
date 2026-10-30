@@ -113,6 +113,8 @@ describe("dorados package-all", () => {
         ["signatures", "applied"],
         ["library", "applied"],
         ["drafts", "applied"],
+        // Los dorados v1 son anteriores a los escaneos en curso: ese módulo no venía y se salta.
+        ["scanSessions", "skipped"],
         ["settings", "applied"],
       ]);
       expect(applied.failed).toEqual([]);
@@ -179,7 +181,7 @@ describe("dorados package-all", () => {
       ]);
       const { writes, result } = await countWrites(() => applyEverything(read.plans, defaultEverythingDecisions(read.plans), { now: GOLDEN_ALL_NOW }));
       expect(writes).toBe(0);
-      expect(statuses(result)).toEqual([["signatures", "nothing"], ["library", "nothing"], ["drafts", "nothing"], ["settings", "nothing"]]);
+      expect(statuses(result)).toEqual([["signatures", "nothing"], ["library", "nothing"], ["drafts", "nothing"], ["scanSessions", "skipped"], ["settings", "nothing"]]);
     });
   }
 
@@ -226,7 +228,7 @@ describe("no regresión: los dorados de módulos sueltos de cada familia siguen 
         const applied = await applyEverything(read.plans, decisions, { now: GOLDEN_ALL_NOW });
         expect(applied.failed).toEqual([]);
         expect(applied.applied).toEqual([family.module]);
-        expect(applied.outcomes.filter((o) => o.status === "skipped").map((o) => o.module)).toEqual(["signatures", "library", "drafts", "settings"].filter((m) => m !== family.module));
+        expect(applied.outcomes.filter((o) => o.status === "skipped").map((o) => o.module)).toEqual(["signatures", "library", "drafts", "scanSessions", "settings"].filter((m) => m !== family.module));
         // Y volver a importarlo es «Ya lo tienes».
         const again = await readAndPlanEverything(asFile(open(name)), encrypted ? GOLDEN_ALL_PASSWORD : undefined, PASS);
         if (!again.ok) throw new Error(again.reason);

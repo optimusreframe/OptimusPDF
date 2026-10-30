@@ -748,7 +748,7 @@ export const es = {
     backup: {
       title: "Respaldo y traslado",
       intro:
-        "Guarda tus firmas, plantillas, documentos, borradores y ajustes en un solo archivo, para no perderlos si el navegador borra datos o para llevarlos a otro dispositivo. Nada sale de este dispositivo.",
+        "Guarda tus firmas, plantillas, documentos, borradores, escaneos en curso y ajustes en un solo archivo, para no perderlos si el navegador borra datos o para llevarlos a otro dispositivo. Nada sale de este dispositivo.",
       why: "Safari puede borrar los datos de un sitio web después de 7 días sin usarlo. Un respaldo propio es la única copia que no depende del navegador.",
       homeScreenTip:
         "En iPad y iPhone, toca Compartir y elige «Añadir a la pantalla de inicio»: la app instalada está más protegida contra ese borrado.",
@@ -785,6 +785,17 @@ export const es = {
       draftsLabel: "Borradores en curso",
       draftsHint:
         "Trabajo sin terminar de Firmar, Editar y PDF Pro, con sus documentos y valores: pueden contener datos de tus clientes.",
+      scanLabel: "Escaneos en curso",
+      scanHint:
+        "Las fotos originales de los escaneos sin terminar de Escanear a PDF, con sus ajustes. Pesan bastante y contienen tus documentos y los de tus clientes.",
+      scanListLegend: "Escaneos que se incluirán",
+      scanSessionHint: "{pages} · {size}",
+      scanLargeWarning:
+        "Los escaneos elegidos pesan {size}. El paquete tardará en crearse y en abrirse: quita los que no necesites.",
+      scanUnreadable: "Hay escaneos que no se pueden leer y no se incluirán.",
+      scanExcludedNote: "Tus escaneos en curso pesan {size} y no se incluyen salvo que marques la casilla.",
+      scanSkippedOne: "1 página de un escaneo no se incluyó porque su foto está dañada o no es compatible.",
+      scanSkippedMany: "{n} páginas de escaneos no se incluyeron porque su foto está dañada o no es compatible.",
       settingsLabel: "Ajustes",
       settingsHint: "Tema, idioma e interruptores de las herramientas.",
       historyLabel: "Incluir el historial de valores",
@@ -803,6 +814,10 @@ export const es = {
       templatesMany: "{n} plantillas",
       draftsOne: "1 borrador",
       draftsMany: "{n} borradores",
+      scanOne: "1 escaneo",
+      scanMany: "{n} escaneos",
+      pagesOne: "1 página",
+      pagesMany: "{n} páginas",
       keysOne: "1 ajuste",
       keysMany: "{n} ajustes",
       labelsOne: "1 etiqueta",
@@ -811,6 +826,7 @@ export const es = {
       summary: "Se exportará: {parts}. Tamaño aproximado: {size}.",
       summaryNothing: "Marca al menos una casilla que tenga contenido.",
       summaryDrafts: "{drafts} (firmas dibujadas en los de Firmar: {answer})",
+      summaryScan: "{scans} ({pages})",
       yes: "sí",
       no: "no",
       summarySettings: "ajustes",
@@ -818,9 +834,9 @@ export const es = {
       omittedEmpty: "No se incluirá {names}: no hay nada que respaldar.",
       omittedUnavailable: "No se incluyó {names}: este navegador no permite leerlo.",
       tooLarge:
-        "Lo elegido no cabe en un solo paquete (el máximo son unos 250 MB). Quita los borradores o borra documentos que no uses.",
+        "Lo elegido no cabe en un solo paquete (el máximo son unos 250 MB). Quita escaneos o borradores, o borra documentos que no uses.",
       tooLargeSize:
-        "Lo elegido pesa {size} y no cabe en un solo paquete: el máximo es {limit} y sobran {over}. Quita los borradores o borra documentos que no uses.",
+        "Lo elegido pesa {size} y no cabe en un solo paquete: el máximo es {limit} y sobran {over}. Quita escaneos o borradores, o borra documentos que no uses.",
       withoutCopyWarnOne: "1 documento no se incluirá porque falta su copia del PDF.",
       withoutCopyWarnMany: "{n} documentos no se incluirán porque falta su copia del PDF.",
       withoutCopyDoneOne: "1 documento no se incluyó porque falta su copia del PDF.",
@@ -854,7 +870,7 @@ export const es = {
         unavailable: "Este navegador no permite leer tus datos para respaldarlos.",
         encryptionUnavailable: "Este navegador no permite cifrar aquí. Desmarca la contraseña o usa una conexión segura.",
         tooLarge:
-          "Lo elegido no cabe en un solo paquete (el máximo son unos 250 MB). Quita los borradores o borra documentos que no uses.",
+          "Lo elegido no cabe en un solo paquete (el máximo son unos 250 MB). Quita escaneos o borradores, o borra documentos que no uses.",
         failed: "No se pudo crear el paquete. Inténtalo de nuevo.",
       },
       announceExported: "Paquete creado: {parts}.",
@@ -894,6 +910,7 @@ export const es = {
         signatures: "Firmas",
         library: "Plantillas y documentos",
         drafts: "Borradores",
+        scanSessions: "Escaneos en curso",
         settings: "Ajustes",
       },
       moduleStates: {
@@ -936,6 +953,19 @@ export const es = {
         tooLarge: "El borrador es demasiado grande.",
         tooMany: "El paquete trae demasiados borradores.",
       },
+      scanCardLine: "{pages} · {size} · Guardado el {date}",
+      scanDiscardedOne: "1 página está dañada y no se importará.",
+      scanDiscardedMany: "{n} páginas están dañadas y no se importarán.",
+      scanInvalidReasons: {
+        integrity: "Las fotos no coinciden con lo que dice el paquete.",
+        invalidEntry: "El escaneo no es válido.",
+        duplicateId: "El escaneo está repetido en el paquete.",
+        noValidPages: "Ninguna de sus páginas tiene una foto válida.",
+        expired: "El escaneo caducó (los escaneos sin terminar se guardan 14 días).",
+        tooLarge: "El escaneo es demasiado grande para guardarlo en este navegador.",
+        tooMany: "El escaneo trae demasiadas páginas.",
+      },
+      scanCopySuffix: "(importado)",
       settingsCardTitle: "Ajustes del paquete",
       settingsLine: "{n} ajustes: {parts}.",
       settingsIgnored: "{n} valores desconocidos del paquete se ignoran.",
@@ -979,6 +1009,10 @@ export const es = {
       limitDrafts: "Cabe en los límites de borradores.",
       limitDraftsExceeded:
         "No caben todos los borradores elegidos: el máximo es de {max} por herramienta. Omite alguno.",
+      limitScan: "Caben en este dispositivo. Los escaneos importados se conservan 14 días desde hoy.",
+      limitScanExceeded:
+        "No caben todos los escaneos elegidos: necesitan {size} y en este navegador quedan {free}. Omite alguno.",
+      limitScanTooBig: "Un escaneo elegido es demasiado grande para guardarlo. Omítelo.",
       limitBlocked: "Hay una parte que no cabe ({names}). Omite elementos de esa parte para poder importar.",
       importConfirmOne: "Importar 1 elemento",
       importConfirmMany: "Importar {n} elementos",
@@ -997,6 +1031,14 @@ export const es = {
       resultLibrary: "Plantillas y documentos: {docs}, {templates}.",
       resultDrafts: "Borradores: {n} importados.",
       resultDraftsNoStrokes: "{n} sin las firmas dibujadas.",
+      resultScan: "Escaneos en curso: {n} importados.",
+      resultScanFailed: "{n} no se pudieron guardar ({reason}).",
+      resultScanChanged: "{n} no se importaron porque cambiaron mientras revisabas.",
+      scanFailReasons: {
+        quota: "no hay espacio suficiente en este navegador",
+        tooBig: "es demasiado grande",
+        unavailable: "este navegador no permite guardarlo",
+      },
       resultSettings: "Ajustes: {n} aplicados.",
       resultSettingsHistory: "Ajustes: {n} aplicados y el historial de valores.",
       resultNothing: "{module}: nada que importar (ya lo tenías).",

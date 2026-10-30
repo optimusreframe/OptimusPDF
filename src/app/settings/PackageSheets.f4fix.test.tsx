@@ -234,7 +234,7 @@ describe("H4 — el resultado distingue lo que el paquete no traía de un fallo"
     fireEvent.click(confirmButton());
     await screen.findByText(fill(copy.resultSignatures, { n: 1 }));
     const lines = [...document.querySelectorAll("[data-backup-result] li")].map((node) => node.textContent);
-    expect(lines).toEqual(["Firmas: 1 importadas.", "El paquete no incluye: Plantillas y documentos, Borradores, Ajustes."]);
+    expect(lines).toEqual(["Firmas: 1 importadas.", "El paquete no incluye: Plantillas y documentos, Borradores, Escaneos en curso, Ajustes."]);
     expect(document.querySelector("[data-backup-result]")?.textContent).not.toMatch(/no se import/i);
   });
 });

@@ -22,6 +22,7 @@ import {
 } from "@/lib/backup/globalPackage";
 import { canShareFile, checkNewPassword, passwordStrength, shareFile, toFile } from "@/app/documents/backupFlow";
 import { countText, fillText } from "@/app/documents/backupModel";
+import { formatBytes } from "@/app/documents/documentsModel";
 import { BACKUP_INPUT_CLASS } from "@/app/documents/ExportBackupSheet";
 import { chosenModules, defaultExportChoice, moduleAvailability, omissionNotes, summaryLine, tooLargeText, withoutCopyNote } from "@/app/settings/packageModel";
 
@@ -32,6 +33,9 @@ import { chosenModules, defaultExportChoice, moduleAvailability, omissionNotes, 
  * borradores o historial, y se puede desmarcar con un aviso); un resumen previo con el tamaño; y la descarga o, en iPad,
  * `navigator.share({files})` en un SEGUNDO toque (Safari exige un gesto reciente). Toda la lógica vive en
  * `lib/backup/globalPackage.ts`. Nada sale del dispositivo.
+ *
+ * Los escaneos en curso (fotos de documentos) pesan cientos de MB: la casilla va desmarcada si pesan mucho o no caben, con un
+ * aviso, y al marcarla se puede elegir sesión a sesión qué llevar (el tamaño de lo elegido manda en el resumen y en «no cabe»).
  */
 
 const LEVEL_COLORS = ["bg-destructive", "bg-accent-edit", "bg-signal", "bg-success"] as const;
@@ -59,9 +63,11 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const [choice, setChoice] = useState<ModuleChoice | null>(null);
   const [history, setHistory] = useState(false);
   const [strokes, setStrokes] = useState(true);
+  /** Sesiones del Escáner que la persona quitó del paquete (por defecto, ninguna). */
+  const [scanExcluded, setScanExcluded] = useState<string[]>([]);
   const [description, setDescription] = useState<ExportDescription | null>(null);
   /** Lo que la persona puede elegir aunque la selección actual lo oculte (se calcula una vez con todo marcado). */
-  const [capabilities, setCapabilities] = useState<{ strokes: boolean; history: boolean } | null>(null);
+  const [capabilities, setCapabilities] = useState<{ strokes: boolean; history: boolean; scanIds: string[] } | null>(null);
   /** Partes que no tienen nada que respaldar: cuentan como respaldadas al anotar el último respaldo (no hay nada que perder). */
   const emptyPartsRef = useRef<PackageModuleName[]>([]);
   const [protectChoice, setProtectChoice] = useState<boolean | null>(null);
@@ -77,11 +83,15 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const headingRef = useRef<HTMLHeadingElement>(null);
   const mountedRef = useRef(false);
 
+  /** Las sesiones del Escáner que viajan: todas las vigentes menos las que la persona quitó (`undefined` mientras no se sabe cuáles hay). */
+  const scanSessionIds = useMemo(() => capabilities?.scanIds.filter((id) => !scanExcluded.includes(id)), [capabilities, scanExcluded]);
+  const scanKey = scanSessionIds === undefined ? "all" : scanSessionIds.join("|");
+
   useEffect(() => {
     aliveRef.current = true;
-    void describeExport({ modules: { signatures: true, library: true, drafts: true, settings: true } }).then((all) => {
+    void describeExport({ modules: { signatures: true, library: true, drafts: true, scanSessions: true, settings: true } }).then((all) => {
       if (!aliveRef.current) return;
-      setCapabilities({ strokes: all.drafts.includesStrokes, history: all.settings.valueHistoryLabels > 0 });
+      setCapabilities({ strokes: all.drafts.includesStrokes, history: all.settings.valueHistoryLabels > 0, scanIds: all.scanSessions.sessions.map((session) => session.id) });
       emptyPartsRef.current = all.willOmitEmpty;
       setChoice(defaultExportChoice(all));
     });
@@ -93,13 +103,15 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   useEffect(() => {
     if (choice === null) return;
     let alive = true;
-    void describeExport({ modules: choice, includeValueHistory: history && choice.settings === true, includeStrokes: strokes }).then((next) => {
+    void describeExport({ modules: choice, includeValueHistory: history && choice.settings === true, includeStrokes: strokes, scanSessionIds }).then((next) => {
       if (alive && aliveRef.current) setDescription(next);
     });
     return () => {
       alive = false;
     };
-  }, [choice, history, strokes]);
+    // `scanSessionIds` cambia de identidad en cada render: lo que cuenta es `scanKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [choice, history, strokes, scanKey]);
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -121,6 +133,16 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
 
   const setModule = (name: PackageModuleName, on: boolean) => {
     setChoice((current) => ({ ...(current ?? {}), [name]: on }));
+    // Marcar los escaneos de nuevo tras quitarlos todos vuelve a ofrecerlos todos (si no, la casilla marcada no llevaría nada).
+    if (name === "scanSessions" && on && capabilities && capabilities.scanIds.every((id) => scanExcluded.includes(id))) setScanExcluded([]);
+    setError("");
+  };
+
+  const toggleScanSession = (id: string, on: boolean) => {
+    const next = on ? scanExcluded.filter((other) => other !== id) : [...scanExcluded, id];
+    setScanExcluded(next);
+    // Sin ninguna sesión elegida el módulo no lleva nada: la casilla general se desmarca sola.
+    if (capabilities && capabilities.scanIds.every((other) => next.includes(other))) setChoice((current) => ({ ...(current ?? {}), scanSessions: false }));
     setError("");
   };
 
@@ -143,6 +165,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     if (counts.documents > 0) parts.push(countText(counts.documents, copy.docsOne, copy.docsMany));
     if (counts.templates > 0) parts.push(countText(counts.templates, copy.templatesOne, copy.templatesMany));
     if (counts.drafts > 0) parts.push(countText(counts.drafts, copy.draftsOne, copy.draftsMany));
+    if (counts.scanSessions > 0) parts.push(fillText(copy.summaryScan, { scans: countText(counts.scanSessions, copy.scanOne, copy.scanMany), pages: countText(counts.scanPages, copy.pagesOne, copy.pagesMany) }));
     if (result.included.includes("settings")) parts.push(counts.valueHistory ? `${copy.summarySettings}, ${copy.summaryHistory}` : copy.summarySettings);
     return parts;
   };
@@ -168,6 +191,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
       modules: choice,
       includeValueHistory: includeHistory,
       includeStrokes: strokes,
+      scanSessionIds,
       password: wantsPassword ? password : undefined,
     });
     if (!aliveRef.current) return;
@@ -180,7 +204,11 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
       file: toFile(result.blob, result.filename),
       parts: partsOf(result),
       encrypted: result.encrypted,
-      notes: [...omissionNotes(result.omitted, copy), withoutCopyNote(result.libraryWithoutCopy, copy, "after")].filter((note): note is string => note !== null),
+      notes: [
+        ...omissionNotes(result.omitted, copy),
+        withoutCopyNote(result.libraryWithoutCopy, copy, "after"),
+        result.scanSkippedPages > 0 ? countText(result.scanSkippedPages, copy.scanSkippedOne, copy.scanSkippedMany) : null,
+      ].filter((note): note is string => note !== null),
       included: result.included,
     };
     // iPad / móvil: la hoja de compartir pide un toque propio (Safari exige un gesto reciente y el cifrado ya tardó).
@@ -222,6 +250,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const sig = description?.signatures;
   const lib = description?.library;
   const drafts = description?.drafts;
+  const scan = description?.scanSessions;
   const settings = description?.settings;
   const libCount = lib
     ? [
@@ -236,6 +265,8 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const repeatId = "pkg-backup-repeat";
   const showStrokesOption = capabilities?.strokes === true && choice?.drafts === true && (drafts?.withSignatureStrokes ?? 0) > 0;
   const showHistoryOption = capabilities?.history === true && choice?.settings === true;
+  const scanOn = choice?.scanSessions === true && availability("scanSessions") === "ok";
+  const showScanList = scanOn && (scan?.sessions.length ?? 0) > 0;
   const contactsStrokesWarning = description?.containsSignatureStrokes === true;
   /** Documentos de la biblioteca sin copia del PDF: no viajan; se avisa ANTES de exportar (y después, con el resultado). */
   const withoutCopyBefore = description && choice?.library === true ? withoutCopyNote(description.library.withoutCopy, copy, "before") : null;
@@ -287,6 +318,38 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
             ) : drafts && drafts.strokesHeldBack && choice?.drafts === true ? (
               <p className="text-footnote text-muted-foreground">{copy.strokesHeldBack}</p>
             ) : null}
+            <Checkbox
+              label={labelWithCount(copy.scanLabel, scan && scan.count > 0 ? `${countText(scan.count, copy.scanOne, copy.scanMany)}, ${formatBytes(scan.bytes, locale)}` : null)}
+              hint={hintFor("scanSessions", copy.scanHint)}
+              checked={scanOn}
+              disabled={availability("scanSessions") !== "ok" || building}
+              onChange={(on) => setModule("scanSessions", on)}
+            />
+            {showScanList && scan ? (
+              <div className="pl-[34px]" role="group" aria-label={copy.scanListLegend} data-backup-scan-list="">
+                {scan.sessions.map((session) => (
+                  <Checkbox
+                    key={session.id}
+                    label={session.name || "—"}
+                    hint={fillText(copy.scanSessionHint, { pages: countText(session.pageCount, copy.pagesOne, copy.pagesMany), size: formatBytes(session.bytes, locale) })}
+                    checked={!scanExcluded.includes(session.id)}
+                    disabled={building}
+                    onChange={(on) => toggleScanSession(session.id, on)}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {scanOn && scan?.large ? (
+              <p className="rounded-ios-sm border border-accent-edit/40 bg-accent-edit/10 p-3 text-footnote leading-relaxed text-foreground" data-backup-scan-large="">
+                {fillText(copy.scanLargeWarning, { size: formatBytes(scan.selectedBytes, locale) })}
+              </p>
+            ) : null}
+            {!scanOn && scan && scan.count > 0 && availability("scanSessions") === "ok" && (scan.large || !scan.fitsInPackage) ? (
+              <p className="text-footnote text-muted-foreground" data-backup-scan-excluded="">
+                {fillText(copy.scanExcludedNote, { size: formatBytes(scan.bytes, locale) })}
+              </p>
+            ) : null}
+            {scan && scan.unreadable > 0 ? <p className="text-footnote text-muted-foreground">{copy.scanUnreadable}</p> : null}
             <Checkbox
               label={labelWithCount(copy.settingsLabel, settings && settings.keys > 0 ? countText(settings.keys, copy.keysOne, copy.keysMany) : null)}
               hint={hintFor("settings", copy.settingsHint)}

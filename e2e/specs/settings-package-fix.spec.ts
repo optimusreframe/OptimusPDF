@@ -299,7 +299,7 @@ for (const language of ["es", "en"] as const) {
       const names = copy.moduleNames;
       await expect(result.locator("li")).toHaveText([
         copy.resultSignatures.replace("{n}", "1"),
-        copy.resultAbsent.replace("{names}", `${names.library}, ${names.drafts}, ${names.settings}`),
+        copy.resultAbsent.replace("{names}", `${names.library}, ${names.drafts}, ${names.scanSessions}, ${names.settings}`),
       ]);
       await expect(result).not.toContainText(language === "es" ? "no se importó" : "not imported");
       expect((await counts(page)).signatures).toBe(1);

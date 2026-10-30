@@ -1,5 +1,6 @@
 import { MAX_DOCUMENT_BYTES } from "@/app/sign-pdf/signLimits";
 import { CURRENT_DRAFTS_SCHEMA } from "@/lib/backup/migrations/drafts";
+import { CURRENT_SCAN_SESSIONS_SCHEMA } from "@/lib/backup/migrations/scanSessions";
 import { CURRENT_SETTINGS_SCHEMA } from "@/lib/backup/migrations/settings";
 import type { PackageModuleSpec } from "@/lib/backup/types";
 
@@ -18,8 +19,22 @@ export const MAX_DRAFTS_JSON_BYTES = 8 * 1024 * 1024;
 /** El tope de un PDF dentro de un borrador (el mismo de Firmar y de las herramientas). */
 export const MAX_DRAFT_PDF_BYTES = MAX_DOCUMENT_BYTES;
 
+/**
+ * Sesiones en curso del Escaner (`scan-sessions/index.json` + una foto original por pagina). Las miniaturas y el resultado
+ * procesado NO viajan: se vuelven a calcular desde el original y sus parametros al abrir la sesion. El indice de 50 sesiones
+ * x 1 000 paginas con el texto reconocido (<= 10 000 caracteres por pagina) cabe de sobra en 24 MiB.
+ */
+export const MAX_SCAN_SESSIONS_JSON_BYTES = 24 * 1024 * 1024;
+/** Una foto original (una camara de 100 Mpx guarda JPEG de ~30-50 MB): por encima de esto no es una pagina de escaneo. */
+export const MAX_SCAN_ORIGINAL_BYTES = 64 * 1024 * 1024;
+
 export const SETTINGS_MODULE = "settings";
 export const DRAFTS_MODULE = "drafts";
+/**
+ * Nombre del modulo EN EL PAQUETE. El contenedor solo admite `^[a-z][a-z0-9-]{0,31}$` (una sola carpeta, sin mayusculas), asi
+ * que el `scanSessions` de la interfaz y de `globalPackage.ts` viaja como `scan-sessions`.
+ */
+export const SCAN_SESSIONS_MODULE = "scan-sessions";
 
 export const SETTINGS_MODULE_SPEC: PackageModuleSpec = {
   name: SETTINGS_MODULE,
@@ -36,4 +51,12 @@ export const DRAFTS_MODULE_SPEC: PackageModuleSpec = {
   folders: ["drafts"],
   maxFileBytes: MAX_DRAFT_PDF_BYTES,
   maxJsonBytes: MAX_DRAFTS_JSON_BYTES,
+};
+
+export const SCAN_SESSIONS_MODULE_SPEC: PackageModuleSpec = {
+  name: SCAN_SESSIONS_MODULE,
+  schemaVersion: CURRENT_SCAN_SESSIONS_SCHEMA,
+  folders: ["scan-sessions"],
+  maxFileBytes: MAX_SCAN_ORIGINAL_BYTES,
+  maxJsonBytes: MAX_SCAN_SESSIONS_JSON_BYTES,
 };

@@ -376,6 +376,8 @@ describe("Importar paquete", () => {
       "Plantillas y documentos: 2 documentos, 1 plantilla.",
       "Borradores: 4 importados.",
       "Ajustes: 3 aplicados.",
+      // Este paquete no trae escaneos en curso: se dice aparte, en una línea (no es un fallo).
+      "El paquete no incluye: Escaneos en curso.",
     ]);
     expect(onDone).toHaveBeenCalledWith(copy.announceImported);
     expect((await listVault()).entries).toHaveLength(2);

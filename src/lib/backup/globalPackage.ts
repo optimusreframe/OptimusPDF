@@ -41,6 +41,21 @@ import {
   type ExportDraftsOptions,
 } from "@/lib/backup/modules/drafts";
 import {
+  LARGE_SCAN_BYTES,
+  SCAN_SESSIONS_MODULE,
+  applyScanSessionsImport,
+  checkScanSessionsLimits,
+  defaultScanSessionDecisions,
+  exportScanSessionsDetailed,
+  planScanSessionsImport,
+  scanSelectionFits,
+  summarizeScanSessions,
+  type ScanSessionDecision,
+  type ScanSessionInfo,
+  type ScanSessionsImportPlan,
+  type ScanSessionsLimitCheck,
+} from "@/lib/backup/modules/scanSessions";
+import {
   applySettingsImport,
   countSettingWrites,
   defaultSettingsDecisions,
@@ -64,10 +79,27 @@ import { readFailureFor, type ReadFailure } from "@/app/sign-pdf/backupFlow";
  * módulos, uno que falla NO deshace los que ya se aplicaron bien (se informa por módulo). Nada sale del dispositivo.
  */
 
-export type PackageModuleName = "signatures" | "library" | "drafts" | "settings";
+export type PackageModuleName = "signatures" | "library" | "drafts" | "scanSessions" | "settings";
 
 /** Orden fijo de exportación, de la vista previa y de aplicación. Ajustes va el último: aplicarlo pide recargar la página. */
-export const PACKAGE_MODULES: readonly PackageModuleName[] = ["signatures", "library", "drafts", "settings"];
+export const PACKAGE_MODULES: readonly PackageModuleName[] = ["signatures", "library", "drafts", "scanSessions", "settings"];
+
+/**
+ * Nombre de cada módulo DENTRO del paquete (`manifest.modules`). Casi siempre es el mismo; «Escaneos en curso» se llama
+ * `scanSessions` aquí y `scan-sessions` en el zip, porque el contenedor solo admite minúsculas y guiones en el nombre.
+ */
+export const MODULE_WIRE_NAMES: Record<PackageModuleName, string> = {
+  signatures: "signatures",
+  library: "library",
+  drafts: "drafts",
+  scanSessions: SCAN_SESSIONS_MODULE,
+  settings: "settings",
+};
+
+/** El módulo de la interfaz que corresponde a un nombre del paquete, o `null` si no es de los que conoce esta pantalla. */
+export function moduleFromWireName(name: string): PackageModuleName | null {
+  return PACKAGE_MODULES.find((module) => MODULE_WIRE_NAMES[module] === name) ?? null;
+}
 
 export type ModuleChoice = Partial<Record<PackageModuleName, boolean>>;
 
@@ -98,6 +130,8 @@ export type ExportOptions = {
   includeStrokes?: boolean;
   /** Qué tipos de borrador viajan; por defecto, todos. */
   draftKinds?: ExportDraftsOptions["kinds"];
+  /** Qué sesiones del Escáner viajan (sus ids); por defecto, todas las vigentes. */
+  scanSessionIds?: readonly string[];
 };
 
 export type ExportDescription = {
@@ -119,6 +153,24 @@ export type ExportDescription = {
     fitsInPackage: boolean;
     expiredSkipped: number;
   };
+  scanSessions: {
+    available: boolean;
+    /** Sesiones vigentes, de la más reciente a la más antigua (con su tamaño), para que la persona elija cuáles llevar. */
+    sessions: ScanSessionInfo[];
+    /** Todas las vigentes. */
+    count: number;
+    bytes: number;
+    /** Las elegidas (`scanSessionIds`; todas por defecto). */
+    selectedCount: number;
+    selectedPages: number;
+    selectedBytes: number;
+    /** Las elegidas caben en un solo paquete. */
+    fitsInPackage: boolean;
+    /** Las elegidas pesan lo bastante para avisar de que el paquete será grande y tardará. */
+    large: boolean;
+    /** Sesiones que no se pudieron leer (no se ofrecen). */
+    unreadable: number;
+  };
   settings: { available: boolean; keys: number; valueHistoryLabels: number; valueHistoryValues: number };
   /** Módulos pedidos que tienen algo que exportar. */
   willInclude: PackageModuleName[];
@@ -130,6 +182,8 @@ export type ExportDescription = {
   estimatedBytes: number;
   /** Algún borrador con trazos de firma viajaría: «contienen tu firma». */
   containsSignatureStrokes: boolean;
+  /** Viajan fotos de documentos (sesiones del Escáner). */
+  containsScanSessions: boolean;
   /** Lleva firmas guardadas o trazos de firma. */
   containsSignatures: boolean;
   /** Lleva borradores o historial de valores: datos de clientes. */
@@ -157,6 +211,9 @@ export async function describeExport(options: ExportOptions): Promise<ExportDesc
   const library = await summarizeLibraryExport().catch(() => ({ available: false, documents: 0, templates: 0, bytes: 0, withoutCopy: 0 }));
   const drafts: DraftsSummary = await summarizeDrafts().catch(() => ({ ok: false, reason: "unavailable" }) as DraftsSummary);
   const settings = summarizeSettings();
+  // Medir las sesiones del Escáner carga cada una (sin leer fotos): solo si quien llama menciona el módulo (marcado o no, para
+  // poder ofrecerlo), y no al abrir «Mis documentos».
+  const scan = modules.scanSessions !== undefined ? await summarizeScanSessions().catch(() => ({ ok: false, reason: "unavailable" }) as Awaited<ReturnType<typeof summarizeScanSessions>>) : null;
 
   const draftKinds = options.draftKinds;
   const kind = (name: "sign" | "edit" | "pro") => draftKinds?.[name] !== false;
@@ -186,17 +243,35 @@ export async function describeExport(options: ExportOptions): Promise<ExportDesc
     expiredSkipped: drafts.ok ? drafts.expiredSkipped : 0,
   };
   const settingsInfo = { available: settings.ok, keys: settings.keys, valueHistoryLabels: settings.valueHistoryLabels, valueHistoryValues: settings.valueHistoryValues };
+  const scanAll = scan !== null && scan.ok ? scan.sessions : [];
+  const scanWanted = options.scanSessionIds ? new Set(options.scanSessionIds) : null;
+  const scanChosen = scanWanted ? scanAll.filter((session) => scanWanted.has(session.id)) : scanAll;
+  const scanSelectedBytes = scanChosen.reduce((sum, session) => sum + session.bytes, 0);
+  const scanInfo = {
+    available: scan === null ? true : scan.ok,
+    sessions: scanAll,
+    count: scanAll.length,
+    bytes: scanAll.reduce((sum, session) => sum + session.bytes, 0),
+    selectedCount: scanChosen.length,
+    selectedPages: scanChosen.reduce((sum, session) => sum + session.pageCount, 0),
+    selectedBytes: scanSelectedBytes,
+    fitsInPackage: scanSelectionFits(scanChosen),
+    large: scanSelectedBytes >= LARGE_SCAN_BYTES,
+    unreadable: scan !== null && scan.ok ? scan.unreadable : 0,
+  };
 
   const hasContent: Record<PackageModuleName, boolean> = {
     signatures: signaturesInfo.count > 0,
     library: libraryInfo.documents + libraryInfo.templates > 0,
     drafts: draftCount > 0,
+    scanSessions: scanInfo.selectedCount > 0,
     settings: settingsInfo.keys > 0 || (historyOn && settingsInfo.valueHistoryLabels > 0),
   };
   const isAvailable: Record<PackageModuleName, boolean> = {
     signatures: signaturesInfo.available,
     library: libraryInfo.available,
     drafts: draftsInfo.available,
+    scanSessions: scanInfo.available,
     settings: settingsInfo.available,
   };
   const chosen = PACKAGE_MODULES.filter((name) => isChosen(modules, name));
@@ -208,28 +283,32 @@ export async function describeExport(options: ExportOptions): Promise<ExportDesc
   if (willInclude.includes("signatures")) estimated += signaturesInfo.bytes;
   if (willInclude.includes("library")) estimated += libraryInfo.bytes;
   if (willInclude.includes("drafts")) estimated += draftsInfo.bytes;
+  if (willInclude.includes("scanSessions")) estimated += scanInfo.selectedBytes;
   if (willInclude.includes("settings")) estimated += SETTINGS_ESTIMATE_BYTES + (historyOn ? settingsInfo.valueHistoryLabels * HISTORY_ESTIMATE_BYTES_PER_LABEL : 0);
 
   const includesDrafts = willInclude.includes("drafts");
+  const includesScan = willInclude.includes("scanSessions");
   const includesHistory = willInclude.includes("settings") && historyOn && settingsInfo.valueHistoryLabels > 0;
   const containsSignatureStrokes = includesDrafts && draftsInfo.includesStrokes;
   const containsSignatures = willInclude.includes("signatures") || containsSignatureStrokes;
-  const containsClientData = includesDrafts || includesHistory;
+  const containsClientData = includesDrafts || includesScan || includesHistory;
 
   return {
     signatures: signaturesInfo,
     library: libraryInfo,
     drafts: draftsInfo,
+    scanSessions: scanInfo,
     settings: settingsInfo,
     willInclude,
     willOmitEmpty,
     unavailable,
     estimatedBytes: estimated,
     containsSignatureStrokes,
+    containsScanSessions: includesScan,
     containsSignatures,
     containsClientData,
     encryptionRecommended: containsSignatures || containsClientData,
-    tooLarge: estimated > EXPORT_LIMIT_BYTES || (includesDrafts && !draftsInfo.fitsInPackage),
+    tooLarge: estimated > EXPORT_LIMIT_BYTES || (includesDrafts && !draftsInfo.fitsInPackage) || (includesScan && !scanInfo.fitsInPackage),
     limitBytes: EXPORT_LIMIT_BYTES,
     overBy: Math.max(0, estimated - EXPORT_LIMIT_BYTES),
     nothingToExport: willInclude.length === 0,
@@ -266,9 +345,11 @@ export type ExportEverythingResult =
       /** Módulos que SÍ van en el paquete, con su recuento. */
       included: PackageModuleName[];
       omitted: OmittedModule[];
-      counts: { signatures: number; documents: number; templates: number; drafts: number; settings: number; valueHistory: boolean; strokes: boolean };
+      counts: { signatures: number; documents: number; templates: number; drafts: number; scanSessions: number; scanPages: number; settings: number; valueHistory: boolean; strokes: boolean };
       /** Documentos de la biblioteca que NO viajan porque falta (o está dañada) la copia de su PDF. */
       libraryWithoutCopy: number;
+      /** Páginas de escaneos que NO viajan porque su foto está dañada o no es de un formato admitido. */
+      scanSkippedPages: number;
     }
   | { ok: false; reason: ExportEverythingFailure; omitted?: OmittedModule[]; libraryWithoutCopy?: number };
 
@@ -292,8 +373,9 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
 
   const omitted: OmittedModule[] = [];
   const inputs: PackageModuleInput[] = [];
-  const counts = { signatures: 0, documents: 0, templates: 0, drafts: 0, settings: 0, valueHistory: false, strokes: false };
+  const counts = { signatures: 0, documents: 0, templates: 0, drafts: 0, scanSessions: 0, scanPages: 0, settings: 0, valueHistory: false, strokes: false };
   let libraryWithoutCopy = 0;
+  let scanSkippedPages = 0;
 
   try {
     // Antes de leer ningún PDF: lo que se puede medir sin leer y no cabría se rechaza ya.
@@ -337,6 +419,15 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
             counts.drafts = total;
             counts.strokes = report.includesStrokes;
           }
+        } else if (name === "scanSessions") {
+          const { module: input, report } = await exportScanSessionsDetailed({ ids: options.scanSessionIds });
+          scanSkippedPages = report.skippedPages;
+          if (report.sessions === 0) omitted.push({ module: name, reason: "empty" });
+          else {
+            inputs.push(input);
+            counts.scanSessions = report.sessions;
+            counts.scanPages = report.pages;
+          }
         } else {
           const input = await exportSettings({ includeValueHistory: options.includeValueHistory === true });
           const count = typeof input.meta?.count === "number" ? input.meta.count : 0;
@@ -366,10 +457,11 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
       blob,
       filename: packageFilename(options.now),
       encrypted: password !== undefined,
-      included: inputs.map((input) => input.name as PackageModuleName),
+      included: inputs.map((input) => moduleFromWireName(input.name) as PackageModuleName),
       omitted,
       counts,
       libraryWithoutCopy,
+      scanSkippedPages,
     };
   } catch (error) {
     const code = codeOf(error);
@@ -402,6 +494,7 @@ export type EverythingPlans = {
   signatures: SignaturesPlan | null;
   library: LibraryPlan | null;
   drafts: DraftsImportPlan | null;
+  scanSessions: ScanSessionsImportPlan | null;
   settings: SettingsImportPlan | null;
   /**
    * Módulos que el paquete NI TRAÍA. Un plan `null` por sí solo no distingue «el paquete no lo incluye» de «no se pudo
@@ -442,7 +535,9 @@ export type ReadEverythingOptions = {
   /** Para pruebas: sustituyen las puertas de entrada de producción. */
   validatePdf?: (bytes: Uint8Array) => Promise<boolean>;
   validateImage?: (png: Uint8Array) => Promise<boolean>;
-  /** Solo para pruebas: la fecha con la que se juzga la caducidad de los trazos de los borradores. */
+  /** Para pruebas: comprobación EXTRA de cada foto de un escaneo (la interfaz no la pasa: el motor decodifica al abrir la sesión). */
+  validateScanImage?: (bytes: Uint8Array, mime: string) => Promise<boolean>;
+  /** Solo para pruebas: la fecha con la que se juzga la caducidad de los trazos de los borradores y de los escaneos. */
   now?: number;
 };
 
@@ -484,7 +579,7 @@ export async function readAndPlanEverything(file: Blob, password?: string, optio
     }
     return { ok: false, reason: "generic" };
   }
-  if (!read.modules.some((module) => PACKAGE_MODULES.includes(module.name as PackageModuleName))) {
+  if (!read.modules.some((module) => moduleFromWireName(module.name) !== null)) {
     return { ok: false, reason: "noModules" };
   }
 
@@ -499,8 +594,8 @@ export async function readAndPlanEverything(file: Blob, password?: string, optio
   const imageGuard = options.validateImage ?? (async (png: Uint8Array) => (await validatePngForImport(png)).ok);
 
   const failed = new Set<PackageModuleName>();
-  const has = (name: PackageModuleName) => read.modules.some((module) => module.name === name);
-  const plans: EverythingPlans = { signatures: null, library: null, drafts: null, settings: null, absent: PACKAGE_MODULES.filter((name) => !has(name)) };
+  const has = (name: PackageModuleName) => read.modules.some((module) => module.name === MODULE_WIRE_NAMES[name]);
+  const plans: EverythingPlans = { signatures: null, library: null, drafts: null, scanSessions: null, settings: null, absent: PACKAGE_MODULES.filter((name) => !has(name)) };
 
   if (has("signatures")) {
     try {
@@ -539,6 +634,13 @@ export async function readAndPlanEverything(file: Blob, password?: string, optio
       failed.add("drafts");
     }
   }
+  if (has("scanSessions")) {
+    try {
+      plans.scanSessions = await planScanSessionsImport(read, { validateImage: options.validateScanImage, now: options.now });
+    } catch {
+      failed.add("scanSessions");
+    }
+  }
   if (has("settings")) {
     try {
       plans.settings = planSettingsImport(read);
@@ -562,6 +664,7 @@ export type EverythingDecisions = {
   signatures: Record<string, SignatureDecision>;
   library: Record<string, LibraryDecision>;
   drafts: Record<string, DraftDecision>;
+  scanSessions: Record<string, ScanSessionDecision>;
   settings: SettingsDecisions;
 };
 
@@ -571,6 +674,7 @@ export function defaultEverythingDecisions(plans: EverythingPlans): EverythingDe
     signatures: plans.signatures && plans.signatures.state === "ok" ? defaultSignatureDecisions(plans.signatures) : {},
     library: plans.library && plans.library.state === "ok" ? defaultLibraryDecisions(plans.library) : {},
     drafts: plans.drafts && plans.drafts.state === "ok" ? defaultDraftDecisions(plans.drafts) : {},
+    scanSessions: plans.scanSessions && plans.scanSessions.state === "ok" ? defaultScanSessionDecisions(plans.scanSessions) : {},
     settings: plans.settings && plans.settings.state === "ok" ? defaultSettingsDecisions(plans.settings) : { settings: "omit", valueHistory: "omit" },
   };
 }
@@ -579,6 +683,7 @@ export type EverythingLimits = {
   signatures: SignaturesLimitCheck | null;
   library: LibraryLimitCheck | null;
   drafts: DraftsLimitCheck | null;
+  scanSessions: ScanSessionsLimitCheck | null;
   /** Elementos aprobados en total (lo que cuenta el botón «Importar N elementos»). */
   wanted: number;
   /** Aprobados por módulo. */
@@ -594,22 +699,25 @@ export function checkEverythingLimits(plans: EverythingPlans, decisions: Everyth
   const signatures = plans.signatures && plans.signatures.state === "ok" ? checkSignaturesLimits(plans.signatures, decisions.signatures) : null;
   const library = plans.library && plans.library.state === "ok" ? checkLibraryLimits(plans.library, decisions.library) : null;
   const drafts = plans.drafts && plans.drafts.state === "ok" ? checkDraftsLimits(plans.drafts, decisions.drafts) : null;
+  const scanSessions = plans.scanSessions && plans.scanSessions.state === "ok" ? checkScanSessionsLimits(plans.scanSessions, decisions.scanSessions) : null;
   let settingsWanted = 0;
   if (plans.settings && plans.settings.state === "ok") {
     settingsWanted += countSettingWrites(plans.settings, decisions.settings);
     const history = plans.settings.valueHistory.status;
     if (decisions.settings.valueHistory === "replace" && (history === "new" || history === "different")) settingsWanted += 1;
   }
-  const wantedBy = { signatures: signatures?.wanted ?? 0, library: library?.wanted ?? 0, drafts: drafts?.wanted ?? 0, settings: settingsWanted };
+  const wantedBy = { signatures: signatures?.wanted ?? 0, library: library?.wanted ?? 0, drafts: drafts?.wanted ?? 0, scanSessions: scanSessions?.wanted ?? 0, settings: settingsWanted };
   const blocked: PackageModuleName[] = [];
   if (signatures && !signatures.ok) blocked.push("signatures");
   if (library && !library.ok) blocked.push("library");
   if (drafts && !drafts.ok) blocked.push("drafts");
+  if (scanSessions && !scanSessions.ok) blocked.push("scanSessions");
   return {
     signatures,
     library,
     drafts,
-    wanted: wantedBy.signatures + wantedBy.library + wantedBy.drafts + wantedBy.settings,
+    scanSessions,
+    wanted: wantedBy.signatures + wantedBy.library + wantedBy.drafts + wantedBy.scanSessions + wantedBy.settings,
     wantedBy,
     ok: blocked.length === 0,
     blocked,
@@ -638,6 +746,11 @@ export type DraftsOutcome = Base<"drafts"> & (
   | { status: "failed"; reason: ModuleFailureReason; partial?: boolean }
   | { status: "skipped"; why: SkipWhy }
 );
+export type ScanSessionsOutcome = Base<"scanSessions"> & (
+  | { status: "applied" | "nothing"; written: number; replaced: number; keptBoth: number; skipped: number; changed: number; failed: number; failedReason?: "quota" | "tooBig" | "unavailable"; saved: { id: string }[] }
+  | { status: "failed"; reason: ModuleFailureReason; failedReason?: "quota" | "tooBig" | "unavailable" }
+  | { status: "skipped"; why: SkipWhy }
+);
 export type SettingsOutcome = Base<"settings"> & (
   | { status: "applied" | "nothing"; written: number; skipped: number; valueHistory: boolean; reloadRequired: boolean }
   | { status: "failed"; reason: ModuleFailureReason }
@@ -647,7 +760,7 @@ export type SettingsOutcome = Base<"settings"> & (
 /** Por qué un módulo no se tocó: no venía en el paquete, es de una versión más nueva, estaba dañado o no se pudo leer. */
 export type SkipWhy = "absent" | "newerVersion" | "damaged" | "unavailable";
 
-export type ModuleOutcome = SignaturesOutcome | LibraryOutcome | DraftsOutcome | SettingsOutcome;
+export type ModuleOutcome = SignaturesOutcome | LibraryOutcome | DraftsOutcome | ScanSessionsOutcome | SettingsOutcome;
 
 export type ApplyEverythingResult = {
   /** Un resultado por módulo, en el orden de aplicación. */
@@ -661,6 +774,8 @@ export type ApplyEverythingResult = {
 export type ApplyEverythingOptions = {
   /** Antes de aplicar cada módulo que tiene algo aprobado (para el progreso). */
   onModule?: (module: PackageModuleName) => void;
+  /** Texto que se añade al nombre de una sesión del Escáner «Conservar ambas» (p. ej. «(importado)»). */
+  scanCopySuffix?: string;
   /** Solo para pruebas. */
   now?: number;
 };
@@ -756,6 +871,40 @@ export async function applyEverything(plans: EverythingPlans, decisions: Everyth
         );
       } catch {
         outcomes.push({ module: "drafts", status: "failed", reason: "failed" });
+      }
+    }
+  }
+
+  // Escaneos en curso
+  {
+    const plan = plans.scanSessions;
+    if (!plan || plan.state !== "ok") outcomes.push({ module: "scanSessions", status: "skipped", why: skipWhy(plans, "scanSessions") });
+    else if (limits.wantedBy.scanSessions === 0) {
+      outcomes.push({ module: "scanSessions", status: "nothing", written: 0, replaced: 0, keptBoth: 0, skipped: plan.items.length, changed: 0, failed: 0, saved: [] });
+    } else {
+      options.onModule?.("scanSessions");
+      try {
+        const result = await applyScanSessionsImport(plan, decisions.scanSessions, { now: options.now, copySuffix: options.scanCopySuffix });
+        if (!result.ok) outcomes.push({ module: "scanSessions", status: "failed", reason: result.reason });
+        else if (result.written === 0 && result.failed > 0) {
+          // Todas las aprobadas fallaron al guardarse: el motivo del almacén (sin espacio, demasiado grande...) manda.
+          outcomes.push({ module: "scanSessions", status: "failed", reason: result.failedReason === "quota" ? "quota" : "unavailable", ...(result.failedReason ? { failedReason: result.failedReason } : {}) });
+        } else {
+          outcomes.push({
+            module: "scanSessions",
+            status: result.written > 0 ? "applied" : "nothing",
+            written: result.written,
+            replaced: result.replaced,
+            keptBoth: result.keptBoth,
+            skipped: result.skipped,
+            changed: result.changed,
+            failed: result.failed,
+            ...(result.failedReason ? { failedReason: result.failedReason } : {}),
+            saved: result.saved,
+          });
+        }
+      } catch {
+        outcomes.push({ module: "scanSessions", status: "failed", reason: "failed" });
       }
     }
   }

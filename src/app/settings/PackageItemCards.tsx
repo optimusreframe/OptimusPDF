@@ -3,6 +3,7 @@
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import type { DraftDecision, DraftImportItem } from "@/lib/backup/modules/drafts";
+import type { ScanSessionDecision, ScanSessionImportItem } from "@/lib/backup/modules/scanSessions";
 import { settingsRows, type SettingsDecisions, type SettingsImportPlan, type SettingsRow } from "@/lib/backup/modules/settings";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { countText, fillText } from "@/app/documents/backupModel";
@@ -12,6 +13,7 @@ import {
   draftDecisionOptions,
   draftKindLabel,
   rowDecision,
+  scanDecisionOptions,
   settingChangeText,
   withAllRows,
   withRowDecision,
@@ -100,6 +102,85 @@ export function DraftItemCard({
       {item.status === "different" && item.conflictWith ? (
         <p className="text-footnote text-muted-foreground" data-backup-hint="">
           {fillText(item.conflictWith.newer ? copy.draftLocalNewer : copy.draftLocalOlder, { date: formatDate(item.conflictWith.savedAt, locale) })}
+        </p>
+      ) : null}
+      {options.length > 0 ? (
+        <div role="radiogroup" aria-label={fillText(copy.decisionGroup, { name: label })} className="flex flex-wrap gap-1.5">
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={decision === option}
+              disabled={disabled}
+              data-decision={option}
+              onClick={() => onDecision(option)}
+              className={optionClass(decision === option)}
+            >
+              {labels[option]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Una sesión del Escáner del paquete: nombre, páginas, peso y fecha, su estado (Nuevo / Ya lo tienes / Distinto / No se puede
+ * importar) y la decisión (Importar / Reemplazar / Conservar ambos / Omitir). Mismo aspecto y mismo grupo de opciones que los
+ * borradores. Si la copia de este dispositivo es más reciente lo dice (y por defecto no se pisa).
+ */
+export function ScanSessionItemCard({
+  item,
+  locale,
+  decision,
+  disabled,
+  onDecision,
+}: {
+  item: ScanSessionImportItem;
+  locale: string;
+  decision: ScanSessionDecision | undefined;
+  disabled: boolean;
+  onDecision: (decision: ScanSessionDecision) => void;
+}) {
+  const { t } = useI18n();
+  const copy = t.settings.backup;
+  const options = scanDecisionOptions(item);
+  const label = item.name || "—";
+  const labels: Record<ScanSessionDecision, string> = {
+    import: copy.decisionImport,
+    replace: copy.decisionReplace,
+    keepBoth: copy.decisionKeepBoth,
+    omit: copy.decisionOmit,
+  };
+  const status =
+    item.status === "new" ? copy.statusNew : item.status === "identical" ? copy.statusIdentical : item.status === "different" ? copy.statusDifferent : copy.statusInvalid;
+  return (
+    <div className="surface-card rounded-ios-sm space-y-2 p-3" data-backup-item={item.key} data-status={item.status}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p className="min-w-0 text-callout font-semibold text-foreground [overflow-wrap:anywhere]">{label}</p>
+        <span className={statusChipClass(item.status)}>{status}</span>
+      </div>
+      {item.status !== "invalid" ? (
+        <p className="text-caption text-muted-foreground">
+          {fillText(copy.scanCardLine, {
+            pages: countText(item.pageCount, copy.pagesOne, copy.pagesMany),
+            size: formatBytes(item.bytes, locale),
+            date: formatDate(item.updatedAt || item.savedAt, locale),
+          })}
+        </p>
+      ) : item.reason ? (
+        <p className="text-footnote text-destructive-text">{copy.scanInvalidReasons[item.reason]}</p>
+      ) : null}
+      {item.status !== "invalid" && item.discardedPages > 0 ? (
+        <p className="text-footnote text-muted-foreground" data-backup-scan-discarded="">
+          {countText(item.discardedPages, copy.scanDiscardedOne, copy.scanDiscardedMany)}
+        </p>
+      ) : null}
+      {item.status === "different" && item.conflictWith ? (
+        <p className="text-footnote text-muted-foreground" data-backup-hint="">
+          {fillText(item.conflictWith.newer ? copy.draftLocalNewer : copy.draftLocalOlder, { date: formatDate(item.conflictWith.updatedAt || item.conflictWith.savedAt, locale) })}
         </p>
       ) : null}
       {options.length > 0 ? (

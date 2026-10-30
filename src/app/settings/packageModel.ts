@@ -17,11 +17,13 @@ import { formatBytes } from "@/app/documents/documentsModel";
 export type BackupCopy = Dictionary["settings"]["backup"];
 
 /** Qué casillas están marcadas al abrir «Exportar mi paquete»: todo lo que tiene contenido; el historial de valores, NO. */
-export function defaultExportChoice(description: Pick<ExportDescription, "signatures" | "library" | "drafts" | "settings">): ModuleChoice {
+export function defaultExportChoice(description: Pick<ExportDescription, "signatures" | "library" | "drafts" | "scanSessions" | "settings">): ModuleChoice {
   return {
     signatures: description.signatures.count > 0,
     library: description.library.documents + description.library.templates > 0,
     drafts: description.drafts.count > 0,
+    // Fotos de documentos: van marcados si son pocos y caben, y desmarcados (con su aviso) si pesan cientos de MB.
+    scanSessions: description.scanSessions.count > 0 && description.scanSessions.fitsInPackage && !description.scanSessions.large,
     settings: description.settings.keys > 0,
   };
 }
@@ -49,6 +51,14 @@ export function summaryParts(description: ExportDescription, copy: BackupCopy, o
       description.drafts.signCount > 0
         ? fillText(copy.summaryDrafts, { drafts, answer: description.drafts.includesStrokes ? copy.yes : copy.no })
         : drafts,
+    );
+  }
+  if (description.willInclude.includes("scanSessions")) {
+    parts.push(
+      fillText(copy.summaryScan, {
+        scans: countText(description.scanSessions.selectedCount, copy.scanOne, copy.scanMany),
+        pages: countText(description.scanSessions.selectedPages, copy.pagesOne, copy.pagesMany),
+      }),
     );
   }
   if (description.willInclude.includes("settings")) {
@@ -85,7 +95,16 @@ export function omissionNotes(omitted: readonly OmittedModule[], copy: BackupCop
 
 /** Lo que se pregunta en la vista previa de exportar: ¿está vacío / ilegible cada módulo elegido? (para deshabilitar la casilla). */
 export function moduleAvailability(description: ExportDescription, name: PackageModuleName): "ok" | "empty" | "unavailable" {
-  const available = name === "signatures" ? description.signatures.available : name === "library" ? description.library.available : name === "drafts" ? description.drafts.available : description.settings.available;
+  const available =
+    name === "signatures"
+      ? description.signatures.available
+      : name === "library"
+        ? description.library.available
+        : name === "drafts"
+          ? description.drafts.available
+          : name === "scanSessions"
+            ? description.scanSessions.available
+            : description.settings.available;
   if (!available) return "unavailable";
   const hasContent =
     name === "signatures"
@@ -94,7 +113,9 @@ export function moduleAvailability(description: ExportDescription, name: Package
         ? description.library.documents + description.library.templates > 0
         : name === "drafts"
           ? description.drafts.count > 0
-          : description.settings.keys > 0;
+          : name === "scanSessions"
+            ? description.scanSessions.count > 0
+            : description.settings.keys > 0;
   return hasContent ? "ok" : "empty";
 }
 
@@ -112,7 +133,7 @@ export function countsLine(counts: ModuleCounts, copy: BackupCopy): string {
 export function packageParts(
   modules: readonly ModuleSummary[],
   copy: BackupCopy,
-  extra: { signatures: number; documents: number; templates: number; drafts: number; settings: number },
+  extra: { signatures: number; documents: number; templates: number; drafts: number; scanSessions: number; settings: number },
 ): string[] {
   const parts: string[] = [];
   for (const summary of modules) {
@@ -123,6 +144,7 @@ export function packageParts(
       if (extra.templates > 0) parts.push(countText(extra.templates, copy.templatesOne, copy.templatesMany));
     }
     if (summary.module === "drafts" && extra.drafts > 0) parts.push(countText(extra.drafts, copy.draftsOne, copy.draftsMany));
+    if (summary.module === "scanSessions" && extra.scanSessions > 0) parts.push(countText(extra.scanSessions, copy.scanOne, copy.scanMany));
     if (summary.module === "settings" && extra.settings > 0) parts.push(countText(extra.settings, copy.keysOne, copy.keysMany));
   }
   return parts;
@@ -134,6 +156,9 @@ export function draftDecisionOptions(item: Pick<DraftImportItem, "status" | "can
   if (item.status === "different") return item.canKeepBoth ? ["replace", "keepBoth", "omit"] : ["replace", "omit"];
   return [];
 }
+
+/** Opciones de decisión de un escaneo: las mismas que las de un borrador de Firmar (nuevo → importar; distinto → reemplazar o conservar ambos). */
+export const scanDecisionOptions = draftDecisionOptions;
 
 export function draftKindLabel(item: Pick<DraftImportItem, "kind" | "documents">, copy: BackupCopy): string {
   if (item.kind === "sign-document") return copy.kindSignDocument;
@@ -149,6 +174,16 @@ export function outcomeLine(outcome: ModuleOutcome, copy: BackupCopy): OutcomeLi
   if (outcome.status === "skipped") return outcome.why === "absent" ? null : { tone: "info", text: fillText(copy.resultSkipped, { module: label }) };
   if (outcome.status === "failed") {
     return { tone: "error", text: fillText(copy.resultFailed, { module: label, reason: copy.applyFailed[outcome.reason] }) };
+  }
+  if (outcome.module === "scanSessions") {
+    // Lo que no se pudo guardar o cambió mientras se revisaba se dice aunque no se haya importado ninguno (nunca «ya lo tenías»).
+    const extra = [
+      outcome.failed > 0 ? fillText(copy.resultScanFailed, { n: outcome.failed, reason: copy.scanFailReasons[outcome.failedReason ?? "unavailable"] }) : "",
+      outcome.changed > 0 ? fillText(copy.resultScanChanged, { n: outcome.changed }) : "",
+    ].filter(Boolean);
+    if (outcome.status === "nothing" && extra.length === 0) return { tone: "info", text: fillText(copy.resultNothing, { module: label }) };
+    const head = outcome.status === "nothing" ? [] : [fillText(copy.resultScan, { n: outcome.written })];
+    return { tone: extra.length > 0 ? "info" : "ok", text: [...head, ...extra].join(" ") };
   }
   if (outcome.status === "nothing") return { tone: "info", text: fillText(copy.resultNothing, { module: label }) };
   if (outcome.module === "signatures") {

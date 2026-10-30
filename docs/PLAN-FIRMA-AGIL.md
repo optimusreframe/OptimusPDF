@@ -3089,3 +3089,86 @@ La regla anterior se conserva TAL CUAL (no se acepta nada que antes se rechazara
 - `scan.cropFuzz.test.ts`: caso explícito con las dos escenas (777/84 y 5/61); falla con el código anterior en Docker (94,9 %).
 - Mutantes nuevos `X01`-`X06` en `scripts/scan-engine-mutate.py` (los seis mueren).
 - Los umbrales de la prueba (99 %, 0,7 de hojas lisas, 0,35 de recortes) NO se han tocado; ninguna escena se ha quitado.
+
+### Escaneos en curso en el «OptimusPDF Package» (módulo `scanSessions`; 2026-10-29)
+
+Las sesiones sin terminar de **Escanear a PDF** (IndexedDB `optimuspdf-scan-sessions`, 14 días de vida, tope de 600 MB por sesión) entran por fin en «Respaldo y traslado»
+(Ajustes) con el mismo contenedor, el mismo cifrado opcional y la misma fusión que los borradores. Esto cierra el «PENDIENTE: módulo de borradores del paquete…» de la sección
+«Sesión persistente» del Escáner (E1). `clearScanSessions()` ya estaba enlazada a «Borrar datos locales» (39b0b55).
+
+**Qué ve la persona.**
+1. **Exportar mi paquete**: casilla nueva **«Escaneos en curso (3 escaneos, 21 KB)»** tras «Borradores en curso», con su recuento y el peso REAL de las fotos. Si pesan poco y caben va
+   **marcada**; si pesan ≥ 100 MB o no caben en un paquete va **desmarcada** y una nota dice «Tus escaneos en curso pesan X y no se incluyen salvo que marques la casilla». Marcada, aparece
+   debajo una **lista con una casilla por sesión** (nombre, «N páginas · peso»): se puede llevar solo parte. El resumen dice «3 escaneos (6 páginas)»; ≥ 100 MB elegidos avisa
+   «El paquete tardará en crearse y en abrirse: quita los que no necesites»; lo elegido que no cabe (250 MB) dice cuánto sobra («Quita escaneos o borradores…») y bloquea «Crear paquete» hasta
+   quitar sesiones. Quitar todas las sesiones desmarca la casilla general; volver a marcarla las ofrece todas. Son fotos de documentos: la contraseña viene marcada (recomendada, no obligatoria). Tras exportar, una
+   página cuya foto está dañada se dice aparte («N páginas de escaneos no se incluyeron…»).
+2. **Importar paquete**: sección **«Escaneos en curso»** con una tarjeta por sesión (nombre, páginas, peso, «Guardado el …», estado **Nuevo / Ya lo tienes / Distinto / No se puede importar**, «N páginas están dañadas y
+   no se importarán»), la misma decisión que un borrador de Firmar (**Importar / Reemplazar / Conservar ambos / Omitir**), el aviso «Tu copia de este dispositivo es más reciente (fecha)» y una línea de
+   límites («Caben en este dispositivo. Los escaneos importados se conservan 14 días desde hoy.» o «No caben todos…: necesitan X y quedan Y»). Resultado: «Escaneos en curso: N importados.» + lo que no se
+   pudo guardar (y por qué) + lo que cambió mientras se revisaba. La copia «Conservar ambos» lleva el nombre marcado «(importado)» / «(imported)».
+3. «Último respaldo» anota la parte `scanSessions`; un respaldo de SOLO escaneos es parcial («Último respaldo parcial (Escaneos en curso)»). Los escaneos NO condicionan lo «completo» ni el recordatorio
+   (duran 14 días y pesan cientos de MB: su respaldo es opcional).
+4. Textos ES/EN en el bloque `settings.backup.*` (`scan*`, `pages*`, `summaryScan`, `limitScan*`, `resultScan*`, `moduleNames.scanSessions`).
+
+**Formato** (esquema 1, nombre en el paquete **`scan-sessions`**: el contenedor solo admite `^[a-z][a-z0-9-]{0,31}$` y UNA carpeta, por eso la interfaz lo llama `scanSessions` y `MODULE_WIRE_NAMES` traduce).
+
+```
+scan-sessions/index.json          { sessions: [ { ref, id, name, createdAt, updatedAt, savedAt, settings, nameSuggested?,
+                                                  pages: [ { ref, id, createdAt, source, originalWidth, originalHeight, corners, rotation,
+                                                             filter, adjust, flags, mode?, ocrText?, resolvedFilter?, jpegSample?, file } ] } ] }
+scan-sessions/s<n>-p<m>.<ext>     foto ORIGINAL de la página m de la sesión n (jpg, png, webp, heic, avif, gif, bmp), bytes tal cual
+manifest.modules["scan-sessions"] { schemaVersion: 1, sessions, pages }
+```
+La ruta de cada foto se DERIVA de las referencias y de la extensión del formato REAL de los bytes (ni nombres ni tipos MIME del zip se creen). **No viajan**: miniaturas y resultado procesado (el almacén
+tampoco guarda `processed`; la miniatura se vuelve a calcular desde el original y sus parámetros al abrir la sesión), `rev`, `writerId`, `expiresAt`, `bytes`, `pageCount`.
+Migraciones: `migrations/scanSessions/` (identidad v1). Constantes del módulo en `modules/moduleSpecs.ts` (spec y topes: foto ≤ 64 MiB, JSON ≤ 24 MiB) y registro en `registry.ts`.
+
+**API** (`src/lib/backup/modules/scanSessions.ts` + `scanSessionsSchema.ts`): `summarizeScanSessions()` (mide con el tamaño de los `Blob`, sin leer fotos; recuerda el tamaño por id + fecha de guardado),
+`exportScanSessionsDetailed({ ids?, now? })` → `{ module, report }`, `planScanSessionsImport(read, { validateImage?, now? })`, `defaultScanSessionDecisions`, `checkScanSessionsLimits`,
+`applyScanSessionsImport(plan, decisions, { now?, copySuffix?, beforeSave? })`. En `globalPackage.ts`: `PackageModuleName` gana `"scanSessions"` (orden: firmas, documentos, borradores, **escaneos**, ajustes),
+`ExportOptions.scanSessionIds`, `ExportDescription.scanSessions` / `containsScanSessions`, `EverythingPlans/Decisions/Limits.scanSessions`, `ScanSessionsOutcome`.
+
+**Garantías.**
+- **Sesión a sesión.** Exportar: se carga UNA sesión (solo manejadores de `Blob`), se leen y validan SUS fotos y se pasa a la siguiente; el tope de 250 MiB / 1 000 páginas / 50 sesiones se comprueba con el tamaño de los `Blob`
+  ANTES de leer ninguna foto. Importar: cada sesión se convierte en `Blob` y se guarda de una en una con `scanSessionStore.save` (una transacción por sesión). Una sesión que falla (cuota, tope) no estropea las demás.
+  El contenedor (`buildPackage`/`readPackage`) mantiene todos los archivos del paquete en memoria (tope 250 MiB): es el diseño de F4 y vale igual para los borradores.
+- **Validación hostil.** Cada campo se reconstruye uno a uno (enumerados con `Record<tipo, true>`: si el contrato gana un valor y aquí no, TypeScript no compila; rangos, longitudes, cantidades; `__proto__`/`constructor` fuera).
+  Foto: formato por los PRIMEROS bytes (SVG y todo lo no listado, fuera), estructura completa (`checkImageBytes`: JPEG con EOI, PNG con IEND…), ≤ 64 MiB, ≤ 200 Mpx y ≤ 100 000 px de lado leídos de la cabecera; las dimensiones salen de la
+  cabecera, no de lo declarado; la extensión de la ruta debe ser la del formato real. Una página mala se descarta y se cuenta (la sesión sigue con el resto); sin ninguna válida la sesión es «No se puede importar»
+  (`integrity` si falló el SHA-256, `noValidPages`). Ids de sesión con el patrón del almacén, ids de página únicos, ≤ 500 páginas por sesión, ≤ 50 sesiones y ≤ 1 000 páginas por paquete (indice mayor = `damaged` sin recorrerlo).
+  Al aplicar, TODO se revalida y se reconstruye (el almacén recibe lo saneado, no el objeto de la interfaz).
+- **Nunca pisar.** «Importar» solo vale para lo nuevo; `replace`/`keepBoth` solo para lo distinto. Justo antes de guardar se mira lo local de AHORA: una sesión que apareció o cambió desde la vista previa (`savedAt`)
+  no se pisa (`changed`); si otra pestaña escribe entre medias, el almacén la guarda aparte (`forkedAs`) y se informa el id real. Por defecto, local igual de nueva o más reciente (`updatedAt`, un empate cuenta) → «Conservar ambos»; solo si el
+  paquete es más nuevo → «Reemplazar».
+- **Sin duplicados.** «Ya lo tienes» = mismo contenido (parámetros + SHA-256 de cada foto) bajo cualquier id; se compara barato primero (páginas, tamaños, parámetros) y solo se hashea lo que coincide, y solo se cargan las sesiones locales con
+  el mismo id o con el mismo nombre y número de páginas.
+- **Topes y caducidad.** Tope por sesión del almacén (600 MiB), sitio libre del navegador (`navigator.storage.estimate()` con el mismo margen del 98 % que el almacén) comprobados antes y otra vez por `save`. Una sesión ya caducada en el paquete
+  (`savedAt` + 14 días ≤ ahora) se rechaza (`expired`) sin mirar sus fotos; las fechas del futuro se recortan a ahora.
+
+**Límites conocidos.** (1) El almacén fija el vencimiento al guardar: una sesión importada vive **14 días desde la importación**, no desde su último guardado original. (2) Las miniaturas no viajan: la portada de «Recientes» aparece al abrir la
+sesión. (3) Un paquete no pasa de 250 MiB aunque el almacén admita 600 MiB por sesión: hay que elegir sesiones. (4) El `guard` de 20 s de `scanSessionStore.save` puede dar `unavailable` con una sesión de cientos de MB en un disco lento aunque la
+escritura termine (la siguiente vista previa la verá como «Ya lo tienes»). (5) La decodificación real de cada foto no se hace al importar (el motor del Escáner la hace al abrir la sesión, con sus topes); `validateImage` queda como gancho. (6) No se pueden
+exportar fotos SVG (no entran en el módulo).
+
+**Peticiones a otros dueños** (`src/lib/scan/sessionStore.ts`, NO tocado). Con la API pública actual el módulo funciona, pero una función pública mejoraría tres cosas: (a) `importScanSession(session, { savedAt, expiresAt, expect })` que escriba con las
+fechas del paquete y compruebe `rev` en la misma transacción (conservar el vencimiento y cerrar la ventana entre «mirar» y «guardar»); (b) `bytes` en `ScanSessionSummary` (hoy se mide cargando cada sesión, sin leer bytes, pero con una transacción por sesión);
+(c) un `peekScanSession(id)` sin efectos (`load` anota la revisión en la pestaña: lo que protege entre pestañas se debilita si la misma pestaña tenía esa sesión abierta; aquí no pasa porque exportar vive en Ajustes, pero un `peek` como los de los borradores lo garantizaría).
+
+**Pruebas** (copia aislada de 0c7f22a; las cifras son de la corrida final).
+- Vitest `src/lib/backup src/app/documents src/app/settings src/lib/scan src/components/views`: **97 archivos pasan, 4 omitidos; 1 550 pruebas pasan, 4 omitidas** (los generadores apagados y lo ya omitido). Nuevas: **253** =
+  `modules/scanSessions.test.ts` (50: resumen, exportar, ida y vuelta con y sin contraseña, fusión, caducidad, límites, cambios concurrentes, sesión a sesión),
+  `modules/scanSessions.hostile.test.ts` (155: índice roto, sesión mala, página mala, fotos hostiles —PDF, SVG, JPEG/PNG cortados, bombas de píxeles de PNG/JPEG/WebP—, plan manipulado, rendimiento),
+  `globalPackage.scan.dom.test.tsx` (19: descripción, exportar junto a los demás módulos, leer y aplicar, dorados por la vía global), `app/settings/PackageSheets.scan.test.tsx` (14: hojas de exportar e importar, ES/EN),
+  `packageModel.test.ts` (+7), `goldenPackages.scanSessions.test.ts` (6) y 2 de `goldenPackages.test.ts` (que itera todos los dorados). Dorados nuevos `scan-sessions-v1*.optimuspdf.zip` (contraseña `dorada-2026`;
+  generador apagado `goldenScan.generate.test.ts`, NO se regeneran). Las pruebas existentes que asumían «cuatro módulos» cambian a cinco (`globalPackage.dom/absent`, `goldenPackages.packageAll`, `lastBackup.parts`, `PackageSheets*`,
+  `packageModel`, y el H4 de `settings-package-fix.spec.ts`): solo cambian listas de módulos y la línea «El paquete no incluye: …»; ninguna aserción se debilita.
+- Mutaciones: `python3 scripts/backup-scan-sessions-mutate.py` (**63 mutantes, los 63 mueren**). A la primera sobrevivían 9 (dos eran un texto mal copiado en la lista: `NO APLICA`; siete eran pruebas que faltaban): faltaban pruebas del tope de 50 sesiones al exportar, de «el mismo contenido bajo otro id solo carga las sesiones parecidas»,
+  de que «Importar» sobre algo ya existente no cuenta ni como `changed`, de esquinas con la `x` fuera de rango, del recorte de `createdAt` en el futuro y de las banderas en `false`; se añadieron. Una (S22) destapó que la `load` previa en el camino
+  de «Reemplazar» era redundante y abría una ventana entre «mirar» y «guardar» (la `load` del plan ya anota la revisión): se quitó.
+- E2E headless Chromium (`CI=1`, build de producción): `e2e/specs/settings-package-scan.spec.ts` (+ `e2e/helpers/package-scan-entry.ts`), **4 pruebas pasan**: recorrido completo con la interfaz (3 sesiones sintéticas; elegir 2; contraseña; descarga cifrada sin nada
+  legible; borrar la base; contraseña mala rechazada sin escribir; vista previa; importar; mismos SHA-256 de los originales, ids, orden y parámetros; el Escáner real abre `?resume=scan:<id>` con sus 3 páginas; reimportar es «Ya lo tienes»; 0 errores de consola y 0 peticiones ajenas),
+  4 fotos hostiles rechazadas en < 2 s sin escribir, y axe-core (0 violaciones) + objetivos táctiles ≥ 44 px en claro/ES/1280 px y oscuro/EN/375 px. Las existentes `settings-package`, `settings-package-fix`, `documents-backup`, `backup-drafts-settings`:
+  **59 pasan, 1 omitida (la omite el propio spec según el motor), 2 fallaron** (el H4 de `settings-package-fix` esperaba «no incluye: Plantillas y documentos, Borradores, Ajustes» y ahora son cuatro módulos; actualizado, repetido: pasa).
+- **No verificado**: `webkit-ipad` (no hay WebKit instalado en esta máquina; por eso `settings-package-scan` NO se añadió a `CROSS_SPECS` de `playwright.config.ts`), Safari real de iPad (cuota real de IndexedDB con cientos de MB, `navigator.share`), un paquete de ~250 MB real
+  (el tope se prueba con un presupuesto bajo inyectado `__setScanSessionsPackageBudgetForTests`, y el peso grande con el tamaño de los `Blob` sustituido), la compensación ante una cuota que falla a mitad de importación (se prueba con el tope del almacén), Firefox.

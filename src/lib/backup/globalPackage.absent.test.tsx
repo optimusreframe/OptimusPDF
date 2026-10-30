@@ -44,14 +44,15 @@ async function signaturesOnlyPlans(): Promise<EverythingPlans> {
 }
 
 describe("H4 — «el paquete no lo incluye» no es un fallo", () => {
-  it("un paquete de solo firmas: los otros tres módulos quedan `absent`, no `unavailable`", async () => {
+  it("un paquete de solo firmas: los demás módulos quedan `absent`, no `unavailable`", async () => {
     const plans = await signaturesOnlyPlans();
-    expect(plans.absent).toEqual(["library", "drafts", "settings"]);
+    expect(plans.absent).toEqual(["library", "drafts", "scanSessions", "settings"]);
     const result = await applyEverything(plans, defaultEverythingDecisions(plans));
     expect(result.outcomes.map((o) => [o.module, o.status, o.status === "skipped" ? o.why : null])).toEqual([
       ["signatures", "applied", null],
       ["library", "skipped", "absent"],
       ["drafts", "skipped", "absent"],
+      ["scanSessions", "skipped", "absent"],
       ["settings", "skipped", "absent"],
     ]);
   });
@@ -60,7 +61,7 @@ describe("H4 — «el paquete no lo incluye» no es un fallo", () => {
     const plans = await signaturesOnlyPlans();
     const result = await applyEverything(plans, defaultEverythingDecisions(plans));
     const lines = outcomeLines(result.outcomes, es.settings.backup).map((l) => l.text);
-    expect(lines).toEqual(["Firmas: 1 importadas.", "El paquete no incluye: Plantillas y documentos, Borradores, Ajustes."]);
+    expect(lines).toEqual(["Firmas: 1 importadas.", "El paquete no incluye: Plantillas y documentos, Borradores, Escaneos en curso, Ajustes."]);
     expect(lines.join(" ")).not.toMatch(/no se import/i);
   });
 
@@ -68,19 +69,19 @@ describe("H4 — «el paquete no lo incluye» no es un fallo", () => {
     const plans = await signaturesOnlyPlans();
     const result = await applyEverything(plans, defaultEverythingDecisions(plans));
     const lines = outcomeLines(result.outcomes, en.settings.backup).map((l) => l.text);
-    expect(lines[1]).toBe("The package does not include: Templates and documents, Drafts, Settings.");
+    expect(lines[1]).toBe("The package does not include: Templates and documents, Drafts, Scans in progress, Settings.");
     expect(lines.join(" ")).not.toMatch(/not imported/i);
   });
 
   it("un módulo que SÍ venía pero no se pudo leer sigue diciendo «no se importó» (fallo real, distinto de ausente)", async () => {
     const plans = await signaturesOnlyPlans();
     // El paquete traía `library` (no está en `absent`) pero no hay plan: no se pudo leer.
-    const broken: EverythingPlans = { ...plans, absent: ["drafts", "settings"] };
+    const broken: EverythingPlans = { ...plans, absent: ["drafts", "scanSessions", "settings"] };
     const result = await applyEverything(broken, defaultEverythingDecisions(broken));
     expect(result.outcomes[1]).toMatchObject({ module: "library", status: "skipped", why: "unavailable" });
     const lines = outcomeLines(result.outcomes, es.settings.backup).map((l) => l.text);
     expect(lines).toContain("Plantillas y documentos: no se importó.");
-    expect(lines).toContain("El paquete no incluye: Borradores, Ajustes.");
+    expect(lines).toContain("El paquete no incluye: Borradores, Escaneos en curso, Ajustes.");
   });
 
   it("versión más nueva y módulo dañado conservan su motivo (no se confunden con ausente)", async () => {
@@ -98,7 +99,7 @@ describe("H4 — «el paquete no lo incluye» no es un fallo", () => {
     const read = await readAndPlanEverything(asFile(blob), undefined, PASS);
     if (!read.ok) throw new Error(read.reason);
     const result = await applyEverything(read.plans, defaultEverythingDecisions(read.plans));
-    expect(result.outcomes[3]).toMatchObject({ module: "settings", status: "skipped", why: "newerVersion" });
+    expect(result.outcomes[4]).toMatchObject({ module: "settings", status: "skipped", why: "newerVersion" });
     expect(result.outcomes[1]).toMatchObject({ status: "skipped", why: "absent" });
     const lines = outcomeLines(result.outcomes, es.settings.backup).map((l) => l.text);
     expect(lines).toContain("Ajustes: no se importó.");

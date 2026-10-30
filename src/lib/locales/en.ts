@@ -724,7 +724,7 @@ export const en: Dictionary = {
     backup: {
       title: "Backup and transfer",
       intro:
-        "Save your signatures, templates, documents, drafts and settings in a single file, so you do not lose them if the browser clears data or to move them to another device. Nothing leaves this device.",
+        "Save your signatures, templates, documents, drafts, scans in progress and settings in a single file, so you do not lose them if the browser clears data or to move them to another device. Nothing leaves this device.",
       why: "Safari can delete a website's data after 7 days without use. A backup of your own is the only copy that does not depend on the browser.",
       homeScreenTip:
         "On iPad and iPhone, tap Share and choose \"Add to Home Screen\": the installed app is better protected against that deletion.",
@@ -761,6 +761,17 @@ export const en: Dictionary = {
       draftsLabel: "Drafts in progress",
       draftsHint:
         "Unfinished work from Sign, Edit and PDF Pro, with their documents and values: they may contain your clients' data.",
+      scanLabel: "Scans in progress",
+      scanHint:
+        "The original photos of the unfinished scans in Scan to PDF, with their settings. They are large and contain your documents and your clients' documents.",
+      scanListLegend: "Scans to include",
+      scanSessionHint: "{pages} · {size}",
+      scanLargeWarning:
+        "The scans you chose weigh {size}. The package will take a while to create and to open: remove the ones you do not need.",
+      scanUnreadable: "Some scans cannot be read and will not be included.",
+      scanExcludedNote: "Your scans in progress weigh {size} and are not included unless you tick the box.",
+      scanSkippedOne: "1 page of a scan was not included because its photo is damaged or not supported.",
+      scanSkippedMany: "{n} pages of scans were not included because their photo is damaged or not supported.",
       settingsLabel: "Settings",
       settingsHint: "Theme, language and tool switches.",
       historyLabel: "Include the value history",
@@ -779,6 +790,10 @@ export const en: Dictionary = {
       templatesMany: "{n} templates",
       draftsOne: "1 draft",
       draftsMany: "{n} drafts",
+      scanOne: "1 scan",
+      scanMany: "{n} scans",
+      pagesOne: "1 page",
+      pagesMany: "{n} pages",
       keysOne: "1 setting",
       keysMany: "{n} settings",
       labelsOne: "1 label",
@@ -787,6 +802,7 @@ export const en: Dictionary = {
       summary: "Will be exported: {parts}. Approximate size: {size}.",
       summaryNothing: "Tick at least one box that has content.",
       summaryDrafts: "{drafts} (drawn signatures in the Sign ones: {answer})",
+      summaryScan: "{scans} ({pages})",
       yes: "yes",
       no: "no",
       summarySettings: "settings",
@@ -794,9 +810,9 @@ export const en: Dictionary = {
       omittedEmpty: "{names} will not be included: there is nothing to back up.",
       omittedUnavailable: "{names} was not included: this browser cannot read it.",
       tooLarge:
-        "What you chose does not fit in a single package (the maximum is about 250 MB). Remove the drafts or delete documents you do not use.",
+        "What you chose does not fit in a single package (the maximum is about 250 MB). Remove scans or drafts, or delete documents you do not use.",
       tooLargeSize:
-        "What you chose weighs {size} and does not fit in a single package: the maximum is {limit}, so {over} is too much. Remove the drafts or delete documents you do not use.",
+        "What you chose weighs {size} and does not fit in a single package: the maximum is {limit}, so {over} is too much. Remove scans or drafts, or delete documents you do not use.",
       withoutCopyWarnOne: "1 document will not be included because its PDF copy is missing.",
       withoutCopyWarnMany: "{n} documents will not be included because their PDF copy is missing.",
       withoutCopyDoneOne: "1 document was not included because its PDF copy is missing.",
@@ -830,7 +846,7 @@ export const en: Dictionary = {
         unavailable: "This browser cannot read your data to back it up.",
         encryptionUnavailable: "This browser cannot encrypt here. Untick the password or use a secure connection.",
         tooLarge:
-          "What you chose does not fit in a single package (the maximum is about 250 MB). Remove the drafts or delete documents you do not use.",
+          "What you chose does not fit in a single package (the maximum is about 250 MB). Remove scans or drafts, or delete documents you do not use.",
         failed: "The package could not be created. Please try again.",
       },
       announceExported: "Package created: {parts}.",
@@ -870,6 +886,7 @@ export const en: Dictionary = {
         signatures: "Signatures",
         library: "Templates and documents",
         drafts: "Drafts",
+        scanSessions: "Scans in progress",
         settings: "Settings",
       },
       moduleStates: {
@@ -912,6 +929,19 @@ export const en: Dictionary = {
         tooLarge: "The draft is too large.",
         tooMany: "The package has too many drafts.",
       },
+      scanCardLine: "{pages} · {size} · Saved on {date}",
+      scanDiscardedOne: "1 page is damaged and will not be imported.",
+      scanDiscardedMany: "{n} pages are damaged and will not be imported.",
+      scanInvalidReasons: {
+        integrity: "The photos do not match what the package says.",
+        invalidEntry: "The scan is not valid.",
+        duplicateId: "The scan appears twice in the package.",
+        noValidPages: "None of its pages has a valid photo.",
+        expired: "The scan expired (unfinished scans are kept for 14 days).",
+        tooLarge: "The scan is too large to save in this browser.",
+        tooMany: "The scan has too many pages.",
+      },
+      scanCopySuffix: "(imported)",
       settingsCardTitle: "Package settings",
       settingsLine: "{n} settings: {parts}.",
       settingsIgnored: "{n} unknown values in the package are ignored.",
@@ -955,6 +985,10 @@ export const en: Dictionary = {
       limitDrafts: "Fits within the draft limits.",
       limitDraftsExceeded:
         "Not all the chosen drafts fit: the maximum is {max} per tool. Skip some.",
+      limitScan: "They fit on this device. Imported scans are kept for 14 days from today.",
+      limitScanExceeded:
+        "Not all the chosen scans fit: they need {size} and this browser has {free} left. Skip some.",
+      limitScanTooBig: "A chosen scan is too large to save. Skip it.",
       limitBlocked: "One part does not fit ({names}). Skip items in that part to be able to import.",
       importConfirmOne: "Import 1 item",
       importConfirmMany: "Import {n} items",
@@ -973,6 +1007,14 @@ export const en: Dictionary = {
       resultLibrary: "Templates and documents: {docs}, {templates}.",
       resultDrafts: "Drafts: {n} imported.",
       resultDraftsNoStrokes: "{n} without the drawn signatures.",
+      resultScan: "Scans in progress: {n} imported.",
+      resultScanFailed: "{n} could not be saved ({reason}).",
+      resultScanChanged: "{n} were not imported because they changed while you were reviewing.",
+      scanFailReasons: {
+        quota: "there is not enough space in this browser",
+        tooBig: "it is too large",
+        unavailable: "this browser does not allow saving it",
+      },
       resultSettings: "Settings: {n} applied.",
       resultSettingsHistory: "Settings: {n} applied and the value history.",
       resultNothing: "{module}: nothing to import (you already had it).",

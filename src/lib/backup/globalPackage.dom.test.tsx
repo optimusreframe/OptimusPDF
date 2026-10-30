@@ -294,7 +294,7 @@ describe("ida y vuelta: exportar → borrar todo → importar", () => {
     expect(applied.failed).toEqual([]);
     expect(applied.applied).toEqual(["signatures", "library", "drafts", "settings"]);
     expect(applied.reloadRequired).toBe(true);
-    expect(applied.outcomes.map((o) => o.module)).toEqual(["signatures", "library", "drafts", "settings"]);
+    expect(applied.outcomes.map((o) => o.module)).toEqual(["signatures", "library", "drafts", "scanSessions", "settings"]);
 
     // Firmas
     expect((await listVault()).entries.map((e) => [e.id, e.signerName, e.role, e.signature?.png.byteLength, e.initials?.png.byteLength]).sort()).toEqual(before.vault);
@@ -321,7 +321,8 @@ describe("ida y vuelta: exportar → borrar todo → importar", () => {
     ]);
     const second = await countWrites(() => applyEverything(again.plans, defaultEverythingDecisions(again.plans)));
     expect(second.writes).toBe(0);
-    expect(second.result.outcomes.map((o) => o.status)).toEqual(["nothing", "nothing", "nothing", "nothing"]);
+    // Los escaneos en curso no iban en este paquete: se saltan (no es «nada que importar»).
+    expect(second.result.outcomes.map((o) => o.status)).toEqual(["nothing", "nothing", "nothing", "skipped", "nothing"]);
     expect(second.result.reloadRequired).toBe(false);
     expect((await listVault()).entries).toHaveLength(2);
     expect((await listDocuments()).documents).toHaveLength(2);
@@ -346,7 +347,7 @@ describe("ida y vuelta: exportar → borrar todo → importar", () => {
     expect(merge.modules.find((m) => m.module === "library")?.counts).toMatchObject({ new: 0, identical: 2 });
     expect(merge.modules.find((m) => m.module === "drafts")?.counts).toMatchObject({ new: 0, identical: 4 });
     const applied = await applyEverything(merge.plans, defaultEverythingDecisions(merge.plans));
-    expect(applied.outcomes.map((o) => o.status)).toEqual(["applied", "nothing", "nothing", "nothing"]);
+    expect(applied.outcomes.map((o) => o.status)).toEqual(["applied", "nothing", "nothing", "skipped", "nothing"]);
     expect((await listVault()).entries.map((e) => e.signerName).sort()).toEqual(["Ana Pérez", "Luis Gómez", "Marta Ruiz"]);
     expect((await listDocuments()).documents).toHaveLength(2);
     expect(await listDrafts()).toHaveLength(1);
@@ -365,7 +366,7 @@ describe("ida y vuelta: exportar → borrar todo → importar", () => {
     expect(window.localStorage.getItem("optimuspdf.valueHistory")).toBeNull();
     const again = await readPlans(exported.blob);
     const chosen = await applyEverything(again.plans, { ...defaultEverythingDecisions(again.plans), settings: { settings: "omit", valueHistory: "replace" } });
-    expect(chosen.outcomes[3]).toMatchObject({ module: "settings", status: "applied", valueHistory: true });
+    expect(chosen.outcomes[4]).toMatchObject({ module: "settings", status: "applied", valueHistory: true });
     expect(window.localStorage.getItem("optimuspdf.valueHistory")).not.toBeNull();
   });
 });
@@ -383,6 +384,7 @@ describe("un paquete de UN solo módulo entra por la misma vía", () => {
       ["signatures", "applied"],
       ["library", "skipped"],
       ["drafts", "skipped"],
+      ["scanSessions", "skipped"],
       ["settings", "skipped"],
     ]);
     expect(applied.reloadRequired).toBe(false);
@@ -419,6 +421,7 @@ describe("un módulo que falla no deshace los que ya se aplicaron", () => {
       ["signatures", "applied"],
       ["library", "applied"],
       ["drafts", "failed"],
+      ["scanSessions", "skipped"],
       ["settings", "applied"],
     ]);
     expect(applied.outcomes[2]).toMatchObject({ reason: "limit" });
@@ -443,6 +446,7 @@ describe("un módulo que falla no deshace los que ya se aplicaron", () => {
       ["signatures", "applied"],
       ["library", "applied"],
       ["drafts", "nothing"],
+      ["scanSessions", "skipped"],
       ["settings", "nothing"],
     ]);
     expect(await listDrafts()).toHaveLength(0);
@@ -471,9 +475,10 @@ describe("estados de módulo", () => {
       ["signatures", "applied"],
       ["library", "skipped"],
       ["drafts", "skipped"],
+      ["scanSessions", "skipped"],
       ["settings", "skipped"],
     ]);
-    expect(applied.outcomes[3]).toMatchObject({ why: "newerVersion" });
+    expect(applied.outcomes[4]).toMatchObject({ why: "newerVersion" });
     expect(storedKeys()).toEqual([]);
   });
 
@@ -488,7 +493,7 @@ describe("estados de módulo", () => {
   });
 
   it("los módulos se aplican siempre en el mismo orden y ajustes va el último", () => {
-    expect(PACKAGE_MODULES).toEqual(["signatures", "library", "drafts", "settings"]);
+    expect(PACKAGE_MODULES).toEqual(["signatures", "library", "drafts", "scanSessions", "settings"]);
   });
 
   it("una vista previa vacía (todo idéntico) no tiene nada que importar", async () => {
@@ -520,8 +525,8 @@ describe("paquetes hostiles", () => {
 
 describe("applyEverything con un plan manipulado", () => {
   it("un plan de otro estado se salta y no escribe nada", async () => {
-    const plans: EverythingPlans = { signatures: null, library: null, drafts: null, settings: null };
-    const applied = await applyEverything(plans, { signatures: {}, library: {}, drafts: {}, settings: { settings: "omit" } });
+    const plans: EverythingPlans = { signatures: null, library: null, drafts: null, scanSessions: null, settings: null };
+    const applied = await applyEverything(plans, { signatures: {}, library: {}, drafts: {}, scanSessions: {}, settings: { settings: "omit" } });
     expect(applied.outcomes.every((o) => o.status === "skipped")).toBe(true);
     expect(applied.applied).toEqual([]);
   });
@@ -532,9 +537,10 @@ describe("applyEverything con un plan manipulado", () => {
     if (!exported.ok) throw new Error(exported.reason);
     await wipeEverything();
     const read = await readPlans(exported.blob);
-    const { writes, result } = await countWrites(() => applyEverything(read.plans, { signatures: {}, library: {}, drafts: {}, settings: { settings: "omit", valueHistory: "omit" } }));
+    const { writes, result } = await countWrites(() => applyEverything(read.plans, { signatures: {}, library: {}, drafts: {}, scanSessions: {}, settings: { settings: "omit", valueHistory: "omit" } }));
     expect(writes).toBe(0);
-    expect(result.outcomes.map((o) => o.status)).toEqual(["nothing", "nothing", "nothing", "nothing"]);
+    // El paquete no traía escaneos en curso: ese módulo se salta (no es «nada que importar»).
+    expect(result.outcomes.map((o) => o.status)).toEqual(["nothing", "nothing", "nothing", "skipped", "nothing"]);
     expect(fakePdf(1).length).toBeGreaterThan(0);
   });
 });
