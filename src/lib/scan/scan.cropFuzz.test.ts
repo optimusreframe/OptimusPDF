@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { installScanicEnvironment, toNapiImageData } from "@/lib/scan/__fixtures__/testUtils";
+import { installScanicEnvironment, releaseScanicCanvases, settleMemory, toNapiImageData } from "@/lib/scan/__fixtures__/testUtils";
 import { fuzzCardSpecs, fuzzSpecs, paperKept, renderScene, type SceneSpec } from "@/lib/scan/__fixtures__/scenes";
 import { selectCrop } from "@/lib/scan/cropGate";
 import { detectDocumentCorners } from "@/lib/scan/documentDetection";
@@ -26,9 +26,12 @@ async function crop(spec: SceneSpec, seed: number, mode: ScanMode = "document") 
   const scene = renderScene(spec, seed, SCENE);
   const small = downscaleRgba(scene.image, 800);
   const found = await detectDocumentCorners(toNapiImageData(small));
+  releaseScanicCanvases();
   const live = detectLiveQuad(small);
   const { quad, verdict } = selectCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, small, mode, live?.confidence ?? 0);
-  return { scene, quad, verdict, kept: quad ? paperKept(scene.quad, quad) : 1 };
+  const kept = quad ? paperKept(scene.quad, quad) : 1;
+  await settleMemory();
+  return { scene, quad, verdict, kept };
 }
 
 describe("fuzz del recorte automatico", () => {

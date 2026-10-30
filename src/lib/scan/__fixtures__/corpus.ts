@@ -1,4 +1,5 @@
 import { makeRng } from "@/lib/scan/__fixtures__/rng";
+import { settleMemory } from "@/lib/scan/__fixtures__/testUtils";
 import {
   PAGE_H,
   PAGE_W,
@@ -110,7 +111,7 @@ const DESKS: DeskKind[] = ["dark", "wood", "light", "blue"];
 const DATES = ["2026-03-12", "2026-07-04", "2025-11-29", "2026-01-18"];
 
 /** Documentos de texto y formularios con los cuatro giros: base de la metrica de orientacion y de deteccion. */
-export function buildDocumentSet(): CorpusItem[] {
+export async function buildDocumentSet(): Promise<CorpusItem[]> {
   const items: CorpusItem[] = [];
   let index = 0;
   for (let base = 0; base < 10; base += 1) {
@@ -138,38 +139,47 @@ export function buildDocumentSet(): CorpusItem[] {
           },
         }),
       );
+      await settleMemory();
     }
   }
   return items;
 }
 
 /** Hojas en blanco (con sello, con numero de pagina, limpias) y hojas casi vacias que NO lo son. */
-export function buildBlankSet(): CorpusItem[] {
+export async function buildBlankSet(): Promise<CorpusItem[]> {
   const items: CorpusItem[] = [];
   for (let n = 0; n < 6; n += 1) {
     items.push(item(`blank-clean-${n}`, { kind: "blank", mode: "document", render: renderBlankPage({ seed: 200 + n }), scene: { seed: 4000 + n, desk: DESKS[n % 4], shadow: 0.1 + n * 0.04, noise: 2 + n * 0.5 } }));
+    await settleMemory();
   }
   for (let n = 0; n < 6; n += 1) {
     items.push(item(`blank-stamp-${n}`, { kind: "blank", mode: "document", render: renderBlankPage({ seed: 300 + n, stamp: true }), scene: { seed: 4100 + n, desk: DESKS[n % 4], shadow: 0.15 }, extra: { blank: false, sparse: true } }));
+    await settleMemory();
   }
   for (let n = 0; n < 4; n += 1) {
     items.push(item(`blank-number-${n}`, { kind: "blank", mode: "document", render: renderBlankPage({ seed: 400 + n, pageNumber: true }), scene: { seed: 4200 + n, desk: DESKS[(n + 1) % 4] }, extra: { blank: false, sparse: true } }));
+    await settleMemory();
   }
   for (let n = 0; n < 5; n += 1) {
     items.push(item(`short-note-${n}`, { kind: "text", mode: "document", render: renderBlankPage({ seed: 500 + n, shortNote: true }), scene: { seed: 4300 + n, desk: DESKS[n % 4], shadow: 0.2 } }));
+    await settleMemory();
   }
   return items;
 }
 
 /** Calidad: nitidas vs borrosas, con y sin brillo, oscuras. */
-export function buildQualitySet(): CorpusItem[] {
+export async function buildQualitySet(): Promise<CorpusItem[]> {
   const items: CorpusItem[] = [];
   for (let n = 0; n < 6; n += 1) {
     const render = () => renderTextPage({ seed: 700 + n, title: TITLES[n % TITLES.length], letterhead: n % 2 === 0 });
     items.push(item(`q-sharp-${n}`, { kind: "text", mode: "document", render: render(), scene: { seed: 5000 + n, noise: 2.5, shadow: 0.1 } }));
+    await settleMemory();
     items.push(item(`q-blur-${n}`, { kind: "text", mode: "document", render: render(), scene: { seed: 5100 + n, noise: 2.5, shadow: 0.1, blur: 4 + (n % 3) } }));
+    await settleMemory();
     items.push(item(`q-glare-${n}`, { kind: "text", mode: "document", render: render(), scene: { seed: 5200 + n, noise: 2.5, shadow: 0.05, glare: { x: 0.45 + (n % 3) * 0.05, y: 0.4 + (n % 2) * 0.1, radius: 0.16, strength: 1.4 } } }));
+    await settleMemory();
     items.push(item(`q-dark-${n}`, { kind: "text", mode: "document", render: render(), scene: { seed: 5300 + n, noise: 3, shadow: 0.1, light: 0.32 } }));
+    await settleMemory();
   }
   return items;
 }
@@ -178,7 +188,7 @@ export function buildQualitySet(): CorpusItem[] {
  * Sesion de prueba para repetidas: 6 hojas capturadas DOS veces (repetidas), 6 plantillas de formulario con 2-3 rellenos
  * distintos (NO repetidas entre si) y 6 hojas unicas.
  */
-export function buildSessionSet(): CorpusItem[] {
+export async function buildSessionSet(): Promise<CorpusItem[]> {
   const items: CorpusItem[] = [];
   for (let n = 0; n < 6; n += 1) {
     const makePage = () => renderTextPage({ seed: 800 + n, title: TITLES[n % TITLES.length], letterhead: n % 2 === 0 });
@@ -192,6 +202,7 @@ export function buildSessionSet(): CorpusItem[] {
           extra: { duplicateGroup: `dup-${n}` },
         }),
       );
+      await settleMemory();
     }
   }
   for (let family = 0; family < 6; family += 1) {
@@ -206,31 +217,38 @@ export function buildSessionSet(): CorpusItem[] {
           extra: { formFamily: family },
         }),
       );
+      await settleMemory();
     }
   }
   for (let n = 0; n < 6; n += 1) {
     items.push(item(`uniq-${n}`, { kind: "text", mode: "document", render: renderTextPage({ seed: 900 + n * 13, title: TITLES[(n + 3) % TITLES.length] }), scene: { seed: 6400 + n } }));
+    await settleMemory();
   }
   return items;
 }
 
 /** Modos especiales: tarjetas, recibos, libros, pizarras y fotos de danos. */
-export function buildSpecialSet(): CorpusItem[] {
+export async function buildSpecialSet(): Promise<CorpusItem[]> {
   const items: CorpusItem[] = [];
   for (let n = 0; n < 4; n += 1) {
     items.push(item(`id-${n}`, { kind: "idcard", mode: "id-card", render: renderIdCard(10 + n), scene: { seed: 7000 + n, desk: DESKS[n % 4], scale: 0.62, angleDeg: n * 2 - 3, width: 900, height: 700, turns: (n % 2) as 0 | 1 } }));
+    await settleMemory();
   }
   for (let n = 0; n < 4; n += 1) {
     items.push(item(`receipt-${n}`, { kind: "receipt", mode: "receipt", render: renderReceipt(20 + n), scene: { seed: 7100 + n, desk: DESKS[(n + 1) % 4], scale: 0.3, angleDeg: n * 2 - 3, keystone: 0.03 } }));
+    await settleMemory();
   }
   for (let n = 0; n < 4; n += 1) {
     items.push(item(`book-${n}`, { kind: "book", mode: "book", render: renderBookSpread(30 + n), scene: { seed: 7200 + n, desk: DESKS[n % 4], scale: 0.85, angleDeg: n - 1.5, keystone: 0.02, width: 1100, height: 900 } }));
+    await settleMemory();
   }
   for (let n = 0; n < 4; n += 1) {
     items.push(item(`board-${n}`, { kind: "whiteboard", mode: "whiteboard", render: renderWhiteboard(40 + n), scene: { seed: 7300 + n, desk: "dark", scale: 0.8, angleDeg: n - 1.5, width: 1100, height: 850, glare: n % 2 === 0 ? { x: 0.6, y: 0.4, radius: 0.12, strength: 0.5 } : null } }));
+    await settleMemory();
   }
   for (let n = 0; n < 3; n += 1) {
     items.push(item(`photo-${n}`, { kind: "photo", mode: "photo", render: renderDamagePhoto(50 + n), scene: { seed: 7400 + n, width: 800, height: 600, noise: 2 } }));
+    await settleMemory();
   }
   return items;
 }
@@ -239,10 +257,10 @@ export function buildSpecialSet(): CorpusItem[] {
  * Escenas SIN documento y casos trampa: la foto ES lo unico que hay (techos, paredes, un cuadro) o ya es toda documento (pagina
  * blanca a sangre con un rectangulo rojo dentro). El recorte automatico NO debe aplicarse a ninguna (`hasDocument = false`).
  */
-export function buildNoDocumentSet(): CorpusItem[] {
+export async function buildNoDocumentSet(): Promise<CorpusItem[]> {
   const items: CorpusItem[] = [];
   // La foto ES la imagen (sin escritorio alrededor): se usa el lienzo tal cual.
-  const add = (id: string, render: PageRender & { width: number; height: number }) => {
+  const add = async (id: string, render: PageRender & { width: number; height: number }) => {
     const image = canvasToRgba(render.canvas);
     items.push({
       id,
@@ -252,12 +270,13 @@ export function buildNoDocumentSet(): CorpusItem[] {
       page: image,
       truth: { hasDocument: false, quad: null, neededRotation: null, title: null, date: null, blank: false, duplicateGroup: null, formFamily: null, sharp: true, glare: false, dark: false, lines: render.lines, pageWidth: render.width, pageHeight: render.height, spine: null },
     });
+    await settleMemory();
   };
-  for (let n = 0; n < 3; n += 1) add(`roof-${n}`, renderRoofTiles(60 + n));
-  for (let n = 0; n < 3; n += 1) add(`ceiling-${n}`, renderCeilingStains(70 + n));
-  for (let n = 0; n < 2; n += 1) add(`wall-${n}`, renderWallFrame(80 + n));
-  add("white-red-rect", renderWhiteWithRect());
-  add("fullbleed-text", renderFullBleedPage(95));
+  for (let n = 0; n < 3; n += 1) await add(`roof-${n}`, renderRoofTiles(60 + n));
+  for (let n = 0; n < 3; n += 1) await add(`ceiling-${n}`, renderCeilingStains(70 + n));
+  for (let n = 0; n < 2; n += 1) await add(`wall-${n}`, renderWallFrame(80 + n));
+  await add("white-red-rect", renderWhiteWithRect());
+  await add("fullbleed-text", renderFullBleedPage(95));
   return items;
 }
 
@@ -270,13 +289,18 @@ export type Corpus = {
   noDocument: CorpusItem[];
 };
 
-export function buildCorpus(): Corpus {
+/**
+ * Construir el corpus es trabajo sincrono con lienzos nativos: cada foto deja buffers de `getImageData` y lienzos de Skia que solo se
+ * liberan cuando el bucle de eventos recibe el turno. Por eso se construye ASINCRONO y cediendo el turno tras cada elemento: sin
+ * ello el pico de memoria era de 2,6 GB en Linux (el proceso moria con 3 GB) para un corpus que retenido pesa bastante menos.
+ */
+export async function buildCorpus(): Promise<Corpus> {
   return {
-    documents: buildDocumentSet(),
-    blanks: buildBlankSet(),
-    quality: buildQualitySet(),
-    session: buildSessionSet(),
-    special: buildSpecialSet(),
-    noDocument: buildNoDocumentSet(),
+    documents: await buildDocumentSet(),
+    blanks: await buildBlankSet(),
+    quality: await buildQualitySet(),
+    session: await buildSessionSet(),
+    special: await buildSpecialSet(),
+    noDocument: await buildNoDocumentSet(),
   };
 }

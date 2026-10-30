@@ -3229,3 +3229,43 @@ punto, 1,5 CPU): girar → 0/4 a 0 y 5 ms, 0/5 a 10 ms, 2/4 a 20 ms, 4/5 a 30 ms
 no mejora (0/4 a 20 ms, 3/4 a 60 ms), y la latencia de commit de IndexedDB en WebKit es de ~1 ms (máx. 24 ms), así que no es la transacción. Conclusión: con el
 cierre de pestaña de WebKit, la ventana de pérdida es de ~30 ms tras el cambio (el guardado anticipado de 30 ms más el commit) y no se puede acotar más desde
 el almacén sin saltarse la detección de conflictos entre pestañas (una escritura al apuntar no lee la base). No se ha implantado.
+
+## Séptima ronda del motor (E1 · fix 7): el job de fuzz y métricas del Escáner ya no agota la memoria del runner
+
+Solo fixtures y pruebas (`src/lib/scan/__fixtures__/{testUtils,scenes,corpus}.ts`, `scan.cropFuzz.test.ts`, `scan.metrics.test.ts`). No cambia
+`vitest.config.ts` ni `ci.yml` (el proyecto `scan-heavy` y `--maxWorkers=1` se quedan como están). No se quita ninguna escena, semilla ni umbral.
+
+### Qué pasaba
+
+`npx vitest run --project scan-heavy --maxWorkers=1` recibía la señal de apagado del runner (2 vCPU / 7 GB) ~75 s después de empezar `scan.cropFuzz`.
+En Docker (node 24, `--memory=3g`) el worker moría con **2,6 GB** de memoria residente a mitad de la corrida (cropFuzz pasaba y metrics moría), y en macOS
+el máximo era de 3,2 GB.
+
+### Causa raíz (medida)
+
+No era el heap de JS (~40 MB) ni una fuga de `@napi-rs/canvas`: eran los **finalizadores de los buffers nativos** (`getImageData`, lienzos de Skia, copias de píxeles).
+Se ejecutan en el bucle de eventos, y el fuzz y el corpus son bucles que solo esperan microtareas (`await` de promesas ya resueltas, o sincronos): **nunca ceden el turno**,
+así que todo lo liberado se acumulaba hasta el final (~5 MB por escena). Medido con microprobas en Docker: 60 `getImageData` seguidos = +265 MB y, cediendo un
+`setImmediate` + `gc()` por iteración, +1 MB. Una escena cuesta lo mismo se dibuje 100 o 1000 veces; la memoria no crece con el número de escenas una vez cedido el turno.
+
+### Qué se hizo
+
+| Pieza | Cambio |
+|---|---|
+| `testUtils.ts` | `settleMemory()` (fuerza `gc()` sin `--expose-gc`, vía `v8.setFlagsFromString` + `vm`, y cede un turno con `setImmediate`); `releaseScanicCanvases()` (los lienzos que scanic pide con `document.createElement('canvas')` se ponen a 0×0 al terminar con la imagen). |
+| `scenes.ts` | `renderScene` libera su lienzo (`width = height = 0`) en cuanto lee los píxeles. |
+| `corpus.ts` | `buildCorpus` y los seis `build*Set` son asíncronos y ceden el turno tras cada elemento (el corpus se construía en un único turno sincrono). |
+| `scan.cropFuzz.test.ts` | `crop()` libera los lienzos de scanic y cede el turno al terminar cada escena. |
+| `scan.metrics.test.ts` | `await buildCorpus()` y cesión de turno en los bucles de detección (foto completa, recorte automático, sin documento) y de filtros. |
+
+### Medidas (Docker Linux, node 24, `--memory=3g`, `npx vitest run --project scan-heavy --maxWorkers=1`)
+
+| | Antes | Después |
+|---|---|---|
+| Resultado a 3 GB | worker muerto (`Worker exited unexpectedly`) tras 4 pruebas; 2 errores | **22/22 pasan, 3 corridas seguidas** (90-92 s) |
+| Pico de memoria residente (suma de procesos) | **2,60 GB** | **1,45 / 1,45 / 1,53 GB** (y pasa también con `--memory=2g`: 1,37 GB) |
+| `scan.cropFuzz` solo, semilla 12345 (160 escenas) en macOS | 1,2-1,6 GB y subiendo | estable en ~325 MB |
+| macOS, máximo conjunto (`/usr/bin/time -l`) | 3,18 GB | 1,21 GB |
+
+Los resultados no cambian: las decisiones de las 260 escenas del fuzz (semillas 12345 y 777) son idénticas antes y después (macOS, comparadas escena a escena), y `scan.metrics`
+pasa con todos sus umbrales. Lo que queda (~1 GB) es el corpus de métricas retenido a propósito (137 elementos con foto y hoja limpia).

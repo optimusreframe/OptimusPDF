@@ -145,6 +145,9 @@ export function renderScene(spec: SceneSpec, seed = 1, size: { W: number; H: num
     ctx.fillRect(W * 0.86, H * 0.78, 90, 60);
   }
   const data = ctx.getImageData(0, 0, W, H);
+  // El lienzo nativo (Skia) no lo ve el recolector de basura de V8: sin liberarlo ya, cientos de escenas sumaban GB de memoria residente.
+  cv.width = 0;
+  cv.height = 0;
   const norm = (pt: Pt) => ({ x: pt[0] / W, y: pt[1] / H });
   return {
     image: { data: new Uint8ClampedArray(data.data), width: W, height: H },

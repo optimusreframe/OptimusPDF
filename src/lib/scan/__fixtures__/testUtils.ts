@@ -1,3 +1,5 @@
+import v8 from "node:v8";
+import vm from "node:vm";
 import { createCanvas, ImageData as NapiImageData } from "@napi-rs/canvas";
 import { makeRng } from "@/lib/scan/__fixtures__/rng";
 import type { CorpusItem } from "@/lib/scan/__fixtures__/corpus";
@@ -21,11 +23,58 @@ export function rectify(item: CorpusItem, width = 560, quad: QuadCorners | null 
   return warpImageData(image, quad, size) as Rgba;
 }
 
+/** Lienzos que scanic pidio con `document.createElement('canvas')` desde la ultima liberacion. */
+const scanicCanvases: Array<{ width: number; height: number }> = [];
+
+/**
+ * Libera la memoria nativa de los lienzos que scanic creo (Skia: el recolector de basura de V8 no la ve y, sin esto, cientos de
+ * escenas sumaban GB de memoria residente). Llamar cuando scanic ya termino con la imagen.
+ */
+export function releaseScanicCanvases(): void {
+  for (const canvas of scanicCanvases.splice(0)) {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+let forceGc: (() => void) | null | undefined;
+
+/** Fuerza una recoleccion de basura sin necesitar `node --expose-gc`. Sin efecto si el motor no la ofrece. */
+export function collectGarbage(): void {
+  if (forceGc === undefined) {
+    try {
+      v8.setFlagsFromString("--expose-gc");
+      forceGc = vm.runInNewContext("gc") as () => void;
+    } catch {
+      forceGc = null;
+    }
+  }
+  forceGc?.();
+}
+
+/**
+ * Deja que se libere la memoria nativa de lo que ya no se usa (buffers de `getImageData`, lienzos de Skia, copias de pixeles). Un bucle
+ * de escenas que solo espera microtareas (`await` de promesas ya resueltas) NUNCA cede el turno al bucle de eventos, y ahi es donde se
+ * ejecutan los finalizadores de los buffers nativos: sin esto la memoria residente subia ~5 MB por escena (1,2-2,6 GB en el fuzz y las
+ * metricas; en un runner de 7 GB el proceso recibia la senal de apagado). El heap de JS casi no cuenta (~40 MB) y V8 no dispara la
+ * recoleccion por si solo. Medido: con esto la memoria no crece con el numero de escenas.
+ */
+export async function settleMemory(): Promise<void> {
+  collectGarbage();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 /** Instala lo que scanic necesita en Node (`document.createElement('canvas')` y `ImageData`). Devuelve la funcion de limpieza. */
 export function installScanicEnvironment(): () => void {
   const scope = globalThis as Record<string, unknown>;
   const before = { document: scope.document, ImageData: scope.ImageData };
-  scope.document = { createElement: () => createCanvas(1, 1) };
+  scope.document = {
+    createElement: () => {
+      const canvas = createCanvas(1, 1);
+      scanicCanvases.push(canvas);
+      return canvas;
+    },
+  };
   scope.ImageData = NapiImageData;
   return () => {
     scope.document = before.document;

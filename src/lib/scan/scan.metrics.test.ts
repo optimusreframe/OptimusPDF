@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildCorpus, type Corpus, type CorpusItem } from "@/lib/scan/__fixtures__/corpus";
-import { fakeOcr, installScanicEnvironment, rectify, toNapiImageData } from "@/lib/scan/__fixtures__/testUtils";
+import { fakeOcr, installScanicEnvironment, rectify, toNapiImageData, releaseScanicCanvases, settleMemory } from "@/lib/scan/__fixtures__/testUtils";
 import { quadIoU } from "@/lib/scan/geometry";
 import { paperKept } from "@/lib/scan/__fixtures__/scenes";
 import { selectCrop } from "@/lib/scan/cropGate";
@@ -27,9 +27,9 @@ let corpus: Corpus;
 let restore: () => void;
 const everything = (): CorpusItem[] => [...corpus.documents, ...corpus.blanks, ...corpus.quality, ...corpus.session, ...corpus.special];
 
-beforeAll(() => {
+beforeAll(async () => {
   restore = installScanicEnvironment();
-  corpus = buildCorpus();
+  corpus = await buildCorpus();
 }, 240_000);
 
 afterAll(() => {
@@ -161,6 +161,8 @@ describe("deteccion del documento", () => {
     const misses: string[] = [];
     for (const item of items) {
       const found = await detectDocumentCorners(toNapiImageData(item.image));
+      releaseScanicCanvases();
+      await settleMemory();
       const iou = found && item.truth.quad ? quadIoU(found.corners, item.truth.quad) : 0;
       if (iou >= 0.9) hit += 1;
       else misses.push(`${item.id}:${iou.toFixed(2)}`);
@@ -180,6 +182,8 @@ describe("deteccion del documento", () => {
     for (const item of items) {
       const small = downscaleRgba(item.image, 800);
       const found = await detectDocumentCorners(toNapiImageData(small));
+      releaseScanicCanvases();
+      await settleMemory();
       const live = detectLiveQuad(small);
       const { quad, verdict } = selectCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, small, item.mode, live?.confidence ?? 0);
       if (!quad) {
@@ -202,6 +206,8 @@ describe("deteccion del documento", () => {
     for (const item of [...corpus.noDocument, ...corpus.special.filter((i) => i.kind === "photo")]) {
       const small = downscaleRgba(item.image, 800);
       const found = await detectDocumentCorners(toNapiImageData(small));
+      releaseScanicCanvases();
+      await settleMemory();
       const live = detectLiveQuad(small);
       const { quad } = selectCrop(found ? found.corners : null, live && live.confidence >= 0.9 && live.touchesBorder < 0.05 ? live.quad : null, small, "document", live?.confidence ?? 0);
       if (quad) falseCrops.push(item.id);
@@ -357,6 +363,7 @@ describe("filtro auto (legibilidad de control)", () => {
       if (paper >= 245) whiteAfter += 1;
       const gb = toGray(baseline.image);
       if ([...gb.data].sort((a, b) => a - b)[Math.floor(gb.data.length * 0.7)] < 235) darkBefore += 1;
+      await settleMemory();
       void crop;
     }
     record("autoFilter.notWorseThanOriginal", better / docs.length);
@@ -377,6 +384,7 @@ describe("filtro auto (legibilidad de control)", () => {
       const original = await renderRgba(item.image, { ...job, filter: "original" });
       if (inkF1(auto.image, item.page, 128) >= 0.85) autoGood += 1;
       if (inkF1(original.image, item.page, 128) >= 0.85) originalGood += 1;
+      await settleMemory();
     }
     record("autoFilter.darkFixedThreshold.auto", autoGood / dark.length);
     record("autoFilter.darkFixedThreshold.original", originalGood / dark.length);
