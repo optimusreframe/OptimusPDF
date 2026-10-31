@@ -1,10 +1,11 @@
 name: CI
 
+# SOLO MANUAL. El repositorio es privado y cada corrida completa gasta ~200 minutos de GitHub Actions (en octubre de 2026: 64 corridas
+# = ~6.770 minutos, el 82 % en los 5 fragmentos E2E), mas de lo que incluye el plan. No se paga mas ni se sube el limite de gasto, asi
+# que NINGUNA subida dispara este flujo: ni `push`, ni `pull_request`, ni `schedule` (un cron tambien gasta minutos).
+# La puerta de calidad diaria es local: `npm run ci:local` (ver docs/DESPLIEGUE-SIN-CI-REMOTO.md).
+# Para lanzarlo a mano cuando haga falta (gasta minutos): `gh workflow run CI --ref main`.
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
