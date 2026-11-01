@@ -15,12 +15,23 @@ Script: `scripts/ci-local.sh`. Sale con código distinto de cero si falla cualqu
 | `linux` | lo mismo que `full` dentro de Docker con la imagen oficial de Playwright (`mcr.microsoft.com/playwright:v<versión>-noble`) | más de 1 h | antes de subir cambios de riesgo (canvas, recorte, fuentes, accesibilidad, tiempos) |
 
 Variables: `STAGES=types,lint,unit,heavy,build,e2e` (subconjunto de etapas), `E2E_SHARD=2/5` (un fragmento de la E2E, como en el CI),
+`E2E_ARGS="--workers=1 e2e/specs/x.spec.ts"` (argumentos extra de Playwright: sirve para repetir solo lo que fallo),
 `CI_LOCAL_BASE=<commit>` (contra qué mira `fast`), `CI_LOCAL_CPUS` y `CI_LOCAL_MEM` (límites del contenedor; por defecto 4 CPUs y 6 g, la VM de
 Docker tiene ~7,7 GB).
 
 `linux` copia el repo a un directorio temporal, instala `node_modules` de Linux en el volumen `optimuspdf-ci-node_modules` (los de macOS traen
 binarios nativos distintos) y guarda la evidencia de Playwright en `.evidence/linux/`. Los contenedores se llaman `optimuspdf-ci-linux-*`:
 no toca ningún otro contenedor. Hay que tener bajada la imagen una vez: `docker pull mcr.microsoft.com/playwright:v1.62.0-noble`.
+
+### Lo que se aprendio de la primera corrida completa en Linux (2026-10-31)
+
+- La imagen de Playwright **no trae DejaVu** y el runner de GitHub si: sin ella las pruebas de «tipografia ancha» (`*-wide-font`, `scan-ui-a11y`) fallan con ratio 1.
+  El script la instala (`fonts-dejavu-core`) antes de correr.
+- Con 4 CPUs y 2 workers, las pruebas de 40 fotos (`image-optimize-*`) tumban Chromium («Page crashed») y `mobile-pro-m6` pierde el foco: es carga de
+  la maquina, no codigo. Repetidas con `E2E_ARGS="--workers=1 ..."` pasan. Si salen rojas en la corrida completa, repetirlas asi antes de investigar.
+- `scan.blurRes` caso `texto 1200x1600, desenfoque 30 px` falla en Linux/Docker de forma determinista (en macOS pasa): el fixture dibuja con `sans-serif`
+  y con 30 px de desenfoque queda en el limite de tinta/estructura (4 celdas, layout 0,19). Depende de la fuente del sistema; pendiente de decidir si se fija
+  la fuente del fixture.
 
 ## Procedimiento de despliegue
 

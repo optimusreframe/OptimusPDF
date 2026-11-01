@@ -12,6 +12,7 @@
 #   STAGES      etapas a correr, separadas por comas, de: types,lint,unit,heavy,build,e2e   (por defecto todas; `fast` ignora esta variable)
 #   CI_LOCAL_BASE  commit contra el que `fast` mira los cambios (por defecto origin/main).
 #   E2E_SHARD   solo ese fragmento de la E2E, p. ej. E2E_SHARD=2/5 (como en el CI). Vacio = toda la suite.
+#   E2E_ARGS    argumentos extra para Playwright, p. ej. E2E_ARGS="e2e/specs/sign-wide-font.spec.ts" o "-g texto" (para repetir solo lo que fallo).
 #   CI_LOCAL_CPUS / CI_LOCAL_MEM   limites del contenedor del nivel `linux` (por defecto 4 CPUs y 6g; la VM de Docker suele tener ~7,7 GB).
 #
 # Sale con codigo distinto de cero si falla CUALQUIER etapa. Las etapas siguen corriendo para que el resumen final lo muestre todo.
@@ -23,6 +24,7 @@ ROOT="$PWD"
 PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright:v$(node -p "require('./node_modules/@playwright/test/package.json').version" 2>/dev/null || echo 1.62.0)-noble"
 STAGES="${STAGES:-types,lint,unit,heavy,build,e2e}"
 E2E_SHARD="${E2E_SHARD:-}"
+E2E_ARGS="${E2E_ARGS:-}"
 
 RESULTS=()
 FAILED=0
@@ -50,7 +52,7 @@ summary() {
   return "$FAILED"
 }
 
-shard_args() { [[ -n "$E2E_SHARD" ]] && echo "--shard=${E2E_SHARD}"; }
+shard_args() { [[ -n "$E2E_SHARD" ]] && echo "--shard=${E2E_SHARD}"; echo "$E2E_ARGS"; }
 
 e2e_main() { CI=1 FOCUS_REPS=3 PW_PERF=skip npx playwright test $(shard_args); }
 e2e_perf() { CI=1 FOCUS_REPS=3 PW_PERF=only PW_SKIP_BUILD=1 npx playwright test $(shard_args) --workers=1 --pass-with-no-tests; }
@@ -101,8 +103,8 @@ if [[ "$LEVEL" == "linux" ]]; then
   docker run --rm --name "optimuspdf-ci-linux-$$" \
     --cpus "${CI_LOCAL_CPUS:-4}" --memory "${CI_LOCAL_MEM:-6g}" --ipc=host \
     -v "$WORK":/work -v optimuspdf-ci-node_modules:/work/node_modules -v optimuspdf-ci-npm-cache:/root/.npm \
-    -w /work -e CI=1 -e STAGES="$STAGES" -e E2E_SHARD="$E2E_SHARD" \
-    "$PLAYWRIGHT_IMAGE" bash -lc 'npm ci --no-audit --no-fund && scripts/ci-local.sh full'
+    -w /work -e CI=1 -e STAGES="$STAGES" -e E2E_SHARD="$E2E_SHARD" -e E2E_ARGS="$E2E_ARGS" \
+    "$PLAYWRIGHT_IMAGE" bash -lc 'apt-get update -qq && apt-get install -y -qq fonts-dejavu-core >/dev/null && npm ci --no-audit --no-fund && scripts/ci-local.sh full'
   CODE=$?
   # Evidencia de Playwright (capturas y trazas de los fallos) fuera del contenedor.
   if [[ -d "$WORK/.evidence" ]]; then mkdir -p "$ROOT/.evidence" && rsync -a "$WORK/.evidence/" "$ROOT/.evidence/linux/" 2>/dev/null || true; fi
