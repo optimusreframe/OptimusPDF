@@ -29,9 +29,9 @@ no toca ningún otro contenedor. Hay que tener bajada la imagen una vez: `docker
   El script la instala (`fonts-dejavu-core`) antes de correr.
 - Con 4 CPUs y 2 workers, las pruebas de 40 fotos (`image-optimize-*`) tumban Chromium («Page crashed») y `mobile-pro-m6` pierde el foco: es carga de
   la maquina, no codigo. Repetidas con `E2E_ARGS="--workers=1 ..."` pasan. Si salen rojas en la corrida completa, repetirlas asi antes de investigar.
-- `scan.blurRes` caso `texto 1200x1600, desenfoque 30 px` falla en Linux/Docker de forma determinista (en macOS pasa): el fixture dibuja con `sans-serif`
-  y con 30 px de desenfoque queda en el limite de tinta/estructura (4 celdas, layout 0,19). Depende de la fuente del sistema; pendiente de decidir si se fija
-  la fuente del fixture.
+- `scan.blurRes` caso `texto 1200x1600, desenfoque 30 px` fallaba en Linux: el fixture dibujaba con `sans-serif` (cambia con el sistema) y el
+  umbral de «hoja desvaneciada» (`FADED_MIN_LAYOUT_SHARE`) estaba justo en el borde. Resuelto: el fixture usa Liberation del repo (identico en toda
+  maquina) y el umbral baja de 0,25 a 0,15 (las hojas vacias y casi vacias no pasan de 0,04; el texto difuminado da 0,19-0,26). Verificado en macOS y Linux.
 
 ## Procedimiento de despliegue
 

@@ -203,9 +203,11 @@ export function isBlurry(sharpness: number | null, reblur: number | null, conten
 /**
  * Desenfoque EXTREMO: el texto se difumina tanto que desaparece y el rango de tonos cae por debajo del minimo para juzgar la nitidez
  * (`sharpnessOf` da `null`), pero la hoja NO esta vacia: sigue siendo un bloque de luz distinto de la superficie suave del papel
- * (`layoutShare` alto). Una hoja de verdad vacia o con un degradado de luz deja casi todos los bloques sobre la superficie.
+ * (`layoutShare` alto). Una hoja de verdad vacia o con un degradado de luz deja casi todos los bloques sobre la superficie
+ * (medido: las hojas vacias y casi vacias del banco no pasan de 0,04; un texto difuminado hasta no leerse da 0,19-0,26 segun la
+ * letra). 0,15 deja margen a los dos lados.
  */
-export const FADED_MIN_LAYOUT_SHARE = 0.25;
+export const FADED_MIN_LAYOUT_SHARE = 0.15;
 
 export function isFaded(sharpness: number | null, layout: number): boolean {
   return sharpness === null && layout >= FADED_MIN_LAYOUT_SHARE;
