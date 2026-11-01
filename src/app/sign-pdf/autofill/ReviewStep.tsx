@@ -227,7 +227,7 @@ export const ReviewStep = forwardRef<HTMLHeadingElement, { flow: AutofillFlow }>
               {strings.mapTitle}
             </h4>
             <p className="text-footnote leading-relaxed text-muted-foreground">{strings.mapIntro}</p>
-            {flow.planFailed ? (
+            {flow.planFailed || flow.engineFailed ? (
               <p className="text-footnote text-destructive-text">{strings.readFailed}</p>
             ) : flow.rows.length > 0 ? (
               <ul className="space-y-2">

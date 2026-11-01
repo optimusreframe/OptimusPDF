@@ -254,12 +254,24 @@ describe("perfil", () => {
     const items = [item("insuredName1", "Ana"), item("phone", "555-0100")];
     const groups = groupItems(items, "es");
     const accepted = acceptedValues(groups, defaultSelection(groups), { [groups[1].items[0].id]: "555-0111" });
-    const payload = profilePayload(accepted, items, { [groups[1].items[0].id]: "555-0111" });
+    const payload = profilePayload(accepted, items, { [groups[1].items[0].id]: "555-0111" }, "es");
     expect(payload.values).toEqual({ insuredName1: "Ana", phone: "555-0111" });
     expect(payload.sources).toEqual({ insuredName1: "extracted", phone: "typed" });
     // Cambiar solo mayusculas o espacios no cuenta como correccion.
-    const same = profilePayload(acceptedValues(groups, defaultSelection(groups), { [groups[0].items[0].id]: " ANA " }), items, { [groups[0].items[0].id]: " ANA " });
+    const same = profilePayload(acceptedValues(groups, defaultSelection(groups), { [groups[0].items[0].id]: " ANA " }), items, { [groups[0].items[0].id]: " ANA " }, "es");
     expect(same.sources.insuredName1).toBe("extracted");
+  });
+
+  it("la fecha de pérdida se guarda en el perfil en ISO, para que no cambie de día al cambiar el idioma", () => {
+    const items = [item("lossDate", "05/03/2026")];
+    const groups = groupItems(items, "es");
+    const accepted = acceptedValues(groups, defaultSelection(groups), {});
+    expect(profilePayload(accepted, items, {}, "es").values.lossDate).toBe("2026-03-05");
+    expect(profilePayload(accepted, items, {}, "en").values.lossDate).toBe("2026-05-03");
+    // Lo que no es una fecha de calendario se guarda tal cual (la revisión no lo escribirá en un campo de fecha).
+    const odd = [item("lossDate", "pronto")];
+    const oddGroups = groupItems(odd, "es");
+    expect(profilePayload(acceptedValues(oddGroups, defaultSelection(oddGroups), {}), odd, {}, "es").values.lossDate).toBe("pronto");
   });
 
   it("un perfil se vuelve candidatos de confianza alta con su origen, en orden de registro", () => {

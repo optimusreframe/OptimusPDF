@@ -249,6 +249,7 @@ export function useAutofillFlow(params: AutofillFlowParams) {
     if (sent.length === 0) return;
     // El motor NO descarga el modelo de lectura: con fotos y sin modelo se pregunta ANTES, con un boton y un texto claro.
     if (!skip && sent.some((entry) => entry.kind === "image")) {
+      const before = runRef.current;
       setChecking(true);
       let ready = false;
       try {
@@ -256,6 +257,8 @@ export function useAutofillFlow(params: AutofillFlowParams) {
       } finally {
         setChecking(false);
       }
+      // Si la hoja se cerro (o se cancelo) mientras se comprobaba el modelo, no se lanza ninguna lectura huerfana.
+      if (runRef.current !== before) return;
       if (!ready) {
         setModelFailure(null);
         setPhase("model");
@@ -418,7 +421,7 @@ export function useAutofillFlow(params: AutofillFlowParams) {
         setProfileError(strings.profileNameRequired);
         return;
       }
-      const payload = profilePayload(accepted, items, edits);
+      const payload = profilePayload(accepted, items, edits, locale);
       const existed = findClientProfileByName(name) !== undefined;
       const result = saveClientProfile({ name, values: payload.values, source: payload.sources });
       if (!result.ok) {

@@ -299,12 +299,13 @@ export function suggestProfileName(accepted: readonly ReviewItem[]): string {
   return accepted.find((item) => item.key === "insuredName1")?.value ?? "";
 }
 
-/** Los valores marcados listos para guardar, con su procedencia: `typed` si la persona los corrigio, `extracted` si no. */
-export function profilePayload(accepted: readonly ReviewItem[], items: readonly ReviewItem[], edits: Edits): { values: Record<string, string>; sources: Record<string, ClientProfileValue["source"]> } {
+/** Los valores marcados listos para guardar (la fecha de pérdida, en ISO), con su procedencia: `typed` si la persona los corrigio, `extracted` si no. */
+export function profilePayload(accepted: readonly ReviewItem[], items: readonly ReviewItem[], edits: Edits, locale: "es" | "en"): { values: Record<string, string>; sources: Record<string, ClientProfileValue["source"]> } {
   const values: Record<string, string> = {};
   const sources: Record<string, ClientProfileValue["source"]> = {};
   for (const item of accepted) {
-    values[item.key] = item.value;
+    // La fecha del perfil se guarda en ISO: el perfil no recuerda el idioma y «05/03/2026» cambia de dia segun el orden de lectura.
+    values[item.key] = item.key === "lossDate" ? (toFieldDate(item.value, locale) ?? item.value) : item.value;
     const original = items.find((candidate) => candidate.id === item.id);
     const corrected = original !== undefined && Object.prototype.hasOwnProperty.call(edits, item.id) && comparable(edits[item.id]) !== comparable(original.value);
     sources[item.key] = corrected ? "typed" : "extracted";
