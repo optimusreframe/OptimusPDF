@@ -272,7 +272,7 @@ test("tres sesiones del Escáner: exportar con contraseña eligiendo cuáles, bo
     expect(await snapshot(page)).toEqual([]);
     await importDialog.locator("[data-backup-confirm]").click();
     await expect(importDialog.locator("[data-backup-result]")).toContainText("Escaneos en curso: 2 importados.");
-    await expect(importDialog.locator("[data-backup-result]")).toContainText("El paquete no incluye: Firmas, Plantillas y documentos, Borradores, Ajustes.");
+    await expect(importDialog.locator("[data-backup-result]")).toContainText("El paquete no incluye: Firmas, Plantillas y documentos, Borradores, Perfiles de cliente, Ajustes.");
     await importDialog.getByRole("button", { name: copy.doneClose }).click();
 
     // ---- Quedó EXACTAMENTE lo exportado: mismos ids, orden de páginas, parámetros y bytes de cada original ----
