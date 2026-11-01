@@ -30,27 +30,38 @@ export const EMPTY_CAPTURE: SignerCapture = {
 export type CaptureMap = Record<string, SignerCapture>;
 
 /**
- * Huella de lo que un firmante llego a ver: el documento cargado y sus
- * huecos, con posicion, pagina y tipo. Es lo que ata el trazo a un estado
- * concreto del documento; si cambia, la captura ya no describe lo que esa
- * persona aprobo.
+ * Huella de lo que un firmante aprobo: SOLO el documento cargado (archivo + ediciones de texto). Los huecos de firma ya NO
+ * entran: mover, redimensionar, cambiar de pagina, anadir o quitar un hueco no hace perder la firma ni las iniciales ya
+ * recogidas (la persona firma su trazo, no una coordenada). Que falte un TIPO de trazo para un hueco nuevo lo resuelve
+ * `isSignerComplete`/`requiredCaptureTypes`: solo se pide lo que falta, nunca se tira lo que ya hay.
+ *
+ * Los parametros `fields` y `signerId` se conservan por compatibilidad con los llamadores. Las huellas antiguas
+ * (`huella~hueco~hueco...`, guardadas en borradores y respaldos) se leen igual con `sameStamp`, que solo mira la huella del documento.
  */
 export function captureStamp(
   documentKey: string,
-  fields: readonly SignatureField[],
-  signerId: string,
+  fields?: readonly SignatureField[],
+  signerId?: string,
 ): string {
-  const own = fields
-    .filter((field) => field.signerId === signerId)
-    .map((field) => {
-      const { x, y, width, height } = field.rect;
-      return `${field.id}|${field.pageIndex}|${field.type}|${x}|${y}|${width}|${height}`;
-    })
-    .sort();
-  return [documentKey, ...own].join("~");
+  void fields;
+  void signerId;
+  return documentKey;
 }
 
-/** Por que una firma ya hecha dejo de valer (F0-fix, D7): cambio el texto del documento, los huecos de firma, o el documento. */
+/** Huella del documento dentro de un sello (los sellos antiguos llevan tras `~` los huecos, que ya no cuentan). */
+export function stampDocumentKey(stamp: string): string {
+  return stamp.split("~")[0];
+}
+
+/** `true` si los dos sellos describen el mismo documento (mismo archivo y mismas ediciones de texto). Vacio nunca coincide. */
+export function sameStamp(stored: string, current: string): boolean {
+  return stored !== "" && current !== "" && stampDocumentKey(stored) === stampDocumentKey(current);
+}
+
+/**
+ * Por que una firma ya hecha dejo de valer (F0-fix, D7): cambio el texto del documento o el documento. `"fields"` (huecos) ya no
+ * se produce: mover los huecos no invalida nada; el tipo se conserva solo por los textos de la interfaz.
+ */
 export type StaleReason = "text" | "fields" | "document";
 
 /**
@@ -59,10 +70,9 @@ export type StaleReason = "text" | "fields" | "document";
  * misma huella y otros huecos = «huecos»; mismo archivo y otras ediciones de texto = «texto»; otro archivo = «documento».
  */
 export function staleReason(storedStamp: string, currentStamp: string): StaleReason | null {
-  if (storedStamp === "" || storedStamp === currentStamp) return null;
-  const storedKey = storedStamp.split("~")[0];
-  const currentKey = currentStamp.split("~")[0];
-  if (storedKey === currentKey) return "fields";
+  if (storedStamp === "" || sameStamp(storedStamp, currentStamp)) return null;
+  const storedKey = stampDocumentKey(storedStamp);
+  const currentKey = stampDocumentKey(currentStamp);
   const fileOf = (key: string) => key.split("+t")[0];
   return fileOf(storedKey) === fileOf(currentKey) ? "text" : "document";
 }
@@ -94,7 +104,7 @@ export function validCapture(
 ): SignerCapture {
   if (!documentKey) return EMPTY_CAPTURE;
   const stored = captures[signerId] ?? EMPTY_CAPTURE;
-  return stored.stamp === captureStamp(documentKey, fields, signerId)
+  return sameStamp(stored.stamp, captureStamp(documentKey, fields, signerId))
     ? stored
     : EMPTY_CAPTURE;
 }

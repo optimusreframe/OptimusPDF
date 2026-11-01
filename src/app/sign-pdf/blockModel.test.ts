@@ -182,7 +182,7 @@ describe("blockModel — escribir lo que el firmante crea (sello por documento, 
     expect(isBlockComplete(blocks[0], ctx)).toBe(true);
   });
 
-  it("si los huecos cambiaron desde que se creo, el trazo viejo NO se reaplica al guardar otro", () => {
+  it("si los huecos se movieron desde que se creo, el trazo viejo SIGUE vigente (y guardar otro no pierde el que ya habia)", () => {
     const ctx = context(BASE_DOCS);
     const first = captureForBlock([block("bk-1", ANA.id, [A])], "bk-1", { signature: SIG, initials: INI }, ctx);
     // Se mueve el hueco de firma de Ana en A.
@@ -190,13 +190,13 @@ describe("blockModel — escribir lo que el firmante crea (sello por documento, 
       ...BASE_DOCS,
       [A]: docState([slot("a1", ANA.id, "signature", 0.62), slot("a2", ANA.id, "initials"), slot("a3", LUIS.id)]),
     });
-    expect(visibleDraft(first[0], "signature", moved)).toBeNull();
-    expect(isBlockComplete(first[0], moved)).toBe(false);
+    expect(visibleDraft(first[0], "signature", moved)).toEqual(SIG);
+    expect(isBlockComplete(first[0], moved)).toBe(true);
     const redone = captureForBlock(first, "bk-1", { signature: OTHER_SIG }, moved);
     expect(redone[0].signature).toEqual(OTHER_SIG);
-    // Las iniciales viejas ya no valian: no se re-sellan por la puerta de atras.
-    expect(redone[0].initials).toBeNull();
-    expect(isBlockComplete(redone[0], moved)).toBe(false);
+    // Las iniciales de antes siguen: mover un hueco no las tira.
+    expect(redone[0].initials).toEqual(INI);
+    expect(isBlockComplete(redone[0], moved)).toBe(true);
   });
 
   it("sin huella de algun documento del alcance no hay sello para el y el bloque no se completa", () => {
@@ -730,13 +730,13 @@ describe("blockModel — turnProgress y turnItemLabel: que falta, bloque a bloqu
     expect(turnProgress(blocks, ANA.id, ctx).map((item) => item.done)).toEqual([true, true, false]);
   });
 
-  it("un trazo cuyo sello caduco (los huecos cambiaron) vuelve a contar como pendiente", () => {
+  it("un trazo hecho sigue contando como hecho aunque los huecos se muevan; si cambia el documento, vuelve a pendiente", () => {
     const blocks = captureForBlock(split, "bk-1", { signature: SIG, initials: INI }, ctx);
     const moved = {
       ...docs,
       [A]: docState([slot("a1", ANA.id, "signature", 0.5), slot("a2", ANA.id, "initials")]),
     };
-    expect(turnProgress(blocks, ANA.id, context(moved)).map((item) => item.done)).toEqual([false, false, false]);
+    expect(turnProgress(blocks, ANA.id, context(moved)).map((item) => item.done)).toEqual([true, true, false]);
   });
 
   it("un firmante sin huecos no tiene nada que firmar; otros firmantes no se mezclan", () => {

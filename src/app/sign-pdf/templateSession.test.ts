@@ -543,7 +543,7 @@ const currentStamp = (sess: Pick<SignSession, "signers" | "docs">, signerId: str
 const after = (sess: SignSession, patch: Partial<SignSession>): SignSession => ({ ...sess, ...patch });
 
 describe("F1 · las firmas del firmante que se queda sobreviven al cambio de variante", () => {
-  it("2 → 1 con huecos de iniciales DISTINTOS: el sello del firmante 1 se rehace sobre los huecos nuevos y la firma sigue vigente", () => {
+  it("2 → 1 con huecos de iniciales DISTINTOS: la firma del firmante 1 sigue vigente (el sello solo lleva la huella del documento)", () => {
     const { tpl, plan, applied } = appliedTwoSigners();
     const [ana, luis] = applied.signers;
     const signed = withBlocks(applied, [ana.id, luis.id]);
@@ -554,9 +554,10 @@ describe("F1 · las firmas del firmante que se queda sobreviven al cambio de var
     const before = docStateOf(signed.docs, "doc-1").fields.filter((f) => f.signerId === ana.id && f.type === "initials");
     const now = docStateOf(next.docs, "doc-1").fields.filter((f) => f.signerId === ana.id && f.type === "initials");
     expect(now[0].rect.width).not.toBe(before[0].rect.width);
-    // …y aun asi su sello coincide con el de AHORA (vigente), distinto del anterior.
+    // …y aun asi su sello coincide con el de AHORA (vigente) y con el de antes: los huecos ya no entran en el sello.
     expect(stampOf(down.patch.blocks, ana.id)).toBe(currentStamp(next, ana.id));
-    expect(stampOf(down.patch.blocks, ana.id)).not.toBe(stampBefore);
+    expect(stampOf(down.patch.blocks, ana.id)).toBe(FILE_KEY);
+    expect(stampBefore?.split("~")[0]).toBe(FILE_KEY);
     expect(down.patch.blocks!.find((b) => b.signerId === ana.id)).toMatchObject({ signature: DRAFT, initials: DRAFT });
     // Lo que se pierde es solo el firmante 2.
     expect(down.loss.signers.map((s) => s.name)).toEqual(["Co-asegurado"]);
@@ -584,13 +585,14 @@ describe("F1 · las firmas del firmante que se queda sobreviven al cambio de var
     expect(idsAfter).toEqual(idsBefore);
   });
 
-  it("una firma que YA no valia antes (huecos editados a mano, otro archivo) NO se revalida con el cambio", () => {
+  it("una firma de OTRO archivo (que ya no valia antes) NO se revalida con el cambio", () => {
     const { tpl, plan, applied } = appliedTwoSigners();
     const [ana] = applied.signers;
-    const stale: SignerBlock = { ...signedBlock(applied, ana.id), stamps: { "doc-1": `${FILE_KEY}~algun-hueco-que-ya-no-esta` } };
+    const stale: SignerBlock = { ...signedBlock(applied, ana.id), stamps: { "doc-1": "otro-archivo~algun-hueco-que-ya-no-esta" } };
     const staleSession = { ...applied, blocks: [...applied.blocks.filter((b) => b.signerId !== ana.id), stale] };
     const down = planTemplateApplication({ template: tpl, match: null, count: 1, session: staleSession, docId: "doc-1", pageCount: 3, mint, previous: plan.record });
-    expect(stampOf(down.patch.blocks, ana.id)).toBe(`${FILE_KEY}~algun-hueco-que-ya-no-esta`);
+    // Sigue atada al OTRO archivo (no se re-sella con el de ahora), asi que sigue caducada.
+    expect(stampOf(down.patch.blocks, ana.id)?.split("~")[0]).toBe("otro-archivo");
   });
 
   it("conserva la huella del documento del sello (incluidas las ediciones de texto): no tapa otro motivo de caducidad", () => {
@@ -828,8 +830,8 @@ describe("identidad de un hueco: firmante + página + tipo", () => {
     expect(run({ ...base, stamps: {} })).toEqual({ ...base, stamps: {} });
     expect(run({ ...base, signature: null, initials: null })).toEqual({ ...base, signature: null, initials: null });
     expect(run(base, [applied.signers[1]])).toBe(base);
-    // Con huecos distintos de verdad (se quitan fields), el sello cambia.
-    expect(run(base).stamps["doc-1"]).not.toBe(base.stamps["doc-1"]);
+    // Con huecos distintos de verdad (se quitan fields) el sello es el mismo: solo lleva la huella del documento.
+    expect(run(base).stamps["doc-1"]).toBe(FILE_KEY);
   });
 });
 

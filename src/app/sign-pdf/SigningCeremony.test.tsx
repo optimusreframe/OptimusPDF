@@ -216,14 +216,14 @@ describe("SigningCeremony — src/app/sign-pdf/SigningCeremony.tsx", () => {
     expect(finishButton().disabled).toBe(true);
   });
 
-  it("mover un hueco despues de firmarlo devuelve a su dueño a pendiente", () => {
+  it("mover un hueco despues de firmarlo NO hace perder la firma ni las iniciales de su dueño", () => {
     const onFinish = vi.fn();
     const { rerender } = render(
       <Harness captures={allSigned()} onFinish={onFinish} />,
     );
     expect(finishButton().disabled).toBe(false);
 
-    // Alguien vuelve al paso de campos y desplaza el hueco de Ana.
+    // Alguien vuelve al paso de campos y desplaza el hueco de Ana: lo que ella firmo sigue vigente.
     rerender(
       <Harness
         captures={allSigned()}
@@ -232,12 +232,11 @@ describe("SigningCeremony — src/app/sign-pdf/SigningCeremony.tsx", () => {
       />,
     );
 
-    expect(finishButton().disabled).toBe(true);
-    expect(screen.getByText(strings.pendingBody(1))).toBeTruthy();
-    expect(screen.getAllByText(strings.statusPending)).toHaveLength(1);
+    expect(finishButton().disabled).toBe(false);
+    expect(screen.queryByText(strings.statusPending)).toBeNull();
 
     fireEvent.click(finishButton());
-    expect(onFinish).not.toHaveBeenCalled();
+    expect(onFinish).toHaveBeenCalledTimes(1);
   });
 
   it("cambiar el archivo cargado deja a todo el mundo sin firmar", () => {
@@ -274,11 +273,28 @@ describe("SigningCeremony — src/app/sign-pdf/SigningCeremony.tsx", () => {
     expect(onFinish).not.toHaveBeenCalled();
   });
 
-  it("volver a firmar tras mover el hueco no arrastra el trazo anterior", () => {
+  it("tras mover el hueco el trazo anterior SIGUE valiendo (firma e iniciales)", () => {
     const fields = moved(FIELDS);
     const capture = validCapture(allSigned(), fields, ANA.id, DOC);
-    expect(capture.signature).toBeNull();
-    expect(capture.initials).toBeNull();
+    expect(capture.signature).toEqual(DRAFT);
+    expect(capture.initials).toEqual(DRAFT);
+  });
+
+  it("mover el hueco a otra pagina o a otro sitio nunca vacia la captura", () => {
+    const elsewhere = FIELDS.map((item) =>
+      item.id === "f2" ? { ...item, pageIndex: 5, rect: { x: 0.7, y: 0.8, width: 0.12, height: 0.05 } } : item,
+    );
+    const capture = validCapture(allSigned(), elsewhere, ANA.id, DOC);
+    expect(capture.signature).toEqual(DRAFT);
+    expect(capture.initials).toEqual(DRAFT);
+  });
+
+  it("los sellos guardados antes de este cambio (con los huecos tras «~») siguen valiendo", () => {
+    const legacy: CaptureMap = {
+      [ANA.id]: { signature: DRAFT, initials: DRAFT, stamp: `${DOC}~f1|0|signature|0.1|0.1|0.3|0.1~f2|0|initials|0.1|0.1|0.3|0.1` },
+    };
+    expect(validCapture(legacy, moved(FIELDS), ANA.id, DOC).signature).toEqual(DRAFT);
+    expect(validCapture(legacy, FIELDS, ANA.id, OTRO_DOC).signature).toBeNull();
   });
 });
 
@@ -314,22 +330,20 @@ describe("pendingSigners — src/app/sign-pdf/SigningCeremony.tsx", () => {
     expect(pendingSigners([ANA, LUIS], igual, captures, DOC)).toHaveLength(0);
   });
 
-  it("redimensionar un hueco invalida solo el trazo de su dueño", () => {
+  it("redimensionar un hueco no invalida nada", () => {
     const fields = FIELDS.map((item) =>
       item.id === "f3"
         ? { ...item, rect: { ...item.rect, width: 0.45 } }
         : item,
     );
-    const pending = pendingSigners([ANA, LUIS], fields, allSigned(), DOC);
-    expect(pending.map((signer) => signer.id)).toEqual([LUIS.id]);
+    expect(pendingSigners([ANA, LUIS], fields, allSigned(), DOC)).toHaveLength(0);
   });
 
-  it("cambiar un hueco de pagina invalida el trazo de su dueño", () => {
+  it("cambiar un hueco de pagina no invalida nada", () => {
     const fields = FIELDS.map((item) =>
       item.id === "f1" ? { ...item, pageIndex: 3 } : item,
     );
-    const pending = pendingSigners([ANA, LUIS], fields, allSigned(), DOC);
-    expect(pending.map((signer) => signer.id)).toEqual([ANA.id]);
+    expect(pendingSigners([ANA, LUIS], fields, allSigned(), DOC)).toHaveLength(0);
   });
 
   it("cambiar el tipo de un hueco invalida el trazo de su dueño", () => {
@@ -340,10 +354,18 @@ describe("pendingSigners — src/app/sign-pdf/SigningCeremony.tsx", () => {
     expect(pending.map((signer) => signer.id)).toEqual([LUIS.id]);
   });
 
-  it("añadir un hueco nuevo invalida el trazo de su dueño", () => {
+  it("añadir un hueco del MISMO tipo que ya firmo no pide nada", () => {
     const fields = [...FIELDS, field("f4", LUIS.id)];
+    expect(pendingSigners([ANA, LUIS], fields, allSigned(), DOC)).toHaveLength(0);
+  });
+
+  it("añadir un hueco de un tipo que le falta solo pide ESE trazo y conserva el que ya hizo", () => {
+    const fields = [...FIELDS, field("f4", LUIS.id, "initials")];
     const pending = pendingSigners([ANA, LUIS], fields, allSigned(), DOC);
     expect(pending.map((signer) => signer.id)).toEqual([LUIS.id]);
+    const kept = validCapture(allSigned(), fields, LUIS.id, DOC);
+    expect(kept.signature).toEqual(DRAFT);
+    expect(kept.initials).toBeNull();
   });
 
   it("reordenar la lista de huecos no invalida nada", () => {

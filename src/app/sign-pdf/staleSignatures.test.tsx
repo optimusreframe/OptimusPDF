@@ -176,7 +176,7 @@ describe("BlockCeremony · una firma que dejo de valer porque se cambio el texto
     expect(notice().getByText(/La firma de Luis ya no es válida/)).toBeTruthy();
   });
 
-  it("si cambian los huecos de firma lo dice con esas palabras", () => {
+  it("si cambian los huecos de firma NO hay aviso: la firma de Ana sigue valiendo", () => {
     const moved = docStates();
     moved[A] = { ...moved[A], fields: [slot("a1", ANA.id), slot("a1b", ANA.id), slot("a2", LUIS.id)] };
     const blocks = bothSigned();
@@ -196,7 +196,8 @@ describe("BlockCeremony · una firma que dejo de valer porque se cambio el texto
         />
       </LanguageProvider>,
     );
-    expect(notice().getByText("La firma de Ana ya no es válida porque cambiaste los huecos de firma del documento: Ana debe volver a firmar.")).toBeTruthy();
+    expect(screen.queryByText(/ya no es válida/)).toBeNull();
+    expect(screen.queryByText(/huecos de firma del documento/)).toBeNull();
   });
 
   it("en ingles, todo en ingles", () => {

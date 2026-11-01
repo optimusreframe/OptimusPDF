@@ -73,8 +73,10 @@ describe("staleReason: por que un sello ya no vale", () => {
     expect(staleReason(stamp(stampKeyOf(FP_A, [EDIT])), stamp(stampKeyOf(FP_A, [makeEdit({ id: "e1", blockId: "p0-b0", text: "otro" })])))).toBe("text");
   });
 
-  it("misma huella y OTROS huecos de firma: «fields»", () => {
-    expect(staleReason(stamp(FP_A), stamp(FP_A, [slot("f1", ANA.id), slot("f2", ANA.id)]))).toBe("fields");
+  it("misma huella y OTROS huecos de firma: sigue valiendo (null); los sellos antiguos con huecos tras «~» tambien", () => {
+    expect(staleReason(stamp(FP_A), stamp(FP_A, [slot("f1", ANA.id), slot("f2", ANA.id)]))).toBeNull();
+    expect(staleReason(`${FP_A}~f1|0|signature|0.1|0.1|0.3|0.1`, stamp(FP_A, [slot("f9", ANA.id)]))).toBeNull();
+    expect(staleReason(`${FP_A}~f1|0|signature|0.1|0.1|0.3|0.1`, stamp(FP_B))).toBe("document");
   });
 
   it("otro archivo: «document»", () => {
@@ -114,11 +116,11 @@ describe("staleSigners (varios documentos)", () => {
     expect(staleSigners(blocks, edited, [A, B])).toEqual([{ signerId: LUIS.id, reason: "text" }]);
   });
 
-  it("si cambian los huecos se dice «fields»; si cambia el archivo, «document»; con varios motivos manda el texto", () => {
+  it("si cambian los huecos no hay motivo; si cambia el archivo, «document»; con varios motivos manda el texto", () => {
     const blocks = bothSigned();
     const moved = docStates();
     moved[A] = { ...moved[A], fields: [slot("a1", ANA.id), slot("a1b", ANA.id), slot("a2", LUIS.id)] };
-    expect(staleSigners(blocks, ctxWith({ [A]: FP_A, [B]: FP_B }, moved), [A, B])[0]).toEqual({ signerId: ANA.id, reason: "fields" });
+    expect(staleSigners(blocks, ctxWith({ [A]: FP_A, [B]: FP_B }, moved), [A, B])).toEqual([]);
     expect(staleSigners(blocks, ctxWith({ [A]: "c".repeat(64), [B]: FP_B }), [A, B])[0]).toEqual({ signerId: ANA.id, reason: "document" });
     expect(staleSigners(blocks, ctxWith({ [A]: "c".repeat(64), [B]: stampKeyOf(FP_B, [EDIT]) as string }), [A, B])[0]).toEqual({
       signerId: ANA.id,

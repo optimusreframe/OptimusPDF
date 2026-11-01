@@ -202,13 +202,13 @@ describe("validateAssignment", () => {
     ]);
   });
 
-  it("un trazo que ya no vale (caduco: cambiaron los huecos tras firmar) cuenta como falta; las iniciales exigidas tambien", () => {
+  it("un hueco de iniciales nuevo pide SOLO las iniciales (la firma ya hecha se conserva); un trazo de otro documento cuenta como falta", () => {
     const s = completeSession();
     s.docs = { ...s.docs, d1: { ...s.docs.d1, fields: [...s.docs.d1.fields, slot("fa-init", "sg-1", "initials")] } };
-    // Los sellos guardados son de antes de poner las iniciales -> ya no valen para el bloque bk-1.
+    // La firma de bk-1 sigue vigente (los huecos no entran en el sello): solo faltan las iniciales nuevas.
     const issues = ofKind(validateAssignment(s), "groupWithoutStroke").filter((i) => i.blockId === "bk-1");
     expect(issues).toHaveLength(1);
-    expect(issues[0].params).toEqual({ types: ["signature", "initials"], docIds: ["d1", "d2"] });
+    expect(issues[0].params).toEqual({ types: ["initials"], docIds: ["d1", "d2"] });
     // Con trazos y sellos nuevos, vuelve a estar bien.
     s.blocks = s.blocks.map((b) =>
       b.id === "bk-1"

@@ -1,6 +1,7 @@
 import type { SignatureDraft } from "@/app/sign-pdf/SignatureComposer";
 import {
   captureStamp,
+  sameStamp,
   isSignerComplete,
   requiredCaptureTypes,
   staleReason,
@@ -90,9 +91,9 @@ export function blockStampsValid(block: SignerBlock, ctx: BlockContext): boolean
   return block.appliesTo.every((docId) => {
     const key = ctx.keys[docId];
     if (!key) return false;
-    return (
-      block.stamps[docId] ===
-      captureStamp(key, fieldsOfDoc(ctx, docId), block.signerId)
+    return sameStamp(
+      block.stamps[docId] ?? "",
+      captureStamp(key, fieldsOfDoc(ctx, docId), block.signerId),
     );
   });
 }
@@ -166,7 +167,7 @@ const STALE_PRIORITY: readonly StaleReason[] = ["text", "fields", "document"];
 
 /**
  * Firmantes de la cola cuyo trazo ya estaba hecho pero su SELLO por documento dejo de valer (se edito el texto del
- * documento, cambiaron los huecos o el archivo) y por eso vuelven a estar pendientes: sin esto la pantalla solo los ve
+ * documento o el archivo; mover los huecos ya no cuenta) y por eso vuelven a estar pendientes: sin esto la pantalla solo los ve
  * «sin firmar» y nadie sabe que paso. En el orden de la cola. Sin huella de algun documento (aun calculandose) no se
  * dice nada; un firmante que nunca firmo (o ya volvio a firmar) no cuenta.
  */

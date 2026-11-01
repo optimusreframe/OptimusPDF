@@ -4,7 +4,7 @@ import { signerColorAt, type SignatureField, type Signer } from "@/lib/pdf/sign"
 import { applyTemplate, selectVariant, type ApplyWarning, type ReviewField } from "@/lib/docLibrary/templateApply";
 import type { DocTemplate, Rect, TemplateRole } from "@/lib/docLibrary/templateTypes";
 import type { MatchLevel, MatchResult } from "@/lib/docLibrary/types";
-import { captureStamp } from "@/app/sign-pdf/captures";
+import { captureStamp, sameStamp } from "@/app/sign-pdf/captures";
 import { ensureBlocks, docStateOf, liveFields, type DocId, type DocState, type SignerBlock } from "@/app/sign-pdf/docSet";
 import type { SignSession } from "@/app/sign-pdf/signSession";
 
@@ -359,13 +359,10 @@ function retainSigners(session: Pick<SignSession, "docs">, docId: DocId, signers
 
 /**
  * Las firmas ya recogidas del firmante que SE QUEDA siguen valiendo cuando cambian sus huecos (otra variante, otro nº de
- * firmantes). El sello de una firma es `huella~hueco~hueco…` (`captureStamp`): al cambiar de variante los huecos del
- * firmante cambian de id, tamano o sitio y el sello viejo ya no coincide, asi que la ceremonia lo daria por caducado
- * («cambiaron los huecos de firma»). Aqui, SOLO para los bloques cuyo sello de `docId` valia ANTES del cambio (con la
- * huella con que se hizo), se recalcula el sello sobre los huecos nuevos con esa MISMA huella: el trazo se reescala por si
- * solo al hueco nuevo (el PDF lo ajusta a la caja) y la asociacion firmante ↔ trazo se conserva. Una firma que ya habia
- * caducado (huecos editados a mano, otro archivo, texto editado) no se revalida, y los sellos de los demas documentos del
- * bloque no se tocan. La persona eligio explicitamente cambiar de variante, y el firmante que se queda no pierde nada.
+ * firmantes). Desde que el sello (`captureStamp`) lleva solo la huella del documento, cambiar los huecos ya no lo invalida;
+ * esta funcion queda para normalizar los sellos antiguos (`huella~hueco~hueco…`, de borradores previos) a la forma nueva, SOLO
+ * en los bloques cuyo sello de `docId` valia ANTES del cambio (con la huella con que se hizo): una firma que ya habia caducado
+ * (otro archivo, texto editado) no se revalida, y los sellos de los demas documentos del bloque no se tocan.
  */
 export function restampKeptSigners(args: { before: Pick<SignSession, "signers" | "docs">; docId: DocId; nextSigners: readonly Signer[]; nextDoc: Pick<DocState, "fields">; blocks: readonly SignerBlock[] }): SignerBlock[] {
   const { before, docId, nextSigners, nextDoc } = args;
@@ -376,7 +373,7 @@ export function restampKeptSigners(args: { before: Pick<SignSession, "signers" |
     const stored = block.stamps[docId];
     if (!kept.has(block.signerId) || !stored || (!block.signature && !block.initials) || !block.appliesTo.includes(docId)) return block;
     const key = stored.split("~")[0];
-    if (stored !== captureStamp(key, oldFields, block.signerId)) return block;
+    if (!sameStamp(stored, captureStamp(key, oldFields, block.signerId))) return block;
     const renewed = captureStamp(key, newFields, block.signerId);
     return renewed === stored ? block : { ...block, stamps: { ...block.stamps, [docId]: renewed } };
   });

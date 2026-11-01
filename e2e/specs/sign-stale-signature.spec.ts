@@ -17,8 +17,8 @@ import {
 /**
  * Firmar PDF · una firma ya hecha que deja de valer (F0-fix, D7).
  *
- * Si se edita el texto del documento (o se cambian sus huecos de firma) DESPUES de que alguien ya firmo, su firma deja de
- * valer (el sello por documento ya no coincide). La pantalla tiene que decir QUE paso y QUIEN debe firmar de nuevo, en la
+ * Si se edita el texto del documento DESPUES de que alguien ya firmo, su firma deja de valer (el sello por documento ya no
+ * coincide). Mover, redimensionar o añadir huecos NO invalida nada: la firma y las iniciales ya recogidas se conservan. La pantalla tiene que decir QUE paso y QUIEN debe firmar de nuevo, en la
  * ceremonia y en la lista de la ronda, y el turno vuelve a esa persona.
  *
  *   CI=1 PW_REUSE_SERVER=1 PW_PORT=3861 npx playwright test sign-stale-signature --project=chromium
@@ -34,7 +34,6 @@ const AXE_PATH = require.resolve("axe-core/axe.min.js");
 
 const EDITED_TITLE = "Recibo editado por Optimus";
 const FRASE_TEXTO = "La firma de Ana ya no es válida porque cambiaste el texto del documento: Ana debe volver a firmar.";
-const FRASE_HUECOS = "La firma de Ana ya no es válida porque cambiaste los huecos de firma del documento: Ana debe volver a firmar.";
 
 async function axeViolations(page: Page, selector: string): Promise<string[]> {
   await page.addScriptTag({ path: AXE_PATH });
@@ -108,41 +107,44 @@ test.describe("D7 · una firma que dejo de valer", () => {
     await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
   });
 
-  test("(d7-huecos) VARIOS documentos: se añade un hueco despues de que Ana firmo; el aviso dice «los huecos de firma», el turno vuelve a Ana, y pasa axe en claro/ES y oscuro/EN/375 px", async ({ page }) => {
+  test("(d7-huecos) VARIOS documentos: mover y añadir huecos DESPUES de que Ana firmo NO le quita la firma ni las iniciales; el turno sigue con Luis", async ({ page }) => {
     const docs = await makeTwoDocs();
     await collectFirstSigner(page, docs);
     await expect(handoffHeading(page, "Luis")).toBeVisible();
+    await expect(turnCounter(page)).toHaveText("Turno 2 de 2");
 
-    // Vuelve al paso Documento (se queda en el documento 1) y suma un hueco mas para Ana.
+    // Vuelve al paso Documento: ARRASTRA el hueco de Ana a otro sitio y suma otro hueco mas para ella.
     await page.getByRole("button", { name: "2. Documento" }).click();
-    await placeSlot(page, "Ana", 160);
+    const anaSlot = page.locator('[data-element-kind="slot"][aria-label^="Ana"]').first();
+    await anaSlot.scrollIntoViewIfNeeded();
+    // La posicion se mide RELATIVA a la hoja: la ventana puede desplazarse mientras carga.
+    const surface = page.locator('img[alt]:not([alt=""])').first();
+    const offsetY = async (): Promise<number> => {
+      const [slot, sheet] = await Promise.all([anaSlot.boundingBox(), surface.boundingBox()]);
+      return slot && sheet ? slot.y - sheet.y : Number.NaN;
+    };
+    // Quieto: tras volver al paso Documento la hoja se repinta y se desplaza un momento; un arrastre sobre coordenadas viejas se pierde.
+    let before = await anaSlot.boundingBox();
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await page.waitForTimeout(150);
+      const next = await anaSlot.boundingBox();
+      if (before && next && next.x === before.x && next.y === before.y) break;
+      before = next;
+    }
+    if (!before) throw new Error("no se encontro el hueco de Ana");
+    const startOffset = await offsetY();
+    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(before.x + before.width / 2 + 40, before.y + before.height / 2 + 120, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(offsetY).toBeGreaterThan(startOffset + 60);
+    await placeSlot(page, "Ana", 400);
     await continueToSign(page);
 
-    const notice = page.locator("[data-stale-signatures]");
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText(FRASE_HUECOS);
-    await expect(handoffHeading(page, "Ana")).toBeVisible();
-    const row = page.locator('[data-stale-signer="sg-1"]');
-    await expect(row).toContainText("Debe volver a firmar · cambiaron los huecos de firma");
-    expect(await axeViolations(page, "[data-stale-signatures]")).toEqual([]);
-    expect(await axeViolations(page, '[data-stale-signer="sg-1"]'), "fila de la ronda con el motivo").toEqual([]);
-
-    // Claro/ES/1280 ya medido; ahora oscuro, ingles y 375 px sobre la MISMA sesion (se restaura sola desde `?s=`).
-    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toMatch(/^s-/);
-    await page.waitForTimeout(1500);
-    await page.evaluate(() => {
-      window.localStorage.setItem("optimuspdf.theme", "dark");
-      window.localStorage.setItem("optimuspdf.language", "en");
-    });
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.reload();
-    const noticeEn = page.locator("[data-stale-signatures]");
-    await expect(noticeEn).toContainText("Ana's signature is no longer valid because you changed the signature spots of the document: Ana must sign again.", { timeout: 20_000 });
-    await expect(page.locator('[data-stale-signer="sg-1"]')).toContainText("Must sign again · the signature spots changed");
-    await page.waitForTimeout(600);
-    expect(await axeViolations(page, "[data-stale-signatures]")).toEqual([]);
-    expect(await axeViolations(page, '[data-stale-signer="sg-1"]'), "fila de la ronda con el motivo").toEqual([]);
-    const [scrollWidth, clientWidth] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
-    expect(scrollWidth, "sin desborde horizontal").toBeLessThanOrEqual(clientWidth);
+    // Nada se pierde: sin aviso de «volver a firmar», el turno sigue con Luis y la fila de Ana no esta pendiente.
+    await expect(page.locator("[data-stale-signatures]")).toHaveCount(0);
+    await expect(page.locator('[data-stale-signer="sg-1"]')).toHaveCount(0);
+    await expect(handoffHeading(page, "Luis")).toBeVisible();
+    await expect(turnCounter(page)).toHaveText("Turno 2 de 2");
   });
 });

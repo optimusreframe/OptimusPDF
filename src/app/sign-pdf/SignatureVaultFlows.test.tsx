@@ -619,7 +619,7 @@ describe("«Varios firmantes» con firmas guardadas — SigningCeremony", () => 
     expect(screen.queryByRole("button", { name: strings.vaultUseFor("Ana Pérez") })).toBeNull();
   });
 
-  it("el sello se calcula EN EL CLIC, no al abrir la hoja: si los huecos cambian con ella abierta, vale para los nuevos", async () => {
+  it("aplicar una firma guardada con los huecos movidos con la hoja abierta: vale con los nuevos y con los de antes", async () => {
     await seed("Ana Pérez");
     let last: CaptureMap = {};
     const view = render(<Ceremony onCaptures={(value) => (last = value)} />);
@@ -632,11 +632,11 @@ describe("«Varios firmantes» con firmas guardadas — SigningCeremony", () => 
     );
     expect(last[ANA.id].stamp).toBe(captureStamp(DOC, MOVED, ANA.id));
     expect(validCapture(last, MOVED, ANA.id, DOC).signature).not.toBeNull();
-    // Con los huecos de antes ya no valdria.
-    expect(validCapture(last, FIELDS, ANA.id, DOC).signature).toBeNull();
+    // Los huecos ya no forman parte del sello: tambien vale con los de antes.
+    expect(validCapture(last, FIELDS, ANA.id, DOC).signature).not.toBeNull();
   });
 
-  it("lo aplicado deja de valer si luego se mueven los huecos", async () => {
+  it("lo aplicado SIGUE valiendo si luego se mueven los huecos (solo cambiar de documento lo invalida)", async () => {
     await seed("Ana Pérez");
     let last: CaptureMap = {};
     render(<Ceremony onCaptures={(value) => (last = value)} />);
@@ -645,9 +645,9 @@ describe("«Varios firmantes» con firmas guardadas — SigningCeremony", () => 
     fireEvent.click(await screen.findByRole("button", { name: strings.vaultUseFor("Ana Pérez") }));
     await screen.findByText(strings.vaultApplied("Ana Pérez"));
     expect(pendingSigners([ANA, LUIS], FIELDS, last, DOC).map((s) => s.id)).not.toContain(ANA.id);
-    // Con los huecos de Ana en otro sitio la captura ya no la respalda.
-    expect(validCapture(last, MOVED, ANA.id, DOC).signature).toBeNull();
-    expect(pendingSigners([ANA, LUIS], MOVED, last, DOC).map((s) => s.id)).toContain(ANA.id);
+    // Con los huecos de Ana en otro sitio la captura sigue valiendo.
+    expect(validCapture(last, MOVED, ANA.id, DOC).signature).not.toBeNull();
+    expect(pendingSigners([ANA, LUIS], MOVED, last, DOC).map((s) => s.id)).not.toContain(ANA.id);
     // Ni vale para otro documento.
     expect(validCapture(last, FIELDS, ANA.id, OTRO_DOC).signature).toBeNull();
   });

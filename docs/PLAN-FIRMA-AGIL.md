@@ -3269,3 +3269,16 @@ así que todo lo liberado se acumulaba hasta el final (~5 MB por escena). Medido
 
 Los resultados no cambian: las decisiones de las 260 escenas del fuzz (semillas 12345 y 777) son idénticas antes y después (macOS, comparadas escena a escena), y `scan.metrics`
 pasa con todos sus umbrales. Lo que queda (~1 GB) es el corpus de métricas retenido a propósito (137 elementos con foto y hoja limpia).
+
+
+---
+
+### Corrección 2026-11-01: mover un hueco ya no hace perder la firma ni las iniciales recogidas
+
+**Síntoma (prueba del usuario).** Con las firmas e iniciales de una persona ya recogidas, mover un hueco (la firma o la inicial) en el documento hacía que la app descartara lo recogido y volviera a pedirlo.
+
+**Causa.** `captureStamp` (`src/app/sign-pdf/captures.ts`) sellaba cada captura con `huella del documento ~ id|página|tipo|x|y|ancho|alto` de cada hueco del firmante; cualquier cambio de posición, tamaño, página o número de huecos cambiaba el sello y `validCapture`/`blockStampsValid` daban la captura por caducada («cambiaron los huecos de firma»).
+
+**Arreglo.** El sello lleva SOLO la huella del documento (archivo + ediciones de texto). `sameStamp` compara solo esa parte, así que los sellos antiguos (`huella~hueco~…`, ya guardados en borradores y respaldos) siguen valiendo. Mover, redimensionar, cambiar de página, añadir o quitar huecos no invalida nada; si aparece un hueco de un TIPO que a esa persona le falta (iniciales cuando solo firmó), se pide solo ese trazo y se conserva el otro (`requiredCaptureTypes`/`isSignerComplete`). Siguen invalidando: editar el texto del documento y cambiar de archivo. El motivo `"fields"` ya no se produce (el tipo y los textos quedan por compatibilidad).
+
+**Pruebas.** 16 pruebas unitarias reescritas (afirmaban el comportamiento viejo) y nuevas para sellos antiguos, mover a otra página y añadir un hueco de tipo faltante; E2E `sign-stale-signature` (d7-huecos) arrastra de verdad el hueco con el ratón tras firmar: falla con el código anterior y pasa ahora (12/12 repeticiones); los 426 E2E de Firma en Chromium pasan.
