@@ -378,7 +378,7 @@ describe("Importar paquete · escaneos en curso", () => {
     vi.stubGlobal("Blob", NodeBlob);
     fireEvent.click(confirmButton());
     await screen.findByText(fill(copy.resultScan, { n: 1 }));
-    expect(document.querySelector("[data-backup-result]")?.textContent).toContain("El paquete no incluye: Firmas, Plantillas y documentos, Borradores, Ajustes.");
+    expect(document.querySelector("[data-backup-result]")?.textContent).toContain("El paquete no incluye: Firmas, Plantillas y documentos, Borradores, Perfiles de cliente, Ajustes.");
     expect(statusText()).toContain("Escaneos en curso: 1 importados.");
   });
 });

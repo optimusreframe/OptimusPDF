@@ -486,7 +486,7 @@ export type SignStrings = {
     name: string,
     missing: readonly ("signature" | "initials")[],
   ) => string;
-  vaultClearFailed: (stores: readonly ("vault" | "drafts" | "editDrafts" | "proDrafts")[]) => string;
+  vaultClearFailed: (stores: readonly ("vault" | "drafts" | "editDrafts" | "proDrafts" | "clientProfiles")[]) => string;
 
   /* --- Varios documentos (W4-U1) --- */
   documentsLabel: string;
@@ -1729,13 +1729,13 @@ const es: SignStrings = {
   privacyReadFull: "Leer completo",
   privacyUnderstood: "Entendido",
   privacyNoticeBody:
-    "OptimusPDF no guarda datos en la nube ni en un servidor. Los datos únicamente existen y se manejan en su dispositivo y tu navegador. Si deseas eliminar completamente los datos, solo cierra la pestaña, borra los datos de navegación de tu navegador o haz clic en el botón 'Borrar datos'. Los datos que se guardan en tu navegador solo sirven para usarlos en otros documentos que abras en tu navegador, puedes borrarlos cuando lo desees. Mientras trabajas con varios firmantes, el borrador guarda la sesión completa en este dispositivo (los documentos, los firmantes, los campos y, mientras no lo apagues, las firmas ya hechas) para que puedas retomarla, y si exportas la configuración, el archivo .zip contiene tus documentos. El borrador se guarda unas décimas de segundo después de cada cambio; si el navegador se cierra a la fuerza (o la pestaña se descarta) justo después de un cambio, lo último podría no guardarse. Todo se elimina con «Borrar datos» (o «Borrar datos locales» en Ajustes).",
+    "OptimusPDF no guarda datos en la nube ni en un servidor. Los datos únicamente existen y se manejan en su dispositivo y tu navegador. Si deseas eliminar completamente los datos, solo cierra la pestaña, borra los datos de navegación de tu navegador o haz clic en el botón 'Borrar datos'. Los datos que se guardan en tu navegador solo sirven para usarlos en otros documentos que abras en tu navegador, puedes borrarlos cuando lo desees. Mientras trabajas con varios firmantes, el borrador guarda la sesión completa en este dispositivo (los documentos, los firmantes, los campos y, mientras no lo apagues, las firmas ya hechas) para que puedas retomarla, y si exportas la configuración, el archivo .zip contiene tus documentos. El borrador se guarda unas décimas de segundo después de cada cambio; si el navegador se cierra a la fuerza (o la pestaña se descarta) justo después de un cambio, lo último podría no guardarse. Si usas «Rellenar con datos del cliente», los documentos, fotos o textos que eliges se leen en este dispositivo y nunca se suben; solo si marcas «Guardar como perfil» los datos del cliente (nombre, teléfono, dirección, póliza…) quedan guardados en este navegador, hasta 20 perfiles, y puedes corregirlos o borrarlos cuando quieras. Todo se elimina con «Borrar datos» (o «Borrar datos locales» en Ajustes).",
   privacyNoticeVaultNote:
     "Las firmas e iniciales solo se guardan en este dispositivo si marcas «Recordar en este dispositivo»; nunca se suben. Si exportas una firma, el archivo contiene la firma en claro a menos que le pongas contraseña.",
   privacyClearData: "Borrar datos",
   privacyClearDataTitle: "¿Borrar los datos guardados?",
   privacyClearDataBody:
-    "Se van a borrar todos los valores de campos que se recordaron para sugerirlos en otros documentos (nombres, direcciones, números y demás texto que hayas escrito), además de los borradores (con todos los documentos, firmantes y firmas de cada sesión guardada), las plantillas de disposición y las firmas e iniciales guardadas en este dispositivo. Esta acción no se puede deshacer.",
+    "Se van a borrar todos los valores de campos que se recordaron para sugerirlos en otros documentos (nombres, direcciones, números y demás texto que hayas escrito), los perfiles de cliente guardados para rellenar documentos, además de los borradores (con todos los documentos, firmantes y firmas de cada sesión guardada), las plantillas de disposición y las firmas e iniciales guardadas en este dispositivo. Esta acción no se puede deshacer.",
   privacyDataCleared: "Datos borrados.",
 
   signAgainTitle: "¿Firmar otro documento?",
@@ -1928,7 +1928,9 @@ const es: SignStrings = {
             ? "borradores del editor"
             : store === "proDrafts"
               ? "borradores de PDF Pro"
-              : "borradores",
+              : store === "clientProfiles"
+                ? "perfiles de cliente"
+                : "borradores",
       )
       .join(" y ")}). Cierra las demás pestañas de OptimusPDF e inténtalo de nuevo.`,
 
@@ -2608,13 +2610,13 @@ const en: SignStrings = {
   privacyReadFull: "Read in full",
   privacyUnderstood: "Got it",
   privacyNoticeBody:
-    "OptimusPDF does not store data in the cloud or on a server. Data only exists and is handled on your own device and browser. If you want to fully remove it, just close the tab, clear your browser's browsing data, or click the 'Clear data' button. Whatever is stored in your browser is only used to fill in other documents you open in this browser, and you can clear it whenever you want. While you work with several signers, the draft saves the whole session on this device (the documents, the signers, the fields and, unless you turn it off, the signatures already made) so you can pick it up again, and if you export the configuration, the .zip file contains your documents. The draft is saved a fraction of a second after each change; if the browser is force-closed (or the tab is discarded) right after a change, the latest edit may not be saved. Everything is removed with 'Clear data' (or 'Clear local data' in Settings).",
+    "OptimusPDF does not store data in the cloud or on a server. Data only exists and is handled on your own device and browser. If you want to fully remove it, just close the tab, clear your browser's browsing data, or click the 'Clear data' button. Whatever is stored in your browser is only used to fill in other documents you open in this browser, and you can clear it whenever you want. While you work with several signers, the draft saves the whole session on this device (the documents, the signers, the fields and, unless you turn it off, the signatures already made) so you can pick it up again, and if you export the configuration, the .zip file contains your documents. The draft is saved a fraction of a second after each change; if the browser is force-closed (or the tab is discarded) right after a change, the latest edit may not be saved. If you use 'Fill with client data', the documents, photos or text you choose are read on this device and never uploaded; only if you tick 'Save as profile' are the client's details (name, phone, address, policy…) kept in this browser, up to 20 profiles, and you can correct or delete them whenever you want. Everything is removed with 'Clear data' (or 'Clear local data' in Settings).",
   privacyNoticeVaultNote:
     "Signatures and initials are only stored on this device if you tick \"Remember on this device\"; they are never uploaded. If you export a signature, the file contains the signature in the clear unless you add a password.",
   privacyClearData: "Clear data",
   privacyClearDataTitle: "Clear the stored data?",
   privacyClearDataBody:
-    "This deletes every field value remembered to suggest it in other documents (names, addresses, numbers and any other text you typed), plus saved drafts (with all the documents, signers and signatures of each saved session), layout templates, and the signatures and initials saved on this device. This cannot be undone.",
+    "This deletes every field value remembered to suggest it in other documents (names, addresses, numbers and any other text you typed), the client profiles saved to fill documents, plus saved drafts (with all the documents, signers and signatures of each saved session), layout templates, and the signatures and initials saved on this device. This cannot be undone.",
   privacyDataCleared: "Data cleared.",
 
   signAgainTitle: "Sign another document?",
@@ -2801,7 +2803,9 @@ const en: SignStrings = {
             ? "editor drafts"
             : store === "proDrafts"
               ? "PDF Pro drafts"
-              : "drafts",
+              : store === "clientProfiles"
+                ? "client profiles"
+                : "drafts",
       )
       .join(" and ")}). Close the other OptimusPDF tabs and try again.`,
 

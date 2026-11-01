@@ -65,9 +65,11 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const [strokes, setStrokes] = useState(true);
   /** Sesiones del Escáner que la persona quitó del paquete (por defecto, ninguna). */
   const [scanExcluded, setScanExcluded] = useState<string[]>([]);
+  /** Perfiles de cliente que la persona quitó del paquete (por defecto, ninguno). */
+  const [profilesExcluded, setProfilesExcluded] = useState<string[]>([]);
   const [description, setDescription] = useState<ExportDescription | null>(null);
   /** Lo que la persona puede elegir aunque la selección actual lo oculte (se calcula una vez con todo marcado). */
-  const [capabilities, setCapabilities] = useState<{ strokes: boolean; history: boolean; scanIds: string[] } | null>(null);
+  const [capabilities, setCapabilities] = useState<{ strokes: boolean; history: boolean; scanIds: string[]; profileIds: string[] } | null>(null);
   /** Partes que no tienen nada que respaldar: cuentan como respaldadas al anotar el último respaldo (no hay nada que perder). */
   const emptyPartsRef = useRef<PackageModuleName[]>([]);
   const [protectChoice, setProtectChoice] = useState<boolean | null>(null);
@@ -86,12 +88,20 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   /** Las sesiones del Escáner que viajan: todas las vigentes menos las que la persona quitó (`undefined` mientras no se sabe cuáles hay). */
   const scanSessionIds = useMemo(() => capabilities?.scanIds.filter((id) => !scanExcluded.includes(id)), [capabilities, scanExcluded]);
   const scanKey = scanSessionIds === undefined ? "all" : scanSessionIds.join("|");
+  /** Los perfiles de cliente que viajan: todos los guardados menos los que la persona quitó. */
+  const clientProfileIds = useMemo(() => capabilities?.profileIds.filter((id) => !profilesExcluded.includes(id)), [capabilities, profilesExcluded]);
+  const profilesKey = clientProfileIds === undefined ? "all" : clientProfileIds.join("|");
 
   useEffect(() => {
     aliveRef.current = true;
-    void describeExport({ modules: { signatures: true, library: true, drafts: true, scanSessions: true, settings: true } }).then((all) => {
+    void describeExport({ modules: { signatures: true, library: true, drafts: true, scanSessions: true, clientProfiles: true, settings: true } }).then((all) => {
       if (!aliveRef.current) return;
-      setCapabilities({ strokes: all.drafts.includesStrokes, history: all.settings.valueHistoryLabels > 0, scanIds: all.scanSessions.sessions.map((session) => session.id) });
+      setCapabilities({
+        strokes: all.drafts.includesStrokes,
+        history: all.settings.valueHistoryLabels > 0,
+        scanIds: all.scanSessions.sessions.map((session) => session.id),
+        profileIds: all.clientProfiles.profiles.map((profile) => profile.id),
+      });
       emptyPartsRef.current = all.willOmitEmpty;
       setChoice(defaultExportChoice(all));
     });
@@ -103,15 +113,15 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   useEffect(() => {
     if (choice === null) return;
     let alive = true;
-    void describeExport({ modules: choice, includeValueHistory: history && choice.settings === true, includeStrokes: strokes, scanSessionIds }).then((next) => {
+    void describeExport({ modules: choice, includeValueHistory: history && choice.settings === true, includeStrokes: strokes, scanSessionIds, clientProfileIds }).then((next) => {
       if (alive && aliveRef.current) setDescription(next);
     });
     return () => {
       alive = false;
     };
-    // `scanSessionIds` cambia de identidad en cada render: lo que cuenta es `scanKey`.
+    // `scanSessionIds` y `clientProfileIds` cambian de identidad en cada render: lo que cuenta son `scanKey` y `profilesKey`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [choice, history, strokes, scanKey]);
+  }, [choice, history, strokes, scanKey, profilesKey]);
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -135,6 +145,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     setChoice((current) => ({ ...(current ?? {}), [name]: on }));
     // Marcar los escaneos de nuevo tras quitarlos todos vuelve a ofrecerlos todos (si no, la casilla marcada no llevaría nada).
     if (name === "scanSessions" && on && capabilities && capabilities.scanIds.every((id) => scanExcluded.includes(id))) setScanExcluded([]);
+    if (name === "clientProfiles" && on && capabilities && capabilities.profileIds.every((id) => profilesExcluded.includes(id))) setProfilesExcluded([]);
     setError("");
   };
 
@@ -143,6 +154,14 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     setScanExcluded(next);
     // Sin ninguna sesión elegida el módulo no lleva nada: la casilla general se desmarca sola.
     if (capabilities && capabilities.scanIds.every((other) => next.includes(other))) setChoice((current) => ({ ...(current ?? {}), scanSessions: false }));
+    setError("");
+  };
+
+  const toggleProfile = (id: string, on: boolean) => {
+    const next = on ? profilesExcluded.filter((other) => other !== id) : [...profilesExcluded, id];
+    setProfilesExcluded(next);
+    // Sin ningún perfil elegido el módulo no lleva nada: la casilla general se desmarca sola.
+    if (capabilities && capabilities.profileIds.every((other) => next.includes(other))) setChoice((current) => ({ ...(current ?? {}), clientProfiles: false }));
     setError("");
   };
 
@@ -166,6 +185,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     if (counts.templates > 0) parts.push(countText(counts.templates, copy.templatesOne, copy.templatesMany));
     if (counts.drafts > 0) parts.push(countText(counts.drafts, copy.draftsOne, copy.draftsMany));
     if (counts.scanSessions > 0) parts.push(fillText(copy.summaryScan, { scans: countText(counts.scanSessions, copy.scanOne, copy.scanMany), pages: countText(counts.scanPages, copy.pagesOne, copy.pagesMany) }));
+    if (counts.clientProfiles > 0) parts.push(countText(counts.clientProfiles, copy.profilesOne, copy.profilesMany));
     if (result.included.includes("settings")) parts.push(counts.valueHistory ? `${copy.summarySettings}, ${copy.summaryHistory}` : copy.summarySettings);
     return parts;
   };
@@ -192,6 +212,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
       includeValueHistory: includeHistory,
       includeStrokes: strokes,
       scanSessionIds,
+      clientProfileIds,
       password: wantsPassword ? password : undefined,
     });
     if (!aliveRef.current) return;
@@ -251,6 +272,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const lib = description?.library;
   const drafts = description?.drafts;
   const scan = description?.scanSessions;
+  const profiles = description?.clientProfiles;
   const settings = description?.settings;
   const libCount = lib
     ? [
@@ -267,6 +289,8 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
   const showHistoryOption = capabilities?.history === true && choice?.settings === true;
   const scanOn = choice?.scanSessions === true && availability("scanSessions") === "ok";
   const showScanList = scanOn && (scan?.sessions.length ?? 0) > 0;
+  const profilesOn = choice?.clientProfiles === true && availability("clientProfiles") === "ok";
+  const showProfileList = profilesOn && (profiles?.profiles.length ?? 0) > 1;
   const contactsStrokesWarning = description?.containsSignatureStrokes === true;
   /** Documentos de la biblioteca sin copia del PDF: no viajan; se avisa ANTES de exportar (y después, con el resultado). */
   const withoutCopyBefore = description && choice?.library === true ? withoutCopyNote(description.library.withoutCopy, copy, "before") : null;
@@ -350,6 +374,27 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
               </p>
             ) : null}
             {scan && scan.unreadable > 0 ? <p className="text-footnote text-muted-foreground">{copy.scanUnreadable}</p> : null}
+            <Checkbox
+              label={labelWithCount(copy.profilesLabel, profiles && profiles.count > 0 ? countText(profiles.count, copy.profilesOne, copy.profilesMany) : null)}
+              hint={hintFor("clientProfiles", copy.profilesHint)}
+              checked={profilesOn}
+              disabled={availability("clientProfiles") !== "ok" || building}
+              onChange={(on) => setModule("clientProfiles", on)}
+            />
+            {showProfileList && profiles ? (
+              <div className="pl-[34px]" role="group" aria-label={copy.profilesListLegend} data-backup-profile-list="">
+                {profiles.profiles.map((profile) => (
+                  <Checkbox
+                    key={profile.id}
+                    label={profile.name}
+                    hint={fillText(copy.profileItemHint, { values: countText(profile.valueCount, copy.valuesOne, copy.valuesMany) })}
+                    checked={!profilesExcluded.includes(profile.id)}
+                    disabled={building}
+                    onChange={(on) => toggleProfile(profile.id, on)}
+                  />
+                ))}
+              </div>
+            ) : null}
             <Checkbox
               label={labelWithCount(copy.settingsLabel, settings && settings.keys > 0 ? countText(settings.keys, copy.keysOne, copy.keysMany) : null)}
               hint={hintFor("settings", copy.settingsHint)}

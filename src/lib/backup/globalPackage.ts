@@ -56,6 +56,19 @@ import {
   type ScanSessionsLimitCheck,
 } from "@/lib/backup/modules/scanSessions";
 import {
+  CLIENT_PROFILES_MODULE,
+  applyClientProfilesImport,
+  checkClientProfilesLimits,
+  defaultClientProfileDecisions,
+  exportClientProfiles,
+  planClientProfilesImport,
+  summarizeClientProfiles,
+  type ClientProfileDecision,
+  type ClientProfileInfo,
+  type ClientProfilesImportPlan,
+  type ClientProfilesLimitCheck,
+} from "@/lib/backup/modules/clientProfiles";
+import {
   applySettingsImport,
   countSettingWrites,
   defaultSettingsDecisions,
@@ -79,20 +92,22 @@ import { readFailureFor, type ReadFailure } from "@/app/sign-pdf/backupFlow";
  * módulos, uno que falla NO deshace los que ya se aplicaron bien (se informa por módulo). Nada sale del dispositivo.
  */
 
-export type PackageModuleName = "signatures" | "library" | "drafts" | "scanSessions" | "settings";
+export type PackageModuleName = "signatures" | "library" | "drafts" | "scanSessions" | "clientProfiles" | "settings";
 
 /** Orden fijo de exportación, de la vista previa y de aplicación. Ajustes va el último: aplicarlo pide recargar la página. */
-export const PACKAGE_MODULES: readonly PackageModuleName[] = ["signatures", "library", "drafts", "scanSessions", "settings"];
+export const PACKAGE_MODULES: readonly PackageModuleName[] = ["signatures", "library", "drafts", "scanSessions", "clientProfiles", "settings"];
 
 /**
  * Nombre de cada módulo DENTRO del paquete (`manifest.modules`). Casi siempre es el mismo; «Escaneos en curso» se llama
- * `scanSessions` aquí y `scan-sessions` en el zip, porque el contenedor solo admite minúsculas y guiones en el nombre.
+ * `scanSessions` aquí y `scan-sessions` en el zip, porque el contenedor solo admite minúsculas y guiones en el nombre; lo mismo
+ * pasa con «Perfiles de cliente» (`clientProfiles` aquí, `client-profiles` en el zip).
  */
 export const MODULE_WIRE_NAMES: Record<PackageModuleName, string> = {
   signatures: "signatures",
   library: "library",
   drafts: "drafts",
   scanSessions: SCAN_SESSIONS_MODULE,
+  clientProfiles: CLIENT_PROFILES_MODULE,
   settings: "settings",
 };
 
@@ -121,6 +136,8 @@ const EXPORT_LIMIT_BYTES = PACKAGE_LIMITS.maxUncompressedBytes - PACKAGE_SLACK_B
 const SETTINGS_ESTIMATE_BYTES = 4 * 1024;
 /** Estimación por etiqueta de historial de valores (≤ 5 valores de ≤ 500 caracteres: se queda corta a propósito). */
 const HISTORY_ESTIMATE_BYTES_PER_LABEL = 400;
+/** Estimación por perfil de cliente (≈ 11 valores de ≈ 60 caracteres en JSON): se queda corta a propósito. */
+const PROFILE_ESTIMATE_BYTES = 2 * 1024;
 
 export type ExportOptions = {
   modules: ModuleChoice;
@@ -132,6 +149,8 @@ export type ExportOptions = {
   draftKinds?: ExportDraftsOptions["kinds"];
   /** Qué sesiones del Escáner viajan (sus ids); por defecto, todas las vigentes. */
   scanSessionIds?: readonly string[];
+  /** Qué perfiles de cliente viajan (sus ids); por defecto, todos. */
+  clientProfileIds?: readonly string[];
 };
 
 export type ExportDescription = {
@@ -170,6 +189,14 @@ export type ExportDescription = {
     large: boolean;
     /** Sesiones que no se pudieron leer (no se ofrecen). */
     unreadable: number;
+  };
+  clientProfiles: {
+    available: boolean;
+    /** Todos los perfiles guardados, del más reciente al más antiguo, para que la persona elija cuáles llevar. */
+    profiles: ClientProfileInfo[];
+    count: number;
+    /** Los elegidos (`clientProfileIds`; todos por defecto). */
+    selectedCount: number;
   };
   settings: { available: boolean; keys: number; valueHistoryLabels: number; valueHistoryValues: number };
   /** Módulos pedidos que tienen algo que exportar. */
@@ -211,6 +238,7 @@ export async function describeExport(options: ExportOptions): Promise<ExportDesc
   const library = await summarizeLibraryExport().catch(() => ({ available: false, documents: 0, templates: 0, bytes: 0, withoutCopy: 0 }));
   const drafts: DraftsSummary = await summarizeDrafts().catch(() => ({ ok: false, reason: "unavailable" }) as DraftsSummary);
   const settings = summarizeSettings();
+  const profiles = summarizeClientProfiles();
   // Medir las sesiones del Escáner carga cada una (sin leer fotos): solo si quien llama menciona el módulo (marcado o no, para
   // poder ofrecerlo), y no al abrir «Mis documentos».
   const scan = modules.scanSessions !== undefined ? await summarizeScanSessions().catch(() => ({ ok: false, reason: "unavailable" }) as Awaited<ReturnType<typeof summarizeScanSessions>>) : null;
@@ -260,11 +288,17 @@ export async function describeExport(options: ExportOptions): Promise<ExportDesc
     unreadable: scan !== null && scan.ok ? scan.unreadable : 0,
   };
 
+  const profilesAll = profiles.ok ? profiles.profiles : [];
+  const profilesWanted = options.clientProfileIds ? new Set(options.clientProfileIds) : null;
+  const profilesChosen = profilesWanted ? profilesAll.filter((profile) => profilesWanted.has(profile.id)) : profilesAll;
+  const profilesInfo = { available: profiles.ok, profiles: profilesAll, count: profilesAll.length, selectedCount: profilesChosen.length };
+
   const hasContent: Record<PackageModuleName, boolean> = {
     signatures: signaturesInfo.count > 0,
     library: libraryInfo.documents + libraryInfo.templates > 0,
     drafts: draftCount > 0,
     scanSessions: scanInfo.selectedCount > 0,
+    clientProfiles: profilesInfo.selectedCount > 0,
     settings: settingsInfo.keys > 0 || (historyOn && settingsInfo.valueHistoryLabels > 0),
   };
   const isAvailable: Record<PackageModuleName, boolean> = {
@@ -272,6 +306,7 @@ export async function describeExport(options: ExportOptions): Promise<ExportDesc
     library: libraryInfo.available,
     drafts: draftsInfo.available,
     scanSessions: scanInfo.available,
+    clientProfiles: profilesInfo.available,
     settings: settingsInfo.available,
   };
   const chosen = PACKAGE_MODULES.filter((name) => isChosen(modules, name));
@@ -284,20 +319,23 @@ export async function describeExport(options: ExportOptions): Promise<ExportDesc
   if (willInclude.includes("library")) estimated += libraryInfo.bytes;
   if (willInclude.includes("drafts")) estimated += draftsInfo.bytes;
   if (willInclude.includes("scanSessions")) estimated += scanInfo.selectedBytes;
+  if (willInclude.includes("clientProfiles")) estimated += profilesChosen.length * PROFILE_ESTIMATE_BYTES;
   if (willInclude.includes("settings")) estimated += SETTINGS_ESTIMATE_BYTES + (historyOn ? settingsInfo.valueHistoryLabels * HISTORY_ESTIMATE_BYTES_PER_LABEL : 0);
 
   const includesDrafts = willInclude.includes("drafts");
   const includesScan = willInclude.includes("scanSessions");
   const includesHistory = willInclude.includes("settings") && historyOn && settingsInfo.valueHistoryLabels > 0;
+  const includesProfiles = willInclude.includes("clientProfiles");
   const containsSignatureStrokes = includesDrafts && draftsInfo.includesStrokes;
   const containsSignatures = willInclude.includes("signatures") || containsSignatureStrokes;
-  const containsClientData = includesDrafts || includesScan || includesHistory;
+  const containsClientData = includesDrafts || includesScan || includesHistory || includesProfiles;
 
   return {
     signatures: signaturesInfo,
     library: libraryInfo,
     drafts: draftsInfo,
     scanSessions: scanInfo,
+    clientProfiles: profilesInfo,
     settings: settingsInfo,
     willInclude,
     willOmitEmpty,
@@ -345,7 +383,7 @@ export type ExportEverythingResult =
       /** Módulos que SÍ van en el paquete, con su recuento. */
       included: PackageModuleName[];
       omitted: OmittedModule[];
-      counts: { signatures: number; documents: number; templates: number; drafts: number; scanSessions: number; scanPages: number; settings: number; valueHistory: boolean; strokes: boolean };
+      counts: { signatures: number; documents: number; templates: number; drafts: number; scanSessions: number; scanPages: number; clientProfiles: number; settings: number; valueHistory: boolean; strokes: boolean };
       /** Documentos de la biblioteca que NO viajan porque falta (o está dañada) la copia de su PDF. */
       libraryWithoutCopy: number;
       /** Páginas de escaneos que NO viajan porque su foto está dañada o no es de un formato admitido. */
@@ -373,7 +411,7 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
 
   const omitted: OmittedModule[] = [];
   const inputs: PackageModuleInput[] = [];
-  const counts = { signatures: 0, documents: 0, templates: 0, drafts: 0, scanSessions: 0, scanPages: 0, settings: 0, valueHistory: false, strokes: false };
+  const counts = { signatures: 0, documents: 0, templates: 0, drafts: 0, scanSessions: 0, scanPages: 0, clientProfiles: 0, settings: 0, valueHistory: false, strokes: false };
   let libraryWithoutCopy = 0;
   let scanSkippedPages = 0;
 
@@ -427,6 +465,14 @@ export async function exportEverything(options: ExportEverythingOptions): Promis
             inputs.push(input);
             counts.scanSessions = report.sessions;
             counts.scanPages = report.pages;
+          }
+        } else if (name === "clientProfiles") {
+          const input = await exportClientProfiles({ ids: options.clientProfileIds });
+          const count = typeof input.meta?.count === "number" ? input.meta.count : 0;
+          if (count === 0) omitted.push({ module: name, reason: "empty" });
+          else {
+            inputs.push(input);
+            counts.clientProfiles = count;
           }
         } else {
           const input = await exportSettings({ includeValueHistory: options.includeValueHistory === true });
@@ -495,6 +541,7 @@ export type EverythingPlans = {
   library: LibraryPlan | null;
   drafts: DraftsImportPlan | null;
   scanSessions: ScanSessionsImportPlan | null;
+  clientProfiles: ClientProfilesImportPlan | null;
   settings: SettingsImportPlan | null;
   /**
    * Módulos que el paquete NI TRAÍA. Un plan `null` por sí solo no distingue «el paquete no lo incluye» de «no se pudo
@@ -595,7 +642,7 @@ export async function readAndPlanEverything(file: Blob, password?: string, optio
 
   const failed = new Set<PackageModuleName>();
   const has = (name: PackageModuleName) => read.modules.some((module) => module.name === MODULE_WIRE_NAMES[name]);
-  const plans: EverythingPlans = { signatures: null, library: null, drafts: null, scanSessions: null, settings: null, absent: PACKAGE_MODULES.filter((name) => !has(name)) };
+  const plans: EverythingPlans = { signatures: null, library: null, drafts: null, scanSessions: null, clientProfiles: null, settings: null, absent: PACKAGE_MODULES.filter((name) => !has(name)) };
 
   if (has("signatures")) {
     try {
@@ -641,6 +688,13 @@ export async function readAndPlanEverything(file: Blob, password?: string, optio
       failed.add("scanSessions");
     }
   }
+  if (has("clientProfiles")) {
+    try {
+      plans.clientProfiles = planClientProfilesImport(read);
+    } catch {
+      failed.add("clientProfiles");
+    }
+  }
   if (has("settings")) {
     try {
       plans.settings = planSettingsImport(read);
@@ -665,6 +719,7 @@ export type EverythingDecisions = {
   library: Record<string, LibraryDecision>;
   drafts: Record<string, DraftDecision>;
   scanSessions: Record<string, ScanSessionDecision>;
+  clientProfiles: Record<string, ClientProfileDecision>;
   settings: SettingsDecisions;
 };
 
@@ -675,6 +730,7 @@ export function defaultEverythingDecisions(plans: EverythingPlans): EverythingDe
     library: plans.library && plans.library.state === "ok" ? defaultLibraryDecisions(plans.library) : {},
     drafts: plans.drafts && plans.drafts.state === "ok" ? defaultDraftDecisions(plans.drafts) : {},
     scanSessions: plans.scanSessions && plans.scanSessions.state === "ok" ? defaultScanSessionDecisions(plans.scanSessions) : {},
+    clientProfiles: plans.clientProfiles && plans.clientProfiles.state === "ok" ? defaultClientProfileDecisions(plans.clientProfiles) : {},
     settings: plans.settings && plans.settings.state === "ok" ? defaultSettingsDecisions(plans.settings) : { settings: "omit", valueHistory: "omit" },
   };
 }
@@ -684,6 +740,7 @@ export type EverythingLimits = {
   library: LibraryLimitCheck | null;
   drafts: DraftsLimitCheck | null;
   scanSessions: ScanSessionsLimitCheck | null;
+  clientProfiles: ClientProfilesLimitCheck | null;
   /** Elementos aprobados en total (lo que cuenta el botón «Importar N elementos»). */
   wanted: number;
   /** Aprobados por módulo. */
@@ -700,24 +757,27 @@ export function checkEverythingLimits(plans: EverythingPlans, decisions: Everyth
   const library = plans.library && plans.library.state === "ok" ? checkLibraryLimits(plans.library, decisions.library) : null;
   const drafts = plans.drafts && plans.drafts.state === "ok" ? checkDraftsLimits(plans.drafts, decisions.drafts) : null;
   const scanSessions = plans.scanSessions && plans.scanSessions.state === "ok" ? checkScanSessionsLimits(plans.scanSessions, decisions.scanSessions) : null;
+  const clientProfiles = plans.clientProfiles && plans.clientProfiles.state === "ok" ? checkClientProfilesLimits(plans.clientProfiles, decisions.clientProfiles) : null;
   let settingsWanted = 0;
   if (plans.settings && plans.settings.state === "ok") {
     settingsWanted += countSettingWrites(plans.settings, decisions.settings);
     const history = plans.settings.valueHistory.status;
     if (decisions.settings.valueHistory === "replace" && (history === "new" || history === "different")) settingsWanted += 1;
   }
-  const wantedBy = { signatures: signatures?.wanted ?? 0, library: library?.wanted ?? 0, drafts: drafts?.wanted ?? 0, scanSessions: scanSessions?.wanted ?? 0, settings: settingsWanted };
+  const wantedBy = { signatures: signatures?.wanted ?? 0, library: library?.wanted ?? 0, drafts: drafts?.wanted ?? 0, scanSessions: scanSessions?.wanted ?? 0, clientProfiles: clientProfiles?.wanted ?? 0, settings: settingsWanted };
   const blocked: PackageModuleName[] = [];
   if (signatures && !signatures.ok) blocked.push("signatures");
   if (library && !library.ok) blocked.push("library");
   if (drafts && !drafts.ok) blocked.push("drafts");
   if (scanSessions && !scanSessions.ok) blocked.push("scanSessions");
+  if (clientProfiles && !clientProfiles.ok) blocked.push("clientProfiles");
   return {
     signatures,
     library,
     drafts,
     scanSessions,
-    wanted: wantedBy.signatures + wantedBy.library + wantedBy.drafts + wantedBy.scanSessions + wantedBy.settings,
+    clientProfiles,
+    wanted: wantedBy.signatures + wantedBy.library + wantedBy.drafts + wantedBy.scanSessions + wantedBy.clientProfiles + wantedBy.settings,
     wantedBy,
     ok: blocked.length === 0,
     blocked,
@@ -751,6 +811,11 @@ export type ScanSessionsOutcome = Base<"scanSessions"> & (
   | { status: "failed"; reason: ModuleFailureReason; failedReason?: "quota" | "tooBig" | "unavailable" }
   | { status: "skipped"; why: SkipWhy }
 );
+export type ClientProfilesOutcome = Base<"clientProfiles"> & (
+  | { status: "applied" | "nothing"; written: number; replaced: number; keptBoth: number; skipped: number }
+  | { status: "failed"; reason: ModuleFailureReason }
+  | { status: "skipped"; why: SkipWhy }
+);
 export type SettingsOutcome = Base<"settings"> & (
   | { status: "applied" | "nothing"; written: number; skipped: number; valueHistory: boolean; reloadRequired: boolean }
   | { status: "failed"; reason: ModuleFailureReason }
@@ -760,7 +825,7 @@ export type SettingsOutcome = Base<"settings"> & (
 /** Por qué un módulo no se tocó: no venía en el paquete, es de una versión más nueva, estaba dañado o no se pudo leer. */
 export type SkipWhy = "absent" | "newerVersion" | "damaged" | "unavailable";
 
-export type ModuleOutcome = SignaturesOutcome | LibraryOutcome | DraftsOutcome | ScanSessionsOutcome | SettingsOutcome;
+export type ModuleOutcome = SignaturesOutcome | LibraryOutcome | DraftsOutcome | ScanSessionsOutcome | ClientProfilesOutcome | SettingsOutcome;
 
 export type ApplyEverythingResult = {
   /** Un resultado por módulo, en el orden de aplicación. */
@@ -776,6 +841,8 @@ export type ApplyEverythingOptions = {
   onModule?: (module: PackageModuleName) => void;
   /** Texto que se añade al nombre de una sesión del Escáner «Conservar ambas» (p. ej. «(importado)»). */
   scanCopySuffix?: string;
+  /** Texto que se añade al nombre de un perfil de cliente «Conservar ambos» (p. ej. «(importado)»). */
+  profileCopySuffix?: string;
   /** Solo para pruebas. */
   now?: number;
 };
@@ -905,6 +972,26 @@ export async function applyEverything(plans: EverythingPlans, decisions: Everyth
         }
       } catch {
         outcomes.push({ module: "scanSessions", status: "failed", reason: "failed" });
+      }
+    }
+  }
+
+  // Perfiles de cliente
+  {
+    const plan = plans.clientProfiles;
+    if (!plan || plan.state !== "ok") outcomes.push({ module: "clientProfiles", status: "skipped", why: skipWhy(plans, "clientProfiles") });
+    else if (limits.wantedBy.clientProfiles === 0) outcomes.push({ module: "clientProfiles", status: "nothing", written: 0, replaced: 0, keptBoth: 0, skipped: plan.items.length });
+    else {
+      options.onModule?.("clientProfiles");
+      try {
+        const result = await applyClientProfilesImport(plan, decisions.clientProfiles, { copySuffix: options.profileCopySuffix });
+        outcomes.push(
+          result.ok
+            ? { module: "clientProfiles", status: result.written > 0 ? "applied" : "nothing", written: result.written, replaced: result.replaced, keptBoth: result.keptBoth, skipped: result.skipped }
+            : { module: "clientProfiles", status: "failed", reason: result.reason },
+        );
+      } catch {
+        outcomes.push({ module: "clientProfiles", status: "failed", reason: "failed" });
       }
     }
   }

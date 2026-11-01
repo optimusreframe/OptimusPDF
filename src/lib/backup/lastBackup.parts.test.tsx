@@ -48,7 +48,7 @@ describe("H2 — markLastBackup solo anota y reinicia lo que viajó", () => {
     seedReminder({ changes: 12, by: { signatures: 7, library: 5 }, since: at(-40).toISOString(), snoozeUntil: at(3).toISOString() });
     expect(markLastBackup(at(0))).toBe(true);
     expect(readLastBackup()).toEqual(at(0));
-    expect(Object.keys(readLastBackupParts()).sort()).toEqual(["drafts", "library", "scanSessions", "settings", "signatures"]);
+    expect(Object.keys(readLastBackupParts()).sort()).toEqual(["clientProfiles", "drafts", "library", "scanSessions", "settings", "signatures"]);
     expect(window.localStorage.getItem(BACKUP_REMINDER_KEY)).toBeNull();
   });
 

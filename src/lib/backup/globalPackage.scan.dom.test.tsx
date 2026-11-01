@@ -60,7 +60,8 @@ afterEach(() => {
 
 describe("el nombre del modulo", () => {
   it("scanSessions en la interfaz, scan-sessions en el paquete; cada modulo se reconoce por su nombre de paquete", () => {
-    expect(PACKAGE_MODULES).toEqual(["signatures", "library", "drafts", "scanSessions", "settings"]);
+    expect(PACKAGE_MODULES).toEqual(["signatures", "library", "drafts", "scanSessions", "clientProfiles", "settings"]);
+    expect(MODULE_WIRE_NAMES.clientProfiles).toBe("client-profiles");
     expect(MODULE_WIRE_NAMES.scanSessions).toBe("scan-sessions");
     for (const name of PACKAGE_MODULES) expect(moduleFromWireName(MODULE_WIRE_NAMES[name])).toBe(name);
     expect(moduleFromWireName("scanSessions")).toBeNull();
@@ -231,7 +232,7 @@ describe("leer y aplicar por la via global", () => {
       ["signatures", "ok", 1],
       ["scanSessions", "ok", 1],
     ]);
-    expect(read.plans.absent).toEqual(["library", "drafts", "settings"]);
+    expect(read.plans.absent).toEqual(["library", "drafts", "clientProfiles", "settings"]);
     const decisions = defaultEverythingDecisions(read.plans);
     expect(Object.values(decisions.scanSessions)).toEqual(["import"]);
     const limits = checkEverythingLimits(read.plans, decisions);
@@ -245,6 +246,7 @@ describe("leer y aplicar por la via global", () => {
       ["library", "skipped"],
       ["drafts", "skipped"],
       ["scanSessions", "applied"],
+      ["clientProfiles", "skipped"],
       ["settings", "skipped"],
     ]);
     expect(applied.outcomes[3]).toMatchObject({ module: "scanSessions", written: 1, saved: [{ id: a.id }] });
@@ -256,7 +258,7 @@ describe("leer y aplicar por la via global", () => {
     const blob = await packageThenWipe({ scanSessions: true });
     const read = await readAndPlanEverything(asFile(blob), undefined, PASS);
     if (!read.ok) throw new Error(read.reason);
-    expect(read.plans.absent).toEqual(["signatures", "library", "drafts", "settings"]);
+    expect(read.plans.absent).toEqual(["signatures", "library", "drafts", "clientProfiles", "settings"]);
     vi.stubGlobal("Blob", NodeBlob);
     await applyEverything(read.plans, defaultEverythingDecisions(read.plans));
     const before = (await listScanSessionSummaries()).map((s) => [s.id, s.savedAt]);

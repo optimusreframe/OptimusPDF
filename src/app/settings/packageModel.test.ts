@@ -29,6 +29,7 @@ function description(over: Partial<ExportDescription> = {}): ExportDescription {
     library: { available: true, documents: 3, templates: 1, bytes: 5000, withoutCopy: 0 },
     drafts: { available: true, count: 2, signCount: 1, editCount: 1, proCount: 0, bytes: 3000, withSignatureStrokes: 1, includesStrokes: true, strokesHeldBack: false, fitsInPackage: true, expiredSkipped: 0 },
     scanSessions: { available: true, sessions: [], count: 0, bytes: 0, selectedCount: 0, selectedPages: 0, selectedBytes: 0, fitsInPackage: true, large: false, unreadable: 0 },
+    clientProfiles: { available: true, profiles: [], count: 0, selectedCount: 0 },
     settings: { available: true, keys: 4, valueHistoryLabels: 2, valueHistoryValues: 3 },
     willInclude: ["signatures", "library", "drafts", "settings"],
     willOmitEmpty: [],
@@ -49,14 +50,14 @@ function description(over: Partial<ExportDescription> = {}): ExportDescription {
 
 describe("exportar", () => {
   it("marca por defecto todo lo que tiene contenido y nunca el historial", () => {
-    expect(defaultExportChoice(description())).toEqual({ signatures: true, library: true, drafts: true, scanSessions: false, settings: true });
+    expect(defaultExportChoice(description())).toEqual({ signatures: true, library: true, drafts: true, scanSessions: false, clientProfiles: false, settings: true });
     const empty = description({
       signatures: { available: true, count: 0, bytes: 0 },
       library: { available: true, documents: 0, templates: 0, bytes: 0, withoutCopy: 0 },
       drafts: { ...description().drafts, count: 0 },
       settings: { available: true, keys: 0, valueHistoryLabels: 3, valueHistoryValues: 3 },
     });
-    expect(defaultExportChoice(empty)).toEqual({ signatures: false, library: false, drafts: false, scanSessions: false, settings: false });
+    expect(defaultExportChoice(empty)).toEqual({ signatures: false, library: false, drafts: false, scanSessions: false, clientProfiles: false, settings: false });
     expect(defaultExportChoice(description({ library: { available: true, documents: 0, templates: 2, bytes: 0, withoutCopy: 0 } })).library).toBe(true);
   });
 
@@ -131,8 +132,8 @@ describe("importar", () => {
       { module: "drafts", state: "newerVersion", counts: { new: 0, identical: 0, different: 0, invalid: 0 }, importable: false },
       { module: "settings", state: "ok", counts: { new: 0, identical: 0, different: 0, invalid: 0 }, importable: true },
     ] as const;
-    expect(packageParts(modules, copy, { signatures: 2, documents: 3, templates: 1, drafts: 4, scanSessions: 2, settings: 1 })).toEqual(["2 firmas", "3 documentos", "1 plantilla", "1 ajuste"]);
-    expect(packageParts(modules, copy, { signatures: 0, documents: 0, templates: 0, drafts: 0, scanSessions: 0, settings: 0 })).toEqual([]);
+    expect(packageParts(modules, copy, { signatures: 2, documents: 3, templates: 1, drafts: 4, scanSessions: 2, clientProfiles: 0, settings: 1 })).toEqual(["2 firmas", "3 documentos", "1 plantilla", "1 ajuste"]);
+    expect(packageParts(modules, copy, { signatures: 0, documents: 0, templates: 0, drafts: 0, scanSessions: 0, clientProfiles: 0, settings: 0 })).toEqual([]);
   });
 
   it("decisiones de un borrador: nuevo → importar/omitir; distinto → reemplazar (+ conservar ambos solo en Firmar)", () => {
@@ -257,7 +258,7 @@ describe("escaneos en curso", () => {
   it("«El paquete trae»: cuenta los escaneos importables y los módulos no importables no cuentan", () => {
     const ok = [{ module: "scanSessions", state: "ok", counts: { new: 0, identical: 0, different: 0, invalid: 0 }, importable: true }] as const;
     const bad = [{ module: "scanSessions", state: "newerVersion", counts: { new: 0, identical: 0, different: 0, invalid: 0 }, importable: false }] as const;
-    const zero = { signatures: 0, documents: 0, templates: 0, drafts: 0, settings: 0 };
+    const zero = { signatures: 0, documents: 0, templates: 0, drafts: 0, clientProfiles: 0, settings: 0 };
     expect(packageParts(ok, copy, { ...zero, scanSessions: 3 })).toEqual(["3 escaneos"]);
     expect(packageParts(ok, copy, { ...zero, scanSessions: 1 })).toEqual(["1 escaneo"]);
     expect(packageParts(bad, copy, { ...zero, scanSessions: 3 })).toEqual([]);

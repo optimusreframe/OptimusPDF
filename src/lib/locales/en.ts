@@ -716,7 +716,7 @@ export const en: Dictionary = {
     languageBody: "Change the language of the whole interface.",
     dataTitle: "Local data",
     dataBody:
-      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and fields, and the full PDF; the signatures already collected only if you leave \"Save collected signatures in the draft\" on, and they are deleted after 7 days). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password. The PDF editor also saves an automatic draft (IndexedDB) with the whole document and your edits, so you can pick it up if you close the tab; it never leaves your device either and \"Clear local data\" removes it (no draft is kept for password-protected PDFs). PDF Pro does the same with its working document (the current PDF and the list of changes, in its own database) and \"Clear local data\" removes that too.",
+      "OptimusPDF keeps in your browser the chosen language, the list of recent jobs, and — if you used \"Sign PDF\" with several signers — the field values you typed (so they can be suggested in other documents) plus the drafts it saves automatically while you work (with several documents, the whole session: documents, signers and fields, and the full PDF; the signatures already collected only if you leave \"Save collected signatures in the draft\" on, and they are deleted after 7 days). If you export a round's configuration, the .zip contains your documents. \"Clear local data\" removes all of this. If you use \"Fill with client data\" in \"Sign PDF\" and save a profile, its details (name, phone, address, policy…) are kept in this browser (up to 20 profiles) until you delete them; \"Clear local data\" removes them too. If you tick \"Remember on this device\" when creating a signature or initials, they are also stored in your browser (IndexedDB) together with the name you type, so you can reuse them on other documents; they are never uploaded to any server. If you export a signature, the file contains the signature in the clear unless you protect it with a password. The PDF editor also saves an automatic draft (IndexedDB) with the whole document and your edits, so you can pick it up if you close the tab; it never leaves your device either and \"Clear local data\" removes it (no draft is kept for password-protected PDFs). PDF Pro does the same with its working document (the current PDF and the list of changes, in its own database) and \"Clear local data\" removes that too.",
     clearData: "Clear local data",
     cleared: "Local data cleared.",
     aboutTitle: "About the app",
@@ -724,7 +724,7 @@ export const en: Dictionary = {
     backup: {
       title: "Backup and transfer",
       intro:
-        "Save your signatures, templates, documents, drafts, scans in progress and settings in a single file, so you do not lose them if the browser clears data or to move them to another device. Nothing leaves this device.",
+        "Save your signatures, templates, documents, drafts, scans in progress, client profiles and settings in a single file, so you do not lose them if the browser clears data or to move them to another device. Nothing leaves this device.",
       why: "Safari can delete a website's data after 7 days without use. A backup of your own is the only copy that does not depend on the browser.",
       homeScreenTip:
         "On iPad and iPhone, tap Share and choose \"Add to Home Screen\": the installed app is better protected against that deletion.",
@@ -772,6 +772,11 @@ export const en: Dictionary = {
       scanExcludedNote: "Your scans in progress weigh {size} and are not included unless you tick the box.",
       scanSkippedOne: "1 page of a scan was not included because its photo is damaged or not supported.",
       scanSkippedMany: "{n} pages of scans were not included because their photo is damaged or not supported.",
+      profilesLabel: "Client profiles",
+      profilesHint:
+        "The details of each client you saved to fill documents (name, phone, address, policy…). They contain your clients' data.",
+      profilesListLegend: "Profiles to include",
+      profileItemHint: "{values}",
       settingsLabel: "Settings",
       settingsHint: "Theme, language and tool switches.",
       historyLabel: "Include the value history",
@@ -792,6 +797,8 @@ export const en: Dictionary = {
       draftsMany: "{n} drafts",
       scanOne: "1 scan",
       scanMany: "{n} scans",
+      profilesOne: "1 client profile",
+      profilesMany: "{n} client profiles",
       pagesOne: "1 page",
       pagesMany: "{n} pages",
       keysOne: "1 setting",
@@ -887,6 +894,7 @@ export const en: Dictionary = {
         library: "Templates and documents",
         drafts: "Drafts",
         scanSessions: "Scans in progress",
+        clientProfiles: "Client profiles",
         settings: "Settings",
       },
       moduleStates: {
@@ -942,6 +950,10 @@ export const en: Dictionary = {
         tooMany: "The scan has too many pages.",
       },
       scanCopySuffix: "(imported)",
+      profileCardLine: "{values} · Saved on {date}",
+      profileLocalNewer: "Your copy on this device is newer ({date}).",
+      profileLocalOlder: "Your copy on this device is older ({date}).",
+      profileCopySuffix: "(imported)",
       settingsCardTitle: "Package settings",
       settingsLine: "{n} settings: {parts}.",
       settingsIgnored: "{n} unknown values in the package are ignored.",
@@ -989,6 +1001,8 @@ export const en: Dictionary = {
       limitScanExceeded:
         "Not all the chosen scans fit: they need {size} and this browser has {free} left. Skip some.",
       limitScanTooBig: "A chosen scan is too large to save. Skip it.",
+      limitProfiles: "They fit on this device.",
+      limitProfilesExceeded: "Not all the chosen profiles fit: the maximum is {max} and you would have {total}. Skip some.",
       limitBlocked: "One part does not fit ({names}). Skip items in that part to be able to import.",
       importConfirmOne: "Import 1 item",
       importConfirmMany: "Import {n} items",
@@ -1015,6 +1029,7 @@ export const en: Dictionary = {
         tooBig: "it is too large",
         unavailable: "this browser does not allow saving it",
       },
+      resultProfiles: "Client profiles: {n} imported.",
       resultSettings: "Settings: {n} applied.",
       resultSettingsHistory: "Settings: {n} applied and the value history.",
       resultNothing: "{module}: nothing to import (you already had it).",

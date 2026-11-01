@@ -1,4 +1,5 @@
 import { MAX_DOCUMENT_BYTES } from "@/app/sign-pdf/signLimits";
+import { CURRENT_CLIENT_PROFILES_SCHEMA } from "@/lib/backup/migrations/clientProfiles";
 import { CURRENT_DRAFTS_SCHEMA } from "@/lib/backup/migrations/drafts";
 import { CURRENT_SCAN_SESSIONS_SCHEMA } from "@/lib/backup/migrations/scanSessions";
 import { CURRENT_SETTINGS_SCHEMA } from "@/lib/backup/migrations/settings";
@@ -28,6 +29,12 @@ export const MAX_SCAN_SESSIONS_JSON_BYTES = 24 * 1024 * 1024;
 /** Una foto original (una camara de 100 Mpx guarda JPEG de ~30-50 MB): por encima de esto no es una pagina de escaneo. */
 export const MAX_SCAN_ORIGINAL_BYTES = 64 * 1024 * 1024;
 
+/**
+ * Perfiles de cliente del autorrelleno (`client-profiles/profiles.json`): <= 20 perfiles x <= 40 valores de <= 500 caracteres
+ * (~100 KB en el peor caso real); 1 MiB deja margen para el escapado y un paquete hostil no hace trabajo de mas.
+ */
+export const MAX_CLIENT_PROFILES_JSON_BYTES = 1024 * 1024;
+
 export const SETTINGS_MODULE = "settings";
 export const DRAFTS_MODULE = "drafts";
 /**
@@ -35,6 +42,8 @@ export const DRAFTS_MODULE = "drafts";
  * que el `scanSessions` de la interfaz y de `globalPackage.ts` viaja como `scan-sessions`.
  */
 export const SCAN_SESSIONS_MODULE = "scan-sessions";
+/** Nombre en el paquete de los perfiles de cliente; en la interfaz y en `globalPackage.ts` es `clientProfiles`. */
+export const CLIENT_PROFILES_MODULE = "client-profiles";
 
 export const SETTINGS_MODULE_SPEC: PackageModuleSpec = {
   name: SETTINGS_MODULE,
@@ -59,4 +68,13 @@ export const SCAN_SESSIONS_MODULE_SPEC: PackageModuleSpec = {
   folders: ["scan-sessions"],
   maxFileBytes: MAX_SCAN_ORIGINAL_BYTES,
   maxJsonBytes: MAX_SCAN_SESSIONS_JSON_BYTES,
+};
+
+export const CLIENT_PROFILES_MODULE_SPEC: PackageModuleSpec = {
+  name: CLIENT_PROFILES_MODULE,
+  schemaVersion: CURRENT_CLIENT_PROFILES_SCHEMA,
+  folders: ["client-profiles"],
+  // Este modulo no lleva archivos que no sean JSON.
+  maxFileBytes: 1024,
+  maxJsonBytes: MAX_CLIENT_PROFILES_JSON_BYTES,
 };

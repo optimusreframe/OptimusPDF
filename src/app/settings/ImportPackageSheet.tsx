@@ -26,7 +26,7 @@ import { MAX_VAULT_ENTRIES } from "@/app/sign-pdf/signVault";
 import { countText, fillText } from "@/app/documents/backupModel";
 import { reloadPage } from "@/app/settings/pageReload";
 import { formatBytes } from "@/app/documents/documentsModel";
-import { DraftItemCard, ScanSessionItemCard, SettingsCards } from "@/app/settings/PackageItemCards";
+import { ClientProfileItemCard, DraftItemCard, ScanSessionItemCard, SettingsCards } from "@/app/settings/PackageItemCards";
 import { countsLine, outcomeLines, packageParts, type OutcomeLine } from "@/app/settings/packageModel";
 
 /**
@@ -167,6 +167,7 @@ function ImportBody({
     try {
       outcome = await applyEverything(plans, decisions, {
         scanCopySuffix: copy.scanCopySuffix,
+        profileCopySuffix: copy.profileCopySuffix,
         onModule: (module) => {
           if (aliveRef.current) setWorking(module);
         },
@@ -400,6 +401,29 @@ function ImportBody({
                   </>
                 ) : null}
 
+                {summary.module === "clientProfiles" && plans.clientProfiles && summary.importable ? (
+                  <>
+                    <ul className="space-y-2">
+                      {plans.clientProfiles.items.map((item) => (
+                        <li key={item.key}>
+                          <ClientProfileItemCard
+                            item={item}
+                            locale={locale}
+                            decision={decisions.clientProfiles[item.key]}
+                            disabled={phase === "importing"}
+                            onDecision={(decision) => setDecisions((current) => current && { ...current, clientProfiles: { ...current.clientProfiles, [item.key]: decision } })}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                    {limits.clientProfiles && (limits.clientProfiles.wanted > 0 || !limits.clientProfiles.ok) ? (
+                      <p className={cn("text-footnote leading-relaxed", limits.clientProfiles.ok ? "text-muted-foreground" : "text-destructive-text")} data-backup-limits="clientProfiles">
+                        {limits.clientProfiles.ok ? copy.limitProfiles : fillText(copy.limitProfilesExceeded, { max: limits.clientProfiles.max, total: limits.clientProfiles.total })}
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
+
                 {summary.module === "settings" && plans.settings && summary.importable ? (
                   <SettingsCards
                     plan={plans.settings}
@@ -459,7 +483,7 @@ function ImportBody({
 }
 
 /** Lo que trae cada módulo importable (sin los inválidos), para «El paquete trae: …». */
-function previewTotals(plans: EverythingPlans): { signatures: number; documents: number; templates: number; drafts: number; scanSessions: number; settings: number } {
+function previewTotals(plans: EverythingPlans): { signatures: number; documents: number; templates: number; drafts: number; scanSessions: number; clientProfiles: number; settings: number } {
   const signatures = plans.signatures?.state === "ok" ? plans.signatures.items.filter((item) => item.status !== "invalid").length : 0;
   let documents = 0;
   let templates = 0;
@@ -472,6 +496,7 @@ function previewTotals(plans: EverythingPlans): { signatures: number; documents:
   }
   const drafts = plans.drafts?.state === "ok" ? plans.drafts.items.filter((item) => item.status !== "invalid").length : 0;
   const scanSessions = plans.scanSessions?.state === "ok" ? plans.scanSessions.items.filter((item) => item.status !== "invalid").length : 0;
+  const clientProfiles = plans.clientProfiles?.state === "ok" ? plans.clientProfiles.items.length : 0;
   const settings = plans.settings?.state === "ok" ? plans.settings.items.filter((item) => item.status !== "invalid").length : 0;
-  return { signatures, documents, templates, drafts, scanSessions, settings };
+  return { signatures, documents, templates, drafts, scanSessions, clientProfiles, settings };
 }

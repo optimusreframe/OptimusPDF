@@ -119,6 +119,7 @@ import {
   PendingFieldsNotice,
   ReuseValuesPrompt,
 } from "@/app/sign-pdf/DocumentSessionParts";
+import { AutofillLauncher } from "@/app/sign-pdf/autofill/AutofillLauncher";
 import {
   useDocumentSession,
   type SeenStore,
@@ -396,6 +397,15 @@ function useTextEditConfig(
 }
 
 const NO_TEXT_EDITS: TextEdit[] = [];
+
+/** Autorrelleno: el origen de dato (`dataKey`) que fijo la plantilla aplicada a cada campo de texto (id -> clave). */
+function dataKeysOfNotice(notice: { record: { textMeta: Record<string, { dataKey?: string }> } | null } | undefined): Record<string, string> | undefined {
+  const meta = notice?.record?.textMeta;
+  if (!meta) return undefined;
+  const out: Record<string, string> = {};
+  for (const [id, entry] of Object.entries(meta)) if (entry.dataKey) out[id] = entry.dataKey;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 /* ------------------------------------------------------------------ *
  * Reutilizacion de valores entre documentos (src/lib/valueHistory.ts)
@@ -2456,6 +2466,7 @@ export function SignToolClient() {
               onDraftWrite={handleDraftWrite}
               onDetectFields={() => templates.detect(docId)}
               detectingFields={templates.notices.some((notice) => notice.docId === docId && notice.phase === "automapping")}
+              fieldDataKeys={dataKeysOfNotice(templates.notices.find((notice) => notice.docId === docId))}
               // Varios documentos: sin pregunta de prefijo (el nombre es automatico).
               onFinish={() =>
                 files.length > 1 ? runRef.current?.() : requestFinish(options.signers)
@@ -2683,6 +2694,8 @@ export type MultiFlowProps = {
   /** «Detectar campos automaticamente» (Fase 2 · U2.4): ausente = el boton no existe (usos sueltos y PDF Pro). */
   onDetectFields?: () => void;
   detectingFields?: boolean;
+  /** Autorrelleno (F3): `dataKey` que la plantilla fijo para cada campo de texto (id -> clave); gana sobre la etiqueta. */
+  fieldDataKeys?: Readonly<Record<string, string>>;
 };
 
 export function MultiFlow({
@@ -2699,6 +2712,7 @@ export function MultiFlow({
   onDraftWrite,
   onDetectFields,
   detectingFields = false,
+  fieldDataKeys,
 }: MultiFlowProps) {
   const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
   const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
@@ -3398,6 +3412,13 @@ export function MultiFlow({
             </div>
           ) : null}
 
+          <AutofillLauncher
+            textFields={options.textFields}
+            textValues={options.textValues}
+            onTextValuesChange={(textValues) => setOptions({ textValues })}
+            fieldDataKeys={fieldDataKeys}
+          />
+
           <DocumentCanvas
             file={file}
             signers={options.signers}
@@ -3833,6 +3854,8 @@ export function SoloFlow({
           strings={strings}
         />
       ) : null}
+
+      <AutofillLauncher textFields={options.textFields} textValues={options.textValues} onTextValuesChange={(textValues) => setOptions({ textValues })} />
 
       <DocumentCanvas
         file={file}

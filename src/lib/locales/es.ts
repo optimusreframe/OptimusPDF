@@ -740,7 +740,7 @@ export const es = {
     languageBody: "Cambia el idioma de toda la interfaz.",
     dataTitle: "Datos locales",
     dataBody:
-      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y campos, y el PDF completo; las firmas ya recogidas solo si dejas activado «Guardar las firmas recogidas en el borrador», y se borran a los 7 días). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña. El editor de PDF también guarda un borrador automático (IndexedDB) con el documento completo y tus ediciones, para retomarlo si cierras la pestaña; tampoco sale del dispositivo y «Borrar datos locales» lo elimina (no se guarda borrador de los PDF protegidos con contraseña). PDF Pro hace lo mismo con su documento de trabajo (el PDF actual y la lista de cambios, en una base propia) y también lo elimina «Borrar datos locales».",
+      "OptimusPDF guarda en tu navegador el idioma elegido, la lista de trabajos recientes y, si usaste «Firmar PDF» con varios firmantes, los valores de campos que escribiste para sugerirlos en otros documentos, además de los borradores que se guardan automáticamente mientras trabajas (con varios documentos, la sesión completa: documentos, firmantes y campos, y el PDF completo; las firmas ya recogidas solo si dejas activado «Guardar las firmas recogidas en el borrador», y se borran a los 7 días). Si exportas la configuración de una ronda, el .zip contiene tus documentos. «Borrar datos locales» elimina todo esto. Si usas «Rellenar con datos del cliente» en «Firmar PDF» y guardas un perfil, sus datos (nombre, teléfono, dirección, póliza…) se guardan en este navegador (hasta 20 perfiles) hasta que los borres; «Borrar datos locales» también los elimina. Si marcas «Recordar en este dispositivo» al crear una firma o unas iniciales, también se guardan en tu navegador (IndexedDB) junto con el nombre que escribas, para reutilizarlas en otros documentos; nunca se suben a ningún servidor. Si exportas una firma, el archivo contiene la firma en claro salvo que le pongas contraseña. El editor de PDF también guarda un borrador automático (IndexedDB) con el documento completo y tus ediciones, para retomarlo si cierras la pestaña; tampoco sale del dispositivo y «Borrar datos locales» lo elimina (no se guarda borrador de los PDF protegidos con contraseña). PDF Pro hace lo mismo con su documento de trabajo (el PDF actual y la lista de cambios, en una base propia) y también lo elimina «Borrar datos locales».",
     clearData: "Borrar datos locales",
     cleared: "Datos locales borrados.",
     aboutTitle: "Sobre la aplicación",
@@ -748,7 +748,7 @@ export const es = {
     backup: {
       title: "Respaldo y traslado",
       intro:
-        "Guarda tus firmas, plantillas, documentos, borradores, escaneos en curso y ajustes en un solo archivo, para no perderlos si el navegador borra datos o para llevarlos a otro dispositivo. Nada sale de este dispositivo.",
+        "Guarda tus firmas, plantillas, documentos, borradores, escaneos en curso, perfiles de cliente y ajustes en un solo archivo, para no perderlos si el navegador borra datos o para llevarlos a otro dispositivo. Nada sale de este dispositivo.",
       why: "Safari puede borrar los datos de un sitio web después de 7 días sin usarlo. Un respaldo propio es la única copia que no depende del navegador.",
       homeScreenTip:
         "En iPad y iPhone, toca Compartir y elige «Añadir a la pantalla de inicio»: la app instalada está más protegida contra ese borrado.",
@@ -796,6 +796,11 @@ export const es = {
       scanExcludedNote: "Tus escaneos en curso pesan {size} y no se incluyen salvo que marques la casilla.",
       scanSkippedOne: "1 página de un escaneo no se incluyó porque su foto está dañada o no es compatible.",
       scanSkippedMany: "{n} páginas de escaneos no se incluyeron porque su foto está dañada o no es compatible.",
+      profilesLabel: "Perfiles de cliente",
+      profilesHint:
+        "Los datos de cada cliente que guardaste para rellenar documentos (nombre, teléfono, dirección, póliza…). Contienen datos de tus clientes.",
+      profilesListLegend: "Perfiles que se incluirán",
+      profileItemHint: "{values}",
       settingsLabel: "Ajustes",
       settingsHint: "Tema, idioma e interruptores de las herramientas.",
       historyLabel: "Incluir el historial de valores",
@@ -816,6 +821,8 @@ export const es = {
       draftsMany: "{n} borradores",
       scanOne: "1 escaneo",
       scanMany: "{n} escaneos",
+      profilesOne: "1 perfil de cliente",
+      profilesMany: "{n} perfiles de cliente",
       pagesOne: "1 página",
       pagesMany: "{n} páginas",
       keysOne: "1 ajuste",
@@ -911,6 +918,7 @@ export const es = {
         library: "Plantillas y documentos",
         drafts: "Borradores",
         scanSessions: "Escaneos en curso",
+        clientProfiles: "Perfiles de cliente",
         settings: "Ajustes",
       },
       moduleStates: {
@@ -966,6 +974,10 @@ export const es = {
         tooMany: "El escaneo trae demasiadas páginas.",
       },
       scanCopySuffix: "(importado)",
+      profileCardLine: "{values} · Guardado el {date}",
+      profileLocalNewer: "Tu copia de este dispositivo es más reciente ({date}).",
+      profileLocalOlder: "Tu copia de este dispositivo es más antigua ({date}).",
+      profileCopySuffix: "(importado)",
       settingsCardTitle: "Ajustes del paquete",
       settingsLine: "{n} ajustes: {parts}.",
       settingsIgnored: "{n} valores desconocidos del paquete se ignoran.",
@@ -1013,6 +1025,8 @@ export const es = {
       limitScanExceeded:
         "No caben todos los escaneos elegidos: necesitan {size} y en este navegador quedan {free}. Omite alguno.",
       limitScanTooBig: "Un escaneo elegido es demasiado grande para guardarlo. Omítelo.",
+      limitProfiles: "Caben en este dispositivo.",
+      limitProfilesExceeded: "No caben todos los perfiles elegidos: el máximo es de {max} y quedarían {total}. Omite alguno.",
       limitBlocked: "Hay una parte que no cabe ({names}). Omite elementos de esa parte para poder importar.",
       importConfirmOne: "Importar 1 elemento",
       importConfirmMany: "Importar {n} elementos",
@@ -1039,6 +1053,7 @@ export const es = {
         tooBig: "es demasiado grande",
         unavailable: "este navegador no permite guardarlo",
       },
+      resultProfiles: "Perfiles de cliente: {n} importados.",
       resultSettings: "Ajustes: {n} aplicados.",
       resultSettingsHistory: "Ajustes: {n} aplicados y el historial de valores.",
       resultNothing: "{module}: nada que importar (ya lo tenías).",

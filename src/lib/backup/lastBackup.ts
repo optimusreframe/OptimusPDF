@@ -12,7 +12,7 @@
  * lo completo, igual que no cuentan para el recordatorio.
  */
 export const LAST_BACKUP_KEY = "optimuspdf.lastBackup";
-/** Última vez que viajó cada parte del paquete (JSON `{ signatures?, library?, drafts?, scanSessions?, settings? }` con fechas ISO). */
+/** Última vez que viajó cada parte del paquete (JSON `{ signatures?, library?, drafts?, scanSessions?, clientProfiles?, settings? }` con fechas ISO). */
 export const LAST_BACKUP_PARTS_KEY = "optimuspdf.lastBackupParts";
 
 /**
@@ -25,11 +25,12 @@ export const BACKUP_REMINDER_KEY = "optimuspdf.backupReminder";
 export const BACKUP_STATE_EVENT = "optimuspdf:backup-state";
 
 /** Las partes del paquete (el mismo orden que `PACKAGE_MODULES` de `globalPackage.ts`, que no se importa aquí). */
-export const BACKUP_PARTS = ["signatures", "library", "drafts", "scanSessions", "settings"] as const;
+export const BACKUP_PARTS = ["signatures", "library", "drafts", "scanSessions", "clientProfiles", "settings"] as const;
 export type BackupPart = (typeof BACKUP_PARTS)[number];
 /**
  * Partes cuyos cambios cuenta el recordatorio (los ajustes solos no cuentan y los borradores se guardan solos). Los escaneos
- * en curso tampoco: duran 14 días y pesan cientos de MB, así que su respaldo es opcional y no condiciona lo «completo».
+ * en curso tampoco: duran 14 días y pesan cientos de MB, así que su respaldo es opcional y no condiciona lo «completo». Ni los
+ * perfiles de cliente: se rehacen leyendo un documento y su respaldo (PII) es opcional.
  */
 export const REMINDER_PARTS = ["signatures", "library", "drafts"] as const satisfies readonly BackupPart[];
 

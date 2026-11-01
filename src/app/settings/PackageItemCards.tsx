@@ -4,6 +4,7 @@ import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import type { DraftDecision, DraftImportItem } from "@/lib/backup/modules/drafts";
 import type { ScanSessionDecision, ScanSessionImportItem } from "@/lib/backup/modules/scanSessions";
+import type { ClientProfileDecision, ClientProfileImportItem } from "@/lib/backup/modules/clientProfiles";
 import { settingsRows, type SettingsDecisions, type SettingsImportPlan, type SettingsRow } from "@/lib/backup/modules/settings";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { countText, fillText } from "@/app/documents/backupModel";
@@ -181,6 +182,71 @@ export function ScanSessionItemCard({
       {item.status === "different" && item.conflictWith ? (
         <p className="text-footnote text-muted-foreground" data-backup-hint="">
           {fillText(item.conflictWith.newer ? copy.draftLocalNewer : copy.draftLocalOlder, { date: formatDate(item.conflictWith.updatedAt || item.conflictWith.savedAt, locale) })}
+        </p>
+      ) : null}
+      {options.length > 0 ? (
+        <div role="radiogroup" aria-label={fillText(copy.decisionGroup, { name: label })} className="flex flex-wrap gap-1.5">
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={decision === option}
+              disabled={disabled}
+              data-decision={option}
+              onClick={() => onDecision(option)}
+              className={optionClass(decision === option)}
+            >
+              {labels[option]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Un perfil de cliente del paquete: nombre, cuántos valores trae, fecha, su estado (Nuevo / Ya lo tienes / Distinto) y la
+ * decisión (Importar / Reemplazar / Conservar ambos / Omitir). Los VALORES no se muestran aquí (son datos de un cliente):
+ * solo cuántos son. Si la copia de este dispositivo es más reciente lo dice (y por defecto no se pisa).
+ */
+export function ClientProfileItemCard({
+  item,
+  locale,
+  decision,
+  disabled,
+  onDecision,
+}: {
+  item: ClientProfileImportItem;
+  locale: string;
+  decision: ClientProfileDecision | undefined;
+  disabled: boolean;
+  onDecision: (decision: ClientProfileDecision) => void;
+}) {
+  const { t } = useI18n();
+  const copy = t.settings.backup;
+  const options = draftDecisionOptions(item);
+  const label = item.name || "—";
+  const labels: Record<ClientProfileDecision, string> = {
+    import: copy.decisionImport,
+    replace: copy.decisionReplace,
+    keepBoth: copy.decisionKeepBoth,
+    omit: copy.decisionOmit,
+  };
+  const status = item.status === "new" ? copy.statusNew : item.status === "identical" ? copy.statusIdentical : copy.statusDifferent;
+  return (
+    <div className="surface-card rounded-ios-sm space-y-2 p-3" data-backup-item={item.key} data-status={item.status}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p className="min-w-0 text-callout font-semibold text-foreground [overflow-wrap:anywhere]">{label}</p>
+        <span className={statusChipClass(item.status)}>{status}</span>
+      </div>
+      <p className="text-caption text-muted-foreground">
+        {fillText(copy.profileCardLine, { values: countText(item.valueCount, copy.valuesOne, copy.valuesMany), date: formatDate(item.updatedAt, locale) })}
+      </p>
+      {item.status === "different" && item.conflictWith ? (
+        <p className="text-footnote text-muted-foreground" data-backup-hint="">
+          {fillText(item.conflictWith.newer ? copy.profileLocalNewer : copy.profileLocalOlder, { date: formatDate(item.conflictWith.updatedAt, locale) })}
         </p>
       ) : null}
       {options.length > 0 ? (
