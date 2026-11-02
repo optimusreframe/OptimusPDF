@@ -238,13 +238,17 @@ describe("resolvePageGeometry", () => {
     }
   });
 
-  it("las opciones por defecto son A4 vertical con margen pequeno", () => {
+  it("las opciones por defecto son Carta vertical con margen pequeno (0,5 in)", () => {
     const defaults: HtmlToPdfOptions = DEFAULT_HTML_TO_PDF_OPTIONS;
     expect(defaults).toEqual({
-      pageSize: "a4",
+      pageSize: "letter",
       orientation: "portrait",
       margin: "small",
     });
+    const geometry = resolvePageGeometry(defaults);
+    expect([geometry.pageWidth, geometry.pageHeight]).toEqual([612, 792]);
+    expect(geometry.margin).toBe(36); // 0,5 in
+    expect(Math.round(geometry.pageWidth * PX_PER_PT)).toBe(816); // ancho de maquetacion = la hoja (8,5 in a 96 ppp)
   });
 
   it("PX_PER_PT convierte puntos a pixeles CSS a 96 dpi", () => {

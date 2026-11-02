@@ -4,7 +4,7 @@ import { HtmlToPdfToolClient } from "@/app/html-to-pdf/HtmlToPdfToolClient";
 export const metadata: Metadata = {
   title: "HTML a PDF",
   description:
-    "Convierte un archivo HTML en PDF capturando cómo se ve en el navegador. Todo ocurre en tu dispositivo y el HTML nunca llega a ejecutarse.",
+    "Convierte una página web (escribe su dirección) o un archivo HTML en un PDF tamaño carta. El PDF se crea en tu dispositivo; solo para leer una dirección la consulta nuestro servidor, que no guarda nada. El HTML nunca llega a ejecutarse.",
   alternates: { canonical: "/html-to-pdf" },
 };
 

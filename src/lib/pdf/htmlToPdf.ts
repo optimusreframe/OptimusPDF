@@ -4,6 +4,19 @@ import {
   toPdfError,
   type ProgressCallback,
 } from "@/lib/pdf/core";
+import {
+  collectBreakConstraints,
+  neutralizeFloatingElements,
+  prepareDocumentForPdf,
+} from "@/lib/pdf/htmlToPdfLayout";
+import {
+  findCleanRow,
+  groupPagesIntoBatches,
+  planPages,
+  SNAP_OVERSCAN_PX,
+  SNAP_SLACK_PX,
+  SNAP_WINDOW_PX,
+} from "@/lib/pdf/htmlToPdfPagination";
 
 /**
  * Motor "HTML -> PDF".
@@ -37,8 +50,19 @@ import {
  *                         cuenta los nodos `SCRIPT` al clonar.
  *   5. `jsPDF`          - se trocea el canvas en paginas y se ensambla.
  *
- * Todo ocurre en el navegador: ningun byte sale del dispositivo y no hay
- * proxy de recursos externos (sin servidor, no hay nada que proxyar).
+ * El HTML llega de un archivo que sube la persona o, con «Direccion web», de
+ * `POST /api/html-snapshot` (el unico paso que usa el servidor: el navegador no
+ * puede leer otras webs por CORS). Esa ruta devuelve una pagina autocontenida y
+ * ya saneada, pero aqui se vuelve a tratar como NO CONFIABLE: pasa por exactamente
+ * la misma cadena de arriba. Renderizar y crear el PDF ocurre siempre en el
+ * navegador; el motor no pide ningun recurso externo (la CSP del marco solo
+ * admite `data:`).
+ *
+ * Distribucion en la hoja (ver `htmlToPdfLayout.ts` y `htmlToPdfPagination.ts`):
+ * se maqueta con el ancho de la hoja (816 px en Carta), se aplica el `@media
+ * print` de la pagina, las barras fijas pasan al flujo y los avisos flotantes se
+ * quitan, y las paginas se cortan en los huecos entre lineas, imagenes y filas
+ * de tabla en lugar de cada `H` pixeles.
  */
 
 /* ------------------------------------------------------------------ *
@@ -55,8 +79,9 @@ export type HtmlToPdfOptions = {
   margin: HtmlMargin;
 };
 
+/** Carta, vertical, margen de 0,5 in (36 pt). A4 sigue disponible en las opciones. */
 export const DEFAULT_HTML_TO_PDF_OPTIONS: HtmlToPdfOptions = {
-  pageSize: "a4",
+  pageSize: "letter",
   orientation: "portrait",
   margin: "small",
 };
@@ -120,6 +145,19 @@ export function resolvePageGeometry(
  */
 export const MAX_CANVAS_DIMENSION = 8192;
 
+/**
+ * Tope de pixeles por lienzo (lado x lado). iOS limita el AREA de un lienzo (~16,7 millones) ademas del lado, y falla con
+ * un lienzo en blanco; en iOS/iPadOS se baja a 8 millones para dejar margen de memoria.
+ */
+export const MAX_CANVAS_PIXELS = 12_000_000;
+export const MAX_CANVAS_PIXELS_IOS = 8_000_000;
+
+/** Escala de rasterizado por defecto: 2 da texto nitido en una hoja carta (1632 px de ancho). */
+export const DEFAULT_CAPTURE_SCALE = 2;
+
+/** Ancho maximo con el que se maqueta una pagina mas ancha que la hoja (se reduce para que quepa). */
+export const MAX_LAYOUT_WIDTH_PX = 1800;
+
 export const CAPTURE_SCALE_MIN = 0.75;
 export const CAPTURE_SCALE_MAX = 2;
 
@@ -144,6 +182,11 @@ export function resolveCaptureScale(cssWidth: number, desired: number): number {
   return Math.max(0.25, Math.min(capped, MAX_CANVAS_DIMENSION / width));
 }
 
+/*
+ * `planCaptureChunks` y `planPageSlices` son el troceado ORIGINAL (cada `H` px, a ciegas). El motor ya no los usa: reparte con
+ * `planPages` / `groupPagesIntoBatches` (`htmlToPdfPagination.ts`), que corta entre lineas. Se conservan exportados y probados
+ * como API publica del modulo.
+ */
 export type CaptureChunk = {
   /** Desplazamiento vertical dentro del documento, en px CSS. */
   y: number;
@@ -457,14 +500,17 @@ export function sanitizeDocument(document: Document): void {
 
 /**
  * Parsea con `DOMParser` (documento inerte: no ejecuta scripts ni pide
- * recursos), limpia y vuelve a serializar.
+ * recursos), limpia y vuelve a serializar. Con `prepare` aplica ademas la
+ * preparacion para el PDF (`@media print`, unidades `vh`, hoja base): sigue
+ * siendo un paso sobre el documento inerte, antes de montarlo.
  */
-export function sanitizeHtml(html: string): string {
+export function sanitizeHtml(html: string, prepare?: { viewportHeightPx: number }): string {
   if (typeof DOMParser === "undefined") {
     throw new PdfError("unknown", "DOMParser unavailable");
   }
   const parsed = new DOMParser().parseFromString(html, "text/html");
   sanitizeDocument(parsed);
+  if (prepare) prepareDocumentForPdf(parsed, prepare);
   return `<!DOCTYPE html>${parsed.documentElement.outerHTML}`;
 }
 
@@ -475,6 +521,8 @@ export function sanitizeHtml(html: string): string {
 type MountedFrame = {
   frame: HTMLIFrameElement;
   document: Document;
+  /** Ancho con el que se maqueto (la hoja; mas si la pagina es mas ancha), en px CSS. */
+  width: number;
   /** Alto real del documento maquetado, en px CSS. */
   height: number;
 };
@@ -618,6 +666,12 @@ function measureHeight(document: Document): number {
  * segura: el navegador desactiva el scripting del documento, de modo que
  * `allow-same-origin` no concede nada al contenido subido y si permite
  * que html2canvas (que corre en la app) lea el DOM para rasterizarlo.
+ *
+ * Maquetacion: el ancho es el de la HOJA (`widthPx`); si el contenido es mas
+ * ancho (una tabla de 1400 px, un `min-width`), se vuelve a maquetar con ese
+ * ancho (hasta `MAX_LAYOUT_WIDTH_PX`) y la pagina se REDUCE al imprimir, en vez
+ * de recortarse. Las barras fijas pasan al flujo y los avisos flotantes se
+ * quitan antes de medir (`neutralizeFloatingElements`).
  */
 async function mountSandboxedFrame(
   html: string,
@@ -662,11 +716,21 @@ async function mountSandboxedFrame(
     // `installPolledOnload`).
     makeNestedFramesLoadObservable(inner);
 
-    // El alto se ajusta al contenido en dos pasadas: la primera revela el
-    // alto real y la segunda deja que las unidades `vh` se reevaluen con
-    // el nuevo viewport (converge, porque `min-height:100vh` iguala al
-    // propio alto ya aplicado).
     await waitForImages(inner);
+    neutralizeFloatingElements(inner, { width: widthPx, height: viewportHeightPx });
+
+    // Ancho: si el contenido no cabe en la hoja se maqueta mas ancho (y se reducira al imprimir). Dos pasadas porque al
+    // ensanchar, el contenido fluido puede volver a reordenarse.
+    let width = Math.round(widthPx);
+    for (let pass = 0; pass < 2; pass += 1) {
+      const overflow = Math.ceil(measureWidth(inner));
+      if (overflow <= width + 2 || width >= MAX_LAYOUT_WIDTH_PX) break;
+      width = Math.min(MAX_LAYOUT_WIDTH_PX, overflow);
+      frame.style.width = `${width}px`;
+    }
+
+    // El alto se ajusta al contenido en dos pasadas: la primera revela el alto real y la segunda deja que lo anclado al
+    // viewport se reevalue (las unidades `vh` ya son px fijos desde `prepareDocumentForPdf`).
     for (let pass = 0; pass < 2; pass += 1) {
       const height = measureHeight(inner);
       if (height > MAX_DOCUMENT_HEIGHT_PX) throw new PdfError("tooLarge");
@@ -675,11 +739,17 @@ async function mountSandboxedFrame(
     }
 
     const height = Math.min(MAX_DOCUMENT_HEIGHT_PX, measureHeight(inner));
-    return { frame, document: inner, height };
+    return { frame, document: inner, width, height };
   } catch (error) {
     frame.remove();
     throw error;
   }
+}
+
+function measureWidth(document: Document): number {
+  const root = document.documentElement;
+  const body = document.body;
+  return Math.max(1, root?.scrollWidth ?? 0, body?.scrollWidth ?? 0);
 }
 
 /* ------------------------------------------------------------------ *
@@ -689,10 +759,59 @@ async function mountSandboxedFrame(
 /** Calidad JPEG de cada banda. Compromiso entre nitidez y peso. */
 const SLICE_JPEG_QUALITY = 0.92;
 
-function sliceToDataUrl(
+/** Un pixel cuenta como «tinta» si algun canal baja de este valor (el blanco con ruido JPEG no cuenta). */
+const BLANK_THRESHOLD = 250;
+
+/** `true` si el lienzo es todo blanco (una pagina sin nada que ver: no se emite). */
+export function isBlankCanvas(canvas: HTMLCanvasElement): boolean {
+  const context = canvas.getContext("2d");
+  if (!context || canvas.width === 0 || canvas.height === 0) return false;
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index] < BLANK_THRESHOLD || data[index + 1] < BLANK_THRESHOLD || data[index + 2] < BLANK_THRESHOLD) return false;
+  }
+  return true;
+}
+
+/** iOS y iPadOS (que se presenta como Mac con pantalla tactil): lienzos mas pequenos por su limite de memoria. */
+export function isIosLike(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+/**
+ * Ajusta un corte (px del documento) a la banda en blanco mas cercana mirando los pixeles del lienzo capturado. El corte
+ * nunca sube por debajo de `minY` + 1/4 de pagina ni pasa de `maxY`; sin banda lisa cerca (cruza una imagen o un degradado)
+ * se devuelve el corte planificado.
+ */
+function snapCut(canvas: HTMLCanvasElement, canvasY: number, scale: number, planned: number, maxY: number, minY: number): number {
+  const context = canvas.getContext("2d");
+  if (!context) return planned;
+  const target = Math.round((planned - canvasY) * scale);
+  const shift = Math.ceil(SNAP_WINDOW_PX * scale);
+  const first = Math.max(0, target - shift - 2);
+  const last = Math.min(canvas.height - 1, target + shift + 2);
+  if (last <= first) return planned;
+  let data: Uint8ClampedArray;
+  try {
+    data = context.getImageData(0, first, canvas.width, last - first + 1).data;
+  } catch {
+    return planned;
+  }
+  const minRow = Math.round((minY + (maxY - minY) * 0.25 - canvasY) * scale) - first;
+  const maxRow = Math.round((maxY - canvasY) * scale) - first;
+  const row = findCleanRow(data, canvas.width, last - first + 1, target - first, shift, minRow, maxRow);
+  return row === null ? planned : canvasY + (row + first) / scale;
+}
+
+/**
+ * Recorta la banda `slice` del lienzo. Devuelve el JPEG y si la banda esta en blanco. El lienzo de destino se libera
+ * siempre.
+ */
+function sliceToJpeg(
   source: HTMLCanvasElement,
   slice: PageSlice,
-): string {
+): { dataUrl: string; blank: boolean } {
   const target = document.createElement("canvas");
   target.width = source.width;
   target.height = slice.height;
@@ -717,12 +836,30 @@ function sliceToDataUrl(
   );
 
   try {
-    return target.toDataURL("image/jpeg", SLICE_JPEG_QUALITY);
+    return { dataUrl: target.toDataURL("image/jpeg", SLICE_JPEG_QUALITY), blank: isBlankCanvas(target) };
   } finally {
     target.width = 0;
     target.height = 0;
   }
 }
+
+/** Datos de la distribucion de una conversion; solo para diagnostico y pruebas. */
+export type HtmlLayoutReport = {
+  /** Paginas del PDF. */
+  pages: number;
+  /** Paginas en blanco que se descartaron. */
+  blankPagesSkipped: number;
+  /** Cortes a ciegas (ninguna posicion valida entre lineas); 0 en documentos normales. */
+  forcedBreaks: number;
+  /** Cortes que el ajuste fino sobre los pixeles movio a una banda realmente en blanco. */
+  snappedCuts: number;
+  /** Ancho con el que se maqueto la pagina, en px CSS (816 = Carta; mas si la pagina era mas ancha). */
+  layoutWidthPx: number;
+  /** Alto del documento maquetado, en px CSS. */
+  documentHeightPx: number;
+  /** Escala de rasterizado usada. */
+  scale: number;
+};
 
 /**
  * Convierte un archivo HTML en PDF rasterizando su render.
@@ -730,12 +867,15 @@ function sliceToDataUrl(
  * El resultado es una instantanea visual: no conserva texto seleccionable
  * ni la estructura del documento, y el CSS complejo, las tipografias
  * externas y todo lo que dependa de JavaScript pueden no reproducirse.
+ *
+ * `onLayout` recibe, al terminar, los datos de la distribucion (paginas, cortes, escala) para diagnostico.
  */
 export async function htmlToPdf(
   file: File,
   options: HtmlToPdfOptions = DEFAULT_HTML_TO_PDF_OPTIONS,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
+  onLayout?: (report: HtmlLayoutReport) => void,
 ): Promise<Blob> {
   if (!file) throw new PdfError("empty");
   if (!isHtmlFile(file)) throw new PdfError("invalidType");
@@ -750,30 +890,40 @@ export async function htmlToPdf(
     const source = decodeHtml(bytes);
     onProgress?.(0.02);
 
-    const safeHtml = sanitizeHtml(source);
+    const geometry = resolvePageGeometry(options);
+    // Se maqueta con el ancho de la HOJA (816 px en Carta, 794 en A4) y el contenido se escala despues al area util:
+    // el diseno no depende del margen elegido y cabe en el ancho en vez de salir diminuto. Un viewport de la altura de
+    // UNA pagina es la referencia de `vh`.
+    const paperWidthPx = Math.max(1, Math.round(geometry.pageWidth * PX_PER_PT));
+    const viewportHeightPx = Math.max(1, Math.round((geometry.contentHeight / geometry.contentWidth) * paperWidthPx));
+
+    const safeHtml = sanitizeHtml(source, { viewportHeightPx });
     onProgress?.(0.08);
     throwIfAborted(signal);
 
-    const geometry = resolvePageGeometry(options);
-    // El iframe se maqueta con el ancho exacto del area util de la pagina
-    // convertido a px CSS: asi los anchos relativos y las `media queries`
-    // ven un viewport coherente con el PDF final.
-    const widthPx = Math.max(1, Math.round(geometry.contentWidth * PX_PER_PT));
-    const sliceHeightPx = Math.max(1, geometry.contentHeight * PX_PER_PT);
-
-    mounted = await mountSandboxedFrame(safeHtml, widthPx, sliceHeightPx);
+    mounted = await mountSandboxedFrame(safeHtml, paperWidthPx, viewportHeightPx);
     onProgress?.(0.15);
     throwIfAborted(signal);
 
-    const scale = resolveCaptureScale(
-      widthPx,
-      typeof window === "undefined" ? 2 : (window.devicePixelRatio ?? 1) + 0.5,
+    // Si la pagina era mas ancha que la hoja, el contenido se reduce para caber: mas px de maquetacion por pagina.
+    const layoutWidthPx = mounted.width;
+    const ptPerLayoutPx = geometry.contentWidth / layoutWidthPx;
+    const pageHeightPx = geometry.contentHeight / ptPerLayoutPx;
+
+    const constraints = collectBreakConstraints(mounted.document, { pageHeightPx });
+    // Se planifica con un poco menos de pagina: el ajuste fino sobre los pixeles (`snapCut`) puede mover cada corte hasta
+    // `SNAP_WINDOW_PX` y esa holgura evita que una pagina se pase de la hoja.
+    const plan = planPages(mounted.height, Math.max(1, pageHeightPx - SNAP_SLACK_PX), constraints);
+    throwIfAborted(signal);
+
+    const ios = isIosLike();
+    const scale = resolveCaptureScale(layoutWidthPx, DEFAULT_CAPTURE_SCALE);
+    const maxCanvasHeight = Math.min(
+      MAX_CANVAS_DIMENSION,
+      Math.floor((ios ? MAX_CANVAS_PIXELS_IOS : MAX_CANVAS_PIXELS) / (layoutWidthPx * scale)),
     );
-    const chunks = planCaptureChunks(
-      mounted.height,
-      sliceHeightPx,
-      MAX_CANVAS_DIMENSION / scale,
-    );
+    // Cada lote es un tramo contiguo de paginas planificadas que cabe en un lienzo.
+    const batches = groupPagesIntoBatches(plan.pages, Math.max(pageHeightPx, maxCanvasHeight / scale - 2 * SNAP_OVERSCAN_PX));
 
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
       import("html2canvas"),
@@ -788,10 +938,21 @@ export async function htmlToPdf(
     });
 
     let pageCount = 0;
+    let blankSkipped = 0;
+    /** Primera pagina en blanco: solo se usa si TODO el documento esta en blanco (un PDF necesita una pagina). */
+    let firstBlank: { dataUrl: string; height: number } | null = null;
+    const bottomLimit = geometry.pageHeight - geometry.margin;
+    const lastPage = plan.pages[plan.pages.length - 1];
+    /** Donde empieza la pagina que se esta cortando (px del documento); el corte anterior ya esta ajustado. */
+    let startY = 0;
+    let snapped = 0;
 
-    for (let index = 0; index < chunks.length; index += 1) {
+    for (let index = 0; index < batches.length; index += 1) {
       throwIfAborted(signal);
-      const chunk = chunks[index];
+      const batch = batches[index];
+      // Se captura un poco mas arriba y abajo de lo planificado, para poder ajustar los cortes de los bordes del lote.
+      const captureY = Math.max(0, batch.y - SNAP_OVERSCAN_PX);
+      const captureEnd = Math.min(mounted.height, batch.y + batch.height + SNAP_OVERSCAN_PX);
 
       const canvas = await html2canvas(mounted.document.documentElement, {
         backgroundColor: "#ffffff",
@@ -806,24 +967,45 @@ export async function htmlToPdf(
         imageTimeout: IMAGE_TIMEOUT_MS,
         removeContainer: true,
         x: 0,
-        y: chunk.y,
-        width: widthPx,
-        height: chunk.height,
-        windowWidth: widthPx,
+        y: captureY,
+        width: layoutWidthPx,
+        height: captureEnd - captureY,
+        windowWidth: layoutWidthPx,
         windowHeight: mounted.height,
         scrollX: 0,
         scrollY: 0,
       });
 
-      // Un ultimo resto de 1 px CSS (`scale` px de canvas) es el redondeo del alto medido, no contenido.
-      const slices = planPageSlices(canvas.height, sliceHeightPx * scale, scale);
-      // Puntos PDF por pixel de canvas: el ancho encaja exacto en el area
-      // util, asi que la misma relacion vale para el alto.
-      const ptPerPx = geometry.contentWidth / Math.max(1, canvas.width);
+      // Puntos PDF por pixel de canvas: el ancho encaja exacto en el area util, asi que la misma relacion vale para el
+      // alto.
+      const ptPerCanvasPx = geometry.contentWidth / Math.max(1, canvas.width);
+      const rowOf = (documentY: number) => Math.min(canvas.height, Math.max(0, Math.round((documentY - captureY) * scale)));
 
-      for (const slice of slices) {
+      for (const page of batch.pages) {
         throwIfAborted(signal);
-        const dataUrl = sliceToDataUrl(canvas, slice);
+        const planned = page.y + page.height;
+        let endY = page === lastPage ? mounted.height : planned;
+        if (page !== lastPage) {
+          const adjusted = snapCut(canvas, captureY, scale, planned, startY + pageHeightPx, startY);
+          if (adjusted !== planned) snapped += 1;
+          endY = adjusted;
+        }
+
+        // Los limites se redondean a partir de la posicion absoluta: el error no se acumula y no quedan filas repetidas
+        // ni perdidas entre paginas contiguas.
+        const top = rowOf(startY);
+        const bottom = rowOf(endY);
+        startY = endY;
+        if (bottom - top < 1) continue;
+
+        const { dataUrl, blank } = sliceToJpeg(canvas, { y: top, height: bottom - top });
+        const heightPt = Math.min((bottom - top) * ptPerCanvasPx, bottomLimit - geometry.margin);
+
+        if (blank) {
+          blankSkipped += 1;
+          firstBlank ??= { dataUrl, height: heightPt };
+          continue;
+        }
         if (pageCount > 0) {
           pdf.addPage([geometry.pageWidth, geometry.pageHeight]);
         }
@@ -833,7 +1015,7 @@ export async function htmlToPdf(
           geometry.margin,
           geometry.margin,
           geometry.contentWidth,
-          Math.min(geometry.contentHeight, slice.height * ptPerPx),
+          heightPt,
           undefined,
           "FAST",
         );
@@ -842,12 +1024,26 @@ export async function htmlToPdf(
 
       canvas.width = 0;
       canvas.height = 0;
-      onProgress?.(0.15 + ((index + 1) / chunks.length) * 0.8);
+      onProgress?.(0.15 + ((index + 1) / batches.length) * 0.8);
     }
 
+    if (pageCount === 0 && firstBlank) {
+      pdf.addImage(firstBlank.dataUrl, "JPEG", geometry.margin, geometry.margin, geometry.contentWidth, firstBlank.height, undefined, "FAST");
+      pageCount = 1;
+      blankSkipped -= 1;
+    }
     if (pageCount === 0) throw new PdfError("empty");
 
     const blob = pdf.output("blob");
+    onLayout?.({
+      pages: pageCount,
+      blankPagesSkipped: blankSkipped,
+      forcedBreaks: plan.forcedBreaks,
+      snappedCuts: snapped,
+      layoutWidthPx,
+      documentHeightPx: mounted.height,
+      scale,
+    });
     onProgress?.(1);
     return blob;
   } catch (error) {

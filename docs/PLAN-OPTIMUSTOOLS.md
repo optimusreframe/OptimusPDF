@@ -326,3 +326,90 @@ Safari y Firefox (macOS/iOS/iPadOS), M4A reproducido por un reproductor real, un
 6. **Memoria**: en iPhone, abrir un audio de ~40–60 min; debe avisar con los minutos que caben en lugar de cerrarse la pestaña. En un Mac, uno de ~1 h.
 7. **Accesibilidad**: VoiceOver en el Studio (la onda se anuncia como control deslizante con duración y selección; cada acción se anuncia) y en el convertidor (errores y resultado).
 8. **Privacidad**: con las herramientas de red del navegador abiertas, convertir y editar: no debe verse ninguna petición con el audio; tras recargar no queda ningún audio.
+
+## W-HTML · HTML a PDF con dirección web y PDF Carta bien repartido
+
+### Qué es
+
+`/html-to-pdf` tiene ahora dos modos accesibles (pestañas «Dirección web» y «Archivo HTML»). En «Dirección web» la persona escribe la dirección y **nuestro servidor** la consulta (`POST /api/html-snapshot`, el navegador no puede por CORS) y devuelve **una sola página autocontenida y ya saneada**. Todo lo demás (montar, maquetar, rasterizar y crear el PDF) sigue en el navegador, con el mismo motor de siempre (`htmlToPdf`), que además se reescribió en la parte de distribución en la hoja. El aviso de transparencia se ve **siempre antes de consultar**: «Para leer esta dirección, nuestro servidor la consulta y te devuelve la página; no se guarda nada. El PDF se crea en tu dispositivo.»
+
+### Ruta de servidor `POST /api/html-snapshot` (`src/app/api/html-snapshot/route.ts` + `src/lib/htmlSnapshot/`)
+
+Runtime Node, `dynamic = "force-dynamic"`, `maxDuration = 20` (plazo interno de 10 s). Entrada `{ url }`; salida `{ html, finalUrl, title, notes[] }`. Las `notes` son **objetos con código** (`{ code, count? }`), no frases, para que la interfaz las escriba en ES/EN.
+
+Defensas (cada una tiene prueba sin red):
+
+| Capa | Qué hace | Dónde |
+|---|---|---|
+| Solo la propia web | `Sec-Fetch-Site: same-origin` o `Origin` con el mismo host; si no, `forbidden` (403). Es una barrera contra uso desde otras páginas, **no** autenticación (un cliente que no sea navegador pone las cabeceras que quiera). | `handler.ts` |
+| Forma de la petición | `Content-Type: application/json`; cuerpo ≤ 4 KB leído con tope (no se fía de `Content-Length`); URL ≤ 2048. | `handler.ts` |
+| Abuso | Limitador por IP **en memoria** (10/min; de mejor esfuerzo: cada instancia sin servidor tiene su memoria, se reinicia en frío, no se comparte) y tope de **4 consultas simultáneas por instancia**. | `rateLimit.ts`, `handler.ts` |
+| URL | Solo `http:`/`https:`, puertos 80/443, sin usuario/contraseña, sin `localhost`, `*.local`, `*.internal`, `*.localhost`, `*.lan`…, sin nombres de una etiqueta, sin IP literal privada. Las formas camufladas (`2130706433`, `0x7f.1`, `127.1`, octales) las normaliza el analizador WHATWG y se valida el resultado. | `urlGuard.ts` |
+| Anti-SSRF | DNS A+AAAA a la vez; si **alguna** dirección es loopback, privada, enlace local (incl. 169.254.169.254), CGNAT, multicast, reservada, IPv6 ULA/enlace local, `::ffff:` mapeada, NAT64, 6to4, Teredo o documentación, se rechaza **todo** el nombre. IPv6: solo se admite unicast global `2000::/3` menos esas excepciones. Una IP que no se pueda analizar se considera bloqueada (falla cerrado). | `ipGuard.ts`, `guardedFetch.ts` |
+| Anti DNS-rebinding | La conexión va **a la IP ya validada** (`lookup` propio que devuelve siempre esa IP; SNI, certificado y `Host` siguen con el nombre) y al conectar se comprueba que `socket.remoteAddress` es la validada. La resolución se memoiza por petición. | `nodeTransport.ts`, `dnsResolver.ts` |
+| Redirecciones | A mano, máximo 5; **toda** la validación (URL, DNS, IP) se repite en cada salto y en cada sub-recurso. | `guardedFetch.ts` |
+| Límites | 10 s totales (una señal de plazo para página y recursos); HTML ≤ 5 MB **descomprimido** (se cuentan los bytes tras gunzip/inflate/brotli y se corta la lectura; bomba de gzip de 100 MB probada contra un servidor local real); tipos admitidos: `text/html`/`application/xhtml+xml` (página), `text/css`, `image/*`. | `guardedFetch.ts`, `nodeTransport.ts` |
+| Salida | Sin cookies ni cabeceras de la persona; `User-Agent: OptimusPDF-Snapshot/1.0`; `Cache-Control: no-store`; nunca se registra la URL ni el contenido (ni `console.*`, con prueba); errores genéricos y tipados (`invalid-url`, `blocked-address`, `unreachable`, `too-large`, `unsupported-type`, `timeout`, `rate-limited`, `forbidden`) sin detalles internos. | `handler.ts` |
+
+**Saneado y autocontención** (`buildSnapshot.ts`, con `parse5`, el analizador HTML5 conforme a la especificación; no se sanea con regex): se eliminan `script`, `noscript`, `iframe/frame/object/embed/applet`, `audio/video`, `base`, `meta`, `template`, MathML, animaciones SVG, `foreignObject`, todos los `link` que no sean hojas de estilo; los `form` se desenvuelven (sin formulario no hay envío); se quitan `on*`, `srcdoc`, `action`, `formaction`, `target`, `ping`, `javascript:` y toda URL que no sea http(s)/ancla (enlaces) o `data:` de imagen validado. Se incrustan hojas de estilo (`<link>`, `<style>`, `@import` con medios, máx. 10) e imágenes (`<img>`, `srcset` → una, carga perezosa `data-src`, `background-image` y demás `url()`, máx. 30 distintas, ≤ 2,5 MB c/u) como `<style>`/data URI; lo que no cabe o falla se omite y se anota. Las tipografías propias (`@font-face`) no se incluyen. La respuesta se topa en **3,5 MB** omitiendo primero las imágenes más grandes. Al final se vuelve a analizar el resultado (`assertClean`) y, si algo peligroso sobreviviera, falla cerrado. Las imágenes se validan por firma de bytes (un «PNG» que es HTML se descarta) y los SVG con scripts/`foreignObject`/entidades se descartan.
+
+Capas independientes que siguen existiendo en el navegador: `sanitizeHtml` vuelve a sanear, el iframe es `sandbox="allow-same-origin"` sin scripts y su CSP solo admite `data:`.
+
+### Interfaz (`src/app/html-to-pdf/`)
+
+- `HtmlToPdfToolClient.tsx`: `SegmentedControl` (tablist) «Dirección web» / «Archivo HTML», sobre el mismo `ToolShell`. La consulta carga un `File` HTML sintético (`ejemplo.com-articulo.html`) con `loadRef`, así que opciones, procesado, descarga, foco y errores del motor son los de siempre. Tras consultar, un resumen («Página leída»: título, dirección final, avisos) y textos de seguridad/fidelidad **distintos** según el origen (en modo URL ya no dice «nada sale de tu dispositivo»).
+- `UrlSourcePanel.tsx`: campo con validación en vivo (icono + texto, nunca solo color; los mismos `validateSnapshotUrl`/`normalizeTypedAddress` que la ruta), aviso de transparencia, estado de carga con **cancelación** (aborta el `fetch`), errores por tipo con acciones («Reintentar», «Archivo HTML»), nota plegable de límites.
+- **Único cambio fuera de mis carpetas**: `ToolShell` gana la prop opcional `hideDropzone` (7 líneas, aditiva: sin ella nada cambia) para no pintar la zona de carga en el modo URL. Si W-SHELL toca `ToolShell`, el choque sería trivial.
+- Tamaño por defecto **Carta** (A4 sigue en opciones); en la lista de opciones Carta va primero.
+
+### PDF Carta bien repartido (`htmlToPdf.ts`, `htmlToPdfLayout.ts`, `htmlToPdfPagination.ts`)
+
+- **Maquetación** con el ancho de la hoja (816 px en Carta, 794 en A4) y el contenido se escala al área útil (margen por defecto 0,5 in); si el contenido es más ancho (tabla de 1400 px) se vuelve a maquetar con ese ancho (hasta 1800 px) y la página se **reduce** en vez de recortarse.
+- **Hoja base** inyectada en el documento inerte: imágenes/SVG/canvas `max-width:100%`, imágenes ≤ una página de alto, `html/body` que crecen con el contenido, sin animaciones (estado final). `@media print` de la página **se aplica** (`print` → `all`); `vh/dvh/svh/lvh` pasan a px (un hero `100vh` ocupa una página, no todo el documento).
+- **Elementos fijos**: `sticky` pasa al flujo; las barras `fixed` de ancho completo (cabecera, menú, pie) pasan al flujo y salen **una vez**; avisos de cookies, modales y botones flotantes se ocultan; una capa fija a pantalla completa con mucho texto (app) se conserva.
+- **Cortes**: se miden líneas de texto, imágenes, filas de tabla, bloques `break-inside:avoid`, encabezados (se quedan con la línea siguiente) y viudas/huérfanas, y `planPages` busca los cortes **más cercanos permitidos** en vez de cortar cada `H` px (con relajación gradual de reglas y contador de cortes a ciegas). Después, **ajuste fino sobre los pixeles**: html2canvas pinta el texto ~9 px más abajo de donde lo mide el DOM (medido en Chromium, ocurre también sin nuestro CSS; es un defecto de html2canvas 1.4.1), así que cada corte se mueve (±24 px) al centro de la franja realmente sin texto del lienzo; por eso se planifica con 48 px menos de página.
+- **Nitidez**: escala 2 (1632 px de ancho en Carta); en iOS/iPadOS el lienzo se limita a 8 M de píxeles (12 M en el resto, siempre ≤ 8192 de lado).
+- **Sin páginas vacías**: una banda totalmente blanca no se emite (si todo el documento es blanco queda una hoja).
+- `htmlToPdf(file, options, onProgress, signal, onLayout?)`: el 5.º parámetro opcional devuelve `{ pages, blankPagesSkipped, forcedBreaks, snappedCuts, layoutWidthPx, documentHeightPx, scale }` para diagnóstico/pruebas. `planCaptureChunks`/`planPageSlices` siguen exportados y probados pero el motor ya no los usa.
+
+### Dependencias
+
+| Paquete | Versión | Licencia | Peso | Dónde |
+|---|---|---|---|---|
+| `parse5` | 8.0.1 (ya estaba en el árbol por `jsdom`; ahora dependencia directa) | MIT (su dep. `entities` 8.0.0: BSD-2-Clause) | 351 KB desempaquetado | **Solo servidor** (ruta `/api/html-snapshot`); **0 KB** en los bundles del navegador |
+
+`package.json` + `package-lock.json` (a mano: `parse5` y `entities` pasan de `dev` a prod, para no arrastrar ruido de `npm install`). Sin dependencias de runtime para la red (se usa `node:http/https/dns/zlib`).
+
+### Pruebas
+
+- Unitarias (sin red): `src/lib/htmlSnapshot/*.test.ts` (corpus hostil completo del encargo), `htmlToPdfPagination.test.ts`, `htmlToPdfLayout.test.tsx` (jsdom), `htmlToPdf.test.ts` (el valor por defecto pasa a Carta; el resto igual).
+- E2E: `e2e/specs/html-to-pdf-url.spec.ts` (`page.route` intercepta la ruta; cubre flujo completo y descarga de PDF Carta, validación en vivo, 8 errores por tipo, sin conexión, cancelar, modo archivo, axe, 375/320 px con tipografía ancha, claro/oscuro, ES/EN y la **ruta real** solo con direcciones que rechaza antes de conectar) y `e2e/specs/html-to-pdf-layout.spec.ts` (motor real en Chromium sobre páginas sintéticas; analiza el PDF resultante: hojas 612×792, sin hojas en blanco, sin tinta pegada a ningún corte, cabecera fija una vez, `@media print`, página ancha, hero 100vh, A4 y horizontal). Ninguna prueba sale a Internet.
+
+### Qué NO está verificado
+
+- **`next build` y el despliegue en Vercel** (política: no se corre). Se probó la ruta con `next dev` (Turbopack). Falta confirmar que la build de producción empaqueta bien `parse5` (ESM) en la función y que `maxDuration = 20` es aceptado por el plan.
+- **Safari/WebKit, iPhone e iPad**: no se corrió E2E cruzado. Lo específico de iOS (tope de lienzo 8 M, `isIosLike`) está escrito pero sin probar en dispositivo. Firefox tampoco.
+- **Red real**: la conexión TLS real (`https.request` con `lookup` fijo, SNI/certificado) no se probó contra un sitio real (prohibido); el transporte se probó contra un servidor HTTP local en 127.0.0.1 (cabeceras, gzip, bomba, redirección, plazo, puerto cerrado) y toda la lógica de decisión con transporte/DNS falsos.
+- **Páginas reales**: solo páginas sintéticas. Sitios con diseños complejos, fuentes propias, SPAs, muros de cookies reales, etc. pueden comportarse distinto.
+- Límite de memoria con documentos muy largos (> 100 páginas) y rendimiento en móviles lentos.
+- La revisión de seguridad independiente de la ruta queda para el orquestador (plan §Integración).
+
+### Decisiones y límites honestos
+
+- Las `notes` viajan como códigos (la interfaz las traduce); el encargo decía `notes[]` sin fijar el tipo.
+- La ruta **no ejecuta JavaScript**: las páginas que se arman en el navegador salen incompletas (se avisa con `scripts-ignored` / `little-content`); las que piden iniciar sesión no se pueden leer. Tipografías propias no incluidas (sustituidas por las del sistema).
+- El limitador por IP y el tope de concurrencia son por instancia y en memoria (best effort).
+- `@media print` se aplica y los estilos de `screen` se dejan (más seguro que quedarse sin estilos); una página que oculte todo al imprimir saldría vacía.
+- Las capas fijas/flotantes se reconocen por tamaño y por nombre de clase/id (cookie, consent, modal, chat…): puede ocultar algo legítimo o dejar pasar un aviso con otro nombre.
+- Una interfaz tipo aplicación (`height:100vh` con scroll interno) se recorta a una página.
+
+### Pruebas manuales para el visto bueno (Mac, iPhone, iPad)
+
+1. **Mac (Chrome y Safari)**, `/html-to-pdf`: ver que «Dirección web» es la pestaña inicial y el aviso de transparencia se lee **antes** de pulsar nada. Pegar `https://es.wikipedia.org/wiki/Portable_Document_Format`, «Consultar», revisar el resumen y los avisos, «Procesar», abrir el PDF: hoja Carta, texto legible a buen tamaño, tablas e imágenes sin partir, sin hojas en blanco, sin franja de menú repetida.
+2. Probar 3–4 sitios reales distintos (un artículo con muchas imágenes, un blog con banner de cookies, una página con cabecera fija, una documentación con tablas anchas): cabecera fija una sola vez, sin banner tapando texto, nada recortado a la derecha.
+3. Errores: `localhost:3000`, `http://192.168.1.1`, `ftp://x.com`, una dirección inexistente (`https://no-existe-123456.example.org`), un PDF (`https://…/archivo.pdf`) → mensajes claros; **«Cancelar consulta»** a mitad de una página lenta; sin conexión (modo avión) → «Sin conexión con el servidor» y «Reintentar».
+4. Una página que se arma con JavaScript (una SPA) → sale con el aviso y casi vacía, sin error.
+5. Cambiar a «Archivo HTML», subir un `.html` guardado → convierte igual que antes, ahora en Carta.
+6. **iPhone y iPad (Safari)**: lo mismo, sobre todo: teclado con el campo (que no haga zoom), consulta, «Procesar» con un artículo largo (¿se queda en un porcentaje? ¿memoria?), descargar y abrir el PDF; rotar el iPad.
+7. Claro/oscuro, ES/EN, tipografía grande del sistema: sin desbordes.
+8. En producción, con DevTools → Red: la única petición con tu dirección es `POST /api/html-snapshot`; el PDF no genera ninguna petición.

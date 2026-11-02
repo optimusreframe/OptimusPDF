@@ -243,6 +243,11 @@ export type ToolShellProps<TOptions> = {
    */
   renderIdle?: () => ReactNode;
   /**
+   * Sin archivos, no se pinta la zona de carga: la herramienta ofrece su propia entrada en `renderIdle` (HTML a PDF, modo
+   * «Dirección web»). En cuanto hay archivos (`loadRef`) el resto del flujo es el de siempre.
+   */
+  hideDropzone?: boolean;
+  /**
    * Se llama con la lista nueva y la anterior cada vez que la PERSONA cambia los archivos (subir, quitar, reordenar), antes
    * de aplicarlo. No se llama al cargar con `loadRef`/`resetRef` ni al sustituir un archivo por su copia descifrada. Lo usa
    * Firmar para ofrecer «Deshacer» al quitar un documento con trabajo hecho (F0 · U0.3).
@@ -318,6 +323,7 @@ export function ToolShell<TOptions>({
   removeFilesRef,
   loadRef,
   renderIdle,
+  hideDropzone = false,
   onFilesChanged,
   suspended = false,
 }: ToolShellProps<TOptions>) {
@@ -1165,7 +1171,7 @@ export function ToolShell<TOptions>({
 
       {phase === "idle" ? renderIdle?.() : null}
 
-      {phase === "idle" ? (
+      {phase === "idle" && !hideDropzone ? (
         <FileDropzone
           tool={tool}
           files={files}
