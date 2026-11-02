@@ -512,7 +512,8 @@ test("en un iPhone avisa de los limites mas bajos y de mantener la pestana abier
   await expect(note).toBeVisible();
   await expect(note).toContainText(ES.constrainedNote);
   // Los limites mostrados son los de dispositivos con poca memoria (200 MB / 1 GB / 30 min), no los de escritorio.
-  await expect(page.getByText(/200 MB/)).toBeVisible();
+  // Con un espacio duro entre el numero y la unidad (no se parte en dos lineas): `\\s` lo admite.
+  await expect(page.getByText(/200\sMB/)).toBeVisible();
   await expect(page.getByText(/0:30:00|30:00/)).toBeVisible();
   await context.close();
 

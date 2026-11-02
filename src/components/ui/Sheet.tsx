@@ -748,7 +748,7 @@ function SheetPanel({
           "relative flex w-full flex-col outline-none will-change-transform [touch-action:none]",
           fullscreen
             ? "h-full"
-            : "max-h-[88vh] rounded-t-ios-lg shadow-elevation-3 md:max-w-lg md:rounded-ios-lg",
+            : "max-h-[88vh] supports-[height:1dvh]:max-h-[88dvh] rounded-t-ios-lg shadow-elevation-3 md:max-w-lg md:rounded-ios-lg",
           className,
         )}
       >

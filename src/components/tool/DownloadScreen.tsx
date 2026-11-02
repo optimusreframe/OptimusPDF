@@ -1,14 +1,17 @@
 "use client";
 
-import { useId, type ReactNode, type Ref } from "react";
+import { useId, useMemo, useState, type ReactNode, type Ref } from "react";
 import { motion } from "motion/react";
-import { Check, Download, FileText, Info, RotateCcw } from "lucide-react";
+import { Check, Download, FileText, Info, RotateCcw, Share } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ToolCard } from "@/components/tool/ToolCard";
 import {
   PartialFailureReport,
   hasPartialFailures,
 } from "@/components/tool/PartialFailureReport";
+import { canShareResult, shareResult } from "@/components/tool/shareResult";
+import { useIsClient } from "@/hooks/useIsClient";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import type { BatchReport } from "@/lib/pdf/batchReport";
 import { useI18n, localeTag } from "@/lib/i18n";
 import { springs, withCrossFadeOpacity } from "@/lib/motion";
@@ -21,6 +24,12 @@ export type DownloadScreenProps = {
   size: number;
   onDownload: () => void;
   onStartOver: () => void;
+  /**
+   * El resultado. Opcional: con el, en un movil/tableta cuyo navegador puede compartir archivos aparece «Compartir o guardar…»
+   * (hoja de compartir del sistema) como plan B de la descarga, que no funciona en todos los contextos de iOS (web instalada,
+   * navegadores internos). Sin el, o sin soporte, la pantalla es la de siempre.
+   */
+  blob?: Blob;
   /** Ref al boton primario (Descargar): ToolShell le da el foco al terminar. */
   downloadButtonRef?: Ref<HTMLButtonElement>;
   /**
@@ -32,6 +41,11 @@ export type DownloadScreenProps = {
   report?: BatchReport;
   /** Resumen de lo hecho, ya traducido (opcional). */
   summary?: string;
+  /**
+   * Frase bajo «Listo», ya traducida. Por defecto «Tu documento esta preparado para descargar.»: una herramienta cuyo resultado
+   * no es un documento (un video, imagenes, un audio) pasa la suya para no llamar «documento» a lo que no lo es.
+   */
+  subtitle?: string;
   /** Avisos de la exportacion, ya traducidos (opcional): lista accesible. */
   notices?: { title: string; items: string[] };
   /** Segunda descarga discreta (p. ej. el registro `.json` de Firmar PDF), bajo «Descargar». */
@@ -51,15 +65,22 @@ export type DownloadScreenProps = {
  * un spring sin rebote (no hubo gesto) y la tarjeta sube con fundido;
  * bajo reduced motion todo es fundido. Despues, herramientas relacionadas.
  */
+const SHARE_COPY = {
+  es: { label: "Compartir o guardar…", failed: "No se pudo abrir la hoja de compartir; se ha descargado el archivo." },
+  en: { label: "Share or save…", failed: "The share sheet could not open; the file was downloaded instead." },
+} as const;
+
 export function DownloadScreen({
   slug,
   filename,
   size,
   onDownload,
   onStartOver,
+  blob,
   downloadButtonRef,
   report,
   summary,
+  subtitle,
   notices,
   secondaryDownload,
   continueAction,
@@ -86,6 +107,28 @@ export function DownloadScreen({
       .join(" ") || undefined;
   const related = getRelatedTools(slug, 3);
 
+  // Plan B movil: la hoja de compartir. Solo con puntero grueso (dedo) y si el navegador puede compartir ESTE archivo.
+  const isClient = useIsClient();
+  const coarse = useMediaQuery("(pointer: coarse)");
+  const shareFile = useMemo(
+    () => (isClient && coarse && blob ? new File([blob], filename, { type: blob.type }) : null),
+    [isClient, coarse, blob, filename],
+  );
+  const canShare = shareFile !== null && canShareResult(shareFile);
+  const [shareFailed, setShareFailed] = useState(false);
+  const share = async () => {
+    if (!shareFile) return;
+    const outcome = await shareResult(shareFile);
+    // Cerrar la hoja sin elegir destino no es un fallo; si el sistema la rechaza, el archivo se descarga como siempre.
+    if (outcome === "failed") {
+      setShareFailed(true);
+      onDownload();
+    } else {
+      setShareFailed(false);
+    }
+  };
+  const shareCopy = SHARE_COPY[language];
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -109,7 +152,7 @@ export function DownloadScreen({
           {t.tool.doneTitle}
         </h2>
         <p className="mt-1.5 max-w-sm text-callout text-muted-foreground">
-          {t.tool.doneSubtitle}
+          {subtitle ?? t.tool.doneSubtitle}
         </p>
 
         <div className="mt-6 max-w-full">
@@ -163,13 +206,25 @@ export function DownloadScreen({
         <Button
           ref={downloadButtonRef}
           size="lg"
-          className="mt-7 min-w-56"
+          wrap
+          // 14 rem de ancho minimo, sin pasar nunca del de la tarjeta (con la letra al 150 % 14 rem = 336 px y la tarjeta mide 240).
+          className="mt-7 min-w-[min(14rem,100%)]"
           onClick={onDownload}
           aria-describedby={describedBy}
         >
           <Download aria-hidden="true" className="size-5" />
           {t.tool.download}
         </Button>
+
+        {canShare ? (
+          <Button variant="secondary" size="md" className="mt-3" onClick={() => void share()} data-download-share="">
+            <Share aria-hidden="true" className="size-4" />
+            {shareCopy.label}
+          </Button>
+        ) : null}
+        <p role="status" aria-live="polite" className={shareFailed ? "mt-2 max-w-sm text-footnote text-muted-foreground" : "sr-only"}>
+          {shareFailed ? shareCopy.failed : null}
+        </p>
 
         {extras ? (
           <div
@@ -184,6 +239,7 @@ export function DownloadScreen({
           <Button
             variant="ghost"
             size="md"
+            wrap
             className="mt-2 text-muted-foreground hover:text-foreground"
             onClick={secondaryDownload.onDownload}
           >
@@ -197,6 +253,7 @@ export function DownloadScreen({
         <Button
           variant="ghost"
           size="md"
+          wrap
           className="mt-2 text-muted-foreground hover:text-foreground"
           onClick={onStartOver}
         >

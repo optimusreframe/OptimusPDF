@@ -74,8 +74,8 @@ export function HistorySection({
                   </span>
                 )}
                 <div id={infoId} className="min-w-0 flex-1 basis-48">
-                  <p className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-medium text-foreground" title={row.fileName}>
+                  <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] text-foreground" title={row.fileName}>
                       {row.fileName}
                     </span>
                     <Badge variant="neutral" className="shrink-0" data-recent-status="finished">

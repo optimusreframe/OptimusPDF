@@ -444,12 +444,13 @@ export function AudioWorkFrame({ slug, kind, strings: s }: AudioWorkFrameProps) 
           style={{ borderWidth: 0, bottom: "calc(4.5rem + env(safe-area-inset-bottom, 0px))" }}
         >
           {reasonNode("bar", "mb-0")}
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="md" onClick={() => setPhase("options")}>
+          {/* `flex-wrap`: con letra grande (o rotulos largos en otro idioma) «Procesar» baja a su propia fila en vez de salirse de la pantalla. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="md" onClick={() => setPhase("options")} className="shrink-0">
               <SlidersHorizontal aria-hidden="true" className="size-4" />
               {t.tool.openOptions}
             </Button>
-            <Button ref={runMobileRef} size="md" fullWidth disabled={!canRun} aria-describedby={describedBy("bar")} onClick={() => void run()}>
+            <Button ref={runMobileRef} size="md" disabled={!canRun} aria-describedby={describedBy("bar")} onClick={() => void run()} className="min-w-32 flex-1">
               {t.tool.run}
             </Button>
           </div>

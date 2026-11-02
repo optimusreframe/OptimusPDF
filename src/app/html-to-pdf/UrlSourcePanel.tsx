@@ -187,7 +187,7 @@ export function UrlSourcePanel({ strings: s, address, onAddressChange, onLoaded,
             aria-invalid={showInvalid || undefined}
             aria-describedby={statusId}
             className={cn(
-              "h-12 w-full min-w-0 sm:flex-1 rounded-ios-sm border bg-white/5 px-3 text-[16px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
+              "h-12 w-full min-w-0 sm:flex-1 rounded-ios-sm border bg-white/5 px-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
               showInvalid ? "border-destructive/60" : "border-hairline",
               loading && "opacity-70",
             )}

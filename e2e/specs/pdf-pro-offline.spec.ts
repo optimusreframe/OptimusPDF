@@ -686,7 +686,7 @@ test.describe("PDF Pro · sin conexion desde el principio", () => {
     await expect(banner).toContainText(es.tool.errors.offline);
     await expect(banner).not.toContainText(es.tool.errors.corrupt);
     await expect(page.locator('[aria-busy="true"]'), "ya no esta «Comprobando el archivo…»").toHaveCount(0);
-    await expect(page.getByRole("tablist")).toHaveCount(0);
+    await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
     await expect.poll(() => banner.evaluate((el) => el.contains(document.activeElement))).toBe(true);
     // El resto del estado vacio sigue vivo y, al volver la conexion el boton «Recargar la pagina» deja abrir el MISMO PDF.
     await expect(page.locator("[data-pro-new='blank']")).toBeVisible();
@@ -711,7 +711,7 @@ test.describe("PDF Pro · sin conexion desde el principio", () => {
     await page.locator("[data-pro-new='blank']").click();
     await page.getByRole("dialog").getByRole("button", { name: S.create.blank.create }).click();
     await expect(page.getByRole("heading", { level: 1, name: /documento-en-blanco\.pdf/ })).toBeVisible();
-    await expect(page.getByRole("tab")).toHaveCount(7);
+    await expect(page.locator("main").getByRole("tab")).toHaveCount(7);
     expect(await getPageCount((await downloadDoc(page)).bytes)).toBe(1);
     expect(net.pageErrors).toEqual([]);
   });

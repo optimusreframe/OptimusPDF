@@ -68,7 +68,7 @@ test("camara -> rafaga -> revisar -> reordenar -> girar -> borrar -> editar -> g
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
   const bytes = await downloadBytes(page, async () => {
-    await page.getByRole("button", { name: /descargar|download/i }).first().click();
+    await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
   });
   expect(await getPageCount(bytes)).toBe(3);
   await expect(page.locator("[data-download-summary]")).toContainText(/Tus fotos: .* → PDF: /);
@@ -85,7 +85,7 @@ test("importar varias fotos de la fototeca: orden, avisos de calidad y PDF en el
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
   const bytes = await downloadBytes(page, async () => {
-    await page.getByRole("button", { name: /descargar|download/i }).first().click();
+    await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
   });
   expect(await getPageCount(bytes)).toBe(5);
   const heights: number[] = [];
@@ -125,7 +125,7 @@ test("cero red: ninguna peticion sale del origen durante todo el flujo (importar
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
   const bytes = await downloadBytes(page, async () => {
-    await page.getByRole("button", { name: /descargar|download/i }).first().click();
+    await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
   });
   expect(await getPageCount(bytes)).toBe(3);
   expect(foreign, foreign.join("\n")).toEqual([]);
@@ -168,7 +168,7 @@ test("resultado sin hoja nativa de compartir: no hay boton «Compartir» y «Des
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-result-action="share"]')).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /descargar|download/i }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /descargar|download(?!er)/i }).first()).toBeVisible();
 });
 
 test("«Seguir en PDF Pro» abre el PDF resultante en PDF Pro (traspaso en memoria, sin subir nada)", async ({ page }) => {

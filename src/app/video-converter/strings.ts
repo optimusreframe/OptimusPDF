@@ -77,6 +77,8 @@ export type VideoConverterStrings = {
   invalidType: ErrorText;
   // --- Resultado ---
   filenameSuffix: string;
+  /** Frase bajo «Listo»: el resultado es un video, no «un documento» como dice el texto general. */
+  doneSubtitle: string;
   summaryCopy: string;
   summaryTranscode: string;
   noticesTitle: string;
@@ -213,6 +215,7 @@ const es: VideoConverterStrings = {
     message: "Elige un video MP4, MOV, M4V, WebM o MKV.",
   },
   filenameSuffix: "convertido",
+  doneSubtitle: "Tu video está preparado para descargar.",
   summaryCopy: "{format}, {dimensions}. Sin recodificar el video: no pierde calidad.",
   summaryTranscode: "{format}, {dimensions}, recodificado.",
   noticesTitle: "Ten en cuenta",
@@ -349,6 +352,7 @@ const en: VideoConverterStrings = {
     message: "Choose an MP4, MOV, M4V, WebM or MKV video.",
   },
   filenameSuffix: "converted",
+  doneSubtitle: "Your video is ready to download.",
   summaryCopy: "{format}, {dimensions}. The video wasn't re-encoded: no quality was lost.",
   summaryTranscode: "{format}, {dimensions}, re-encoded.",
   noticesTitle: "Keep in mind",

@@ -114,7 +114,7 @@ describe("Button sm y SegmentedControl sm", () => {
     expect(has(screen.getByRole("button"), "pointer-coarse:min-h-11")).toBe(true);
   });
 
-  it("SegmentedControl sm: las pestañas amplían su zona a 44 px con puntero grueso", () => {
+  it("SegmentedControl sm: la pista mide 36 px con raton y 44 DE VERDAD con puntero grueso (los segmentos la llenan)", () => {
     render(
       <SegmentedControl
         size="sm"
@@ -127,8 +127,13 @@ describe("Button sm y SegmentedControl sm", () => {
         ]}
       />,
     );
+    const track = screen.getByRole("tablist");
+    expect(has(track, "min-h-9")).toBe(true);
+    expect(has(track, "pointer-coarse:min-h-11")).toBe(true);
     for (const tab of screen.getAllByRole("tab")) {
-      for (const token of HIT_44.split(/\s+/)) expect(has(tab, token), token).toBe(true);
+      expect(has(tab, "h-full")).toBe(true);
+      // Ya no hace falta el pseudo-elemento: el propio segmento mide 44 px y una medicion del elemento lo ve.
+      expect(tab.className).not.toContain("pointer-coarse:before");
     }
   });
 
@@ -287,7 +292,7 @@ describe("jpg-to-pdf, Unir y muestras de color", () => {
     expect(container.querySelectorAll("li")).toHaveLength(3);
   });
 
-  it("muestras de color (8 por panel): 36 px con raton y zona de 44 px con puntero grueso; el hueco sube a 12 px para que la elegida (scale-110) no pise a las vecinas", () => {
+  it("muestras de color (8 por panel): boton de 36 px con raton y de 44 DE VERDAD con puntero grueso (circulo de 36 dentro) y >= 8 px entre vecinas", () => {
     render(
       <ColorSwatches
         label="Color"
@@ -297,12 +302,17 @@ describe("jpg-to-pdf, Unir y muestras de color", () => {
       />,
     );
     const group = screen.getByRole("radiogroup");
+    // Entre botones de 44 px quedan 8 px (`gap-2`), tambien con puntero grueso: el aire ya no se saca de crecer el hueco.
     expect(has(group, "gap-2")).toBe(true);
-    expect(has(group, "pointer-coarse:gap-3")).toBe(true);
+    expect(has(group, "pointer-coarse:gap-3")).toBe(false);
     expect(has(group, "flex-wrap")).toBe(true);
     for (const swatch of screen.getAllByRole("radio")) {
       expect(has(swatch, "size-9")).toBe(true);
-      for (const token of HIT_44.split(/\s+/)) expect(has(swatch, token), token).toBe(true);
+      expect(has(swatch, "pointer-coarse:size-11")).toBe(true);
+      // El pseudo-elemento ya no es necesario: el propio boton mide 44 px y una medicion del elemento lo ve.
+      for (const token of HIT_44.split(/\s+/)) expect(has(swatch, token), token).toBe(false);
+      const dot = swatch.querySelector("span[aria-hidden='true']") as HTMLElement;
+      expect(has(dot, "size-9")).toBe(true);
     }
   });
 });

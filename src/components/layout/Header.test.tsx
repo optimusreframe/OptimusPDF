@@ -1,88 +1,78 @@
-import { beforeAll, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Header } from "@/components/layout/Header";
+import { closeMobileMenu } from "@/components/layout/mobileMenu";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
+import { ThemeProvider } from "@/lib/theme";
+import { es } from "@/lib/locales/es";
+
+vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 
 beforeAll(() => {
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
 });
 
-function renderHeader(extra?: ReactNode) {
+afterEach(() => {
+  act(() => closeMobileMenu());
+  cleanup();
+});
+
+function renderHeader() {
   return render(
-    <LanguageProvider>
-      <Header />
-      {extra}
-    </LanguageProvider>,
+    <ThemeProvider>
+      <LanguageProvider>
+        <Header />
+      </LanguageProvider>
+    </ThemeProvider>,
   );
 }
 
-/** Deja pasar el setTimeout(0) con el que el menu decide donde queda el foco. */
-const afterMouseDown = () => new Promise((resolve) => setTimeout(resolve, 30));
-
-/** Menu "Herramientas" (tablet): el foco nunca cae a <body> al cerrarlo. */
-describe("Header — menu Herramientas", () => {
-  it("Escape cierra el menu y devuelve el foco al disparador", () => {
+/**
+ * Cabecera de tablet (768-1023 px): el boton «Menú» sustituye al antiguo popover «Herramientas» y abre la hoja del menu
+ * (mismo contenido que la barra lateral; el detalle esta en `MobileMenuSheet.test.tsx`). Aqui: el disparador y que el foco
+ * nunca cae a <body> al cerrar.
+ */
+describe("Header — boton Menú (tablet)", () => {
+  it("lleva un solo boton de menu con icono y etiqueta, y ya no existe el popover «Herramientas»", () => {
     renderHeader();
-    const trigger = screen.getByRole("button", { name: "Herramientas" });
-    fireEvent.click(trigger);
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    const link = screen.getByRole("link", { name: "Unir PDF" });
-    link.focus();
-    expect(document.activeElement).toBe(link);
+    const trigger = screen.getByRole("button", { name: es.nav.menu });
+    expect(trigger.textContent).toBe(es.nav.menu);
+    expect(trigger.querySelector("svg[aria-hidden='true']")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Herramientas" })).toBeNull();
+  });
 
-    fireEvent.keyDown(document, { key: "Escape" });
+  it("Escape cierra la hoja y devuelve el foco al boton", async () => {
+    renderHeader();
+    const trigger = screen.getByRole("button", { name: es.nav.menu });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await screen.findByRole("dialog");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("clic fuera en una zona no enfocable (el foco cae a body) lo devuelve al disparador", async () => {
+  it("elegir un enlace cierra la hoja y el foco no queda en <body>", async () => {
     renderHeader();
-    const trigger = screen.getByRole("button", { name: "Herramientas" });
+    const trigger = screen.getByRole("button", { name: es.nav.menu });
+    trigger.focus();
     fireEvent.click(trigger);
-    screen.getByRole("link", { name: "Unir PDF" }).focus();
-
-    // `true` = nadie cancelo el mousedown (ver el test del buscador).
-    expect(fireEvent.mouseDown(document.body)).toBe(true);
-    // jsdom no ejecuta la accion por defecto del mousedown: en un navegador,
-    // pulsar algo no enfocable desenfoca el elemento activo y deja el foco en body.
-    (document.activeElement as HTMLElement).blur();
-    expect(document.activeElement).toBe(document.body);
-
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("link", { name: es.nav.settings }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(trigger);
   });
 
-  it("clic en un campo de texto con el foco dentro del menu: no se cancela el mousedown y el campo conserva el foco", async () => {
-    // Regresion: el mousedown llamaba a preventDefault y el navegador no
-    // enfocaba el buscador de Home, asi que no se podia escribir.
-    renderHeader(<input aria-label="Buscar herramienta" />);
-    const trigger = screen.getByRole("button", { name: "Herramientas" });
-    fireEvent.click(trigger);
-    screen.getByRole("link", { name: "Unir PDF" }).focus();
-    const search = screen.getByRole("textbox", { name: "Buscar herramienta" });
-
-    // `true` = ningun manejador llamo a preventDefault: el navegador enfocara el campo.
-    expect(fireEvent.mouseDown(search)).toBe(true);
-    // Accion por defecto del navegador (jsdom no la ejecuta): enfocar lo pulsado.
-    search.focus();
-    expect(document.activeElement).toBe(search);
-
-    // Pasado el mousedown el menu NO le roba el foco al campo.
-    await afterMouseDown();
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(search);
-  });
-
-  it("clic fuera con el foco en otro sitio no lo roba", async () => {
+  it("los enlaces secundarios de la cabecera siguen ahi (Mis documentos, Precios, Proyecto)", () => {
     renderHeader();
-    const trigger = screen.getByRole("button", { name: "Herramientas" });
-    fireEvent.click(trigger);
-    const other = screen.getByRole("link", { name: "Precios" });
-    other.focus();
-    fireEvent.mouseDown(other);
-    await afterMouseDown();
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(other);
+    for (const [name, href] of [
+      [es.nav.documents, "/documents"],
+      [es.nav.pricing, "/pricing"],
+      [es.nav.about, "/about"],
+    ] as const) {
+      expect(screen.getByRole("link", { name }).getAttribute("href")).toBe(href);
+    }
   });
 });

@@ -111,6 +111,8 @@ type TreeProps = {
   /** Seccion de Inicio a la vista (scroll-spy); solo cuenta en Inicio. */
   spySection: SectionId | null;
   isHome: boolean;
+  /** Se llama al pulsar cualquier enlace del arbol (la hoja del menu movil se cierra con el). */
+  onNavigate?: () => void;
 };
 
 /**
@@ -119,7 +121,7 @@ type TreeProps = {
  * herramienta se muestra segun su `status` (live = enlace normal, soon = enlace con «Pronto» a su pagina provisional).
  * Plegada la barra (riel de iconos) solo quedan los iconos-enlace de cada seccion.
  */
-export function SidebarTree({ pathname, collapsed, spySection, isHome }: TreeProps) {
+export function SidebarTree({ pathname, collapsed, spySection, isHome, onNavigate }: TreeProps) {
   const t = useT();
   const stored = useSyncExternalStore(subscribeSections, getSectionsSnapshot, getSectionsServerSnapshot);
   const explicit = useMemo(() => JSON.parse(stored) as Record<string, boolean>, [stored]);
@@ -141,6 +143,7 @@ export function SidebarTree({ pathname, collapsed, spySection, isHome }: TreePro
       collapsed={false}
       nested
       soon={tool.status === "soon"}
+      onClick={onNavigate}
     />
   );
 
@@ -164,6 +167,7 @@ export function SidebarTree({ pathname, collapsed, spySection, isHome }: TreePro
         active={isHome && spySection === id}
         containsActive={containsActive(tools)}
         soon={soon}
+        onNavigate={onNavigate}
       >
         {tools.map(toolLink)}
         {extra}
@@ -191,6 +195,7 @@ export function SidebarTree({ pathname, collapsed, spySection, isHome }: TreePro
           active={isHome ? spySection === "scan" : matchesRoute(pathname, toolHref(tool.slug))}
           collapsed={collapsed}
           soon={tool.status === "soon"}
+          onClick={onNavigate}
         />
       ))}
     </>
@@ -270,6 +275,7 @@ type SectionRowProps = {
   /** La pagina actual es una herramienta de esta seccion. */
   containsActive: boolean;
   soon?: boolean;
+  onNavigate?: () => void;
   children: ReactNode;
 };
 
@@ -277,7 +283,7 @@ type SectionRowProps = {
  * Fila de seccion: enlace al ancla de Inicio (`/#id`, como siempre) + boton `aria-expanded` que despliega sus herramientas.
  * `aria-controls` solo existe con el panel montado (un idref colgado rompe `aria-valid-attr-value`).
  */
-function SectionRow({ id, icon: Icon, label, open, collapsed, active, containsActive, soon, children }: SectionRowProps) {
+function SectionRow({ id, icon: Icon, label, open, collapsed, active, containsActive, soon, onNavigate, children }: SectionRowProps) {
   const t = useT();
   const panelId = useId();
 
@@ -286,7 +292,10 @@ function SectionRow({ id, icon: Icon, label, open, collapsed, active, containsAc
       <div className="flex items-center">
         <Link
           href={`/#${id}`}
-          onClick={() => requestSection(id)}
+          onClick={() => {
+            requestSection(id);
+            onNavigate?.();
+          }}
           title={collapsed ? label : undefined}
           aria-current={active ? "page" : undefined}
           className={sidebarRowClasses({ active, collapsed, containsActive })}

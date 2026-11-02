@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Slider } from "@/components/ui/Slider";
 import { Spinner } from "@/components/ui/Spinner";
+import { HIT_44_PSEUDO } from "@/components/ui/touchTarget";
 import { cn } from "@/lib/cn";
 import {
   closePdfDocument,
@@ -607,7 +608,7 @@ function RedactCanvasInner({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           className={cn(
-            "relative w-full max-w-[640px] touch-none select-none",
+            "relative w-full max-w-[640px] touch-none select-none [-webkit-touch-callout:none]",
             tool === "eraser" ? "cursor-cell" : "cursor-crosshair",
           )}
         >
@@ -695,6 +696,8 @@ function RedactCanvasInner({
                       "absolute -top-2.5 -right-2.5 flex size-6 items-center justify-center rounded-full",
                       "border border-white/20 bg-elevated text-muted-foreground",
                       "transition-colors hover:text-destructive",
+                      // Con el dedo la zona de toque es de 44 px sin cambiar el dibujo (pseudo-elemento transparente centrado).
+                      HIT_44_PSEUDO,
                     )}
                   >
                     <X aria-hidden="true" className="size-3.5" />
@@ -717,6 +720,7 @@ function RedactCanvasInner({
                       "absolute flex size-6 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full",
                       "border border-white/20 bg-elevated text-muted-foreground",
                       "transition-colors hover:text-destructive",
+                      HIT_44_PSEUDO,
                     )}
                     style={{
                       left: percent(bounds.x + bounds.width),

@@ -173,7 +173,7 @@ describe("forced-colors — controles compartidos de opciones", () => {
     expect(has(b.querySelector("svg")!, "forced-colors:text-[Highlight]")).toBe(true);
   });
 
-  it("ColorSwatches: relleno conservado (forced-color-adjust none), borde CanvasText y aro Highlight en la elegida", () => {
+  it("ColorSwatches: relleno conservado (forced-color-adjust none) y borde CanvasText en el circulo; aro Highlight en el radio elegido", () => {
     render(
       <ColorSwatches
         label="Color"
@@ -184,11 +184,14 @@ describe("forced-colors — controles compartidos de opciones", () => {
     );
     const [plain, picked] = screen.getAllByRole("radio");
     for (const swatch of [plain, picked]) {
-      expect(has(swatch, "forced-colors:[forced-color-adjust:none]")).toBe(true);
-      expect(has(swatch, "forced-colors:border-[CanvasText]")).toBe(true);
+      const dot = swatch.querySelector("span[aria-hidden='true']") as HTMLElement;
+      expect(has(dot, "forced-colors:[forced-color-adjust:none]")).toBe(true);
+      expect(has(dot, "forced-colors:border-[CanvasText]")).toBe(true);
+      // El aro depende de `aria-checked`: solo el radio elegido lo recibe (el otro lleva la misma clase, sin aplicarse).
+      expect(has(swatch, "forced-colors:aria-checked:outline-[Highlight]")).toBe(true);
     }
-    expect(has(picked, "forced-colors:outline-[Highlight]")).toBe(true);
-    expect(has(plain, "forced-colors:outline-[Highlight]")).toBe(false);
+    expect(picked.getAttribute("aria-checked")).toBe("true");
+    expect(plain.getAttribute("aria-checked")).toBe("false");
   });
 
   it("ToggleRow (interruptor): pista con borde; activado = Highlight con pomo HighlightText, apagado = pomo ButtonText", () => {

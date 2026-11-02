@@ -499,7 +499,7 @@ test.describe("visor continuo · escritorio", () => {
 
     await page.getByRole("button", { name: V.hidePanel }).click();
     await expect(page.getByRole("tabpanel")).toHaveCount(0);
-    for (const tab of await page.getByRole("tab").all()) await expect(tab).not.toHaveAttribute("aria-controls", /.+/);
+    for (const tab of await page.locator("main").getByRole("tab").all()) await expect(tab).not.toHaveAttribute("aria-controls", /.+/);
 
     // Persiste: otra carga abre con 248 de miniaturas y el panel plegado.
     await page.reload();

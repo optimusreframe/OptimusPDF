@@ -137,8 +137,8 @@ export function UnfinishedSection({
                   </span>
                 )}
                 <div id={infoId} className="min-w-0 flex-1 basis-48">
-                  <p className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-subheadline font-semibold text-foreground" title={item.fileName}>
+                  <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="min-w-0 text-subheadline font-semibold [overflow-wrap:anywhere] text-foreground" title={item.fileName}>
                       {item.fileName}
                     </span>
                     <Badge variant="signal" className="shrink-0" data-recent-status="unfinished">

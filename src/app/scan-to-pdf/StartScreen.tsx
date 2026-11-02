@@ -129,7 +129,7 @@ export function StartScreen({ s, mode, onMode, saved, resumeNotice, importProble
             {s.pickPhotos}
           </Button>
           <p className="-mt-1 text-center text-footnote text-muted-foreground">{s.pickPhotosHint}</p>
-          <Button variant="ghost" size="md" fullWidth data-camera-action="native" className="pointer-coarse:h-11" onClick={onNative}>
+          <Button variant="ghost" size="md" fullWidth wrap data-camera-action="native" className="pointer-coarse:h-11" onClick={onNative}>
             <Smartphone aria-hidden="true" className="size-4" />
             {s.nativeCamera}
           </Button>

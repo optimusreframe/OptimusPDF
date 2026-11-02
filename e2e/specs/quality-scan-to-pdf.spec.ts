@@ -41,7 +41,7 @@ test("el selector de calidad, la estimacion y el «Antes → Despues» del resul
 
   await page.locator('[data-save-action="create"]').click();
   const bytes = await downloadBytes(page, async () => {
-    await page.getByRole("button", { name: /descargar|download/i }).first().click();
+    await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
   });
   expect(await getPageCount(bytes)).toBe(1);
   await expect(page.locator("[data-download-summary]")).toContainText(/Tus fotos: .* → PDF: /);

@@ -156,7 +156,7 @@ export function PageNumbersOptionsPanel({
           <span className="block text-caption text-muted-foreground">
             {strings.previewLabel}
           </span>
-          <span className="mt-1 block truncate text-sm text-foreground tabular-nums">
+          <span className="mt-1 block text-sm [overflow-wrap:anywhere] text-foreground tabular-nums">
             {preview}
           </span>
         </div>

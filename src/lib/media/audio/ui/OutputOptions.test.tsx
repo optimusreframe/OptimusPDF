@@ -7,7 +7,7 @@ import { SHARED_STRINGS } from "@/lib/media/audio/ui/strings";
 
 afterEach(cleanup);
 
-const all: OutputSupport = { wav: { available: true }, m4a: { available: true }, opus: { available: true }, mp3: { available: false, reason: "license" } };
+const all: OutputSupport = { wav: { available: true }, m4a: { available: true }, opus: { available: true }, mp3: { available: true } };
 const noCodecs: OutputSupport = { ...all, m4a: { available: false, reason: "codecUnsupported" }, opus: { available: false, reason: "noWebCodecs" } };
 
 function setup(value: Partial<EncodeOptions> = {}, support: OutputSupport | null = all, language: "es" | "en" = "es") {
@@ -17,18 +17,42 @@ function setup(value: Partial<EncodeOptions> = {}, support: OutputSupport | null
 }
 
 describe("OutputOptions: formatos", () => {
-  it("ofrece WAV, M4A, Opus y MP3; MP3 va SIEMPRE desactivado y con el motivo de la licencia visible y asociado", () => {
+  it("ofrece WAV, M4A, Opus y MP3; MP3 se puede elegir cuando el navegador tiene WebAssembly y Worker, con tasa de bits propia", () => {
     const onChange = setup();
     const mp3 = screen.getByRole("radio", { name: /MP3/ });
-    expect(mp3.getAttribute("aria-disabled")).toBe("true");
-    expect(mp3.getAttribute("aria-checked")).toBe("false");
-    const reasonId = mp3.getAttribute("aria-describedby");
-    expect(reasonId).toBeTruthy();
-    expect(document.getElementById(reasonId as string)?.textContent).toMatch(/LGPL/);
+    expect(mp3.getAttribute("aria-disabled")).toBe("false");
+    expect(mp3.getAttribute("aria-describedby")).toBeNull();
     fireEvent.click(mp3);
-    expect(onChange).not.toHaveBeenCalled();
-    // Sigue siendo alcanzable con el teclado (no es `disabled`).
-    expect((mp3 as HTMLButtonElement).disabled).toBe(false);
+    expect(onChange).toHaveBeenLastCalledWith({ format: "mp3", bitrateKbps: 192 });
+    expect(document.body.textContent).not.toMatch(/LGPL|licencia \(/i);
+  });
+
+  it("al pasar a MP3, una frecuencia que MP3 no ofrece vuelve a «la del original»; las que si ofrece se conservan", () => {
+    const onChange = setup({ sampleRate: 22050 });
+    fireEvent.click(screen.getByRole("radio", { name: /MP3/ }));
+    expect(onChange).toHaveBeenLastCalledWith({ format: "mp3", bitrateKbps: 192, sampleRate: "original" });
+    cleanup();
+    const keep = setup({ sampleRate: 44100 });
+    fireEvent.click(screen.getByRole("radio", { name: /MP3/ }));
+    expect(keep).toHaveBeenLastCalledWith({ format: "mp3", bitrateKbps: 192 });
+  });
+
+  it("sin WebAssembly con SIMD o sin Worker, MP3 va desactivado, con su motivo asociado, y no se puede elegir", () => {
+    for (const [reason, pattern] of [
+      ["noWasm", /WebAssembly con SIMD/],
+      ["noWorker", /segundo plano/],
+    ] as const) {
+      const onChange = setup({}, { ...all, mp3: { available: false, reason } });
+      const mp3 = screen.getByRole("radio", { name: /MP3/ });
+      expect(mp3.getAttribute("aria-disabled")).toBe("true");
+      expect(mp3.getAttribute("aria-checked")).toBe("false");
+      expect(document.getElementById(mp3.getAttribute("aria-describedby") as string)?.textContent).toMatch(pattern);
+      fireEvent.click(mp3);
+      expect(onChange).not.toHaveBeenCalled();
+      // Sigue siendo alcanzable con el teclado (no es `disabled`).
+      expect((mp3 as HTMLButtonElement).disabled).toBe(false);
+      cleanup();
+    }
   });
 
   it("elegir M4A u Opus cambia el formato y ajusta la tasa de bits por defecto", () => {
@@ -60,9 +84,9 @@ describe("OutputOptions: formatos", () => {
   });
 
   it("en ingles, los textos y el motivo salen en ingles", () => {
-    setup({}, all, "en");
+    setup({}, { ...all, mp3: { available: false, reason: "noWasm" } }, "en");
     expect(screen.getByText("Output format")).toBeTruthy();
-    expect(document.body.textContent).toMatch(/we cannot bundle/);
+    expect(document.body.textContent).toMatch(/needs WebAssembly with SIMD/);
   });
 });
 
@@ -78,6 +102,30 @@ describe("OutputOptions: calidad, frecuencia y canales", () => {
     cleanup();
     setup({ format: "opus", bitrateKbps: 96 });
     expect(Array.from((screen.getByLabelText("Calidad (tasa de bits)") as HTMLSelectElement).options).map((o) => o.value)).toContain("32");
+  });
+
+  it("MP3: tasas 128/192/256/320, frecuencias 48/44,1/32 kHz y el credito a LAME con enlaces a su sitio y a /licenses", () => {
+    setup({ format: "mp3", bitrateKbps: 192 });
+    const bitrate = screen.getByLabelText("Calidad (tasa de bits)") as HTMLSelectElement;
+    expect(bitrate.value).toBe("192");
+    expect(Array.from(bitrate.options).map((o) => o.value)).toEqual(["128", "192", "256", "320"]);
+    const rate = screen.getByLabelText("Frecuencia de muestreo") as HTMLSelectElement;
+    expect(Array.from(rate.options).map((o) => o.value)).toEqual(["original", "48000", "44100", "32000"]);
+    expect(rate.disabled).toBe(false);
+    const credit = document.querySelector("[data-mp3-credit]") as HTMLElement;
+    expect(credit.textContent).toMatch(/Codificación MP3 por LAME/);
+    const lame = within(credit).getByRole("link", { name: /LAME/ });
+    expect(lame.getAttribute("href")).toBe("https://lame.sourceforge.io/");
+    const licenses = within(credit).getByRole("link", { name: /Licencias y código fuente/ });
+    expect(licenses.getAttribute("href")).toBe("/licenses#mp3");
+    for (const link of [lame, licenses]) {
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(link.textContent).toMatch(/otra pestaña/);
+    }
+    cleanup();
+    setup({ format: "m4a" });
+    expect(document.querySelector("[data-mp3-credit]")).toBeNull();
   });
 
   it("frecuencia: `original` y las habituales; con Opus queda fija en 48 kHz y se explica", () => {

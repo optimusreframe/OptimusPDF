@@ -4,10 +4,11 @@ import Link from "next/link";
 import { Info } from "lucide-react";
 import { buttonClasses } from "@/components/ui/Button";
 import { ToolCard } from "@/components/tool/ToolCard";
+import { ToolHeader } from "@/components/tool/ToolHeader";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import type { NoWebCodecsReason } from "@/lib/media/video/capabilities";
-import { ACCENT_BG_SOFT, ACCENT_TEXT, getRelatedTools, type Tool } from "@/lib/tools-registry";
+import { getRelatedTools, type Tool } from "@/lib/tools-registry";
 import type { VideoConverterStrings } from "@/app/video-converter/strings";
 
 /**
@@ -28,19 +29,10 @@ export function UnsupportedView({
   strings: VideoConverterStrings;
 }) {
   const t = useT();
-  const Icon = tool.icon;
   const alternatives = getRelatedTools(tool.slug, 3).filter((candidate) => candidate.status === "live");
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-16 md:px-6 md:pt-10" data-video-unsupported={reason}>
-      <header className="mb-8 flex items-start gap-4">
-        <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-ios", ACCENT_BG_SOFT[tool.accent])}>
-          <Icon aria-hidden="true" className={cn("size-6", ACCENT_TEXT[tool.accent])} />
-        </span>
-        <div className="min-w-0">
-          <h1 className="text-title-1 text-foreground">{name}</h1>
-          <p className="mt-1.5 max-w-2xl text-callout text-muted-foreground">{description}</p>
-        </div>
-      </header>
+      <ToolHeader tool={tool} name={name} description={description} />
 
       <section className="surface-card rounded-ios-lg p-6 md:p-8" aria-labelledby="video-unsupported-title">
         <div className="flex items-start gap-3">

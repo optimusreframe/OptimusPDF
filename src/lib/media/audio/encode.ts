@@ -3,16 +3,18 @@ import { buildAudioSpecificConfig, muxM4a, stripAdts, type AacPacket } from "@/l
 import { muxOggOpus, type OpusPacket } from "@/lib/media/audio/ogg";
 import { remixSource, yieldToBrowser } from "@/lib/media/audio/pcm";
 import { resampleSource } from "@/lib/media/audio/resample";
+import { clampMp3BitrateKbps, snapMp3SampleRate } from "@/lib/media/audio/mp3Params";
 import { encodeWav } from "@/lib/media/audio/wav";
 import { detectOutputSupport } from "@/lib/media/audio/capabilities";
 import type { EncodeOptions, OutputFormat, PcmSource, Progress } from "@/lib/media/audio/types";
 
 /**
- * Codificacion a WAV, M4A (AAC) y Opus.
+ * Codificacion a WAV, M4A (AAC), Opus y MP3.
  *
- * Los tres parten de un `PcmSource` peresoso: primero se ajustan los canales y la frecuencia pedidos y despues se
+ * Todos parten de un `PcmSource` peresoso: primero se ajustan los canales y la frecuencia pedidos y despues se
  * codifica por bloques. WAV usa el codificador propio; M4A y Opus usan `AudioEncoder` (WebCodecs) y se empaquetan con
- * `m4a.ts` / `ogg.ts`. Todo en el dispositivo, con progreso real y cancelacion.
+ * `m4a.ts` / `ogg.ts`; MP3 usa LAME en WebAssembly (`mp3.ts`, que se carga SOLO al elegirlo). Todo en el dispositivo,
+ * con progreso real y cancelacion.
  */
 
 export type EncodeContext = { signal?: AbortSignal; onProgress?: Progress };
@@ -21,7 +23,9 @@ export type EncodeContext = { signal?: AbortSignal; onProgress?: Progress };
 export function resolveTarget(source: { sampleRate: number; numberOfChannels: number }, options: EncodeOptions): { sampleRate: number; channels: number } {
   const lossy = options.format !== "wav";
   const channels = options.channels === "original" ? (lossy ? Math.min(2, source.numberOfChannels) : source.numberOfChannels) : options.channels;
-  const sampleRate = options.format === "opus" ? 48000 : options.sampleRate === "original" ? source.sampleRate : options.sampleRate;
+  let sampleRate = options.format === "opus" ? 48000 : options.sampleRate === "original" ? source.sampleRate : options.sampleRate;
+  // MP3 solo existe a nueve frecuencias: lo pedido (o la del original) se lleva a la valida mas cercana.
+  if (options.format === "mp3") sampleRate = snapMp3SampleRate(sampleRate);
   return { sampleRate, channels };
 }
 
@@ -29,7 +33,8 @@ export function resolveTarget(source: { sampleRate: number; numberOfChannels: nu
 export function estimateOutputBytes(durationSec: number, source: { sampleRate: number; numberOfChannels: number }, options: EncodeOptions): number {
   const target = resolveTarget(source, options);
   if (options.format === "wav") return Math.round(durationSec * target.sampleRate * target.channels * 2) + 44;
-  return Math.round((durationSec * options.bitrateKbps * 1000) / 8);
+  const kbps = options.format === "mp3" ? clampMp3BitrateKbps(options.bitrateKbps, target.sampleRate) : options.bitrateKbps;
+  return Math.round((durationSec * kbps * 1000) / 8);
 }
 
 export async function encodeAudio(source: PcmSource, options: EncodeOptions, context: EncodeContext = {}): Promise<Blob> {
@@ -40,6 +45,13 @@ export async function encodeAudio(source: PcmSource, options: EncodeOptions, con
   const prepared = resampleSource(remixSource(source, target.channels), target.sampleRate);
   try {
     if (options.format === "wav") return await encodeWav(prepared, signal, onProgress);
+    if (options.format === "mp3") {
+      // Import dinamico: LAME (WASM) y mediabunny solo se descargan al elegir MP3. Si el trozo no carga (sin red), se dice.
+      const { encodeMp3 } = await import("@/lib/media/audio/mp3").catch(() => {
+        throw new AudioError("encoderUnavailable", "mp3-chunk");
+      });
+      return await encodeMp3(prepared, options.bitrateKbps, signal, onProgress);
+    }
     return await encodeWithWebCodecs(prepared, options.format, options.bitrateKbps, signal, onProgress);
   } catch (error) {
     throw toAudioError(error);
@@ -131,7 +143,7 @@ async function runAudioEncoder(
 
 async function encodeWithWebCodecs(
   source: PcmSource,
-  format: Exclude<OutputFormat, "wav">,
+  format: Exclude<OutputFormat, "wav" | "mp3">,
   bitrateKbps: number,
   signal: AbortSignal | undefined,
   onProgress: Progress | undefined,

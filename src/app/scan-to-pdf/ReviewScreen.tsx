@@ -225,7 +225,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
             {statusText(s, api.saveStatus)}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1 pointer-coarse:gap-2">
           <IconButton label={s.undo} action="undo" disabled={!api.canUndo} onClick={api.undo}>
             <Undo2 aria-hidden="true" className="size-5" />
           </IconButton>
@@ -326,7 +326,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
       {removedBlanks && api.undoLabel === s.labels.blanks ? (
         <div data-banner="blanks-removed" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-ios border border-hairline bg-white/5 px-3 py-2">
           <p className="min-w-0 text-footnote text-foreground">{s.blanksReview.removedNotice(removedBlanks.count)}</p>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 pointer-coarse:gap-2">
             <Button size="sm" variant="secondary" data-review-action="undo-blanks" onClick={() => { api.undo(); setRemovedBlanks(null); }}>
               <Undo2 aria-hidden="true" className="size-4" />
               {s.blanksReview.undo}
@@ -341,7 +341,7 @@ export function ReviewScreen({ s, api, closeLabel, onCamera, onPhotos, onEdit, o
       {notice ? (
         <div data-banner="orientation" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-ios border border-hairline bg-white/5 px-3 py-2">
           <p className="min-w-0 text-footnote text-foreground">{s.orientationNotice(orientationCounts(notice))}</p>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 pointer-coarse:gap-2">
             <Button size="sm" variant="secondary" data-review-action="undo-orientation" onClick={api.undoOrientation}>
               <Undo2 aria-hidden="true" className="size-4" />
               {s.orientationUndo}

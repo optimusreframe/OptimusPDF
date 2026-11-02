@@ -98,8 +98,8 @@ test.describe("Home", () => {
 test.describe("PDF Pro — abrir un PDF", () => {
   test("por arrastre: abre la suite, el foco queda en el titulo y hay una sola region viva", async ({ page }) => {
     await openProPdf(page, "contrato.pdf", 3);
-    await expect(page.getByRole("tab")).toHaveCount(7);
-    await expect(page.getByRole("tablist")).toBeVisible();
+    await expect(page.locator("main").getByRole("tab")).toHaveCount(7);
+    await expect(page.locator("main").getByRole("tablist")).toBeVisible();
     await expect(page.getByText("3 páginas").first()).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
     await expect(page.getByRole("status")).toHaveCount(1);
@@ -114,7 +114,7 @@ test.describe("PDF Pro — abrir un PDF", () => {
     await page.goto("/pdf-pro");
     await page.locator('input[type="file"]').first().setInputFiles({ name: "falso.pdf", mimeType: "application/pdf", buffer: Buffer.from("esto no es un pdf") });
     await expect(page.getByText(es.tool.errors.notPdf)).toBeVisible();
-    await expect(page.getByRole("tablist")).toHaveCount(0);
+    await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
     await expect(page.locator("[data-error-banner]")).toBeFocused();
   });
 
@@ -366,7 +366,7 @@ for (const viewport of [
         expect(box.width, name).toBeGreaterThanOrEqual(44);
         expect(box.height, name).toBeGreaterThanOrEqual(44);
       }
-      const tabs = mobile ? page.getByRole("toolbar", { name: S.shell.dockLabel }).getByRole("button") : page.getByRole("tab");
+      const tabs = mobile ? page.getByRole("toolbar", { name: S.shell.dockLabel }).getByRole("button") : page.locator("main").getByRole("tab");
       for (const tab of await tabs.all()) {
         expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }

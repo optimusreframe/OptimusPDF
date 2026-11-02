@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useId, useRef, useState, type RefObject } from "react";
+import { useIsClient } from "@/hooks/useIsClient";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Slider } from "@/components/ui/Slider";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
@@ -89,6 +90,10 @@ export function ImageConverterToolClient() {
   const s = STRINGS[language];
   const locale = localeTag(language);
   const { support } = useOutputSupport();
+  // El peso maximo que dice la zona de carga es el de ESTE aparato (64 MB; 32 MB en iPhone/iPad), no los 100 MB de los PDF. En el
+  // servidor y durante la hidratacion vale el de escritorio (misma cifra que se pinta alli: sin desajuste).
+  const isClient = useIsClient();
+  const maxFileBytes = limitsFor(isClient && isIosWebKit()).maxFileBytes;
   const [progressText, setProgressText] = useState("");
   /** Imagenes que fallaron en la ultima conversion cuando NINGUNA salio (si salio alguna, el resultado las nombra). */
   const [failed, setFailed] = useState<ConverterProblemEntry[]>([]);
@@ -137,7 +142,7 @@ export function ImageConverterToolClient() {
         outcome.items.length === 1
           ? fill(s.summaryOne, { format: info.label, before: size(outcome.sourceBytes), after: size(outcome.outputBytes) })
           : fill(s.summaryMany, { n: outcome.items.length, format: info.label, before: size(outcome.sourceBytes), after: size(outcome.outputBytes) });
-      return { blob: packed.blob, filename: packed.filename, summary, notices: buildNotices(s, language, outcome) };
+      return { blob: packed.blob, filename: packed.filename, summary, subtitle: s.doneSubtitle, notices: buildNotices(s, language, outcome) };
     },
     [s, language, locale],
   );
@@ -147,6 +152,7 @@ export function ImageConverterToolClient() {
       tool={TOOL}
       defaultOptions={DEFAULT_OPTIONS}
       process={process}
+      dropzoneMaxBytes={maxFileBytes}
       progressMessage={progressText || undefined}
       removeFilesRef={removeFilesRef}
       renderMain={({ files }) => <Workbench files={files} failed={failed} removeFilesRef={removeFilesRef} />}

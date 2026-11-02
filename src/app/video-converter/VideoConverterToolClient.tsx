@@ -8,13 +8,15 @@ import { Button } from "@/components/ui/Button";
 import { DownloadScreen } from "@/components/tool/DownloadScreen";
 import { ErrorBanner, type ErrorBannerAction } from "@/components/tool/ErrorBanner";
 import { FileDropzone } from "@/components/tool/FileDropzone";
+import { ToolHeader } from "@/components/tool/ToolHeader";
+import { formatLimit } from "@/components/tool/formatLimit";
 import { OptionsPanel } from "@/components/tool/OptionsPanel";
 import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
 import { useI18n, localeTag } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { addRecentEntry } from "@/lib/recent";
 import { downloadBlob, formatFileSize, type PdfErrorCode } from "@/lib/pdf/core";
-import { ACCENT_BG_SOFT, ACCENT_TEXT, getTool, toolHref } from "@/lib/tools-registry";
+import { getTool, toolHref } from "@/lib/tools-registry";
 import {
   browserCodecEnv,
   canEncodeVideoAt,
@@ -335,7 +337,7 @@ export function VideoConverterToolClient() {
     if (!info || !plan) return {};
     switch (issue.code) {
       case "inputTooLarge":
-        return { size: formatFileSize(info.fileSize, locale), limit: formatFileSize(limits.maxInputBytes, locale) };
+        return { size: formatFileSize(info.fileSize, locale), limit: formatLimit(limits.maxInputBytes, locale) };
       case "bigFile":
         return { size: formatFileSize(info.fileSize, locale) };
       case "tooLong":
@@ -343,7 +345,7 @@ export function VideoConverterToolClient() {
       case "longVideo":
         return { duration: formatDuration(info.duration) };
       case "outputTooLarge":
-        return { size: formatFileSize(plan.estimatedBytes, locale), limit: formatFileSize(limits.maxOutputBytes, locale) };
+        return { size: formatFileSize(plan.estimatedBytes, locale), limit: formatLimit(limits.maxOutputBytes, locale) };
       case "outputLarger":
         return { size: formatFileSize(plan.estimatedBytes, locale), original: formatFileSize(info.fileSize, locale) };
       case "cannotDecodeVideo":
@@ -376,15 +378,17 @@ export function VideoConverterToolClient() {
     const dimensions = formatDimensions(result.plan.video.width, result.plan.video.height);
     return (
       <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-16 md:px-6 md:pt-10">
-        <ToolHeader name={copy.name} description={copy.description} />
+        <ToolHeader tool={TOOL} name={copy.name} description={copy.description} />
         <DownloadScreen
           slug={TOOL.slug}
           filename={result.filename}
           size={result.blob.size}
           onDownload={() => downloadBlob(result.blob, result.filename)}
           onStartOver={resetAll}
+          blob={result.blob}
           downloadButtonRef={downloadRef}
           summary={fillTemplate(result.plan.video.mode === "copy" ? s.summaryCopy : s.summaryTranscode, { format, dimensions })}
+          subtitle={s.doneSubtitle}
           notices={notices.length > 0 ? { title: s.noticesTitle, items: notices } : undefined}
         />
       </div>
@@ -406,7 +410,7 @@ export function VideoConverterToolClient() {
 
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-52 md:px-6 md:pt-10 md:pb-16">
-      <ToolHeader name={copy.name} description={copy.description} />
+      <ToolHeader tool={TOOL} name={copy.name} description={copy.description} />
 
       <ErrorBanner
         show={banner !== null}
@@ -452,6 +456,8 @@ export function VideoConverterToolClient() {
             onFilesChange={onFilesChange}
             onError={onDropzoneError}
             buttonRef={dropzoneButtonRef}
+            // El tope real es el de `limits.ts` (4 GB; 1 GB en movil), no los 100 MB de los PDF.
+            maxBytes={limits.maxInputBytes}
           />
           <section className="mt-6 space-y-3" aria-labelledby="video-idle-title">
             <h2 id="video-idle-title" className="text-headline text-foreground">
@@ -461,8 +467,8 @@ export function VideoConverterToolClient() {
             <p className="max-w-3xl text-footnote text-muted-foreground">{s.idleFormats}</p>
             <p className="max-w-3xl text-footnote text-muted-foreground">
               {fillTemplate(s.idleLimits, {
-                warn: formatFileSize(limits.warnInputBytes, locale),
-                max: formatFileSize(limits.maxInputBytes, locale),
+                warn: formatLimit(limits.warnInputBytes, locale),
+                max: formatLimit(limits.maxInputBytes, locale),
                 duration: formatDuration(limits.maxDurationSec),
               })}
             </p>
@@ -553,9 +559,10 @@ export function VideoConverterToolClient() {
               {reasonText}
             </p>
           ) : null}
-          <div className="flex items-center gap-2">
+          {/* Igual que la barra de `ToolShell`: con la letra grande el segundo boton baja a su fila en vez de salirse. */}
+          <div className="flex flex-wrap items-center gap-2">
             {info ? (
-              <Button variant="secondary" size="md" onClick={() => setOptionsOpen(true)}>
+              <Button variant="secondary" size="md" wrap onClick={() => setOptionsOpen(true)}>
                 <SlidersHorizontal aria-hidden="true" className="size-4" />
                 {t.tool.openOptions}
               </Button>
@@ -563,7 +570,8 @@ export function VideoConverterToolClient() {
             <Button
               ref={runMobileRef}
               size="md"
-              fullWidth
+              wrap
+              className="flex-1"
               disabled={!canRun}
               aria-describedby={reasonText ? `${reasonId}-bar` : undefined}
               onClick={() => void run()}
@@ -578,22 +586,6 @@ export function VideoConverterToolClient() {
         {phase === "processing" ? <ProcessingOverlay key="processing" progress={progress} message={s.progress} onCancel={cancel} /> : null}
       </AnimatePresence>
     </div>
-  );
-}
-
-/** Cabecera de la herramienta (icono, titulo y descripcion), igual que la de `ToolShell`. */
-function ToolHeader({ name, description }: { name: string; description: string }) {
-  const Icon = TOOL.icon;
-  return (
-    <header className="mb-8 flex items-start gap-4">
-      <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-ios", ACCENT_BG_SOFT[TOOL.accent])}>
-        <Icon aria-hidden="true" className={cn("size-6", ACCENT_TEXT[TOOL.accent])} />
-      </span>
-      <div className="min-w-0">
-        <h1 className="text-title-1 text-foreground">{name}</h1>
-        <p className="mt-1.5 max-w-2xl text-callout text-muted-foreground">{description}</p>
-      </div>
-    </header>
   );
 }
 

@@ -9,6 +9,8 @@ import { recordWebm } from "../helpers/audio-flow";
  *  - Decodificar un WebM REAL de `MediaRecorder` (segmento y clusters de tamano desconocido) por las dos vias: Web Audio y
  *    nuestro lector de contenedor + `AudioDecoder`.
  *  - Video sin audio, cancelacion y cifras de tiempo.
+ *  - MP3 (LAME en WebAssembly dentro de un Worker en blob) con la politica CSP de PRODUCCION, es decir, la del servidor de
+ *    desarrollo SIN `'unsafe-eval'`, y con la politica recortada para comprobar que un bloqueo se declara (no se cuelga).
  * Los audios son senos generados en la propia prueba. Se abre `/` solo para tener un origen seguro (localhost).
  */
 
@@ -19,6 +21,29 @@ async function lab(page: Page): Promise<void> {
   await page.addInitScript({ content: await audioLabBundle() });
   await page.goto("/privacy");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+}
+
+/**
+ * Sirve cada documento con la politica CSP que da `edit` a partir de la del servidor, y anota las violaciones en `window.__csp`.
+ * Con el servidor de desarrollo, `edit` suele quitar `'unsafe-eval'` (React lo pide solo en desarrollo; produccion no lo emite): React
+ * escribe un aviso en consola y la pagina sigue mostrando el HTML, que es todo lo que el laboratorio necesita.
+ */
+async function restrictCsp(page: Page, edit: (policy: string) => string): Promise<string[]> {
+  const served: string[] = [];
+  await page.route("**/*", async (route) => {
+    if (route.request().resourceType() !== "document") return route.continue();
+    const response = await route.fetch();
+    const headers = response.headers();
+    const policy = edit(headers["content-security-policy"] ?? "");
+    served.push(policy);
+    await route.fulfill({ response, headers: { ...headers, "content-security-policy": policy } });
+  });
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    (window as unknown as { __csp: string[] }).__csp = seen;
+    document.addEventListener("securitypolicyviolation", (event) => seen.push(`${event.violatedDirective} ${event.blockedURI}`));
+  });
+  return served;
 }
 
 test.describe("motor de audio en Chromium", () => {
@@ -102,7 +127,7 @@ test.describe("motor de audio en Chromium", () => {
       return { support, probe, packets, codec: mp4!.structure.audioTracks[0].codec, ftyp: String.fromCharCode(...head.subarray(4, 12)), size: blob.size };
     });
     expect(result.support.wav).toEqual({ available: true });
-    expect(result.support.mp3).toEqual({ available: false, reason: "license" });
+    expect(result.support.mp3).toEqual({ available: true });
     if ("error" in result) {
       expect(result.support.m4a.available).toBe(false);
       expect(["noWebCodecs", "codecUnsupported"]).toContain(result.support.m4a.reason);
@@ -221,5 +246,105 @@ test.describe("motor de audio en Chromium", () => {
       type: "cifras",
       description: `60 s estéreo 44,1 kHz: WAV original ${result.wavOriginal.ms} ms; WAV 22,05 kHz mono (con remuestreo) ${result.wav22.ms} ms; Opus 96 kbps (remuestreo a 48 kHz) ${result.opus.ms} ms (${result.opus.bytes} B); cancelar tardó ${result.cancelMs} ms`,
     });
+  });
+
+  test("MP3 con la CSP de PRODUCCION (sin 'unsafe-eval'): el Worker en blob y el WASM de LAME funcionan, sin violaciones de CSP, y el navegador decodifica lo creado", async ({ page }) => {
+    const policies = await restrictCsp(page, (policy) => policy.replace(/\s*'unsafe-eval'/g, ""));
+    await lab(page);
+    const result = await page.evaluate(async () => {
+      type Lab = {
+        detectOutputSupport: () => Promise<Record<string, { available: boolean }>>;
+        encodeAudio: (source: unknown, options: unknown, context?: unknown) => Promise<Blob>;
+        sourceOfAudio: (audio: unknown) => unknown;
+        probeMedia: (blob: Blob) => Promise<unknown>;
+      };
+      const lab = (globalThis as unknown as { AudioLab: Lab }).AudioLab;
+      const rate = 44100;
+      const frames = Math.round(1.5 * rate);
+      const left = Float32Array.from({ length: frames }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 440 * i) / rate));
+      const right = Float32Array.from({ length: frames }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 880 * i) / rate));
+      const support = await lab.detectOutputSupport();
+      const progress: number[] = [];
+      // React (desarrollo) prueba `eval` al arrancar y la CSP sin `'unsafe-eval'` lo anota; solo cuentan las violaciones DURANTE la codificacion.
+      const cspBefore = (window as unknown as { __csp: string[] }).__csp.length;
+      const started = performance.now();
+      const blob = await lab.encodeAudio(lab.sourceOfAudio({ sampleRate: rate, channels: [left, right] }), { format: "mp3", bitrateKbps: 192, sampleRate: "original", channels: "original" }, { onProgress: (value: number) => progress.push(value) });
+      const encodeMs = Math.round(performance.now() - started);
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const decoded = await new OfflineAudioContext(2, 1, rate).decodeAudioData(bytes.slice().buffer);
+      const freq = (samples: Float32Array, from: number, to: number) => {
+        let crossings = 0;
+        for (let i = from + 1; i < to; i += 1) if (samples[i - 1] < 0 && samples[i] >= 0) crossings += 1;
+        return (crossings * decoded.sampleRate) / (to - from);
+      };
+      const mid = Math.round(decoded.length / 2);
+      const cspAll = (window as unknown as { __csp: string[] }).__csp;
+      return {
+        support: support.mp3,
+        type: blob.type,
+        head: Array.from(bytes.subarray(0, 2)),
+        size: bytes.length,
+        probe: await lab.probeMedia(blob),
+        duration: decoded.duration,
+        rate: decoded.sampleRate,
+        channels: decoded.numberOfChannels,
+        left: freq(decoded.getChannelData(0), mid - 4410, mid + 4410),
+        right: freq(decoded.getChannelData(1), mid - 4410, mid + 4410),
+        progress,
+        encodeMs,
+        csp: cspAll.slice(cspBefore),
+        cspBefore: cspAll.slice(0, cspBefore),
+      };
+    });
+    expect(policies.length).toBeGreaterThan(0);
+    expect(result.cspBefore.every((entry) => entry.startsWith("script-src eval")), `anteriores a la codificacion: ${result.cspBefore}`).toBe(true);
+    expect(policies.every((policy) => !policy.includes("'unsafe-eval'") && policy.includes("'wasm-unsafe-eval'") && policy.includes("worker-src 'self' blob:"))).toBe(true);
+    expect(result.support).toEqual({ available: true });
+    expect(result.type).toBe("audio/mpeg");
+    expect(result.head[0]).toBe(0xff);
+    expect(result.probe).toMatchObject({ kind: "mp3", sampleRate: 44100, channels: 2 });
+    expect(result.size).toBeGreaterThan(30_000); // ~192 kbps x 1,5 s = 36 kB
+    expect(result.size).toBeLessThan(50_000);
+    expect(Math.abs(result.duration - 1.5)).toBeLessThan(0.05);
+    expect(result.rate).toBe(44100);
+    expect(result.channels).toBe(2);
+    expect(Math.abs(result.left - 440)).toBeLessThan(12);
+    expect(Math.abs(result.right - 880)).toBeLessThan(24);
+    expect(result.progress.length).toBeGreaterThan(2);
+    expect(result.progress.at(-1)).toBe(1);
+    expect(result.csp).toEqual([]);
+    test.info().annotations.push({ type: "mp3", description: `1,5 s estéreo 44,1 kHz a 192 kbps con CSP de producción: ${result.size} B en ${result.encodeMs} ms (incluye crear el Worker y compilar el WASM)` });
+  });
+
+  test("MP3 con una CSP que bloquea el Worker en blob o el WASM: se declara `encoderUnavailable` (no se cuelga) y queda constancia de la violacion", async ({ page }) => {
+    for (const [variant, edit] of [
+      ["worker-src sin blob:", (policy: string) => policy.replace("worker-src 'self' blob:", "worker-src 'self'").replace("child-src 'self' blob:", "child-src 'self'")],
+      ["script-src sin 'wasm-unsafe-eval'", (policy: string) => policy.replace(/\s*'wasm-unsafe-eval'/g, "")],
+    ] as const) {
+      const fresh = await page.context().newPage();
+      try {
+        await restrictCsp(fresh, (policy) => edit(policy.replace(/\s*'unsafe-eval'/g, "")));
+        await lab(fresh);
+        const result = await fresh.evaluate(async () => {
+          type Lab = { encodeAudio: (source: unknown, options: unknown, context?: unknown) => Promise<Blob>; sourceOfAudio: (audio: unknown) => unknown };
+          const lab = (globalThis as unknown as { AudioLab: Lab }).AudioLab;
+          const samples = Float32Array.from({ length: 22050 }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 440 * i) / 22050));
+          const started = performance.now();
+          const outcome = await lab.encodeAudio(lab.sourceOfAudio({ sampleRate: 22050, channels: [samples] }), { format: "mp3", bitrateKbps: 128, sampleRate: "original", channels: "original" }).then(
+            () => "creado",
+            (error: { code?: string; detail?: string }) => `${error.code}:${error.detail ?? ""}`,
+          );
+          return { outcome, ms: Math.round(performance.now() - started), csp: (window as unknown as { __csp: string[] }).__csp };
+        });
+        expect(result.outcome, variant).toMatch(/^encoderUnavailable:mp3-(init|timeout)$/);
+        expect(result.ms, variant).toBeLessThan(60_000);
+        // Chromium avisa de la violacion de `worker-src`, pero no siempre emite `securitypolicyviolation` cuando falta
+        // `'wasm-unsafe-eval'` (la compilacion falla dentro del Worker): lo que se exige en ambos casos es el estado declarado.
+        if (variant.startsWith("worker-src")) expect(result.csp.length, `${variant}: violaciones ${JSON.stringify(result.csp)}`).toBeGreaterThan(0);
+        test.info().annotations.push({ type: "csp", description: `${variant}: ${result.outcome} en ${result.ms} ms, violaciones: ${result.csp.join(" | ").slice(0, 200)}` });
+      } finally {
+        await fresh.close();
+      }
+    }
   });
 });

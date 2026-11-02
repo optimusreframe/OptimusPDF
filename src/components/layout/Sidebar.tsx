@@ -10,27 +10,18 @@ import {
   useSyncExternalStore,
 } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import {
-  ChevronsLeft,
-  ChevronsRight,
-  Clock,
-  FolderOpen,
-  House,
-  Search,
-  Settings,
-} from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Search } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
-import { SidebarLink } from "@/components/layout/SidebarLink";
-import { SidebarTree, matchesRoute } from "@/components/layout/SidebarTree";
-import { useActiveSection } from "@/components/layout/activeSection";
+import { SidebarNavBody } from "@/components/layout/SidebarNavBody";
+import { fold, searchTools } from "@/components/layout/navSearch";
 import { Badge } from "@/components/ui/Badge";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { springs, withCrossFadeOpacity } from "@/lib/motion";
 import { useViewportTier } from "@/lib/touch/viewportTier";
-import { ACCENT_TEXT, TOOLS, getFeaturedTools, toolHref } from "@/lib/tools-registry";
+import { ACCENT_TEXT, toolHref } from "@/lib/tools-registry";
 
 const SIDEBAR_STORAGE_KEY = "optimuspdf.sidebarCollapsed";
 
@@ -76,14 +67,6 @@ function writeCollapsed(next: boolean): void {
   for (const listener of collapseListeners) listener();
 }
 
-/** Normaliza para buscar: minusculas y sin diacriticos. */
-function fold(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase();
-}
-
 /**
  * Sidebar persistente de escritorio (>=1024px), al estilo de las barras
  * laterales de macOS: superficie solida (no hay contenido que pase por
@@ -115,7 +98,6 @@ export function Sidebar() {
   const [override, setOverride] = useState<{ path: string; value: boolean } | null>(null);
   const overridden = override && override.path === pathname ? override.value : null;
   const collapsed = autoCompact ? (overridden ?? true) : storedCollapsed;
-  const activeSection = useActiveSection();
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLDivElement>(null);
   const resultsId = useId();
@@ -142,32 +124,7 @@ export function Sidebar() {
   }
 
   const trimmed = fold(query.trim());
-  const results =
-    trimmed.length > 0
-      ? TOOLS.filter((tool) =>
-          fold(t.tools[tool.slug].name).includes(trimmed),
-        ).slice(0, 6)
-      : [];
-
-  const isHome = pathname === "/";
-  const isRecent = matchesRoute(pathname, "/recent");
-  const isDocuments = matchesRoute(pathname, "/documents");
-  const isSettings = matchesRoute(pathname, "/settings");
-  const featuredActive = getFeaturedTools().find((tool) => matchesRoute(pathname, toolHref(tool.slug)));
-  /* Una sola entrada activa. En Home manda la seccion visible (la resuelve SidebarTree); si aun no hay ninguna (arriba
-     del todo), «Inicio». Fuera de Home: PDF Pro, o la pagina de Recientes/Documentos/Ajustes; las herramientas las marca
-     SidebarTree por su ruta. */
-  const activeKey = isHome
-    ? (activeSection ? "section" : "home")
-    : featuredActive
-      ? featuredActive.slug
-      : isDocuments
-        ? "documents"
-        : isRecent
-          ? "recent"
-          : isSettings
-            ? "settings"
-            : null;
+  const results = searchTools(t, query).slice(0, 6);
 
   return (
     <aside
@@ -277,87 +234,7 @@ export function Sidebar() {
         aria-label={t.nav.primaryNav}
         className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3"
       >
-        <ul className="space-y-0.5">
-          <SidebarLink
-            href="/"
-            icon={House}
-            label={t.nav.home}
-            active={activeKey === "home"}
-            collapsed={collapsed}
-          />
-          <SidebarLink
-            href="/recent"
-            icon={Clock}
-            label={t.nav.recent}
-            active={activeKey === "recent"}
-            collapsed={collapsed}
-          />
-          {getFeaturedTools().map((tool) => (
-            <SidebarLink
-              key={tool.slug}
-              href={toolHref(tool.slug)}
-              icon={tool.icon}
-              label={t.tools[tool.slug].name}
-              active={activeKey === tool.slug}
-              collapsed={collapsed}
-              iconClassName={ACCENT_TEXT[tool.accent]}
-            />
-          ))}
-        </ul>
-
-        <div className="mt-5">
-          <SidebarTree
-            pathname={pathname}
-            collapsed={collapsed}
-            spySection={activeSection}
-            isHome={isHome}
-          />
-        </div>
-
-        <div className="mt-4 border-t border-hairline pt-3">
-          {collapsed ? null : (
-            <p className="ui-label px-2.5 pb-1.5 text-caption text-muted-foreground">{t.nav.backupLabel}</p>
-          )}
-          <ul className="space-y-0.5">
-            <SidebarLink
-              href="/documents"
-              icon={FolderOpen}
-              label={t.nav.documents}
-              active={activeKey === "documents"}
-              collapsed={collapsed}
-            />
-            <SidebarLink
-              href="/settings"
-              icon={Settings}
-              label={t.nav.settings}
-              active={activeKey === "settings"}
-              collapsed={collapsed}
-            />
-          </ul>
-        </div>
-
-        {collapsed ? null : (
-          <ul className="mt-4 space-y-0.5 border-t border-hairline pt-3">
-            <li>
-              <Link
-                href="/pricing"
-                aria-current={matchesRoute(pathname, "/pricing") ? "page" : undefined}
-                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote pointer-coarse:h-11 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
-              >
-                {t.nav.pricing}
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/about"
-                aria-current={matchesRoute(pathname, "/about") ? "page" : undefined}
-                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote pointer-coarse:h-11 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
-              >
-                {t.nav.about}
-              </Link>
-            </li>
-          </ul>
-        )}
+        <SidebarNavBody collapsed={collapsed} />
       </nav>
 
       <div

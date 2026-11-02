@@ -43,14 +43,15 @@ export function PrivacyView() {
                 </p>
               ))}
               {section.key === "thirdParties" ? (
-                <ul className="list-inside list-disc space-y-1">
+                <ul className="list-outside list-disc pl-5">
                   {s.thirdPartyLinks.map((link) => (
                     <li key={link.href}>
                       <a
                         href={link.href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-foreground underline underline-offset-2 hover:text-muted-foreground md:text-base"
+                        // Cada enlace es un renglon de 44 px (no una linea de texto de 20 px) y, si es largo, se parte en vez de desbordar.
+                        className="inline-flex min-h-11 items-center text-sm [overflow-wrap:anywhere] text-foreground underline underline-offset-2 hover:text-muted-foreground md:text-base"
                       >
                         {link.label}
                       </a>

@@ -245,7 +245,13 @@ export function PdfToMarkdownToolClient() {
                     </p>
                   ) : (
                     <>
-                      <pre className="rounded-ios-sm mt-4 max-h-[28rem] overflow-auto border border-white/10 bg-white/[0.03] p-4 text-xs leading-relaxed whitespace-pre-wrap text-foreground/85">
+                      {/* Region con scroll propio: alcanzable con teclado (tabIndex 0 + nombre) y nunca mas alta que ~60 % de la pantalla (dvh: la barra de Safari no la tapa). */}
+                      <pre
+                        tabIndex={0}
+                        role="region"
+                        aria-label={s.previewTitle}
+                        className="rounded-ios-sm mt-4 max-h-[min(28rem,60dvh)] overflow-auto border border-white/10 bg-white/[0.03] p-4 text-xs leading-relaxed whitespace-pre-wrap text-foreground/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                      >
                         {preview.markdown.slice(0, PREVIEW_LIMIT)}
                       </pre>
                       {preview.markdown.length > PREVIEW_LIMIT ? (
@@ -299,7 +305,9 @@ export function PdfToMarkdownToolClient() {
 
           {options.ocrFallback ? (
             <div>
+              {/* `wrap`: los idiomas pasan a otra fila con fuente grande en vez de salirse de la pantalla. */}
               <SegmentedControl<OcrLanguage>
+                wrap
                 label={s.ocrLanguageLabel}
                 value={options.ocrLanguage}
                 onChange={(value) => setOptions({ ocrLanguage: value })}

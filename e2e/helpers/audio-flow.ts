@@ -17,10 +17,10 @@ export const WIDE_CSS = `html *, html *::before, html *::after {
  * WAV
  * ------------------------------------------------------------------ */
 
-export type WavSpec = { seconds: number; sampleRate: number; channels: 1 | 2; frequency?: number; amplitude?: number };
+export type WavSpec = { seconds: number; sampleRate: number; channels: 1 | 2; frequency?: number; amplitude?: number; frequencyRight?: number };
 
-/** WAV PCM de 16 bits con un seno (en todos los canales). */
-export function makeWav({ seconds, sampleRate, channels, frequency = 440, amplitude = 0.5 }: WavSpec): Buffer {
+/** WAV PCM de 16 bits con un seno (en todos los canales; con `frequencyRight`, el canal derecho lleva otro tono). */
+export function makeWav({ seconds, sampleRate, channels, frequency = 440, amplitude = 0.5, frequencyRight }: WavSpec): Buffer {
   const frames = Math.round(seconds * sampleRate);
   const buffer = Buffer.alloc(44 + frames * channels * 2);
   buffer.write("RIFF", 0);
@@ -36,8 +36,11 @@ export function makeWav({ seconds, sampleRate, channels, frequency = 440, amplit
   buffer.write("data", 36);
   buffer.writeUInt32LE(frames * channels * 2, 40);
   for (let i = 0; i < frames; i += 1) {
-    const value = Math.round(amplitude * 32767 * Math.sin((2 * Math.PI * frequency * i) / sampleRate));
-    for (let c = 0; c < channels; c += 1) buffer.writeInt16LE(value, 44 + (i * channels + c) * 2);
+    for (let c = 0; c < channels; c += 1) {
+      const tone = c === 1 && frequencyRight !== undefined ? frequencyRight : frequency;
+      const value = Math.round(amplitude * 32767 * Math.sin((2 * Math.PI * tone * i) / sampleRate));
+      buffer.writeInt16LE(value, 44 + (i * channels + c) * 2);
+    }
   }
   return buffer;
 }

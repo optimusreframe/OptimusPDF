@@ -569,7 +569,12 @@ export function PdfSummarizerToolClient() {
             <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
               {s.technicalDetailsLabel}
             </summary>
-            <pre className="rounded-ios-sm mt-2 max-h-40 overflow-auto border border-white/10 bg-white/[0.03] p-3 text-xs whitespace-pre-wrap text-foreground/85">
+            <pre
+              tabIndex={0}
+              role="region"
+              aria-label={s.technicalDetailsLabel}
+              className="rounded-ios-sm mt-2 max-h-40 overflow-auto border border-white/10 bg-white/[0.03] p-3 text-xs whitespace-pre-wrap text-foreground/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+            >
               {technicalDetail}
             </pre>
           </details>

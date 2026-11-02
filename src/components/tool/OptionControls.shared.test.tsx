@@ -94,7 +94,8 @@ describe("OptionControls — comportamiento conservado", () => {
     );
     const radios = screen.getAllByRole("radio");
     expect(radios[1].getAttribute("aria-checked")).toBe("true");
-    expect((radios[1] as HTMLElement).style.backgroundColor).toBe("rgb(13, 75, 255)");
+    // El color se pinta en el circulo de dentro: el boton es el objetivo tactil de 44 px y no lleva relleno propio.
+    expect(((radios[1] as HTMLElement).querySelector("span") as HTMLElement).style.backgroundColor).toBe("rgb(13, 75, 255)");
     fireEvent.click(radios[0]);
     expect(onChange).toHaveBeenCalledWith("#000000");
   });

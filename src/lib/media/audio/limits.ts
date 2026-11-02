@@ -26,6 +26,9 @@ export const DECODED_BUDGET_LOW_MEMORY_BYTES = 384 * MiB;
 /** WAV de 16 bits: el RIFF guarda tamanos de 32 bits, asi que ~4 GiB es el techo real. */
 export const MAX_WAV_BYTES = 4096 * MiB - 1024 * 1024;
 
+/** MP3 que se arma entero en memoria (a 320 kbps son ~7 horas): por encima se avisa antes de empezar en vez de agotar la pestana. */
+export const MAX_MP3_BYTES = 1024 * MiB;
+
 /** Archivos por lote y bytes de salida acumulados en un ZIP. */
 export const MAX_BATCH_FILES = 50;
 export const MAX_BATCH_OUTPUT_BYTES = 800 * MiB;

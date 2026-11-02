@@ -17,7 +17,9 @@ export function OcrOptionsPanel({ options, setOptions, strings: s, fileSize }: O
   return (
     <>
       <div>
+        {/* `wrap`: con la fuente al 150 % en el panel de 280 px («Portugués» se salia 8 px de la pantalla a 834 px) los idiomas pasan a otra fila. */}
         <SegmentedControl<OcrLanguage>
+          wrap
           label={s.languageLabel}
           value={options.language}
           onChange={(value) => setOptions({ language: value })}

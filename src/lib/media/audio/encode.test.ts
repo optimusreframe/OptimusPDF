@@ -85,12 +85,41 @@ afterEach(() => {
 const options = (patch: Partial<EncodeOptions>): EncodeOptions => ({ ...DEFAULT_ENCODE_OPTIONS, ...patch });
 
 describe("detectOutputSupport", () => {
-  it("WAV siempre; M4A y Opus segun isConfigSupported; MP3 nunca (licencia) y con ese motivo", async () => {
+  it("WAV siempre; M4A y Opus segun isConfigSupported", async () => {
     const support = await detectOutputSupport();
     expect(support.wav).toEqual({ available: true });
     expect(support.m4a).toEqual({ available: true });
     expect(support.opus).toEqual({ available: true });
-    expect(support.mp3).toEqual({ available: false, reason: "license" });
+  });
+
+  it("MP3 (LAME en WASM + Worker): disponible con WebAssembly SIMD y Worker; si falta cualquiera, no disponible y con el motivo exacto", async () => {
+    // En Node no hay `Worker`: se simula para comprobar la deteccion (el codificador real usa worker_threads).
+    vi.stubGlobal("Worker", class {});
+    expect((await detectOutputSupport()).mp3).toEqual({ available: true });
+
+    resetOutputSupportCache();
+    vi.stubGlobal("Worker", undefined);
+    expect((await detectOutputSupport()).mp3).toEqual({ available: false, reason: "noWorker" });
+
+    resetOutputSupportCache();
+    vi.stubGlobal("Worker", class {});
+    vi.stubGlobal("WebAssembly", undefined);
+    expect((await detectOutputSupport()).mp3).toEqual({ available: false, reason: "noWasm" });
+
+    // Un motor con WebAssembly pero SIN SIMD (Safari < 16.4): `validate` rechaza el modulo con instruccion `v128`.
+    resetOutputSupportCache();
+    vi.stubGlobal("WebAssembly", { validate: () => false });
+    expect((await detectOutputSupport()).mp3).toEqual({ available: false, reason: "noWasm" });
+
+    // Y si `validate` lanza, tampoco se promete MP3.
+    resetOutputSupportCache();
+    vi.stubGlobal("WebAssembly", { validate: () => { throw new Error("boom"); } });
+    expect((await detectOutputSupport()).mp3).toEqual({ available: false, reason: "noWasm" });
+  });
+
+  it("el Node de las pruebas SI valida el modulo SIMD (si no, el resto de pruebas de MP3 no tendrian sentido)", async () => {
+    vi.stubGlobal("Worker", class {});
+    expect((await detectOutputSupport()).mp3.available).toBe(true);
   });
 
   it("con un navegador sin WebCodecs: M4A y Opus no disponibles por `noWebCodecs`; con codec no soportado: `codecUnsupported`", async () => {

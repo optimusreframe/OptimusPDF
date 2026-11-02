@@ -158,7 +158,7 @@ function ImageOrderGridInner({
                 <span className="text-caption text-muted-foreground tabular-nums">
                   {position + 1}
                 </span>
-                <div className="flex items-center gap-0.5">
+                <div className="flex items-center gap-0.5 pointer-coarse:gap-2">
                   <MiniButton
                     label={t.tool.moveUp}
                     disabled={position === 0}

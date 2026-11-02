@@ -22,7 +22,7 @@ test.describe("core.ts via pdf-to-jpg (render + rotacion compartidos)", () => {
     await page.getByRole("button", { name: /procesar|process/i }).first().click();
 
     const bytes = await downloadBytes(page, async () => {
-      await page.getByRole("button", { name: /descargar|download/i }).first().click();
+      await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
     });
 
     // 2 paginas -> el motor entrega un ZIP con una imagen por pagina.

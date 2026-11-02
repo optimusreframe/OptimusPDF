@@ -298,8 +298,8 @@ test("firmas + 2 contratos con plantilla + borrador con trazos + ajustes: export
 
     // Ajustes: tema oscuro e inglés, con la interfaz.
     await openSettings(page);
-    await page.getByRole("tab", { name: "Oscuro" }).click();
-    await page.getByRole("tab", { name: "Inglés" }).click();
+    await page.locator("main").getByRole("tab", { name: "Oscuro" }).click();
+    await page.locator("main").getByRole("tab", { name: "Inglés" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe("dark");
     expect(await page.locator("[data-backup-last]").textContent()).toBe(en.settings.backup.lastNever);

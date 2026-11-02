@@ -254,7 +254,8 @@ function SplitOptions({
                       ),
                     })
                   }
-                  className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/12 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                  // size-6 con raton; 44 px con puntero grueso (la cabecera del tramo crece lo justo; antes eran 24 px).
+                  className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors pointer-coarse:-my-2 pointer-coarse:-mr-2 pointer-coarse:size-11 hover:bg-white/12 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
                 >
                   <X aria-hidden="true" className="size-3" />
                 </button>

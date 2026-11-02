@@ -10,7 +10,7 @@ import { tabKey } from "../helpers/engine";
  *     tabulables.
  *  3. Sin enlaces rotos: cada ruta que enlaza la barra responde 200 y `scan-to-pdf` sigue alcanzable (barra, Inicio, buscador).
  *  4. Idioma y tema persisten al recargar.
- *  5. Movil 375 (tactil) y tablet 834: Inicio por suites, chips, menu de la cabecera, objetivos de 44 px.
+ *  5. Movil 375 (tactil) y tablet 834: Inicio por suites, chips, boton «Menú» de la cabecera, objetivos de 44 px.
  *  6. 320 px con tipografia ancha (DejaVu Sans + 6 % de espaciado): ni Inicio, ni /downloader, ni la barra desbordan.
  *
  * Uso: PW_PORT=3951 npx playwright test e2e/specs/nav-optimustools.spec.ts
@@ -133,6 +133,8 @@ const aside = (page: Page) => page.locator("aside").first();
 const sidebarNav = (page: Page, language: Language) => aside(page).getByRole("navigation", { name: TEXT[language].primaryNav });
 
 async function runAxe(page: Page) {
+  // axe mide el contraste con el color VIVO: si un enlace aun cambia de color por una transicion (carga o cambio de tema) la medicion cae a mitad de camino.
+  await page.waitForFunction(() => document.getAnimations().every((animation) => !(animation instanceof CSSTransition) || animation.playState !== "running"));
   if (!(await page.evaluate(() => "axe" in window))) await page.addScriptTag({ path: AXE_PATH });
   return page.evaluate(async (rules) => {
     const axe = (window as unknown as {
@@ -224,9 +226,9 @@ for (const theme of ["light", "dark"] as const) {
           await expect(more).toBeVisible();
           expect(await more.evaluate((node) => !!node.closest("a, button"))).toBe(false);
 
-          // Debajo: Exportar/Importar -> Documentos, Ajustes, Precios, Proyecto.
+          // Debajo: Exportar/Importar -> Documentos, Ajustes, Precios, Proyecto y Licencias.
           await expect(nav.getByText(T.backup, { exact: true })).toBeVisible();
-          expect(hrefs.slice(-4)).toEqual(["/documents", "/settings", "/pricing", "/about"]);
+          expect(hrefs.slice(-5)).toEqual(["/documents", "/settings", "/pricing", "/about", "/licenses"]);
 
           // Pie: idioma y tema.
           await expect(aside(page).getByRole("group").filter({ has: page.getByRole("button", { name: "ES" }) })).toBeVisible();
@@ -598,22 +600,27 @@ test.describe("movil 375 (tactil)", () => {
 });
 
 test.describe("tablet 834", () => {
-  test("el menu «Herramientas» de la cabecera agrupa por las tres suites y lleva scan y los grupos", async ({ browser }) => {
+  test("el boton «Menú» de la cabecera abre la hoja con las tres suites, scan y los grupos (detalle en nav-mobile-menu.spec.ts)", async ({ browser }) => {
     const context = await newContext(browser, { width: 834, height: 1112, theme: "dark", language: "es", touch: true });
     const page = await context.newPage();
     try {
       await gotoHome(page);
       await expect(page.locator("aside").first()).toBeHidden();
-      await page.getByRole("button", { name: "Herramientas" }).click();
-      const menu = page.locator("header [id]").filter({ has: page.getByRole("heading", { level: 3, name: "OptimusSCAN" }) }).first();
+      // El popover «Herramientas» se sustituyo por la hoja del menu (mismo contenido y orden que la barra lateral).
+      await expect(page.getByRole("button", { name: "Herramientas" })).toHaveCount(0);
+      const trigger = page.locator("header").getByRole("button", { name: "Menú" });
+      await trigger.click();
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+      const menu = page.getByRole("dialog", { name: "Menú" }).getByRole("navigation", { name: "Menú" });
       await expect(menu).toBeVisible();
-      expect(await menu.getByRole("heading", { level: 3 }).allTextContents()).toEqual([...TEXT.es.suites]);
+      for (const suite of TEXT.es.suites) await expect(menu.getByRole("list", { name: suite })).toBeVisible();
       await expect(menu.getByRole("link", { name: "Escanear a PDF" })).toHaveAttribute("href", "/scan-to-pdf");
-      await expect(menu.getByRole("link", { name: /Downloader/ })).toHaveAttribute("href", "/downloader");
-      expect(await menu.getByRole("heading", { level: 4 }).allTextContents()).toEqual([...TEXT.es.categories, ...TEXT.es.groups]);
+      for (const group of TEXT.es.groups) await expect(menu.getByRole("button", { name: `Mostrar u ocultar ${group}` })).toBeVisible();
+      await expect(menu.locator("a[href='/#downloader']")).toContainText("Pronto");
       expect(await runAxe(page)).toEqual([]);
       await page.keyboard.press("Escape");
-      await expect(page.getByRole("button", { name: "Herramientas" })).toHaveAttribute("aria-expanded", "false");
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
     } finally {
       await context.close();
     }

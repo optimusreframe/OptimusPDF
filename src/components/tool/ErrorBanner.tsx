@@ -109,7 +109,9 @@ function ErrorBannerInner({
           {actions && actions.length > 0 ? (
             <div className="mt-3 flex flex-wrap gap-2">
               {actions.map((action) => {
-                const classes = buttonClasses(action.primary ? "primary" : "secondary", "md");
+                // `wrap`: «Elegir otro archivo» o una accion traducida mas larga parte en lineas en vez de salirse de la pantalla
+                // con la letra grande (el boton base no parte el texto).
+                const classes = buttonClasses(action.primary ? "primary" : "secondary", "md", undefined, true);
                 return action.href ? (
                   <Link key={action.label} href={action.href} className={classes}>
                     {action.label}

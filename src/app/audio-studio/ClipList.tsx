@@ -42,23 +42,26 @@ export function ClipList({ track, strings, disabled = false, onMove, onRemove }:
       <p className="mb-3 text-footnote text-muted-foreground">{strings.hint}</p>
       <ol className="surface-card divide-y divide-hairline overflow-hidden rounded-ios">
         {track.segments.map((segment, index) => (
-          <li key={segment.id} className="flex items-center gap-2 px-3 py-2" aria-label={fill(strings.clipOf, { index: String(index + 1), total: String(count) })}>
+          <li key={segment.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2" aria-label={fill(strings.clipOf, { index: String(index + 1), total: String(count) })}>
             <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/8 text-caption text-muted-foreground tabular-nums">
               {index + 1}
             </span>
-            <div className="min-w-0 flex-1">
+            {/* `basis-32` + `flex-wrap`: con letra grande los botones bajan a una segunda fila (alineados a la derecha) en vez de salirse. */}
+            <div className="min-w-0 flex-1 basis-32">
               <p className="truncate text-subheadline font-medium text-foreground">{segment.name}</p>
               <p className="text-footnote text-muted-foreground tabular-nums">{formatClock(segmentLength(segment) / track.sampleRate)}</p>
             </div>
-            <button type="button" className={cn(ICON_BUTTON, HIT_44)} disabled={disabled || index === 0} aria-label={fill(strings.moveUp, { index: String(index + 1), name: segment.name })} onClick={() => onMove(index, index - 1)}>
-              <ChevronUp aria-hidden="true" className="size-5" />
-            </button>
-            <button type="button" className={cn(ICON_BUTTON, HIT_44)} disabled={disabled || index === count - 1} aria-label={fill(strings.moveDown, { index: String(index + 1), name: segment.name })} onClick={() => onMove(index, index + 1)}>
-              <ChevronDown aria-hidden="true" className="size-5" />
-            </button>
-            <button type="button" className={cn(ICON_BUTTON, HIT_44)} disabled={disabled} aria-label={fill(strings.remove, { index: String(index + 1), name: segment.name })} onClick={() => onRemove(index)}>
-              <X aria-hidden="true" className="size-5" />
-            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <button type="button" className={cn(ICON_BUTTON, HIT_44)} disabled={disabled || index === 0} aria-label={fill(strings.moveUp, { index: String(index + 1), name: segment.name })} onClick={() => onMove(index, index - 1)}>
+                <ChevronUp aria-hidden="true" className="size-5" />
+              </button>
+              <button type="button" className={cn(ICON_BUTTON, HIT_44)} disabled={disabled || index === count - 1} aria-label={fill(strings.moveDown, { index: String(index + 1), name: segment.name })} onClick={() => onMove(index, index + 1)}>
+                <ChevronDown aria-hidden="true" className="size-5" />
+              </button>
+              <button type="button" className={cn(ICON_BUTTON, HIT_44)} disabled={disabled} aria-label={fill(strings.remove, { index: String(index + 1), name: segment.name })} onClick={() => onRemove(index)}>
+                <X aria-hidden="true" className="size-5" />
+              </button>
+            </div>
           </li>
         ))}
       </ol>

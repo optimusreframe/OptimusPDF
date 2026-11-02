@@ -68,7 +68,7 @@ test("nombre propuesto con el formato acordado y PDF con una pagina por hoja, de
   await page.locator('[data-save-action="create"]').click();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 120_000 });
   const bytes = await downloadBytes(page, async () => {
-    await page.getByRole("button", { name: /descargar|download/i }).first().click();
+    await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
   });
   expect(await getPageCount(bytes)).toBe(4);
   await expect(page.locator("[data-download-summary]")).toContainText(/Tus fotos: .* → PDF: /);

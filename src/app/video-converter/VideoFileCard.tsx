@@ -81,7 +81,7 @@ export function VideoFileCard({
           <X aria-hidden="true" className="size-4" />
         </Button>
       </div>
-      <dl className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2" data-video-info="">
+      <dl className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))] gap-x-4 gap-y-2 sm:grid-cols-2 sm:gap-x-6" data-video-info="">
         {rows.map(([term, value]) => (
           <div key={term} className="min-w-0">
             <dt className="ui-label text-muted-foreground">{term}</dt>

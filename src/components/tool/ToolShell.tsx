@@ -20,6 +20,7 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { ErrorBanner, type ErrorBannerAction } from "@/components/tool/ErrorBanner";
 import { blockedRunText, errorCopy } from "@/components/tool/errorCopy";
 import { FileDropzone } from "@/components/tool/FileDropzone";
+import { ToolHeader } from "@/components/tool/ToolHeader";
 import { FileList } from "@/components/tool/FileList";
 import { useInputGuard } from "@/components/tool/InputGuardContext";
 import { OptionsPanel } from "@/components/tool/OptionsPanel";
@@ -46,12 +47,7 @@ import {
   isRestrictionOnlyCopy,
   type InputCheck,
 } from "@/lib/pdf/inputGuard";
-import {
-  ACCENT_BG_SOFT,
-  ACCENT_TEXT,
-  toolHref,
-  type Tool,
-} from "@/lib/tools-registry";
+import { toolHref, type Tool } from "@/lib/tools-registry";
 
 export type ProcessResult = {
   blob: Blob;
@@ -67,6 +63,8 @@ export type ProcessResult = {
    * traducido. `DownloadScreen` lo muestra bajo el nombre del archivo.
    */
   summary?: string;
+  /** Frase bajo «Listo» en la pantalla de descarga, ya traducida (por defecto «Tu documento esta preparado...»). */
+  subtitle?: string;
   /**
    * Avisos de la exportacion, ya traducidos, mostrados como lista accesible
    * en la pantalla de descarga (p. ej. fuente sustituida, firma invalidada).
@@ -248,6 +246,11 @@ export type ToolShellProps<TOptions> = {
    */
   hideDropzone?: boolean;
   /**
+   * Peso maximo que dice la zona de carga («hasta X»): por defecto el de los PDF (100 MB). Una herramienta con otro tope real
+   * (convertidor de imagenes) lo pasa para no prometer una cifra falsa; `null` quita la cifra. Solo cambia el texto.
+   */
+  dropzoneMaxBytes?: number | null;
+  /**
    * Se llama con la lista nueva y la anterior cada vez que la PERSONA cambia los archivos (subir, quitar, reordenar), antes
    * de aplicarlo. No se llama al cargar con `loadRef`/`resetRef` ni al sustituir un archivo por su copia descifrada. Lo usa
    * Firmar para ofrecer «Deshacer» al quitar un documento con trabajo hecho (F0 · U0.3).
@@ -324,11 +327,11 @@ export function ToolShell<TOptions>({
   loadRef,
   renderIdle,
   hideDropzone = false,
+  dropzoneMaxBytes,
   onFilesChanged,
   suspended = false,
 }: ToolShellProps<TOptions>) {
   const t = useT();
-  const Icon = tool.icon;
   const copy = t.tools[tool.slug];
   const belowHasContent = useScrollEdge("bottom");
 
@@ -1065,30 +1068,12 @@ export function ToolShell<TOptions>({
 
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-52 md:px-6 md:pt-10 md:pb-16">
-      <header className="mb-8 flex items-start gap-4">
-        <span
-          className={cn(
-            "flex size-12 shrink-0 items-center justify-center rounded-ios",
-            ACCENT_BG_SOFT[tool.accent],
-          )}
-        >
-          <Icon
-            aria-hidden="true"
-            className={cn("size-6", ACCENT_TEXT[tool.accent])}
-          />
-        </span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="text-title-1 text-foreground">{copy.name}</h1>
-            {tool.status === "soon" ? (
-              <Badge variant="soon">{t.common.soon}</Badge>
-            ) : null}
-          </div>
-          <p className="mt-1.5 max-w-2xl text-callout text-muted-foreground">
-            {copy.description}
-          </p>
-        </div>
-      </header>
+      <ToolHeader
+        tool={tool}
+        name={copy.name}
+        description={copy.description}
+        badge={tool.status === "soon" ? <Badge variant="soon">{t.common.soon}</Badge> : undefined}
+      />
 
       <ErrorBanner
         show={banner !== null}
@@ -1179,6 +1164,7 @@ export function ToolShell<TOptions>({
           onError={onDropzoneError}
           onSkipped={onSkipped}
           buttonRef={dropzoneButtonRef}
+          maxBytes={dropzoneMaxBytes}
         />
       ) : null}
 
@@ -1293,11 +1279,14 @@ export function ToolShell<TOptions>({
         >
           {/* El motivo por el que «Procesar» esta desactivado se lee DENTRO de la barra, justo sobre el boton. */}
           {reasonNode("bar", "mb-0")}
-          <div className="flex items-center gap-2">
+          {/* `flex-wrap` + `wrap` en los dos botones: con la letra al 150 % «Opciones» y «Procesar» ya no caben en una fila de 288 px
+              (medido: 348 px en una pantalla de 320): el segundo baja a su propia fila en vez de salirse. */}
+          <div className="flex flex-wrap items-center gap-2">
             {renderOptions && !blocked && !checking ? (
               <Button
                 variant="secondary"
                 size="md"
+                wrap
                 onClick={() => setPhase("options")}
               >
                 <SlidersHorizontal aria-hidden="true" className="size-4" />
@@ -1307,7 +1296,8 @@ export function ToolShell<TOptions>({
             <Button
               ref={runMobileRef}
               size="md"
-              fullWidth
+              wrap
+              className="flex-1"
               disabled={!canRun}
               aria-describedby={describedBy("bar")}
               onClick={() => void run()}
@@ -1360,9 +1350,11 @@ export function ToolShell<TOptions>({
               onDownloaded?.({ result, options });
             }}
             onStartOver={reset}
+            blob={result.blob}
             downloadButtonRef={downloadRef}
             report={result.report}
             summary={result.summary}
+            subtitle={result.subtitle}
             notices={result.notices}
             secondaryDownload={secondaryDownloadAction(result.secondaryDownload)}
             extras={renderDownloadExtras?.({ result, options })}

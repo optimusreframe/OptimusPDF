@@ -129,7 +129,7 @@ export function WatermarkOptionsPanel({
             {options.image ? strings.imageReplace : strings.imagePick}
           </Button>
           {options.image ? (
-            <p className="truncate text-sm text-foreground">
+            <p className="text-sm [overflow-wrap:anywhere] text-foreground">
               {options.image.name}
             </p>
           ) : (

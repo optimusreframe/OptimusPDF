@@ -180,7 +180,7 @@ export function ToolCatalogGrid({ query = "", onClearQuery, id }: ToolCatalogGri
         </h2>
         {count > 0 ? (
           <>
-            <ul className="grid grid-cols-4 gap-x-2 gap-y-5 sm:hidden">
+            <ul className={ICON_GRID}>
               {results.map((tool) => (
                 <li key={tool.slug}>
                   <ToolIconTile tool={tool} />
@@ -239,13 +239,21 @@ export function ToolCatalogGrid({ query = "", onClearQuery, id }: ToolCatalogGri
   );
 }
 
+/*
+ * Rejilla de iconos del movil (< 640 px). Las columnas se reparten por ANCHO MINIMO en `rem` (4,75 rem = 76 px con la letra por
+ * defecto), no en un numero fijo: 3 columnas a 320 px, 4 desde 360 (como la pantalla de inicio de iOS) y, si la persona agranda la
+ * letra, menos columnas en vez de palabras que se pisan o se parten. Antes eran `grid-cols-4` a todo ancho: a 320 px cada
+ * columna medía 66 px y «Convertidor» (70 px) se salía de ella.
+ */
+const ICON_GRID = "grid grid-cols-[repeat(auto-fill,minmax(4.75rem,1fr))] gap-x-2 gap-y-5 sm:hidden";
+
 const SECTION_SCROLL_MARGIN = "scroll-mt-32 md:scroll-mt-[8.5rem] lg:scroll-mt-6";
 
 /** Rejilla de herramientas: iconos densos en movil, tarjetas desde `sm`. */
 function ToolGrid({ tools }: { tools: Tool[] }) {
   return (
     <>
-      <ul className="grid grid-cols-4 gap-x-2 gap-y-5 sm:hidden">
+      <ul className={ICON_GRID}>
         {tools.map((tool) => (
           <li key={tool.slug}>
             <ToolIconTile tool={tool} />
@@ -404,7 +412,7 @@ function CategoryChips() {
     >
       <ul
         ref={listRef}
-        className="scrollbar-none flex items-center gap-1 overflow-x-auto px-4 py-0.5 md:px-6"
+        className="scrollbar-none flex items-center gap-2 overflow-x-auto px-4 py-0.5 md:px-6"
       >
         {SECTION_ORDER.map((section) => {
           const isActive = active === section;

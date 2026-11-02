@@ -39,7 +39,7 @@ async function runExtremeCompression(page: import("@playwright/test").Page) {
   await page.getByRole("radio", { name: /extrema|extreme/i }).click();
   await page.getByRole("button", { name: /procesar|process/i }).first().click();
   return downloadBytes(page, async () => {
-    await page.getByRole("button", { name: /descargar|download/i }).first().click();
+    await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
   });
 }
 
@@ -110,7 +110,7 @@ test.describe("compress-pdf", () => {
     ).not.toBeChecked();
     await page.getByRole("button", { name: /procesar|process/i }).first().click();
     const bytes = await downloadBytes(page, async () => {
-      await page.getByRole("button", { name: /descargar|download/i }).first().click();
+      await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
     });
 
     // Valido y mas liviano que el original.
@@ -143,7 +143,7 @@ test.describe("compress-pdf", () => {
     await page.getByRole("radio", { name: /extrema|extreme/i }).click();
     await page.getByRole("button", { name: /procesar|process/i }).first().click();
     const kept = await downloadBytes(page, async () => {
-      await page.getByRole("button", { name: /descargar|download/i }).first().click();
+      await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
     });
     expect(await getPageCount(kept)).toBe(2);
     expect((await getPageOperatorCounts(kept, 1)).textPaintOps).toBeGreaterThan(0);

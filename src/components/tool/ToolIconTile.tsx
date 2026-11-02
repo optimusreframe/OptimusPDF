@@ -39,7 +39,8 @@ export function ToolIconTile({ tool, className }: ToolIconTileProps) {
     >
       <span
         className={cn(
-          "relative flex aspect-square w-full items-center justify-center rounded-[22%]",
+          // Tope de 5 rem: con 3 columnas a 320 px (90 px cada una) el icono no pasa de 80 px, como un icono de iOS.
+          "relative flex aspect-square w-full max-w-[5rem] items-center justify-center rounded-[22%]",
           "transition-[scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
           "group-active:scale-90 group-active:duration-[80ms]",
           ACCENT_BG_SOFT[tool.accent],
@@ -59,7 +60,12 @@ export function ToolIconTile({ tool, className }: ToolIconTileProps) {
           </span>
         ) : null}
       </span>
-      <span className="line-clamp-2 text-caption leading-tight font-medium text-foreground">
+      {/*
+        La etiqueta NUNCA se corta (antes `line-clamp-2` escondia la ultima palabra de «Extraer audio de un video» y
+        «Convertidor de imágenes» a 320 px): parte en las lineas que haga falta, repartidas con `text-balance`, y solo una palabra
+        mas ancha que su columna se parte (`break-words`; sin guiones automaticos: «Elimi-nar» se leia peor que dos lineas).
+      */}
+      <span className="max-w-full text-caption leading-tight font-medium break-words text-balance text-foreground">
         {copy.name}
       </span>
       {soon ? <span className="sr-only">{t.common.soon}</span> : null}

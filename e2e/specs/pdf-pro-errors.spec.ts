@@ -131,7 +131,7 @@ const status = (page: Page): Locator => page.getByRole("status");
 const historyList = (page: Page): Locator => page.getByRole("list", { name: S.suite.historyTitle });
 const grid = (page: Page): Locator => page.getByRole("listbox", { name: /Páginas del documento/ });
 /** Las 7 herramientas de la suite: pestañas en escritorio, botones de la barra inferior en movil. */
-const toolTabs = (page: Page): Locator => (isMobile(page) ? page.locator("[data-dock]") : page.getByRole("tab"));
+const toolTabs = (page: Page): Locator => (isMobile(page) ? page.locator("[data-dock]") : page.locator("main").getByRole("tab"));
 
 async function bannerHasFocus(locator: Locator): Promise<void> {
   await expect.poll(() => locator.evaluate((element) => element.contains(document.activeElement)), { message: "el foco esta en el aviso" }).toBe(true);
@@ -258,7 +258,7 @@ for (const project of VIEWPORTS) {
 
         await expectFileProblem(banner(page), { name: file.name, ...PROBLEM[kind] });
         await bannerHasFocus(banner(page));
-        await expect(page.getByRole("tablist"), "la suite no se abre").toHaveCount(0);
+        await expect(page.locator("main").getByRole("tablist"), "la suite no se abre").toHaveCount(0);
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await expect(page.locator('[aria-busy="true"]'), "ya no esta «Comprobando el archivo…»").toHaveCount(0);
         await expect(page.getByRole("heading", { level: 1, name: "PDF Pro" })).toBeVisible();
@@ -283,7 +283,7 @@ for (const project of VIEWPORTS) {
       await expectFileProblem(banner(page), { message: T.errors.invalidType });
       await expect(banner(page)).not.toContainText("foto.png");
       await bannerHasFocus(banner(page));
-      await expect(page.getByRole("tablist")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
     });
 
     test("soltar un archivo roto sobre la zona de carga se explica igual que al elegirlo", async ({ page }) => {
@@ -293,7 +293,7 @@ for (const project of VIEWPORTS) {
       await dropPdf(page, file.buffer, file.name);
       await expectFileProblem(banner(page), { name: file.name, ...PROBLEM.garbage });
       await bannerHasFocus(banner(page));
-      await expect(page.getByRole("tablist")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
     });
 
     test("dos intentos seguidos: el aviso del segundo reemplaza al primero (nunca dos avisos) y se puede cerrar con la X", async ({ page }) => {
@@ -307,7 +307,7 @@ for (const project of VIEWPORTS) {
       await expect(banner(page)).not.toContainText("basura.pdf");
       await banner(page).getByRole("button", { name: es.common.close }).click();
       await expect(banner(page)).toHaveCount(0);
-      await expect(page.getByRole("tablist")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
     });
 
     test("PDF cifrado: hoja de contraseña con el nombre y el foco; mala → mensaje y el campo vuelve a tener el foco; buena → abre con el aviso de copia sin contraseña", async ({
@@ -322,13 +322,13 @@ for (const project of VIEWPORTS) {
       await expect(dialog).toContainText("cifrado.pdf");
       const field = dialog.getByLabel(T.password.label, { exact: true });
       await expect(field).toBeFocused();
-      await expect(page.getByRole("tablist"), "mientras se pide la contraseña no hay suite").toHaveCount(0);
+      await expect(page.locator("main").getByRole("tablist"), "mientras se pide la contraseña no hay suite").toHaveCount(0);
 
       await field.fill("equivocada");
       await dialog.getByRole("button", { name: T.password.submit }).click();
       await expect(dialog.getByText(T.password.wrong)).toBeVisible();
       await expect(field).toBeFocused();
-      await expect(page.getByRole("tablist")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
 
       await field.fill("secreta");
       await dialog.getByRole("button", { name: T.password.submit }).click();
@@ -363,7 +363,7 @@ for (const project of VIEWPORTS) {
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: T.password.cancel }).click();
       await expect(dialog).toBeHidden();
-      await expect(page.getByRole("tablist")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
       await expect(banner(page)).toHaveCount(0);
       await expect(pick).toBeFocused();
 
@@ -372,7 +372,7 @@ for (const project of VIEWPORTS) {
       await expect(dialog).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
-      await expect(page.getByRole("tablist")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
       await expect(banner(page)).toHaveCount(0);
       await expect(pick).toBeFocused();
 
@@ -628,7 +628,7 @@ test.describe("PDF Pro · errores al abrir · traspaso desde otra herramienta (e
       await page.getByRole("navigation", { name: es.nav.primaryNav }).getByRole("link", { name: "PDF Pro", exact: true }).click();
       await expect(page).toHaveURL(/\/pdf-pro$/);
       await expect(page.getByRole("heading", { level: 1, name: "PDF Pro" })).toBeVisible();
-      await expect(page.getByRole("tablist")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("tablist")).toHaveCount(0);
       await expect(banner(page)).toHaveCount(0);
     });
   }
@@ -672,7 +672,7 @@ test.describe("PDF Pro · errores al abrir · traspaso desde otra herramienta (e
     await expect(page.getByText(S.warnings.decryptedCopy)).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(suiteBanner(page)).toHaveCount(0);
-    await expect(page.getByRole("tab")).toHaveCount(7);
+    await expect(page.locator("main").getByRole("tab")).toHaveCount(7);
     expect(await historySteps(page)).toBe(1);
     expect(errors).toEqual([]);
   });

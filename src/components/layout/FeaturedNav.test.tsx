@@ -1,13 +1,15 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { resetSidebarSectionsForTests } from "@/components/layout/SidebarTree";
+import { closeMobileMenu } from "@/components/layout/mobileMenu";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { ThemeProvider } from "@/lib/theme";
 import { CATEGORY_ORDER, GROUP_ORDER, getToolsByCategory, getToolsByGroup } from "@/lib/tools-registry";
 import { es } from "@/lib/locales/es";
 
-/** Menus con PDF Pro: primer item de la cabecera tablet; en la barra lateral va tras «Inicio» y «Recientes» (plan OptimusTOOLS). */
+/** Menus con PDF Pro: primer item del menu movil/tablet (hoja) y de la barra lateral, tras «Inicio» y «Recientes» (plan OptimusTOOLS). */
 
 let pathname = "/";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
@@ -16,18 +18,27 @@ beforeAll(() => {
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
 });
 
+beforeEach(() => {
+  window.sessionStorage.clear();
+  resetSidebarSectionsForTests();
+});
+
 afterEach(() => {
+  act(() => closeMobileMenu());
   cleanup();
   pathname = "/";
 });
 
-function renderHeader() {
+async function renderMenu(): Promise<HTMLElement> {
   render(
-    <LanguageProvider>
-      <Header />
-    </LanguageProvider>,
+    <ThemeProvider>
+      <LanguageProvider>
+        <Header />
+      </LanguageProvider>
+    </ThemeProvider>,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Herramientas" }));
+  fireEvent.click(screen.getByRole("button", { name: es.nav.menu }));
+  return screen.findByRole("dialog");
 }
 
 function renderSidebar() {
@@ -40,67 +51,62 @@ function renderSidebar() {
   );
 }
 
-describe("Header — menu Herramientas", () => {
-  it("PDF Pro es el PRIMER enlace de herramienta del menu, antes de cualquier categoria", () => {
-    renderHeader();
-    const menu = document.getElementById(screen.getByRole("button", { name: "Herramientas" }).getAttribute("aria-controls")!)!;
-    const toolLinks = within(menu).getAllByRole("link");
-    expect(toolLinks[0].getAttribute("href")).toBe("/pdf-pro");
-    const firstCategoryHeading = within(menu).getAllByRole("heading", { level: 3 })[0];
-    expect(toolLinks[0].compareDocumentPosition(firstCategoryHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+describe("Menu movil/tablet (hoja) — PDF Pro", () => {
+  it("PDF Pro es el PRIMER enlace de herramienta del menu, tras «Inicio» y «Recientes» y antes de cualquier categoria", async () => {
+    const dialog = await renderMenu();
+    const nav = within(dialog).getByRole("navigation", { name: es.nav.menu });
+    const links = within(nav).getAllByRole("link");
+    expect(links.slice(0, 3).map((l) => l.getAttribute("href"))).toEqual(["/", "/recent", "/pdf-pro"]);
+    const firstCategory = nav.querySelector("a[href='/#organize']")!;
+    expect(links[2].compareDocumentPosition(firstCategory) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("muestra nombre, descripcion y la etiqueta «Nuevo»", () => {
-    renderHeader();
-    const link = screen.getByRole("link", { name: /PDF Pro/ });
-    expect(link.textContent).toContain("PDF Pro");
-    expect(link.textContent).toContain(es.tools["pdf-pro"].description);
-    expect(link.textContent).toContain(es.home.featuredBadge);
-  });
-
-  it("esta en su propia lista con nombre accesible y NO dentro de una categoria", () => {
-    renderHeader();
-    expect(screen.getByRole("list", { name: es.home.featuredLabel })).toBeTruthy();
+  it("lleva el acento propio de PDF Pro y NO esta dentro de ninguna categoria ni grupo", async () => {
+    const dialog = await renderMenu();
+    expect(within(dialog).getByRole("link", { name: "PDF Pro" }).querySelector("svg")?.getAttribute("class")).toMatch(/text-accent-pro/);
+    const nav = within(dialog).getByRole("navigation", { name: es.nav.menu });
+    // Se despliega todo: PDF Pro solo aparece una vez (arriba).
+    for (const toggle of within(nav).getAllByRole("button", { name: new RegExp(es.nav.toggleSection) })) fireEvent.click(toggle);
+    expect(nav.querySelectorAll("a[href='/pdf-pro']")).toHaveLength(1);
     for (const category of CATEGORY_ORDER) {
-      const heading = screen.getByRole("heading", { name: es.categories[category].label });
-      const section = heading.closest("section")!;
-      expect(section.querySelector("a[href='/pdf-pro']")).toBeNull();
-      expect(within(section).getAllByRole("link")).toHaveLength(getToolsByCategory(category).length);
+      const panel = document.getElementById(
+        within(nav).getByRole("button", { name: `${es.nav.toggleSection} ${es.categories[category].label}` }).getAttribute("aria-controls")!,
+      )!;
+      expect(within(panel).getAllByRole("link")).toHaveLength(getToolsByCategory(category).length);
+      expect(panel.querySelector("a[href='/pdf-pro']")).toBeNull();
     }
-  });
-
-  it("tres suites (h3) con las seis categorias de PDF y los tres grupos de OptimusTOOLS (h4)", () => {
-    renderHeader();
-    expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
-      es.suites.pdf.label,
-      es.suites.scan.label,
-      es.suites.tools.label,
-    ]);
-    expect(screen.getAllByRole("heading", { level: 4 })).toHaveLength(CATEGORY_ORDER.length + GROUP_ORDER.length);
-  });
-
-  it("Escanear a PDF vive en OptimusSCAN y deja de estar en «Convertir a PDF»; los grupos listan sus herramientas", () => {
-    renderHeader();
-    const convertTo = screen.getByRole("heading", { name: es.categories["convert-to"].label }).closest("section")!;
-    expect(convertTo.querySelector("a[href='/scan-to-pdf']")).toBeNull();
-    const scanHeading = screen.getByRole("heading", { name: es.suites.scan.label });
-    expect(scanHeading.nextElementSibling?.querySelector("a[href='/scan-to-pdf']")).not.toBeNull();
     for (const group of GROUP_ORDER) {
-      const section = screen.getByRole("heading", { name: es.groups[group].label }).closest("section")!;
-      expect(within(section).getAllByRole("link")).toHaveLength(getToolsByGroup(group).length);
+      const panel = document.getElementById(
+        within(nav).getByRole("button", { name: `${es.nav.toggleSection} ${es.groups[group].label}` }).getAttribute("aria-controls")!,
+      )!;
+      // El grupo lista sus herramientas (mas, en el Downloader, las plataformas deshabilitadas: `role=link` pero sin `href`).
+      expect(panel.querySelectorAll("a[href]")).toHaveLength(getToolsByGroup(group).length);
     }
   });
 
-  it("elegir PDF Pro cierra el menu", () => {
-    renderHeader();
-    const trigger = screen.getByRole("button", { name: "Herramientas" });
-    fireEvent.click(screen.getByRole("link", { name: /PDF Pro/ }));
+  it("Escanear a PDF vive en OptimusSCAN y deja de estar en «Convertir a PDF»", async () => {
+    const dialog = await renderMenu();
+    const nav = within(dialog).getByRole("navigation", { name: es.nav.menu });
+    const scanList = within(nav).getByRole("list", { name: es.suites.scan.label });
+    expect(scanList.querySelector("a[href='/scan-to-pdf']")).not.toBeNull();
+    fireEvent.click(within(nav).getByRole("button", { name: `${es.nav.toggleSection} ${es.categories["convert-to"].label}` }));
+    const panel = document.getElementById(
+      within(nav).getByRole("button", { name: `${es.nav.toggleSection} ${es.categories["convert-to"].label}` }).getAttribute("aria-controls")!,
+    )!;
+    expect(panel.querySelector("a[href='/scan-to-pdf']")).toBeNull();
+  });
+
+  it("elegir PDF Pro cierra el menu", async () => {
+    const dialog = await renderMenu();
+    const trigger = screen.getByRole("button", { name: es.nav.menu });
+    fireEvent.click(within(dialog).getByRole("link", { name: "PDF Pro" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("el objetivo tactil del enlace destacado mide al menos 44 px de alto minimo", () => {
-    renderHeader();
-    expect(screen.getByRole("link", { name: /PDF Pro/ }).className).toMatch(/min-h-11/);
+  it("el objetivo tactil de la entrada mide al menos 44 px con puntero grueso (pointer-coarse:h-11)", async () => {
+    const dialog = await renderMenu();
+    expect(within(dialog).getByRole("link", { name: "PDF Pro" }).className).toMatch(/pointer-coarse:h-11/);
   });
 });
 

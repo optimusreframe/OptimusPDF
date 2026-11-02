@@ -237,7 +237,7 @@ describe("Sidebar — sin enlaces rotos", () => {
     for (const button of screen.getAllByRole("button", { name: new RegExp(`^${es.nav.toggleSection} `) })) {
       if (button.getAttribute("aria-expanded") === "false") fireEvent.click(button);
     }
-    const pages = new Set(["/", "/recent", "/documents", "/settings", "/pricing", "/about"]);
+    const pages = new Set(["/", "/recent", "/documents", "/settings", "/pricing", "/about", "/licenses"]);
     const links = Array.from(document.querySelectorAll("aside a[href]"));
     expect(links.length).toBeGreaterThan(40);
     for (const link of links) {
@@ -266,11 +266,11 @@ describe("Sidebar — sin enlaces rotos", () => {
 });
 
 describe("Sidebar — parte alta, pie y teclado", () => {
-  it("arriba: Inicio, Recientes y PDF Pro; luego CATEGORIAS; abajo Exportar/Importar, Ajustes, Precios y Proyecto", () => {
+  it("arriba: Inicio, Recientes y PDF Pro; luego CATEGORIAS; abajo Exportar/Importar, Ajustes, Precios, Proyecto y Licencias", () => {
     renderSidebar();
     const hrefs = Array.from(nav().querySelectorAll("a[href]")).map((a) => a.getAttribute("href"));
     expect(hrefs.slice(0, 3)).toEqual(["/", "/recent", "/pdf-pro"]);
-    expect(hrefs.slice(-4)).toEqual(["/documents", "/settings", "/pricing", "/about"]);
+    expect(hrefs.slice(-5)).toEqual(["/documents", "/settings", "/pricing", "/about", "/licenses"]);
     expect(screen.getByText(es.nav.backupLabel)).toBeTruthy();
     expect(hrefs.indexOf("/#organize")).toBeGreaterThan(hrefs.indexOf("/pdf-pro"));
   });

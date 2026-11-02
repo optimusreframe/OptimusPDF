@@ -309,9 +309,9 @@ export function CompareToolClient() {
               </Button>
             </div>
             <div className="mt-5 flex flex-wrap gap-4">
-              <Legend className="bg-white/15" label={strings.legendEqual} />
-              <Legend className="bg-success" label={strings.legendAdded} />
-              <Legend className="bg-destructive" label={strings.legendRemoved} />
+              <Legend sampleClassName="text-foreground/80" label={strings.legendEqual} />
+              <Legend sampleClassName="rounded-[4px] bg-success/15 px-0.5 font-medium text-success-text underline decoration-success-text decoration-2 underline-offset-2" label={strings.legendAdded} />
+              <Legend sampleClassName="rounded-[4px] bg-destructive/15 px-0.5 font-medium text-destructive-text line-through" label={strings.legendRemoved} />
             </div>
           </section>
 
@@ -376,10 +376,13 @@ export function CompareToolClient() {
   );
 }
 
-function Legend({ className, label }: { className: string; label: string }) {
+/** Leyenda: la muestra repite el estilo exacto de la diferencia (subrayado / tachado), no solo un punto de color. */
+function Legend({ sampleClassName, label }: { sampleClassName: string; label: string }) {
   return (
     <span className="flex items-center gap-2">
-      <span aria-hidden="true" className={cn("size-2.5 rounded-full", className)} />
+      <span aria-hidden="true" className={cn("text-caption", sampleClassName)}>
+        Aa
+      </span>
       <span className="text-caption text-muted-foreground">{label}</span>
     </span>
   );

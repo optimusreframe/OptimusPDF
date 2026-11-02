@@ -423,7 +423,7 @@ export function PdfaCheckerToolClient() {
             <h2 className="ui-label text-muted-foreground">
               {strings.documentTitle}
             </h2>
-            <p className="mt-3 truncate text-sm font-medium text-foreground">
+            <p className="mt-3 text-sm font-medium [overflow-wrap:anywhere] text-foreground">
               {report.fileName}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">

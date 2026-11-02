@@ -189,7 +189,12 @@ function FileRow({
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-subheadline font-medium text-foreground">
+        {/* Hasta dos lineas (el nombre largo no pierde su extension, que es lo que se busca) y `title` con el nombre entero. */}
+        <p
+          data-file-name=""
+          title={file.name}
+          className="line-clamp-2 text-subheadline font-medium [overflow-wrap:anywhere] text-foreground"
+        >
           {file.name}
         </p>
         <p

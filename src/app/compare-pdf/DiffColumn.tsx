@@ -31,8 +31,9 @@ export function DiffColumn({ title, tokens, emptyMessage }: DiffColumnProps) {
                 key={`${token.op}-${index}`}
                 className={cn(
                   token.op === "equal" && "text-foreground/80",
+                  // Insertado = verde + subrayado; eliminado = rojo + tachado: el significado no depende solo del color.
                   token.op === "insert" &&
-                    "rounded-[4px] bg-success/15 px-0.5 font-medium text-success-text",
+                    "rounded-[4px] bg-success/15 px-0.5 font-medium text-success-text underline decoration-success-text decoration-2 underline-offset-2",
                   token.op === "delete" &&
                     "rounded-[4px] bg-destructive/15 px-0.5 font-medium text-destructive-text line-through",
                 )}

@@ -179,8 +179,12 @@ export function PageTile({
   note,
   className,
 }: PageTileProps) {
+  // Un cuarto de vuelta (90 / 270): la pagina girada es tan alta como ancha era la caja; sin ajuste se salia por los lados y la
+  // miniatura quedaba cortada. La caja es contenedor de tamano (`cqw`/`cqh`): la imagen sin girar cabe en
+  // `100cqh x 100cqw`, asi que ya girada cabe en `100cqw x 100cqh`. Un motor sin unidades de contenedor ignora el estilo y deja el de siempre.
+  const quarterTurn = Math.abs(rotation) % 180 === 90;
   const thumbnail = (
-    <span className="flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5">
+    <span className="flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-[10px] bg-white/5 [container-type:size]">
       {blank ? (
         <span className="flex flex-col items-center gap-1.5 text-muted-foreground">
           <SquareDashed aria-hidden="true" className="size-6" />
@@ -193,8 +197,8 @@ export function PageTile({
         <img
           src={url}
           alt={label}
-          className="max-h-full max-w-full object-contain transition-transform duration-300 ease-spring"
-          style={{ transform: `rotate(${rotation}deg)` }}
+          className="max-h-full max-w-full object-contain transition-[transform,max-width,max-height] duration-300 ease-spring motion-reduce:transition-none"
+          style={{ transform: `rotate(${rotation}deg)`, ...(quarterTurn ? { maxWidth: "100cqh", maxHeight: "100cqw" } : null) }}
         />
       ) : (
         <Spinner className="size-4" />
@@ -258,7 +262,8 @@ export function PageTile({
             className={cn(
               "bg-elevated shadow-elevation-2 pointer-events-auto flex items-center rounded-full border border-hairline py-1",
               compactActions ? "gap-0.5 px-0.5" : "gap-1 px-1",
-              "pointer-coarse:flex-wrap pointer-coarse:justify-center pointer-coarse:rounded-3xl",
+              // Con el dedo: botones de 44 px separados >= 8 px (en horizontal y al pasar a otra fila).
+              "pointer-coarse:flex-wrap pointer-coarse:justify-center pointer-coarse:gap-2 pointer-coarse:rounded-3xl",
             )}
           >
             {actions}
@@ -378,8 +383,10 @@ export function PageBoard({
  * Campos del panel de opciones
  * ------------------------------------------------------------------ */
 
+// `pointer-coarse:text-base` (16 px): iOS Safari amplia la pagina al enfocar un campo con fuente < 16 px (el usuario la ve saltar y
+// tiene que pellizcar para volver); con raton se queda en 14 px.
 const FIELD_CLASS =
-  "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground " +
+  "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm pointer-coarse:text-base text-foreground " +
   "placeholder:text-muted-foreground/70 transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal";
 
 export function NumberField({
@@ -452,7 +459,12 @@ export function TextField({
       <input
         id={id}
         type="text"
-        inputMode="numeric"
+        // Lista de paginas («1-3, 5, 8-10»): el teclado `numeric` de iOS solo trae cifras, sin «-» ni «,», y no se podria escribir.
+        inputMode="text"
+        enterKeyHint="done"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         value={value}
         placeholder={placeholder}
         aria-invalid={invalid}

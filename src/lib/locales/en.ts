@@ -183,7 +183,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "audio-converter": {
     name: "Audio Converter",
-    description: "Turn your audio files into another format (WAV, M4A, Opus) on your device: several at once, nothing uploaded anywhere.",
+    description: "Turn your audio files into another format (MP3, WAV, M4A, Opus) on your device: several at once, nothing uploaded anywhere.",
   },
   "video-converter": {
     name: "Video Converter",
@@ -195,7 +195,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "audio-extractor": {
     name: "Extract audio from video",
-    description: "Pull the audio track out of a video on your device and save it as WAV, M4A or Opus.",
+    description: "Pull the audio track out of a video on your device and save it as MP3, WAV, M4A or Opus.",
   },
   downloader: {
     name: "Downloader",
@@ -351,6 +351,11 @@ export const en: Dictionary = {
     toggleSection: "Show or hide",
     backupLabel: "Export / Import",
     themeLabel: "Appearance",
+    // Menu movil y de tablet (hoja): mismo contenido y orden que la barra lateral, mas el enlace a Licencias.
+    menu: "Menu",
+    closeMenu: "Close menu",
+    licenses: "Licenses",
+    searchResults: "Search results",
   },
   categories,
   suites,

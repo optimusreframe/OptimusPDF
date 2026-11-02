@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { ToolShell, type ProcessResult } from "@/components/tool/ToolShell";
 import { CropCanvas } from "@/app/crop-pdf/CropCanvas";
+import { CropMarginFields } from "@/app/crop-pdf/CropMarginFields";
 import { CropScopePanel } from "@/app/crop-pdf/CropScopePanel";
 import { cropCanRun } from "@/app/crop-pdf/cropRules";
 import { CROP_STRINGS } from "@/app/crop-pdf/strings";
@@ -54,7 +55,10 @@ export function CropToolClient() {
         />
       )}
       renderOptions={({ options, setOptions }) => (
-        <CropScopePanel options={options} setOptions={setOptions} strings={strings} />
+        <div className="space-y-6">
+          <CropScopePanel options={options} setOptions={setOptions} strings={strings} />
+          <CropMarginFields rect={options.rect} onRectChange={(rect) => setOptions({ rect })} strings={strings} />
+        </div>
       )}
     />
   );

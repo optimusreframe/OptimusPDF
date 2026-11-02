@@ -82,7 +82,7 @@ test("las fotos malas se nombran ANTES de procesar, con su motivo, y «Quitar y 
   await alert.getByRole("button", { name: "Quitar y continuar" }).click();
   await expect(alert).toBeHidden();
   // Quedan las 3 buenas en la lista de archivos.
-  const names = await page.locator("main li p.truncate").allTextContents();
+  const names = await page.locator("main li p[data-file-name]").allTextContents();
   expect(names.sort()).toEqual(["foto-01.jpg", "foto-02.jpg", "foto-03.jpg"]);
 
   await runButton(page).click();

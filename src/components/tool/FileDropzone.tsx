@@ -14,10 +14,11 @@ import { motion } from "motion/react";
 import { Plus, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { FileAdmissionContext } from "@/components/tool/fileAdmission";
+import { formatLimit } from "@/components/tool/formatLimit";
 import { useI18n, localeTag } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { springs } from "@/lib/motion";
-import { MAX_SAFE_FILE_SIZE, formatFileSize, matchesAccept } from "@/lib/pdf/core";
+import { MAX_SAFE_FILE_SIZE, matchesAccept } from "@/lib/pdf/core";
 import type { PdfErrorCode } from "@/lib/pdf/core";
 import type { Tool } from "@/lib/tools-registry";
 
@@ -38,6 +39,13 @@ export type FileDropzoneProps = {
   compact?: boolean;
   /** Texto de la fila `compact` (por defecto «Añadir más archivos»): p. ej. «Añadir documento B». */
   addLabel?: string;
+  /**
+   * Peso maximo que se dice en «Acepta ... · hasta X». Por defecto el de los PDF (`MAX_SAFE_FILE_SIZE`, 100 MB). Una herramienta
+   * con otro tope real (convertidor de imagenes: 64 MB, 32 MB en iPhone/iPad; de video: 4 GB, 1 GB en movil) lo pasa para no
+   * prometer una cifra falsa; `null` quita la cifra cuando no hay un tope unico que decir. Solo cambia el texto: lo que se
+   * admite lo decide la propia herramienta (`FileAdmissionContext`).
+   */
+  maxBytes?: number | null;
 };
 
 function hasFiles(event: DragEvent | globalThis.DragEvent): boolean {
@@ -67,6 +75,7 @@ export function FileDropzone({
   className,
   compact = false,
   addLabel,
+  maxBytes = MAX_SAFE_FILE_SIZE,
 }: FileDropzoneProps) {
   const { t, language } = useI18n();
   /** Puerta opcional de la herramienta (topes propios); sin proveedor, null. */
@@ -279,13 +288,22 @@ export function FileDropzone({
         {t.tool.dropSubtitle}
       </p>
 
-      <Button ref={buttonRef} size="lg" className="mt-6" onClick={openPicker}>
+      {/* `wrap`: con la letra grande «Seleccionar archivos» no cabia en una linea (324 px en una tarjeta de 288) y salia de la pantalla. */}
+      <Button ref={buttonRef} size="lg" wrap className="mt-6" onClick={openPicker}>
         {tool.multiple ? t.tool.dropButtonMultiple : t.tool.dropButton}
       </Button>
 
       <p className="mt-5 text-caption text-muted-foreground tabular-nums">
-        {t.tool.accepts} {tool.extensions.join(", ")} · {t.tool.upTo}{" "}
-        {formatFileSize(MAX_SAFE_FILE_SIZE, localeTag(language))}
+        {t.tool.accepts} {tool.extensions.join(", ")}
+        {maxBytes === null ? null : (
+          // El tope no se parte («hasta 4 / GB»): si no cabe en la linea, baja entero.
+          <>
+            {" "}
+            <span className="whitespace-nowrap">
+              · {t.tool.upTo} {formatLimit(maxBytes, localeTag(language))}
+            </span>
+          </>
+        )}
       </p>
       <p className="mt-2 inline-flex items-center gap-1.5 text-footnote text-muted-foreground">
         <ShieldCheck aria-hidden="true" className="size-3.5 text-success" />

@@ -57,7 +57,8 @@ export function EditPrivacyNotice({ flow, onCleared, compact = false }: EditPriv
 
   return (
     <div data-edit-privacy="" className="space-y-2">
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Con el dedo «Privacidad» amplia su zona con margen negativo (8 px por lado): el hueco sube a 16 px para dejar >= 8 px entre zonas. */}
+      <div className="flex flex-wrap items-center gap-3 pointer-coarse:gap-4">
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}

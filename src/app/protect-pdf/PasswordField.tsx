@@ -5,7 +5,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const FIELD_CLASS =
-  "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 pl-3 pr-11 text-sm text-foreground " +
+  "h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 pl-3 pr-11 text-sm pointer-coarse:text-base text-foreground " +
   "placeholder:text-muted-foreground/70 transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal";
 
 export type PasswordFieldProps = {

@@ -12,8 +12,8 @@ export type AudioErrorText = { message: string; hint?: string };
 
 export type SharedAudioStrings = {
   formatLabel: string;
-  formatNames: Record<OutputFormat | "mp3", string>;
-  formatHints: Record<OutputFormat | "mp3", string>;
+  formatNames: Record<OutputFormat, string>;
+  formatHints: Record<OutputFormat, string>;
   /** «Pronto»/«No disponible» junto a un formato que este navegador no puede crear. */
   unavailableBadge: string;
   checkingFormats: string;
@@ -27,6 +27,8 @@ export type SharedAudioStrings = {
   sampleRateOption: string;
   opusRateNote: string;
   lossyNote: string;
+  /** Aviso bajo las opciones cuando se elige MP3: credito a LAME (lo pide su licencia) y enlace a /licenses. */
+  mp3Note: { lead: string; lame: string; body: string; licenses: string; newTab: string };
   channelsLabel: string;
   channelsOriginal: string;
   channelsMono: string;
@@ -44,13 +46,14 @@ const es: SharedAudioStrings = {
     wav: "Sin pérdida de calidad. Pesa mucho.",
     m4a: "Se abre en casi todo: iPhone, Android y ordenador.",
     opus: "Muy compacto y de gran calidad. Para navegadores, Android y apps modernas.",
-    mp3: "Muy extendido, pero aquí no lo creamos (motivo debajo).",
+    mp3: "Lo abre cualquier reproductor, coche o móvil.",
   },
   unavailableBadge: "No disponible",
   checkingFormats: "Comprobando qué formatos admite tu navegador…",
   unavailable: {
-    license:
-      "No creamos MP3: los codificadores de MP3 que funcionan en el navegador usan una licencia (LGPL) que no podemos empaquetar en esta aplicación, y el navegador no trae uno propio. Elige M4A, que se abre en todo, o WAV.",
+    noWasm:
+      "Tu navegador no puede crear MP3: el codificador necesita WebAssembly con SIMD (Safari 16.4 o posterior, Chrome 91, Firefox 89). Actualízalo o elige M4A o WAV.",
+    noWorker: "Tu navegador no deja ejecutar el codificador de MP3 en segundo plano (le falta Worker). Elige M4A o WAV.",
     noWebCodecs: "Tu navegador no puede crear este formato (le falta WebCodecs). Prueba con una versión reciente de Chrome, Edge o Safari, o elige WAV.",
     codecUnsupported: "Tu navegador no sabe crear este formato en este dispositivo. Elige otro, por ejemplo WAV.",
   },
@@ -60,7 +63,14 @@ const es: SharedAudioStrings = {
   sampleRateOriginal: "La del original",
   sampleRateOption: "{n} kHz",
   opusRateNote: "Opus siempre se crea a 48 kHz.",
-  lossyNote: "Los formatos M4A y Opus comprimen con una pequeña pérdida; WAV no pierde nada.",
+  lossyNote: "Los formatos M4A, Opus y MP3 comprimen con una pequeña pérdida; WAV no pierde nada.",
+  mp3Note: {
+    lead: "Codificación MP3 por",
+    lame: "LAME",
+    body: "Corre en tu dispositivo, a tasa de bits constante y sin etiquetas (título, artista…) ni datos del original.",
+    licenses: "Licencias y código fuente",
+    newTab: "(se abre en otra pestaña)",
+  },
   channelsLabel: "Canales",
   channelsOriginal: "Igual que el original",
   channelsMono: "Mono",
@@ -80,7 +90,10 @@ const es: SharedAudioStrings = {
       hint: "Córtalo antes o prueba en un ordenador con más memoria.",
     },
     empty: { message: "El archivo está vacío.", hint: "Elige otro archivo." },
-    encoderUnavailable: { message: "Tu navegador no puede crear el formato elegido.", hint: "Elige otro formato, por ejemplo WAV." },
+    encoderUnavailable: {
+      message: "Tu navegador no puede crear el formato elegido.",
+      hint: "Si era MP3, puede que algo bloquee WebAssembly o los procesos en segundo plano (una extensión, el modo de bloqueo de Safari). Elige otro formato, por ejemplo WAV o M4A.",
+    },
     outOfMemory: { message: "El navegador se quedó sin memoria.", hint: "Cierra otras pestañas o prueba con un archivo más corto." },
     cancelled: { message: "Proceso cancelado." },
     unknown: { message: "Algo ha fallado durante el proceso.", hint: "Vuelve a intentarlo; si se repite, prueba con otro archivo." },
@@ -95,13 +108,14 @@ const en: SharedAudioStrings = {
     wav: "No quality loss. Large files.",
     m4a: "Opens almost everywhere: iPhone, Android and computers.",
     opus: "Very compact and high quality. For browsers, Android and modern apps.",
-    mp3: "Very common, but we do not create it here (reason below).",
+    mp3: "Plays on any player, car or phone.",
   },
   unavailableBadge: "Not available",
   checkingFormats: "Checking which formats your browser supports…",
   unavailable: {
-    license:
-      "We do not create MP3: the MP3 encoders that run in a browser use a licence (LGPL) we cannot bundle into this app, and the browser has none of its own. Pick M4A, which opens everywhere, or WAV.",
+    noWasm:
+      "Your browser cannot create MP3: the encoder needs WebAssembly with SIMD (Safari 16.4 or later, Chrome 91, Firefox 89). Update it or pick M4A or WAV.",
+    noWorker: "Your browser does not let the MP3 encoder run in the background (Worker is missing). Pick M4A or WAV.",
     noWebCodecs: "Your browser cannot create this format (WebCodecs is missing). Try a recent Chrome, Edge or Safari, or pick WAV.",
     codecUnsupported: "Your browser cannot create this format on this device. Pick another one, for example WAV.",
   },
@@ -111,7 +125,14 @@ const en: SharedAudioStrings = {
   sampleRateOriginal: "Same as the original",
   sampleRateOption: "{n} kHz",
   opusRateNote: "Opus is always created at 48 kHz.",
-  lossyNote: "M4A and Opus compress with a small loss; WAV loses nothing.",
+  lossyNote: "M4A, Opus and MP3 compress with a small loss; WAV loses nothing.",
+  mp3Note: {
+    lead: "MP3 encoding by",
+    lame: "LAME",
+    body: "It runs on your device, at a constant bitrate and without tags (title, artist…) or any data from the original.",
+    licenses: "Licences and source code",
+    newTab: "(opens in a new tab)",
+  },
   channelsLabel: "Channels",
   channelsOriginal: "Same as the original",
   channelsMono: "Mono",
@@ -131,7 +152,10 @@ const en: SharedAudioStrings = {
       hint: "Trim it first or try on a computer with more memory.",
     },
     empty: { message: "The file is empty.", hint: "Pick another file." },
-    encoderUnavailable: { message: "Your browser cannot create the chosen format.", hint: "Pick another format, for example WAV." },
+    encoderUnavailable: {
+      message: "Your browser cannot create the chosen format.",
+      hint: "If it was MP3, something may be blocking WebAssembly or background processes (an extension, Safari's lockdown mode). Pick another format, for example WAV or M4A.",
+    },
     outOfMemory: { message: "The browser ran out of memory.", hint: "Close other tabs or try a shorter file." },
     cancelled: { message: "Process cancelled." },
     unknown: { message: "Something went wrong.", hint: "Try again; if it keeps happening, try another file." },

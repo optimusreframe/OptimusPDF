@@ -105,7 +105,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
           aria-pressed={selecting ? selected : undefined}
           onClick={() => (selecting ? cb.toggle(page.id) : cb.open(page.id))}
           onPointerDown={(event) => cb.bodyDown(event, page.id)}
-          className="absolute inset-0 flex items-center justify-center bg-black/5 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
+          className="absolute inset-0 flex items-center justify-center bg-black/5 outline-none [container-type:size] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
           style={{ touchAction: "pan-y", paddingTop: STRIP_H }}
         >
           {thumbUrl ? (
@@ -116,7 +116,8 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
               draggable={false}
               decoding="async"
               className="max-h-full max-w-full object-contain select-none"
-              style={previewRotation ? { transform: `rotate(${previewRotation}deg)` } : undefined}
+              // Un cuarto de vuelta: la pagina girada cabe en la caja (`cqw`/`cqh` de la tarjeta), no se sale por los lados.
+              style={previewRotation ? { transform: `rotate(${previewRotation}deg)`, ...(Math.abs(previewRotation) % 180 === 90 ? { maxWidth: "100cqh", maxHeight: "100cqw" } : null) } : undefined}
             />
           ) : null}
         </button>
@@ -160,7 +161,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
         ) : null}
 
         {!movePick && kinds.length > 0 && !pending ? (
-          <div className="absolute inset-x-1.5 bottom-1.5 flex flex-col items-start gap-1">
+          <div className="absolute inset-x-1.5 bottom-1.5 flex flex-col items-start gap-1 pointer-coarse:gap-2">
             {kinds.slice(0, layout.tileW < 190 ? 1 : 2).map((kind) => {
               const q = s.quality[kind];
               return (
@@ -195,7 +196,7 @@ const PageTile = memo(function PageTile({ s, page, index, total, layout, x, y, p
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between" style={{ height: ACTIONS_H, paddingTop: 4 }}>
+      <div className="flex items-center justify-between" style={{ height: ACTIONS_H, paddingTop: 8 }}>
         <TileButton label={s.rotate(number)} action="rotate" disabled={moving} onClick={() => cb.rotate(page.id)}>
           <RotateCw aria-hidden="true" className="size-5" />
         </TileButton>

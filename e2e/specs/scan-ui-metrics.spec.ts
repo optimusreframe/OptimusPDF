@@ -47,7 +47,7 @@ test("abrir -> 10 paginas con captura automatica -> PDF: toques y tiempo", async
   await page.locator('[data-save-action="create"]').tap();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
   const bytes = await downloadBytes(page, async () => {
-    await page.getByRole("button", { name: /descargar|download/i }).first().tap();
+    await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().tap();
   });
   expect(await getPageCount(bytes)).toBe(10);
   const total = taps(page);
@@ -72,7 +72,7 @@ test("mismo recorrido con disparador manual: toques", async ({ page, browserName
   await page.getByRole("button", { name: /Guardar PDF \(10\)/ }).tap();
   await page.locator('[data-save-action="create"]').tap();
   await expect(page.locator("[data-result]")).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: /descargar|download/i }).first().tap().catch(() => undefined);
+  await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().tap().catch(() => undefined);
   const count = await taps(page);
   test.info().annotations.push({ type: "metrica", description: `abrir->10 paginas->PDF con disparador manual: ${count} toques` });
   console.log(`METRICA toques abrir->10 paginas->PDF (manual): ${count}`);

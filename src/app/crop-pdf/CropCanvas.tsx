@@ -256,7 +256,7 @@ function CropCanvasInner({
       <div className="surface-card rounded-ios flex justify-center p-3">
         <div
           ref={hostRef}
-          className="relative w-full max-w-[640px] touch-none select-none"
+          className="relative w-full max-w-[640px] touch-none select-none [-webkit-touch-callout:none]"
         >
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element

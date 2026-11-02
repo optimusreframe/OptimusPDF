@@ -6,8 +6,8 @@
 
 export const GRID_GAP = 12;
 export const MIN_TILE = 148;
-/** Alto fijo (px) de la fila de acciones bajo la miniatura (3 botones de 44 px). */
-export const ACTIONS_H = 48;
+/** Alto fijo (px) de la fila de acciones bajo la miniatura: 8 px de separacion con la tarjeta + 3 botones de 44 px. */
+export const ACTIONS_H = 52;
 /** Alto (px) de la franja superior de la tarjeta: numero de pagina a la izquierda y asa a la derecha, SIN tapar la miniatura. */
 export const STRIP_H = 36;
 

@@ -98,7 +98,7 @@ test("las miniaturas se hacen fuera del hilo principal: hay un worker de miniatu
   await expect(page.getByAltText(/^Imagen \d+$/)).toHaveCount(40, { timeout: 180_000 });
   expect(workers.length, "workers creados (miniaturas y/o preparacion)").toBeGreaterThan(0);
   // La lista de archivos completa (40 filas) acaba pintada aunque se vaya montando por trozos.
-  await expect(page.locator("main li p.truncate")).toHaveCount(40);
+  await expect(page.locator("main li p[data-file-name]")).toHaveCount(40);
 });
 
 test("al procesar 40 fotos tampoco hay huecos de mas de 100 ms optimizando (y las miniaturas pendientes esperan)", async ({ page }) => {

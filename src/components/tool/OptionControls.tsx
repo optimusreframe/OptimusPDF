@@ -5,7 +5,6 @@ import { Check } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { colorName } from "@/lib/colorNames";
 import { useOptionalLanguage } from "@/lib/i18n";
-import { HIT_44 } from "@/components/ui/touchTarget";
 
 /**
  * Controles pequenos del panel de opciones, COMPARTIDOS por add-watermark y
@@ -57,7 +56,8 @@ export function ChoiceGroup<T extends string | number>({
         role="radiogroup"
         aria-label={label}
         className={cn(
-          "grid gap-1.5",
+          // Con el dedo >= 8 px entre opciones (antes 6 px).
+          "grid gap-1.5 pointer-coarse:gap-2",
           cols === 3 && "grid-cols-3",
           cols === 2 && "grid-cols-2",
         )}
@@ -180,7 +180,7 @@ export function NumberField({
           const next = Number.parseInt(event.target.value, 10);
           onChange(Number.isNaN(next) ? min : Math.min(max, Math.max(min, next)));
         }}
-        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground tabular-nums transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm pointer-coarse:text-base text-foreground tabular-nums transition-colors focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
       />
     </div>
   );
@@ -219,7 +219,7 @@ export function TextField({
         placeholder={placeholder}
         maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
+        className="h-11 w-full rounded-ios-sm border border-white/14 bg-white/5 px-3 text-sm pointer-coarse:text-base text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-signal/60 focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal"
       />
       {hint ? (
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -241,6 +241,13 @@ export type ColorSwatchesProps = {
  * La tinta del documento es un dato del usuario, no un token de la
  * interfaz: por eso el color se aplica en linea a partir del valor
  * elegido y no desde una variable CSS del tema.
+ *
+ * Objetivo tactil REAL de 44 x 44 px con puntero grueso: el boton mide 44 (no un
+ * pseudo-elemento que solo ve el hit-testing: una medicion del elemento daba
+ * 36 x 36) y el circulo de 36 px que se ve va dentro, asi que el aspecto no
+ * cambia. Con raton el boton es el propio circulo de 36 px. Entre botones
+ * vecinos quedan >= 8 px (`gap-2`); la elegida crece (scale-110) dentro de su
+ * boton, sin pisar a las vecinas.
  */
 export function ColorSwatches({
   label,
@@ -257,9 +264,7 @@ export function ColorSwatches({
       <div
         role="radiogroup"
         aria-label={label}
-        // Con puntero grueso el hueco sube a 12 px: la muestra elegida crece
-        // (scale-110) y su zona de 44 px escalada no debe pisar a las vecinas.
-        className="flex flex-wrap gap-2 pointer-coarse:gap-3"
+        className="flex flex-wrap gap-2"
       >
         {colors.map((color) => {
           const active = color.toLowerCase() === value.toLowerCase();
@@ -274,21 +279,29 @@ export function ColorSwatches({
               aria-label={name}
               title={name}
               onClick={() => onChange(color)}
+              data-swatch=""
               className={cn(
-                "size-9 rounded-full border-2 transition-all duration-200 ease-spring",
-                // La tinta es un dato del usuario: en forced-colors se conserva
-                // el relleno (forced-color-adjust: none) y el borde pasa a
-                // CanvasText; la elegida lleva ademas un aro de Highlight.
-                "forced-colors:[forced-color-adjust:none] forced-colors:border-[CanvasText]",
-                // Con puntero grueso: 44 px de zona de toque (el pitch de las
-                // muestras es 36 + 8 de hueco = 44, no se solapan).
-                HIT_44,
-                active
-                  ? "border-signal scale-110 forced-colors:outline-2 forced-colors:outline-offset-2 forced-colors:outline-[Highlight]"
-                  : "border-white/20 hover:border-white/40",
+                "group flex size-9 shrink-0 items-center justify-center rounded-full pointer-coarse:size-11",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
+                // forced-colors: el aro de Highlight de la elegida va en el propio radio (lo que se mide y lo que lee el sistema).
+                "forced-colors:aria-checked:outline-2 forced-colors:aria-checked:outline-offset-2 forced-colors:aria-checked:outline-[Highlight]",
               )}
-              style={{ backgroundColor: color }}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "size-9 rounded-full border-2 transition-all duration-200 ease-spring",
+                  // La tinta es un dato del usuario: en forced-colors se conserva
+                  // el relleno (forced-color-adjust: none) y el borde pasa a
+                  // CanvasText; la elegida lleva ademas un aro de Highlight.
+                  "forced-colors:[forced-color-adjust:none] forced-colors:border-[CanvasText]",
+                  active
+                    ? "border-signal scale-110"
+                    : "border-white/20 group-hover:border-white/40",
+                )}
+                style={{ backgroundColor: color }}
+              />
+            </button>
           );
         })}
       </div>

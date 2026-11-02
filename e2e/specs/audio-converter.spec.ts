@@ -18,7 +18,7 @@ import {
  * Convertidor de audio (OptimusTOOLS · W-AUDIO), en Chromium headless con codecs reales:
  *  - lote de dos WAV con otra frecuencia y mono -> ZIP, cabeceras y duraciones correctas, tamano antes y despues;
  *  - Opus y M4A segun lo que el navegador sepa crear (y si no, desactivados con el motivo);
- *  - MP3 desactivado con el motivo de la licencia;
+ *  - MP3 disponible y elegible con el teclado (su conversion de punta a punta: `audio-mp3.spec.ts`);
  *  - un archivo roto no tira el lote (informe de fallos parciales);
  *  - todo con teclado, en ES y EN, axe 0, sin desborde a 375/320 px ni con tipografia ancha;
  *  - ningun byte sale de la pagina (ninguna peticion fuera de localhost ni con cuerpo).
@@ -135,19 +135,20 @@ test.describe("Convertidor de audio", () => {
     }
   });
 
-  test("MP3 se ofrece DESACTIVADO con el motivo de la licencia y no se puede elegir (ni con teclado)", async ({ page }) => {
+  test("MP3 se ofrece como salida: se elige con el teclado, trae su tasa de bits y ya no hay ningun aviso de licencia que lo impida", async ({ page }) => {
     await open(page);
     await input(page).setInputFiles({ name: "a.wav", mimeType: "audio/wav", buffer: makeWav({ seconds: 0.3, sampleRate: 8000, channels: 1 }) });
+    await expect(page.getByText(/Comprobando qué formatos/)).toBeHidden({ timeout: 10_000 });
     const mp3 = page.locator('[role="radio"][data-format="mp3"]');
-    await expect(mp3).toHaveAttribute("aria-disabled", "true");
-    await expect(mp3).toHaveAttribute("aria-checked", "false");
-    const reasonId = await mp3.getAttribute("aria-describedby");
-    await expect(page.locator(`[id="${reasonId}"]`)).toContainText(/LGPL/);
-    await mp3.click({ force: true });
+    await expect(mp3).toHaveAttribute("aria-disabled", "false");
+    await expect(mp3).not.toHaveAttribute("aria-describedby", /.+/);
+    await expect(page.getByText(/LGPL/)).toHaveCount(0);
     await mp3.focus();
     await page.keyboard.press("Enter");
-    await expect(mp3).toHaveAttribute("aria-checked", "false");
-    await expect(page.locator('[role="radio"][data-format="wav"]')).toHaveAttribute("aria-checked", "true");
+    await expect(mp3).toHaveAttribute("aria-checked", "true");
+    await expect(page.locator('[role="radio"][data-format="wav"]')).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByLabel("Calidad (tasa de bits)")).toHaveValue("192");
+    await expect(page.locator("[data-mp3-credit]")).toContainText("Codificación MP3 por LAME");
   });
 
   test("un archivo roto no tira el lote: el bueno se convierte y el informe dice cual fallo y por que", async ({ page }) => {

@@ -36,7 +36,7 @@ export function CompressSummary({
   return (
     <section className={cn("surface-card rounded-ios p-5", className)}>
       <h2 className="ui-label text-muted-foreground">{s.summaryTitle}</h2>
-      <p className="mt-1 truncate text-sm font-medium text-foreground">{filename}</p>
+      <p className="mt-1 text-sm font-medium [overflow-wrap:anywhere] text-foreground">{filename}</p>
       <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-ios border border-white/10 bg-white/5 p-4">
           <dt className="text-footnote text-muted-foreground">{s.beforeLabel}</dt>

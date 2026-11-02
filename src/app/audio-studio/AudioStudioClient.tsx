@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Slider } from "@/components/ui/Slider";
 import { ErrorBanner } from "@/components/tool/ErrorBanner";
 import { ProcessingOverlay } from "@/components/tool/ProcessingOverlay";
+import { useFocusTarget } from "@/components/tool/useFocusTarget";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { addRecentEntry } from "@/lib/recent";
@@ -110,6 +111,11 @@ export function AudioStudioClient() {
   const downloadRef = useRef<HTMLButtonElement>(null);
   const bannerRef = useRef<HTMLDivElement>(null);
   const dropzoneButtonRef = useRef<HTMLButtonElement>(null);
+  // El foco tras exportar lo pide el hook (reintenta hasta que el destino es enfocable): un solo `requestAnimationFrame` perdia la
+  // carrera con la salida de la pantalla de progreso (inerte hasta que sale) y el foco acababa en <body>.
+  const { request: requestFocus } = useFocusTarget<"download" | "banner">((target) => ({
+    candidates: [target === "download" ? downloadRef.current : bannerRef.current],
+  }));
 
   const hasAudio = track.segments.length > 0;
   const working = importing !== null || busy !== null || exporting !== null;
@@ -420,13 +426,13 @@ export function AudioStudioClient() {
       const filename = editedName(first, exportOptions.format, s.suffix, s.fallbackName);
       setResult({ blob, filename, durationSec: trackDuration(exported) });
       addRecentEntry("audio-studio", filename);
-      requestAnimationFrame(() => downloadRef.current?.focus());
+      requestFocus("download");
     } catch (caught) {
       const known = toAudioError(caught);
       if (known.code === "cancelled") setAnnounce(shared.errors.cancelled.message);
       else {
         setError({ code: known.code, detail: known.detail });
-        requestAnimationFrame(() => bannerRef.current?.focus());
+        requestFocus("banner");
       }
     } finally {
       exportAbortRef.current = null;
@@ -552,23 +558,29 @@ export function AudioStudioClient() {
             <h2 id={`${uid}-transport`} className="sr-only">
               {s.transportTitle}
             </h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="md" onClick={togglePlay} disabled={working} aria-pressed={playing} data-action="play">
+            {/*
+              Barra del reproductor. Movil: fila 1 = Reproducir (primario, 44 px) a la izquierda y Deshacer/Rehacer (iconos de 44 x 44)
+              a la derecha; fila 2 = los tiempos, en UNA linea (`whitespace-nowrap` + cifras tabulares). Desde `sm`, todo en una fila:
+              Reproducir, tiempos que ocupan el hueco y los dos iconos a la derecha. Con letra muy grande, `flex-wrap` baja lo que no
+              quepa a la fila siguiente en lugar de desbordar.
+            */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="transport-bar">
+              <Button size="md" onClick={togglePlay} disabled={working} aria-pressed={playing} data-action="play" className="order-1 shrink-0">
                 {playing ? <Pause aria-hidden="true" className="size-4" /> : <Play aria-hidden="true" className="size-4" />}
                 {playing ? s.pause : s.play}
               </Button>
-              <p className="min-w-0 flex-1 text-callout text-foreground tabular-nums" data-testid="clock">
+              <p className="order-3 basis-full text-callout whitespace-nowrap text-foreground tabular-nums sm:order-2 sm:basis-auto sm:flex-1" data-testid="clock">
                 <span className="sr-only">{s.positionLabel}: </span>
                 {formatClock(shownPosition / rate)} <span className="text-muted-foreground">/ {formatClock(total / rate)}</span>
               </p>
-              <Button variant="ghost" size="md" onClick={doUndo} disabled={working || history.past.length === 0} data-action="undo">
-                <Undo2 aria-hidden="true" className="size-4" />
-                {s.undo}
-              </Button>
-              <Button variant="ghost" size="md" onClick={doRedo} disabled={working || history.future.length === 0} data-action="redo">
-                <Redo2 aria-hidden="true" className="size-4" />
-                {s.redo}
-              </Button>
+              <div className="order-2 ml-auto flex shrink-0 items-center gap-2 sm:order-3 sm:ml-0">
+                <Button variant="ghost" size="md" onClick={doUndo} disabled={working || history.past.length === 0} data-action="undo" aria-label={s.undo} title={s.undo} className="w-11 shrink-0 px-0!">
+                  <Undo2 aria-hidden="true" className="size-5" />
+                </Button>
+                <Button variant="ghost" size="md" onClick={doRedo} disabled={working || history.future.length === 0} data-action="redo" aria-label={s.redo} title={s.redo} className="w-11 shrink-0 px-0!">
+                  <Redo2 aria-hidden="true" className="size-5" />
+                </Button>
+              </div>
             </div>
           </section>
 

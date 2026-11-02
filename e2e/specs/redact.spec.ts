@@ -58,7 +58,7 @@ test.describe("redact-pdf", () => {
     await page.getByRole("button", { name: /procesar|process/i }).first().click();
 
     const bytes = await downloadBytes(page, async () => {
-      await page.getByRole("button", { name: /descargar|download/i }).first().click();
+      await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
     });
 
     // El documento entero sigue teniendo 2 paginas: censurar no borra
@@ -158,7 +158,7 @@ test.describe("redact-pdf", () => {
       await page.getByRole("button", { name: /procesar|process/i }).first().click();
 
       const bytes = await downloadBytes(page, async () => {
-        await page.getByRole("button", { name: /descargar|download/i }).first().click();
+        await page.getByRole("button", { name: /descargar|download(?!er)/i }).first().click();
       });
 
       expect(await getPageCount(bytes)).toBe(2);

@@ -165,7 +165,7 @@ async function editTitle(
 
 async function process(page: Page, language: "es" | "en" = "es"): Promise<void> {
   await page.getByRole("button", { name: language === "es" ? "Procesar" : "Process" }).click();
-  await expect(page.getByRole("button", { name: language === "es" ? "Descargar" : "Download" })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole("button", { name: language === "es" ? "Descargar" : "Download", exact: true })).toBeVisible({ timeout: 60_000 });
   // La pantalla entra con un fundido: axe mide el contraste con la opacidad real, asi que se espera a que termine.
   await expect
     .poll(() =>
@@ -345,7 +345,7 @@ test.describe("Firmar · resumen del texto editado · ingles", () => {
       `Page 1, “Edited by Optimus”: the original is still under the edit. ${FLOW_EN.remainsReason("shared-xobject")}`,
     );
     await expect(notices.getByRole("listitem").nth(1)).toHaveText(SGE.editRemainsAdvice(FLOW_EN.flattenAction));
-    await expect(page.getByRole("button", { name: "Download" })).toHaveAccessibleDescription(/could not be removed[\s\S]*About the edited text[\s\S]*shared with other pages[\s\S]*Flatten page/);
+    await expect(page.getByRole("button", { name: "Download", exact: true })).toHaveAccessibleDescription(/could not be removed[\s\S]*About the edited text[\s\S]*shared with other pages[\s\S]*Flatten page/);
     expect(await runAxe(page)).toEqual([]);
   });
 });

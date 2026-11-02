@@ -30,6 +30,8 @@ export type ImageConverterStrings = {
   progressFile: string;
   filenameSuffix: string;
   zipName: string;
+  /** Frase bajo «Listo»: el resultado son imagenes (o un ZIP), no «un documento» como dice el texto general. */
+  doneSubtitle: string;
   /** `{format}`, `{before}`, `{after}`. */
   summaryOne: string;
   /** `{n}`, `{format}`, `{before}`, `{after}`. */
@@ -77,6 +79,7 @@ export const STRINGS: Record<Language, ImageConverterStrings> = {
     progressFile: "Convirtiendo imagen {n} de {total}…",
     filenameSuffix: "convertida",
     zipName: "imagenes-convertidas",
+    doneSubtitle: "Tu archivo está preparado para descargar.",
     summaryOne: "Convertida a {format}: de {before} a {after}.",
     summaryMany: "{n} imágenes convertidas a {format}: de {before} a {after} en total.",
     noticeTitleFailures: "{ok} de {total} imágenes convertidas. No se pudo convertir:",
@@ -126,6 +129,7 @@ export const STRINGS: Record<Language, ImageConverterStrings> = {
     progressFile: "Converting image {n} of {total}…",
     filenameSuffix: "converted",
     zipName: "converted-images",
+    doneSubtitle: "Your file is ready to download.",
     summaryOne: "Converted to {format}: from {before} to {after}.",
     summaryMany: "{n} images converted to {format}: from {before} to {after} in total.",
     noticeTitleFailures: "{ok} of {total} images converted. Could not convert:",

@@ -381,6 +381,26 @@
     text-rendering: optimizeLegibility;
   }
 
+  /*
+   * Controles tocables: sin zoom por doble toque ni espera. `manipulation` deja el zoom con pellizco y el scroll (el usuario
+   * puede ampliar: WCAG 1.4.4) y evita que dos toques seguidos sobre una muestra de color, un segmento o un boton acerquen
+   * la pagina en Safari/Chrome movil. Va en la capa base: cualquier utilidad `touch-*` de un componente (lienzos, asas
+   * de arrastre) la sustituye.
+   */
+  a[href],
+  button,
+  summary,
+  label,
+  select,
+  input:not([type="text"]):not([type="search"]):not([type="url"]):not([type="email"]):not([type="password"]):not([type="number"]),
+  [role="button"],
+  [role="tab"],
+  [role="radio"],
+  [role="switch"],
+  [role="checkbox"] {
+    touch-action: manipulation;
+  }
+
   ::selection {
     background-color: var(--color-signal);
     color: var(--color-on-signal);

@@ -24,7 +24,7 @@ export function PricingView() {
 
       <div className="mt-10 grid gap-4 md:grid-cols-2">
         {/* Plan local */}
-        <GlassCard className="glow-signal relative flex flex-col p-7">
+        <GlassCard className="glow-signal relative flex min-w-0 flex-col p-7">
           <Badge variant="live" dot className="self-start">
             {t.common.localBadge}
           </Badge>
@@ -34,7 +34,7 @@ export function PricingView() {
           <p className="mt-1 text-sm text-muted-foreground">
             {t.pricing.freeTagline}
           </p>
-          <p className="mt-6 flex items-baseline gap-2">
+          <p className="mt-6 flex flex-wrap items-baseline gap-x-2">
             <span className="text-title-1 text-foreground tabular-nums">
               {t.pricing.freePrice}
             </span>
@@ -57,14 +57,14 @@ export function PricingView() {
 
           <Link
             href="/"
-            className={cn(buttonClasses("primary", "lg"), "mt-8 w-full")}
+            className={cn(buttonClasses("primary", "lg", undefined, true), "mt-8 w-full")}
           >
             {t.pricing.freeCta}
           </Link>
         </GlassCard>
 
         {/* Plan servidor (aun no existe) */}
-        <GlassCard className="flex flex-col p-7 opacity-90">
+        <GlassCard className="flex min-w-0 flex-col p-7 opacity-90">
           <Badge variant="soon" className="self-start">
             {t.common.soon}
           </Badge>
@@ -74,7 +74,7 @@ export function PricingView() {
           <p className="mt-1 text-sm text-muted-foreground">
             {t.pricing.proTagline}
           </p>
-          <p className="mt-6 flex items-baseline gap-2">
+          <p className="mt-6 flex flex-wrap items-baseline gap-x-2">
             <span className="text-title-1 text-muted-foreground tabular-nums">
               {t.pricing.proPrice}
             </span>
@@ -97,7 +97,7 @@ export function PricingView() {
 
           <span
             className={cn(
-              buttonClasses("secondary", "lg"),
+              buttonClasses("secondary", "lg", undefined, true),
               "mt-8 w-full cursor-not-allowed opacity-50",
             )}
             aria-disabled="true"
