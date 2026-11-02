@@ -703,6 +703,12 @@ export function BlockCeremony({
               ? strings.pendingBody(pending.length)
               : strings.deliveryBlockedTitle}
         </p>
+        {/* Todo lo que hace falta ya esta recogido (quiza antes de poner los campos): se dice claro y no se pide nada. */}
+        {pending.length === 0 && queue.length > 0 && !blocked ? (
+          <p data-all-covered="" className="mt-2 text-footnote font-medium leading-relaxed text-foreground">
+            {strings.early.allCovered}
+          </p>
+        ) : null}
         {blocked && blockerMessages.length > 0 ? (
           <ul className="mt-2 list-disc space-y-1 pl-5 text-footnote text-destructive-text">
             {blockerMessages.map((message) => (
@@ -745,7 +751,9 @@ export function BlockCeremony({
             wrap
             onClick={() => {
               let cleared = blocks;
-              for (const block of blocks) cleared = clearBlock(cleared, block.id);
+              // Solo quien esta en la cola: lo recogido de quien aun no tiene campos no se toca.
+              const inQueue = new Set(queue.map((signer) => signer.id));
+              for (const block of blocks) if (inQueue.has(block.signerId)) cleared = clearBlock(cleared, block.id);
               onBlocksChange(cleared);
               goToTurn(0);
               setLiveMessage("");

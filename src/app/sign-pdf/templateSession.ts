@@ -159,9 +159,9 @@ export function lossOf(args: { session: Pick<SignSession, "signers" | "blocks" |
  * ------------------------------------------------------------------ */
 
 /**
- * ¿Se le puede aplicar algo solo? No: ya hay huecos de firma, valores escritos, texto editado, campos de texto puestos a
- * mano (o de una plantilla), ni trazos recogidos para el. Los campos que SOLO detecto la deteccion automatica (AcroForm,
- * sugerencias) no son trabajo de la persona.
+ * ¿Se le puede aplicar algo solo? No: ya hay huecos de firma, valores escritos, texto editado o campos de texto puestos a
+ * mano (o de una plantilla). Los campos que SOLO detecto la deteccion automatica (AcroForm, sugerencias) no son trabajo de la
+ * persona, y tampoco lo son los trazos que un firmante ya recogio: son del firmante, no del documento.
  */
 export function isPristine(session: Pick<SignSession, "docs" | "blocks" | "signers">, docId: DocId): boolean {
   const doc = docStateOf(session.docs, docId);
@@ -169,7 +169,9 @@ export function isPristine(session: Pick<SignSession, "docs" | "blocks" | "signe
   if (Object.keys(doc.textValues).length > 0) return false;
   if ((doc.textEdits?.length ?? 0) > 0) return false;
   if (doc.textFields.some((field) => field.source === "manual")) return false;
-  if (session.blocks.some((block) => block.appliesTo.includes(docId) && (block.signature !== null || block.initials !== null))) return false;
+  // Los trazos recogidos NO cuentan: pertenecen al firmante, no a la disposicion del documento (se pueden recoger ANTES de
+  // poner los campos). Aplicar una plantilla o el automapeo conserva a los firmantes que ya existen y sus bloques; si
+  // quitara a alguien con trazos, `lossOf` pide confirmacion igualmente.
   return true;
 }
 

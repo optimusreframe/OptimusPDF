@@ -3385,3 +3385,125 @@ Por clave (principal): nombre 1 y 2, teléfono, correo, póliza, reclamo, fecha 
 **Pruebas y medidas (esta copia, motor falso, build de produccion).** 173 pruebas unitarias nuevas, todas verdes: esquema (14), almacen (21), modelo puro (24), hoja en jsdom (47: vacio, leyendo, error, sin datos, con datos, con conflictos, con pisado, perfiles, modelo de lectura, fechas, ingles), modulo de respaldo (25 + 10 hostiles), dorados `client-profiles-v1*` (7: en claro y cifrado, hash del JSON fijado), paquete global (10), hojas de Ajustes (8) y «Borrar datos» (7); las 12 suites existentes que enumeraban los modulos del paquete se actualizaron (`PACKAGE_MODULES`, resultados por modulo, dorados). Serie ampliada (`src/app/sign-pdf src/components src/app/settings src/lib src/app/pdf-pro src/app/scan-to-pdf src/app/privacy`): 13 286 pruebas pasan, 0 fallos. E2E headless (`CI=1`, build de produccion; Chromium y `webkit-ipad` de Playwright): `autofill-ui-flow` (10), `autofill-ui-data` (4), `autofill-ui-a11y` (12 celdas tema x idioma x 1280/375/320 con axe de 21 reglas incluido `target-size` y objetivos de 44 px con tacto en cada paso + teclado/movimiento reducido) y `autofill-ui-wide-font` (4 celdas, DejaVu + 6 % de espaciado, sin desborde a 375/320 px): 31 pruebas x 2 proyectos = 62 verdes. `scripts/autofill-ui-mutate.py`: 70 mutaciones, las 70 mueren (la primera pasada dejo 8 vivas: fueron un hueco real de pruebas —espacios raros, error de cuota por nombre, orden por nivel, tope del respaldo, «volver a marcar» de Perfiles— y se cerraron).
 
 **Limites / no verificado.** (1) No se probo en Safari ni en iPad reales ni con la camara real: «Tomar foto» es un `input file` con `capture` (se probo la entrada del archivo, no la camara del sistema); `webkit-ipad` es el WebKit de Playwright en macOS, donde el recorrido con Tab no llega a los botones sin «acceso completo al teclado», asi que alli no se mide el ciclo de Tab (si en Chromium) y el respaldo se probo con la descarga clasica (sin hoja de compartir). (2) Las pruebas de interfaz usan un motor falso (`__optimusAutofillEngine`), un doble del modelo de lectura (`__optimusAutofillOcr`) y un doble de `planFill`: el reparto real de valores a campos, el OCR y la lectura de PDF son del motor (E1) y se miden aparte; `AUTOFILL_REAL=1` existe (no inyecta nada y los PDF de fuente llevan de verdad las lineas «Etiqueta: valor»), pero hoy los specs la saltan casi todos porque su guion es por nombre de archivo: ejercitar el motor real de extremo a extremo queda para la integracion. El codigo de la interfaz compila contra el `src/lib/autofill` real de E1 (`tsc` limpio al sustituir el stub), pero los E2E no se ejecutaron con el motor real. (3) Una fecha numerica AMBIGUA (03/04/2026) el motor la conserva como texto y la baja a «Revisar»: la interfaz la convierte con el orden del idioma de la interfaz, asi que la persona debe comprobarla en la revision (se ve tal cual la leyo el motor); no hay E2E con un campo de fecha (se cubre en unitarias y en jsdom). (4) Los perfiles viven en `localStorage`: los borra «Borrar datos»; Safari puede borrar los datos de un sitio tras 7 dias sin uso (el respaldo es la copia propia). (5) El `dataKey` de plantilla solo llega mientras el aviso de plantilla siga en memoria. (6) La unica vista de PDF Pro probada es la de Firmar (mismos componentes); el modo Firmar de PDF Pro no tiene E2E propio de esta funcion. (7) En desarrollo con `StrictMode`, `Sheet` + `inertBackground` no devuelve el foco al boton (se guarda `<body>` al montar dos veces); en produccion si, y el lanzador anade un respaldo (`focusFallbackWhenIdle`) que lo devuelve tambien alli y en Safari (que no da foco a un boton al tocarlo).
+
+## Firmar PDF · Recoger firma e iniciales antes o despues de poner los campos
+
+Peticion (ajustador de seguros que firma contratos con varias personas): «si ya tengo las firmas e iniciales de una persona y
+muevo o añado campos, no se debe perder; y quiero poder RECOGER primero las firmas e iniciales de cada firmante y DESPUES
+agregar los campos; que funcione de las dos maneras».
+
+### Diseño
+
+Auditoria previa (que ya hacia posible esto y que faltaba):
+
+- El sello de una captura (`captureStamp`) ya es solo la huella del documento (`archivo` o `archivo+t<ediciones>`): mover,
+  redimensionar o añadir huecos no invalida nada. `requiredCaptureTypes` + `isSignerComplete` ya piden en la ceremonia SOLO lo que
+  falta, y `firstPendingTurn` ya salta a quien esta completo. El modelo de datos ya aguantaba «recoger antes»: faltaban la
+  puerta de entrada en la interfaz y tres arreglos de borde (ver «Decisiones»).
+- NO hay estado nuevo que persistir. Lo recogido vive donde ya vive lo de la ceremonia: un documento -> `options.captures[firmante]`
+  (que la sesion vuelca en `SignSession.blocks` con `applyCaptures`); varios -> `SignerBlock.signature/initials/stamps[docId]`. Por eso
+  el borrador de sesion, «Borrar datos» y «quitar un firmante quita su trazo» salen gratis, y el respaldo/exportacion NO cambia
+  (sigue sin incluir firmas dibujadas). El unico estado de interfaz nuevo es una frase para la region viva y, por tarjeta, si el panel esta abierto.
+
+Archivos (`src/app/sign-pdf/`):
+
+| Archivo | Que hace |
+|---|---|
+| `earlyCapture.ts` (nuevo, puro) | Estado de un firmante (`none / complete / signature / initials / partial / stale` + motivo) con un documento (capturas) y con varios (bloques); escrituras: guardar un trazo, aplicar una guardada del baul, quitar; y los tres ayudantes para plantillas que reemplazan firmantes. Reutiliza `captureStamp`, `validCapture`, `staleReason`, `captureForBlock`, `clearBlock`; no toca `captures.ts`. |
+| `useEarlyCapture.ts` (nuevo) | Une el modelo con `MultiFlow`: opciones del documento con uno, `multi.bridge.commit` con varios. Devuelve la API que pinta el paso Firmantes. |
+| `SignerCapture.tsx` (nuevo) | Linea de estado (icono + TEXTO), «Recoger firma e iniciales» / «Cambiar» / «Quitar», el aviso «aun no tiene campos» y el panel con las filas Firma / Iniciales (reutiliza `CaptureRow`, `SignatureComposer` y `SignatureVaultSheet`; con varios documentos, una fila por grupo de «¿Quien firma que?»). |
+| `strings.ts` | `strings.early` (ES/EN) y dos frases de confirmacion de las plantillas guardadas. |
+| `SignerManager.tsx` | Prop opcional `capture` (sin ella, la tarjeta de siempre). |
+| `SignToolClient.tsx` | Llama al hook y pasa la prop; las dos funciones que aplican una plantilla guardada reutilizan a los firmantes que ya recogieron. |
+| `SigningCeremony.tsx`, `BlockCeremony.tsx` | Una frase cuando todos ya estan cubiertos (`data-all-covered`). |
+| `templateSession.ts` | `isPristine` ya no cuenta los trazos recogidos. |
+
+Decisiones:
+
+1. Panel EN LINEA dentro de la tarjeta del firmante, no una hoja: el compositor ya es un dialogo y dos dialogos apilados rompen a
+   lectores de pantalla y a las pruebas que buscan `getByRole("dialog")`.
+2. Con varios documentos se recoge por GRUPO de la tabla «¿Quien firma que?»; el sello se calcula por documento del alcance en el
+   momento de guardar (`captureForBlock`), aunque aun no haya huecos. Un grupo caduca entero si UN documento de su alcance cambia
+   de texto o de archivo, o si entra un documento que su dueño nunca vio (sin sello): nunca se reaplica un trazo a un documento que
+   no vio.
+3. `isPristine` trataba como «ya trabajado» a un documento con trazos recogidos. Con «recoger antes» eso hacia que «Detectar campos
+   automaticamente», el automapeo de un documento nuevo y aceptar una plantilla «parecida» NO hicieran nada, sin avisar (probado:
+   la prueba E2E (t1) falla sin este cambio). Los trazos son del firmante, no de la disposicion del documento, y
+   `planTemplateApplication`/`planAutoMapApplication` ya conservan a los firmantes existentes y sus bloques; si quitaran a alguien con
+   trazos, `lossOf` sigue pidiendo confirmacion. Se cambio una prueba existente por esto (`templateSession.test.ts`, «documento limpio»).
+4. Las plantillas guardadas de «Plantillas» REEMPLAZAN a todos los firmantes (ids nuevos) y vaciaban `captures`: con trazos
+   recogidos se aplican ahora a los MISMOS firmantes, por orden (conservan id, nombre y lo recogido). Sin trazos, todo igual que antes.
+5. «Quitar» en una tarjeta quita lo recogido sin pedir confirmacion ni ofrecer «Deshacer» (volver a recoger cuesta un trazo y hay baul).
+
+### Que cambia para la persona
+
+- Paso «Firmantes»: cada firmante tiene su estado con texto («Sin recoger», «Firma e iniciales recogidas», «Solo firma», «Solo iniciales»,
+  «Recogida en parte» con varios grupos, «Debe volver a firmar · cambió el texto del documento / cambió el documento») y las acciones
+  «Recoger firma e iniciales» / «Cambiar» / «Quitar». El panel deja crear la firma, crear las iniciales o usar una guardada del baul; se puede dejar una de las dos.
+- Recoger primero y poner los campos despues (o al reves, o mezclado): los campos nuevos o movidos usan lo recogido; la ceremonia
+  pide solo lo que falta; quien ya esta completo se salta; si todos lo estan, la ceremonia lo dice («Todas las firmas e iniciales que
+  hacen falta ya están recogidas: no se pide nada más») y deja descargar. Un firmante con trazo y sin campos no estampa nada y se
+  avisa en una linea («Aún no tiene campos…»).
+- Editar el texto original, o cambiar/añadir un documento, caduca lo recogido y se dice en el mismo paso Firmantes (con la frase completa de siempre).
+
+### Pruebas y cifras
+
+Todo en una copia aislada del repo (base 205dca0), Chromium headless, build de PRODUCCION (`CI=1`, `npm run build` + `npm run start`), `--workers=1`.
+
+| Comprobacion | Resultado |
+|---|---|
+| `npx tsc --noEmit` | 0 errores |
+| `npx eslint src e2e` | 0 errores; 1 aviso que YA estaba (`inputChecks.clients.test.tsx`, `_slug` sin usar) |
+| `npx vitest run --project engines --project components src/app/sign-pdf src/lib` | 429 archivos pasan (11 omitidos); 10 589 pruebas pasan (27 omitidas); 0 fallos |
+| E2E (los pedidos) | **157 de 157 pasan** en 22,4 min, 0 reintentos: 24 nuevas + las existentes `sign-add-signer-after-capture` (1), `sign-stale-signature` (2), `sign-multi` (3) y `mobile-sign-multi` (19), `sign-templates*` (31), `sign-recovery` (28), `sign-assignment*` (12), `sign-upload-a11y` (11), `sign-wide-font` (26) |
+| E2E nueva añadida despues de esa tanda | `(i)` (trazo sin campos): pasa contra la misma build |
+| Tanda extra de regresion (no pedida): `pdf-pro-modes-sign`, `sign-ceremony-turns`, `sign-draft-safety`, `sign-edit-summary` | 77 pasan, 2 omitidas por la propia prueba, 0 fallos (5,6 min) |
+
+Pruebas NUEVAS:
+
+- Unitarias de motor (`earlyCapture.test.ts`, 30): estado por firmante con un documento y con varios grupos; **ningun cambio de huecos
+  (poner, mover, redimensionar, cambiar de pagina, duplicar, quitar) invalida lo recogido** (fija el defecto ya corregido); «recogi la
+  firma y añado un hueco de iniciales» pide solo las iniciales y no tira la firma; Ana recogida -> el turno salta a Luis; todos recogidos
+  -> nadie pendiente; texto editado -> `stale/text`; otro documento o documento nuevo en el alcance -> `stale/document`; un trazo
+  caducado no se mezcla con uno nuevo; una guardada solo con firma no inventa las iniciales; «aplicar a todos» no pisa lo ya vigente;
+  quitar vacia todos los grupos; ayudantes de plantillas que reemplazan firmantes.
+- Componentes (`SignerCapture.test.tsx`, 17): estado en texto (ES y EN), «Recoger / Cambiar / Quitar», panel con filas por grupo y nombre
+  accesible del grupo, escritura con la huella del documento y sin huecos, «aun no tiene campos», caducidad con la frase completa,
+  huella sin calcular, y la frase de «todos cubiertos» en la ceremonia (solo cuando no queda nadie pendiente).
+- Cambiada una existente: `templateSession.test.ts`, «documento limpio» (antes «no limpio: ... o trazos»): los trazos recogidos ya no
+  ensucian el documento (decision 3); el resto de casos de `isPristine` sigue igual.
+- E2E (24 + 1): `sign-early-capture.spec.ts` (un documento: recoger PRIMERO, campos PRIMERO, mezcla, mezcla con movimiento tras firmar, texto
+  editado, cambio de archivo, recarga + «Quitar» + «Borrar datos», quitar firmante, firma guardada del baul, trazo sin campos),
+  `sign-early-capture-multi.spec.ts` (una firma para todos en los dos ordenes, una firma por documento con dos grupos, solo lo que falta,
+  recarga, documento sustituido, quitar + «Borrar datos»), `sign-early-capture-templates.spec.ts` (automapeo y plantilla guardada despues
+  de recoger) y `sign-early-capture-a11y.spec.ts` (5 celdas tema x idioma x tacto/raton a 320/375/1280 px, tres con tipografia ancha
+  forzada, mas 2 con varios documentos: axe WCAG 2.x A/AA = 0 violaciones, objetivos >= 44 px con tacto y >= 24 con raton, sin scroll
+  horizontal, estado en texto con icono oculto a los lectores). Los PDF salen de `makeReceiptPdf`, `makeSyntheticPdf` y `makeContract`.
+- Control negativo: con el `isPristine` anterior la E2E `(t1)` FALLA («Detectar campos automaticamente» no hace nada tras recoger); con el
+  cambio pasa.
+
+Cifras de tamaño: 17 archivos, +2 722 / -25 lineas (codigo de produccion +912/-21, pruebas +1 810/-4). `SignToolClient.tsx` solo +37/-10
+lineas (3 903 -> 3 930); la logica de `MultiFlow` y de la ceremonia no cambia (solo se llama al hook y se pasa una prop).
+
+### Limites y lo que NO se verifico
+
+- NO se corrieron `sign-quality`, `sign-privacy`, `sign-record`, `sign-backup-merge`, `sign-upload-backup` ni los `mobile-sign-*` salvo
+  `mobile-sign-multi` (un intento de correrlos todos se corto a mano tras 20 pruebas, sin fallos, por lento; no cuenta como resultado).
+- Solo Chromium. No se ejecuto WebKit/iPad ni Firefox (`PW_BROWSERS`); el movil es el emulado de Playwright (viewport + tacto), no un
+  telefono real, y el trazo del compositor se hizo con el raton del navegador, no con gestos tactiles reales. Sin lector de pantalla
+  real (VoiceOver/NVDA): solo axe, foco y nombres accesibles.
+- Los tests de componentes sustituyen el compositor por un boton; el compositor real solo lo recorren las E2E.
+- «Quitar» no pide confirmacion ni ofrece «Deshacer» (decision 5). Volver a recoger cuesta un trazo (o un clic con el baul).
+- Con UN documento, cambiar de archivo vacia las capturas (comportamiento que ya existia: `CLEARED_DOCUMENT_STATE`): el firmante vuelve a
+  «Sin recoger», no a «Debe volver a firmar · cambió el documento». Ese mensaje solo sale con varios documentos (documento nuevo o
+  sustituido en el alcance de un grupo) y, por seguridad, caduca el GRUPO entero aunque solo cambie uno de sus documentos. Añadir un
+  documento a «Una firma para todos» hace que cada firmante deba volver a recoger (nunca se reaplica un trazo a un documento que no vio).
+- Las plantillas guardadas se aplican a los mismos firmantes POR ORDEN: si la plantilla tiene menos firmantes que los que hay, los
+  sobrantes quedan sin campos (como antes quedaban fuera). La rama «Aplicar a todos los documentos» de esa ruta antigua usa la misma
+  logica (`signersToReuse`) pero no tiene E2E propia, solo los ayudantes unitarios; la de un documento si (`(t2)`).
+- `isPristine` ahora deja que la aplicacion AUTOMATICA de plantilla/automapeo actue tambien sobre un documento que se añade a una
+  ronda donde alguien ya habia recogido trazos (antes se saltaba): es lo buscado, pero no tiene E2E propia; solo la ruta manual
+  («Detectar campos automaticamente») y la prueba unitaria de `isPristine`.
+- No se midio rendimiento ni memoria: las funciones nuevas son O(bloques x documentos) sobre listas de a lo sumo 2 firmantes y unos pocos documentos.
+- Contratos que no cambian: el respaldo/exportacion de configuracion sigue sin incluir firmas dibujadas; el sello (`captureStamp`) y
+  `sameStamp` no se tocaron; los borradores antiguos con sellos `huella~hueco...` se leen igual.

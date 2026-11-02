@@ -92,6 +92,7 @@ type HarnessProps = {
   onFinish: () => void;
   fields?: SignatureField[];
   documentKey?: string | null;
+  onCaptures?: (captures: CaptureMap) => void;
 };
 
 function Harness({
@@ -100,6 +101,7 @@ function Harness({
   onFinish,
   fields = FIELDS,
   documentKey = DOC,
+  onCaptures,
 }: HarnessProps) {
   const [current, setCurrent] = useState<CaptureMap>(captures);
   const [turn, setTurn] = useState<CeremonyState | null>(initialCeremony ?? null);
@@ -109,7 +111,10 @@ function Harness({
       signers={[ANA, LUIS, SIN_HUECOS]}
       fields={fields}
       captures={current}
-      onCapturesChange={setCurrent}
+      onCapturesChange={(next) => {
+        setCurrent(next);
+        onCaptures?.(next);
+      }}
       documentKey={documentKey}
       onFinish={onFinish}
       strings={strings}
@@ -214,6 +219,15 @@ describe("SigningCeremony — src/app/sign-pdf/SigningCeremony.tsx", () => {
     );
 
     expect(finishButton().disabled).toBe(true);
+  });
+
+  it("rehacer la ronda NO borra lo recogido de quien aun no tiene campos (no esta en la cola)", () => {
+    const seen: CaptureMap[] = [];
+    const guest = captured(FIELDS, SIN_HUECOS.id, { signature: DRAFT, initials: DRAFT });
+    render(<Harness captures={{ ...allSigned(), [SIN_HUECOS.id]: guest }} onFinish={() => {}} onCaptures={(next) => seen.push(next)} />);
+    fireEvent.click(screen.getByRole("button", { name: strings.restartCeremony }));
+    expect(finishButton().disabled).toBe(true);
+    expect(seen.at(-1)).toEqual({ [SIN_HUECOS.id]: guest });
   });
 
   it("mover un hueco despues de firmarlo NO hace perder la firma ni las iniciales de su dueño", () => {

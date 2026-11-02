@@ -128,6 +128,8 @@ import {
   DocumentSessionHost,
 } from "@/app/sign-pdf/DocumentSessionHost";
 import { useSessionBridge } from "@/app/sign-pdf/useSessionBridge";
+import { useEarlyCapture } from "@/app/sign-pdf/useEarlyCapture";
+import { collectedSignerIds, keepReusedNames, reuseSignerIds, signersToReuse } from "@/app/sign-pdf/earlyCapture";
 import {
   DEFAULT_SESSION,
   activeDocOf,
@@ -142,6 +144,7 @@ import {
   docStateOf,
   ensureBlocks,
   liveFields,
+  projectCaptures,
   setDocCopies,
   type DocId,
   type SignerBlock,
@@ -1562,9 +1565,12 @@ export function SignToolClient() {
       try {
         const pdf = await loadPdf(file);
         const documentKey = await documentContentKey(file);
+        // Quien ya recogio su firma conserva su id, su nombre y lo recogido: la plantilla se aplica a los mismos firmantes, por orden.
+        const held = bridge.read().session;
+        const reuse = signersToReuse(held.signers, held.blocks);
         const instantiated = instantiateTemplate(template, {
           pageCount: pdf.getPageCount(),
-          mintSignerId: nextSignerId,
+          mintSignerId: reuseSignerIds(reuse, nextSignerId),
           mintFieldId: nextFieldId,
           mintTextFieldId: nextTextFieldId,
         });
@@ -1573,13 +1579,15 @@ export function SignToolClient() {
           setPendingApplyTemplate(null);
           return;
         }
+        const signers = keepReusedNames(instantiated.signers, reuse, collectedSignerIds(held.blocks));
+        const kept = projectCaptures(held.blocks, docIdOf(file));
         setOptions({
-          signers: instantiated.signers,
+          signers,
           fields: instantiated.fields,
           textFields: instantiated.textFields,
-          captures: {},
+          captures: Object.fromEntries(Object.entries(kept).filter(([id]) => signers.some((signer) => signer.id === id))),
           textValues: {},
-          activeSignerId: instantiated.signers[0]?.id ?? null,
+          activeSignerId: signers[0]?.id ?? null,
           selectedFieldId: null,
           selectedTextFieldId: null,
           editingTextFieldId: null,
@@ -1600,7 +1608,7 @@ export function SignToolClient() {
         setLoadError(toPdfError(caught).code);
       }
     },
-    [strings],
+    [bridge, strings],
   );
 
   /**
@@ -1621,11 +1629,14 @@ export function SignToolClient() {
             key: await documentContentKey(file),
           })),
         );
+        // Quien ya recogio su firma conserva su id, su nombre y lo recogido: la plantilla se aplica a los mismos firmantes, por orden.
+        const held = bridge.read().session;
+        const reuse = signersToReuse(held.signers, held.blocks);
         const instantiated = instantiateTemplateForAll(
           template,
           docs.map(({ id, pageCount }) => ({ id, pageCount })),
           {
-            mintSignerId: nextSignerId,
+            mintSignerId: reuseSignerIds(reuse, nextSignerId),
             mintFieldId: nextFieldId,
             mintTextFieldId: nextTextFieldId,
           },
@@ -1654,12 +1665,14 @@ export function SignToolClient() {
               },
             };
           }
+          const signers = keepReusedNames(instantiated.signers, reuse, collectedSignerIds(current.blocks));
+          const alive = new Set(signers.map((signer) => signer.id));
           return {
-            signers: instantiated.signers,
+            signers,
             docs: nextDocs,
-            // Firmantes nuevos: los bloques (y sus firmas) de los anteriores ya no valen.
-            blocks: ensureBlocks(instantiated.signers, order, current.signMode, []),
-            activeSignerId: instantiated.signers[0]?.id ?? null,
+            // Los firmantes que ya recogieron algo se quedan con sus bloques; los nuevos empiezan vacios.
+            blocks: ensureBlocks(signers, order, current.signMode, reuse.length > 0 ? current.blocks.filter((block) => alive.has(block.signerId)) : []),
+            activeSignerId: signers[0]?.id ?? null,
             selectedFieldId: null,
             selectedTextFieldId: null,
             editingTextFieldId: null,
@@ -3109,6 +3122,19 @@ export function MultiFlow({
     }
   }
 
+  /**
+   * Recoger la firma y las iniciales de cada firmante en el paso «Firmantes», antes o despues de poner los campos: queda atado al
+   * firmante y a la huella del documento (no a los huecos) y la ceremonia solo pide lo que falte.
+   */
+  const earlyCapture = useEarlyCapture({
+    options,
+    setOptions,
+    stampKey: stampKeyOf(documentKey, options.textEdits) || null,
+    fileName: file?.name,
+    multi: multi ? { session: multi.session, bridge: multi.bridge, docs: docRefs, stampKeys } : undefined,
+    strings,
+  });
+
   const anySlots = multi ? docIds.some((id) => slotsByDoc(id).length > 0) : options.fields.length > 0;
   // Texto relleno o texto original editado: ambos bastan para «rellenar y descargar» sin huecos.
   const anyFilledText = multi
@@ -3340,6 +3366,7 @@ export function MultiFlow({
             }
             fieldCounts={fieldCounts}
             strings={strings}
+            capture={earlyCapture}
           />
           {multi ? (
             <AssignmentMatrix

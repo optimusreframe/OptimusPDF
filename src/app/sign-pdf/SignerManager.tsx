@@ -13,6 +13,11 @@ import {
   SignerBlockList,
   type SignerBlocksApi,
 } from "@/app/sign-pdf/SignerBlocks";
+import {
+  SignerCaptureNotices,
+  SignerCaptureSection,
+  type SignerCaptureApi,
+} from "@/app/sign-pdf/SignerCapture";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 
 /**
@@ -35,6 +40,11 @@ export type SignerManagerProps = {
    * (alcance, anadir, quitar). Ausente = la interfaz de siempre.
    */
   blocks?: SignerBlocksApi;
+  /**
+   * Recoger la firma y las iniciales de cada firmante desde su tarjeta (antes o despues de poner los campos): estado en texto,
+   * «Recoger» / «Cambiar» / «Quitar» y un panel en linea. Ausente = la tarjeta de siempre.
+   */
+  capture?: SignerCaptureApi;
 };
 
 /** Identificadores estables sin depender de `crypto.randomUUID`. Exportado por el mismo motivo que `nextFieldId` en `DocumentCanvas.tsx`. */
@@ -75,10 +85,13 @@ export function SignerManager({
   fieldCounts,
   strings,
   blocks,
+  capture,
 }: SignerManagerProps) {
   // Solo limita el ALTA: una lista heredada con mas firmantes (borrador,
   // configuracion) se muestra tal cual, con el boton de alta deshabilitado.
   const full = signers.length >= MAX_SIGNERS;
+  // Con bloques o con lo recogido la tarjeta se apila: fila del firmante + lo que cuelga de ella.
+  const stacked = Boolean(blocks) || Boolean(capture);
 
   const add = () => {
     if (full) return;
@@ -116,6 +129,8 @@ export function SignerManager({
         </p>
       </div>
 
+      {capture ? <SignerCaptureNotices api={capture} /> : null}
+
       <ul
         role="radiogroup"
         aria-label={strings.activeSignerLabel}
@@ -131,12 +146,11 @@ export function SignerManager({
               role="none"
               className={cn(
                 "surface-card rounded-ios p-3 transition-colors",
-                // Con bloques la tarjeta se apila: fila del firmante + sus bloques.
-                blocks ? "space-y-3" : "flex items-center gap-3",
+                stacked ? "space-y-3" : "flex items-center gap-3",
                 active ? "border border-signal/50" : "border border-white/10",
               )}
             >
-              <div className={blocks ? "flex items-center gap-3" : "contents"}>
+              <div className={stacked ? "flex items-center gap-3" : "contents"}>
               <button
                 type="button"
                 role="radio"
@@ -187,6 +201,15 @@ export function SignerManager({
                 <X aria-hidden="true" className="size-4" />
               </button>
               </div>
+              {capture ? (
+                <SignerCaptureSection
+                  signer={signer}
+                  name={signerDisplayName(signer.name, index, strings.defaultSignerName)}
+                  fieldCount={count}
+                  api={capture}
+                  strings={strings}
+                />
+              ) : null}
               {blocks ? (
                 <SignerBlockList
                   signer={signer}

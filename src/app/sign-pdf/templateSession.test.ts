@@ -99,19 +99,24 @@ describe("firmantes y contadores", () => {
 describe("documento limpio", () => {
   const dirty = (patch: Partial<typeof EMPTY_DOC_STATE>) => session({ docs: { "doc-1": { ...EMPTY_DOC_STATE, ...patch } } });
   const signer = { id: "sg-1", name: "Ana", color: "#000" };
-  it("limpio: sin huecos, valores, ediciones, campos a mano ni trazos; la deteccion automatica no cuenta como trabajo", () => {
+  it("limpio: sin huecos, valores, ediciones ni campos a mano; la deteccion automatica no cuenta como trabajo", () => {
     expect(isPristine(session(), "doc-1")).toBe(true);
     expect(isPristine(dirty({ textFields: [{ id: "a", pageIndex: 0, rect: R(0, 0, 0.1, 0.1), source: "acroform", confidence: "high" }, { id: "b", pageIndex: 0, rect: R(0, 0, 0.1, 0.1), source: "heuristic-vector", confidence: "low" }] }), "doc-1")).toBe(true);
   });
-  it("no limpio: huecos, campos a mano, valores, ediciones o trazos", () => {
+  it("no limpio: huecos, campos a mano, valores o ediciones", () => {
     const field = { id: "f", signerId: "sg-1", pageIndex: 0, type: "signature" as const, rect: R(0, 0, 0.1, 0.1) };
     expect(isPristine({ ...dirty({ fields: [field] }), signers: [signer] }, "doc-1")).toBe(false);
     expect(isPristine(dirty({ fields: [field] }), "doc-1")).toBe(false);
     expect(isPristine(dirty({ textFields: [{ id: "m", pageIndex: 0, rect: R(0, 0, 0.1, 0.1), source: "manual", confidence: "high" }] }), "doc-1")).toBe(false);
     expect(isPristine(dirty({ textValues: { a: "x" } }), "doc-1")).toBe(false);
     expect(isPristine(dirty({ textEdits: [{ id: "e" } as never] }), "doc-1")).toBe(false);
-    const block = { id: "bk-1", signerId: "sg-1", appliesTo: ["doc-1"], signature: { dataUrl: "d", ratio: 1 }, initials: null, stamps: {}, auto: true };
-    expect(isPristine(session({ blocks: [block] }), "doc-1")).toBe(false);
+  });
+  // Cambiado (recoger firma e iniciales ANTES de poner los campos): los trazos son del firmante, no de la disposicion del
+  // documento. Si contaran, «Detectar campos», el automapeo y aceptar una plantilla parecida no harian nada en un documento
+  // cuyo firmante ya recogio su firma; los firmantes con trazos que una aplicacion quitaria los protege `lossOf`.
+  it("los trazos recogidos de un firmante NO ensucian el documento (se pueden recoger antes de poner los campos)", () => {
+    const block = { id: "bk-1", signerId: "sg-1", appliesTo: ["doc-1"], signature: { dataUrl: "d", ratio: 1 }, initials: null, stamps: { "doc-1": "huella" }, auto: true };
+    expect(isPristine({ ...session({ blocks: [block] }), signers: [signer] }, "doc-1")).toBe(true);
     expect(isPristine(session({ blocks: [{ ...block, appliesTo: ["doc-2"] }] }), "doc-1")).toBe(true);
   });
 });

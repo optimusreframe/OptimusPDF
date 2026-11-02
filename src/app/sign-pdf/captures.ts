@@ -62,7 +62,7 @@ export function sameStamp(stored: string, current: string): boolean {
  * Por que una firma ya hecha dejo de valer (F0-fix, D7): cambio el texto del documento o el documento. `"fields"` (huecos) ya no
  * se produce: mover los huecos no invalida nada; el tipo se conserva solo por los textos de la interfaz.
  */
-export type StaleReason = "text" | "fields" | "document";
+export type StaleReason = "text" | "fields" | "document" | "added";
 
 /**
  * Por que un sello guardado ya no vale frente al de ahora (`null` = sigue valiendo, o no habia sello que comparar).

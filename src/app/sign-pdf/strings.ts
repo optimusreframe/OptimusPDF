@@ -610,6 +610,42 @@ export type SignStrings = {
   review: ReviewStrings;
   /** Plantillas de documento: modo «Configurar plantilla» y aplicacion automatica (Fase 2 · U2.3/U2.4). */
   template: TemplateStrings;
+  /** Recoger la firma y las iniciales de cada firmante antes o despues de poner los campos: ver `EarlyCaptureStrings`. */
+  early: EarlyCaptureStrings;
+};
+
+/**
+ * Recoger firma e iniciales ANTES o DESPUES de poner los campos (paso «Firmantes»). Lo recogido queda atado al firmante, no
+ * a los campos. El estado se dice SIEMPRE con texto (el icono y el color solo acompanan).
+ */
+export type EarlyCaptureStrings = {
+  /** Boton cuando el firmante no tiene nada vigente / cuando ya tiene algo. */
+  collect: string;
+  change: string;
+  remove: string;
+  /** Cierra el panel. */
+  done: string;
+  /** Nombres accesibles de los botones, con el nombre de la persona (contienen el rotulo visible). */
+  collectFor: (name: string) => string;
+  changeFor: (name: string) => string;
+  removeFor: (name: string) => string;
+  /** Estado de un firmante (el caducado se dice con `statusStale` + `staleReasonShort` de la ceremonia). */
+  statusComplete: string;
+  statusSignature: string;
+  statusInitials: string;
+  statusNone: string;
+  statusPartial: string;
+  /** Aviso en una linea: hay trazo recogido y el firmante todavia no tiene campos (no se estampa nada). */
+  noFieldsYet: string;
+  /** Panel: nombre accesible, explicacion y aviso cuando un grupo (varios documentos) no tiene los dos trazos. */
+  panelLabel: (name: string) => string;
+  panelHint: string;
+  panelPartialHint: string;
+  /** Anuncios de la region viva. */
+  announceStatus: (name: string, status: string) => string;
+  announceRemoved: (name: string) => string;
+  /** Ceremonia: todos los firmantes con campos ya tienen todo lo que hace falta. */
+  allCovered: string;
 };
 
 /**
@@ -1267,6 +1303,29 @@ const assignmentEs: AssignmentStrings = {
       : `${files} archivos en el ZIP (${plEs(documents, "documento", "documentos")} y sus copias).`,
 };
 
+const earlyEs: EarlyCaptureStrings = {
+  collect: "Recoger firma e iniciales",
+  change: "Cambiar",
+  remove: "Quitar",
+  done: "Listo",
+  collectFor: (name) => `Recoger firma e iniciales de ${name}`,
+  changeFor: (name) => `Cambiar lo recogido de ${name}`,
+  removeFor: (name) => `Quitar lo recogido de ${name}`,
+  statusComplete: "Firma e iniciales recogidas",
+  statusSignature: "Solo firma",
+  statusInitials: "Solo iniciales",
+  statusNone: "Sin recoger",
+  statusPartial: "Recogida en parte",
+  noFieldsYet: "Aún no tiene campos: lo recogido se usará cuando se los pongas.",
+  panelLabel: (name) => `Firma e iniciales de ${name}`,
+  panelHint:
+    "Quedan atadas a esta persona, no a los campos: puedes añadir, mover o reorganizar campos después sin perderlas. Puedes recoger solo una de las dos.",
+  panelPartialHint: "Falta algo en alguno de los grupos: complétalo aquí o se pedirá al firmar.",
+  announceStatus: (name, status) => `${name}: ${status}.`,
+  announceRemoved: (name) => `Se quitó lo recogido de ${name}.`,
+  allCovered: "Todas las firmas e iniciales que hacen falta ya están recogidas: no se pide nada más.",
+};
+
 const reviewEs: ReviewStrings = {
   title: "Revisar antes de descargar",
   intro: "Mira cada página que lleva firma, iniciales o texto. Toca una miniatura para ir a esa página.",
@@ -1375,6 +1434,29 @@ const assignmentEn: AssignmentStrings = {
     copiesOfEach !== null && copiesOfEach > 1
       ? `${files} files: ${documents} ${documents === 1 ? "document" : "documents"} with ${copiesOfEach} copies each.`
       : `${files} files in the ZIP (${documents} ${documents === 1 ? "document" : "documents"} and their copies).`,
+};
+
+const earlyEn: EarlyCaptureStrings = {
+  collect: "Collect signature and initials",
+  change: "Change",
+  remove: "Remove",
+  done: "Done",
+  collectFor: (name) => `Collect signature and initials for ${name}`,
+  changeFor: (name) => `Change what was collected for ${name}`,
+  removeFor: (name) => `Remove what was collected for ${name}`,
+  statusComplete: "Signature and initials collected",
+  statusSignature: "Signature only",
+  statusInitials: "Initials only",
+  statusNone: "Not collected",
+  statusPartial: "Partly collected",
+  noFieldsYet: "No fields yet: what was collected will be used once you add them.",
+  panelLabel: (name) => `Signature and initials of ${name}`,
+  panelHint:
+    "They stay tied to this person, not to the fields: you can add, move or rearrange fields later without losing them. You can collect just one of the two.",
+  panelPartialHint: "Something is missing in one of the groups: complete it here or it will be asked at signing.",
+  announceStatus: (name, status) => `${name}: ${status}.`,
+  announceRemoved: (name) => `What was collected for ${name} was removed.`,
+  allCovered: "Every signature and set of initials that is needed is already collected: nothing more is asked.",
 };
 
 const reviewEn: ReviewStrings = {
@@ -1694,7 +1776,9 @@ const es: SignStrings = {
         ? "cambiaste el texto del documento"
         : reason === "fields"
           ? "cambiaste los huecos de firma del documento"
-          : "cambió el documento"
+          : reason === "added"
+            ? "se añadió un documento a lo que firma"
+            : "cambió el documento"
     }: ${name} debe volver a firmar.`,
   statusStale: "Debe volver a firmar",
   staleReasonShort: (reason) =>
@@ -1702,7 +1786,9 @@ const es: SignStrings = {
       ? "cambió el texto del documento"
       : reason === "fields"
         ? "cambiaron los huecos de firma"
-        : "cambió el documento",
+        : reason === "added"
+          ? "se añadió un documento a lo que firma"
+          : "cambió el documento",
   ceremonyItemStale: "ya no es válida",
   ceremonyMissing: (items) => `Falta: ${items.join("; ")}`,
   ceremonyGoToMissing: "Ir a lo que falta",
@@ -1799,13 +1885,13 @@ const es: SignStrings = {
   saveTemplateSuccess: "Plantilla guardada.",
   applyTemplateConfirmTitle: "¿Aplicar esta plantilla?",
   applyTemplateConfirmBody:
-    "Reemplaza los firmantes, huecos y campos de texto actuales por los de la plantilla. Lo que ya hayas escrito o firmado en este documento se pierde.",
+    "Reemplaza los firmantes, huecos y campos de texto actuales por los de la plantilla. Lo que ya hayas escrito en este documento se pierde; la firma y las iniciales que ya hayas recogido se conservan: la plantilla se aplica a los mismos firmantes, por orden.",
   applyTemplateConfirm: "Sí, aplicar plantilla",
   applyTemplateDropped: (dropped) =>
     `Aplicada. ${dropped} campo${dropped === 1 ? "" : "s"} de la plantilla no ${dropped === 1 ? "se pudo" : "se pudieron"} aplicar (su página no existe en este documento, o su firmante sobraba por el máximo de 2) y ${dropped === 1 ? "se descartó" : "se descartaron"}.`,
   templatesApplyAll: "Aplicar a todos los documentos",
   applyTemplateAllConfirmBody:
-    "Se reemplazarán los firmantes, los huecos y los campos de TODOS los documentos de la ronda por los de la plantilla, y se perderán las firmas ya hechas. Esta acción no se puede deshacer.",
+    "Se reemplazarán los firmantes, los huecos y los campos de TODOS los documentos de la ronda por los de la plantilla. La firma y las iniciales que ya hayas recogido se conservan: la plantilla se aplica a los mismos firmantes, por orden. Esta acción no se puede deshacer.",
   applyTemplateAllDone: (documents, dropped) =>
     `Plantilla aplicada a ${documents} documentos.${dropped > 0 ? ` ${dropped} hueco${dropped === 1 ? "" : "s"} o campo${dropped === 1 ? "" : "s"} no ${dropped === 1 ? "se pudo" : "se pudieron"} aplicar (su página no existe en ese documento, o su firmante sobraba por el máximo de 2) y ${dropped === 1 ? "se descartó" : "se descartaron"}.` : ""}`,
   applyTemplateNothingFits:
@@ -2179,6 +2265,7 @@ const es: SignStrings = {
   assignment: assignmentEs,
   review: reviewEs,
   template: templateEs,
+  early: earlyEs,
   vaultBackup: {
     sectionHint: "Respaldo: guarda todas tus firmas en un archivo para llevarlas a otro dispositivo o recuperarlas si pierdes datos.",
     exportButton: "Exportar todas mis firmas",
@@ -2575,7 +2662,9 @@ const en: SignStrings = {
         ? "you changed the document text"
         : reason === "fields"
           ? "you changed the signature spots of the document"
-          : "the document changed"
+          : reason === "added"
+            ? "a document was added to what they sign"
+            : "the document changed"
     }: ${name} must sign again.`,
   statusStale: "Must sign again",
   staleReasonShort: (reason) =>
@@ -2583,7 +2672,9 @@ const en: SignStrings = {
       ? "the document text changed"
       : reason === "fields"
         ? "the signature spots changed"
-        : "the document changed",
+        : reason === "added"
+          ? "a document was added to what they sign"
+          : "the document changed",
   ceremonyItemStale: "no longer valid",
   ceremonyMissing: (items) => `Missing: ${items.join("; ")}`,
   ceremonyGoToMissing: "Go to what's missing",
@@ -2678,13 +2769,13 @@ const en: SignStrings = {
   saveTemplateSuccess: "Template saved.",
   applyTemplateConfirmTitle: "Apply this template?",
   applyTemplateConfirmBody:
-    "Replaces the current signers, fields and text fields with the ones from the template. Anything you already typed or signed on this document is lost.",
+    "Replaces the current signers, fields and text fields with the ones from the template. Anything you already typed on this document is lost; the signature and initials you already collected are kept: the template is applied to the same signers, in order.",
   applyTemplateConfirm: "Yes, apply template",
   applyTemplateDropped: (dropped) =>
     `Applied. ${dropped} field${dropped === 1 ? "" : "s"} from the template could not be applied (its page does not exist in this document, or its signer was beyond the maximum of 2) and ${dropped === 1 ? "was" : "were"} dropped.`,
   templatesApplyAll: "Apply to all documents",
   applyTemplateAllConfirmBody:
-    "This replaces the signers, slots and fields of ALL the documents in the round with the template's, and the signatures already made are lost. This cannot be undone.",
+    "This replaces the signers, slots and fields of ALL the documents in the round with the template's. The signature and initials you already collected are kept: the template is applied to the same signers, in order. This cannot be undone.",
   applyTemplateAllDone: (documents, dropped) =>
     `Template applied to ${documents} documents.${dropped > 0 ? ` ${dropped} slot${dropped === 1 ? "" : "s"} or field${dropped === 1 ? "" : "s"} could not be applied (the page does not exist in that document, or the signer was beyond the maximum of 2) and ${dropped === 1 ? "was" : "were"} dropped.` : ""}`,
   applyTemplateNothingFits:
@@ -3052,6 +3143,7 @@ const en: SignStrings = {
   assignment: assignmentEn,
   review: reviewEn,
   template: templateEn,
+  early: earlyEn,
   vaultBackup: {
     sectionHint: "Backup: save all your signatures in one file to move them to another device or recover them if you lose data.",
     exportButton: "Export all my signatures",

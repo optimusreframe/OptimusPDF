@@ -550,6 +550,12 @@ export function SigningCeremony({
             ? strings.allSignedBody
             : strings.pendingBody(pending.length)}
         </p>
+        {/* Todo lo que hace falta ya esta recogido (quiza antes de poner los campos): se dice claro y no se pide nada. */}
+        {pending.length === 0 && queue.length > 0 ? (
+          <p data-all-covered="" className="mt-2 text-footnote font-medium leading-relaxed text-foreground">
+            {strings.early.allCovered}
+          </p>
+        ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             size="lg"
@@ -564,7 +570,9 @@ export function SigningCeremony({
             size="lg"
             wrap
             onClick={() => {
-              onCapturesChange({});
+              // Solo quien esta en la cola: lo recogido de quien aun no tiene campos no se toca.
+              const inQueue = new Set(queue.map((signer) => signer.id));
+              onCapturesChange(Object.fromEntries(Object.entries(captures).filter(([id]) => !inQueue.has(id))));
               goToTurn(0);
               setLiveMessage("");
             }}

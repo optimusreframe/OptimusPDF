@@ -163,7 +163,7 @@ export function pendingBlockCount(
 export type StaleSigner = { signerId: string; reason: StaleReason };
 
 /** Con varios motivos a la vez, el que se dice: lo que la persona acaba de hacer (el texto) antes que lo demas. */
-const STALE_PRIORITY: readonly StaleReason[] = ["text", "fields", "document"];
+const STALE_PRIORITY: readonly StaleReason[] = ["text", "fields", "document", "added"];
 
 /**
  * Firmantes de la cola cuyo trazo ya estaba hecho pero su SELLO por documento dejo de valer (se edito el texto del
