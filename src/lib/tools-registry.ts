@@ -17,8 +17,14 @@ import {
   FileType,
   GitCompare,
   Hash,
+  AudioLines,
+  Download,
+  FileAudio,
+  FileVideo,
   Image,
   ImageDown,
+  Mic2,
+  Repeat,
   Languages,
   Layers,
   LayoutGrid,
@@ -128,6 +134,13 @@ export const TOOL_SLUGS = [
   "protect-pdf",
   "unlock-pdf",
   "redact-pdf",
+  // OptimusTOOLS (fuera de las categorias de PDF; ver docs/PLAN-OPTIMUSTOOLS.md)
+  "image-converter",
+  "audio-converter",
+  "video-converter",
+  "audio-studio",
+  "audio-extractor",
+  "downloader",
 ] as const;
 
 export type ToolSlug = (typeof TOOL_SLUGS)[number];
@@ -518,7 +531,55 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
     accept: PDF_MIME,
     extensions: PDF_EXT,
     multiple: false,
+  },  "image-converter": {
+    icon: Repeat,
+    category: "convert-to",
+    status: "soon",
+    accept: ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif", "image/bmp", "image/avif"],
+    extensions: [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".avif"],
+    multiple: true,
   },
+  "audio-converter": {
+    icon: FileAudio,
+    category: "convert-to",
+    status: "soon",
+    accept: ["audio/*"],
+    extensions: [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".weba"],
+    multiple: true,
+  },
+  "video-converter": {
+    icon: FileVideo,
+    category: "convert-to",
+    status: "soon",
+    accept: ["video/*"],
+    extensions: [".mp4", ".mov", ".webm", ".mkv", ".m4v"],
+    multiple: false,
+  },
+  "audio-studio": {
+    icon: AudioLines,
+    category: "edit",
+    status: "soon",
+    accept: ["audio/*"],
+    extensions: [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".weba"],
+    multiple: true,
+  },
+  "audio-extractor": {
+    icon: Mic2,
+    category: "convert-to",
+    status: "soon",
+    accept: ["video/*"],
+    extensions: [".mp4", ".mov", ".webm", ".mkv", ".m4v"],
+    multiple: false,
+  },
+  downloader: {
+    icon: Download,
+    category: "convert-to",
+    status: "soon",
+    accept: [],
+    extensions: [],
+    multiple: false,
+  },
+
 };
 
 export const TOOLS: Tool[] = TOOL_SLUGS.map((slug) => {

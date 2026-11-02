@@ -188,7 +188,31 @@ const tools: Record<ToolSlug, ToolCopy> = {
     name: "Censurar PDF",
     description:
       "Tapa datos sensibles con cajas opacas y aplana la página para que no se recuperen.",
+  },  "image-converter": {
+    name: "Convertidor de imágenes",
+    description: "Cambia el formato de tus imágenes (JPG, PNG, WEBP…) sin que salgan de tu dispositivo.",
   },
+  "audio-converter": {
+    name: "Convertidor de audio",
+    description: "Pasa un audio de un formato a otro (MP3, WAV, M4A, OGG…) en tu dispositivo.",
+  },
+  "video-converter": {
+    name: "Convertidor de video",
+    description: "Cambia el formato de un video (MP4, WEBM…) en tu dispositivo, sin subirlo a ningún sitio.",
+  },
+  "audio-studio": {
+    name: "Audio Studio",
+    description: "Corta, une, quita partes y cambia el formato de tus audios, todo en tu dispositivo.",
+  },
+  "audio-extractor": {
+    name: "Extraer audio de un video",
+    description: "Saca la pista de audio de un video que tienes en tu dispositivo y guárdala como MP3, WAV u otro formato.",
+  },
+  downloader: {
+    name: "Downloader",
+    description: "Descarga de redes sociales: próximamente.",
+  },
+
 };
 
 /**
@@ -207,6 +231,11 @@ const filenames: Partial<Record<ToolSlug, string>> = {
   "jpg-to-pdf": "documento-convertido",
   "pdf-to-jpg": "paginas-imagen",
   "scan-to-pdf": "documento-escaneado",
+  "image-converter": "imagen-convertida",
+  "audio-converter": "audio-convertido",
+  "video-converter": "video-convertido",
+  "audio-studio": "audio-editado",
+  "audio-extractor": "audio-extraido",
   "add-watermark": "documento-con-marca",
   "add-page-numbers": "documento-numerado",
   "crop-pdf": "documento-recortado",

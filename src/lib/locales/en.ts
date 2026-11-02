@@ -177,7 +177,31 @@ const tools: Record<ToolSlug, ToolCopy> = {
     name: "Redact PDF",
     description:
       "Cover sensitive data with opaque boxes and flatten the page so nothing can be recovered.",
+  },  "image-converter": {
+    name: "Image Converter",
+    description: "Change the format of your images (JPG, PNG, WEBP…) without them leaving your device.",
   },
+  "audio-converter": {
+    name: "Audio Converter",
+    description: "Turn an audio file into another format (MP3, WAV, M4A, OGG…) on your device.",
+  },
+  "video-converter": {
+    name: "Video Converter",
+    description: "Change a video's format (MP4, WEBM…) on your device, without uploading it anywhere.",
+  },
+  "audio-studio": {
+    name: "Audio Studio",
+    description: "Trim, join, cut out parts and change the format of your audio, all on your device.",
+  },
+  "audio-extractor": {
+    name: "Extract audio from video",
+    description: "Pull the audio track out of a video on your device and save it as MP3, WAV or another format.",
+  },
+  downloader: {
+    name: "Downloader",
+    description: "Social media downloads: coming soon.",
+  },
+
 };
 
 const filenames: Partial<Record<ToolSlug, string>> = {
@@ -191,6 +215,11 @@ const filenames: Partial<Record<ToolSlug, string>> = {
   "jpg-to-pdf": "converted-document",
   "pdf-to-jpg": "page-images",
   "scan-to-pdf": "scanned-document",
+  "image-converter": "converted-image",
+  "audio-converter": "converted-audio",
+  "video-converter": "converted-video",
+  "audio-studio": "edited-audio",
+  "audio-extractor": "extracted-audio",
   "add-watermark": "watermarked-document",
   "add-page-numbers": "numbered-document",
   "crop-pdf": "cropped-document",
