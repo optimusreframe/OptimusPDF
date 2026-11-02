@@ -164,3 +164,108 @@ Ninguna (`jszip`, `@napi-rs/canvas`, `axe-core` ya estaban).
 6. **Cancelar** a mitad de un lote de ~30 fotos grandes: debe parar en el acto.
 7. **Privacidad**: con la pestaña de Red de las herramientas del navegador abierta, convertir y comprobar que no sale ninguna petición con las imágenes.
 8. **Metadatos**: una foto con GPS → convertida; comprobar con Información/«Ver detalles» que no conserva ubicación ni cámara.
+
+## Video Converter (`/video-converter`, slug `video-converter`, ahora `live`) · W-VIDEO
+
+Convierte un video a **MP4 (H.264 + AAC)** o **WebM (VP9 o VP8 + Opus)** en el propio navegador, con WebCodecs. Sin ffmpeg.wasm, sin CDN, sin
+cabeceras COOP/COEP, sin ninguna peticion con el contenido del usuario (la prueba E2E lo comprueba: solo `localhost`, ni un POST).
+
+### Diseño
+
+- **Motor puro** (`src/lib/media/video/`, sin DOM ni red): `formats` (formatos y codecs), `resolution` (lado corto 1080/720/480/360 p, sin ampliar,
+  lados pares), `fps` (tope), `profiles` (bitrate por bits/pixel/fotograma; «Conservar», «Alta», «Equilibrada», «Pequeña»; el bitrate nunca supera lo
+  que tenia el original ajustado por codec), `capabilities` (pregunta a `VideoEncoder`/`AudioEncoder.isConfigSupported`; ofrece solo lo posible y dice
+  por que no), `limits` (umbrales por clase de dispositivo), `plan` (**decide copiar o recodificar cada pista**, medidas, bitrate, peso estimado y avisos:
+  la pagina lo recalcula en cada cambio y es lo mismo que se ejecuta), `names`, `errors` (codigos → texto propio, nunca el de la libreria), `display`.
+- **Ejecucion**: `convertCore.ts` (unico archivo que importa la libreria) corre en `video.worker.ts`; `videoEngine.ts` lo gobierna: worker por demanda,
+  **cancelar termina el worker** (libera codificador, decodificador y memoria de golpe), y si no se puede crear un worker (o no carga) la misma ejecucion
+  corre en el hilo principal. El original se lee a trozos (`BlobSource`, cache de 8 MiB), nunca entero; la libreria decodifica, reescala y cierra cada
+  `VideoFrame`/`AudioData` con contrapresion. El resultado se arma en un `ArrayBuffer` (MP4 con `fastStart: 'in-memory'`) y se entrega como `Blob`.
+- **Copiar vs recodificar**: con «Conservar», sin cambio de resolucion/fps y con un codec que ya es el del formato (H.264→MP4, VP8/VP9→WebM) el video
+  pasa **sin recodificar** (rapido y sin perdida; 559 MB en 1,8 s). Un MOV de iPhone en HEVC → MP4 se recodifica a H.264 (el «MP4» prometido es H.264).
+  El audio igual (AAC→MP4, Opus/Vorbis→WebM se copian). WebM no guarda la rotacion de movil: se gira la imagen de verdad (y se avisa); MP4 la conserva como dato.
+- **Pagina** (`src/app/video-converter/`): composicion propia con `FileDropzone`, `OptionsPanel`, `ProcessingOverlay`, `DownloadScreen`, `ErrorBanner`
+  (no `ToolShell`: ver «Decisiones»). Estados: reposo → leyendo → opciones (tarjeta del archivo, avisos, peso estimado) → progreso real con «Cancelar» →
+  resultado. Navegador sin WebCodecs o pagina sin conexion segura → **pagina informativa** (con el motivo), no un error.
+- Entrada: MP4/M4V, MOV, WebM, MKV (solo esos lectores en el bundle). Una sola pista de video y de audio (las principales).
+
+### Dependencias nuevas
+
+| paquete | version | licencia | peso |
+|---|---|---|---|
+| `mediabunny` | 1.65.0 | **MPL-2.0** (el encargo decia MIT; no lo es) | worker `video.worker.ts`: **464 KB minificado / 116 KB gzip** (con solo MP4+MOV+WebM+MKV de entrada; con `ALL_FORMATS` eran 593 / 148). **No entra en el JS inicial de la ruta**: el worker es un chunk aparte y el respaldo en hilo principal es un `import()` |
+| `@types/dom-webcodecs`, `@types/dom-mediacapture-transform` | 0.1.13 / 0.1.12 | MIT | solo tipos (0 KB de ejecucion) |
+
+MPL-2.0 es copyleft **por archivo**, no GPL/LGPL: usada sin modificar y empaquetada, no obliga a abrir el codigo de OptimusPDF; si obliga a conservar el aviso
+de licencia y a poder facilitar el codigo de la libreria (es publico en npm). **Decision que dejo al orquestador**: si MPL-2.0 no vale para la regla «solo
+permisivas», la alternativa es `mp4box` (BSD-3, demux MP4/MOV) + `mp4-muxer`/`webm-muxer` (MIT) + un lector EBML propio para WebM/MKV: bastante mas codigo
+y sin las conversiones de rotacion/medidas/ritmo ya resueltas. Todo el uso esta en `convertCore.ts`, asi que cambiarla es acotado. Añadir mediabunny a la
+pagina de Licencias. Auditado: el bundle del worker no contiene `fetch`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, `eval` ni `new Function`.
+
+### Limites (en `limits.ts`; los de movil NO estan medidos)
+
+| | escritorio | iPhone/iPad/Android/≤4 GB |
+|---|---|---|
+| aviso por peso del original | 500 MB | 200 MB |
+| rechazo por peso del original | 4 GB | 1 GB |
+| rechazo por peso **estimado del resultado** | 1 GB | 250 MB |
+| aviso / rechazo por duracion | 30 min / 2 h | 10 min / 30 min |
+
+Medido en Chromium de escritorio (Mac, codificador por hardware): 1080p30 de contenido sencillo → ~5× tiempo real (30 s en 5,5 s; a 720p 3,5 s); peor caso
+(ruido puro, ~110 Mbps) → 1,6–2,1×; copiar → segundos. Memoria: el pico es ~**2,4× el peso del resultado** (559 MB de salida subieron ~1,3 GB), y en
+recodificar 40 s de 1080p a 720p el sobrecoste fue ~0,4 GB: **no se observo acumulacion de fotogramas**. De ahi: tope sobre el resultado estimado (no solo el
+original) y 1 GB en escritorio. Un codificador por hardware puede ignorar el bitrate pedido con contenido patologico (ruido: pidio ~5 Mbps y salieron 112): el
+peso estimado es orientativo y el desbordamiento acaba en el aviso «Se agotó la memoria», no en un cuelgue silencioso.
+
+### Pruebas
+
+- Unitarias (`src/lib/media/video/*.test.ts`, `src/app/video-converter/*.test.ts(x)`): 109 pruebas — escalado y lados pares, fps, perfiles/bitrate (topes por el original y
+  por codec), capacidades con `VideoEncoder`/`AudioEncoder` **simulados** (Chrome, sin H.264, Safari sin codificador de audio, http no seguro, codec que lanza), plan
+  (copiar/recodificar, rotacion, medidas impares, audio 5.1/mono/sin codificador/indecodificable, limites escritorio vs movil, HDR, estimaciones), limites y deteccion de
+  dispositivo, nombres, errores, motor con worker simulado (progreso, cancelar = terminar worker, respaldo sin worker), paridad ES/EN de textos y el cliente completo con
+  motor simulado (leer, opciones, plan enviado, cancelar, errores, bloqueos).
+- E2E `e2e/specs/video-converter.spec.ts` (14 pruebas, Chromium headless): los videos se **generan dentro de la prueba** (`video-converter.fixture-entry.ts`, empaquetado con
+  Vite, codifica con WebCodecs; ritmo constante, rotacion, medidas impares, audio, ruido) y los resultados se abren en un `<video>` real (medidas, duracion, fotograma no negro).
+  Cubre MP4↔WebM con resolucion y calidad, copia sin recodificar, rotacion de movil (MP4 la conserva; WebM la hornea; ambos salen 360×640), medidas impares → pares,
+  60→30 fps y quitar audio (releido con la propia herramienta), worker usado y cero peticiones fuera de localhost, **cancelar a medias** (progreso real > 0, worker terminado,
+  foco, y luego convierte), archivo roto / solo audio / no es video, navegador sin WebCodecs, sin workers (hilo principal), aviso en iPhone (UA), y axe 0 + sin desbordes +
+  objetivos ≥ 44 px a 320/375/1280 px, ES/EN, claro/oscuro, tipografia ancha, con hoja de opciones, error, progreso y resultado.
+  Si un Chromium no codifica H.264/AAC (Linux sin codecs propietarios) las partes de MP4 se omiten y se anota. **Tambien paso 14/14 en el WebKit de Playwright (Safari 26.5
+  en macOS)**, ejecutado a mano con una configuracion temporal (el spec no esta en `CROSS_SPECS`).
+
+### No verificado (lo hace una persona)
+
+Safari/iPhone/iPad **reales** (memoria, codificador por hardware de iOS, segundo plano), HEVC/HDR de iPhone reales, VFR de moviles reales, Firefox, `next build` (el patron del worker es el de los demas del repo y funciona en
+dev), tiempos en Windows/Linux, y los limites de movil.
+
+### Pruebas manuales para el visto bueno
+
+1. **Mac · Safari**: MOV de iPhone (HEVC) de ~30 s → MP4. Debe abrirse en QuickTime, con audio y orientacion correctos; el peso real debe parecerse al estimado.
+2. **Mac · Chrome**: el mismo MOV → MP4 y → WebM; MP4 H.264 de movil con «Conservar» (debe tardar segundos y decir «Sin recodificar»).
+3. **iPhone · Safari**: video **vertical** de 20–40 s grabado con la camara → MP4 («Equilibrada», 720p). Comprobar orientacion, audio, que la pantalla no se apaga y el tiempo.
+   Cambiar de app y volver a mitad: ¿sigue o se pierde? Probar «Cancelar» (la pagina debe quedar fluida) y reintentar.
+4. **iPhone · Safari**: un video de ~250 MB (debe avisar), uno de ~1,2 GB (debe rechazarlo con el mensaje), y uno de 5–8 min a 1080p: ¿termina o la pestaña se recarga por memoria? Con eso se calibran los limites de «poca memoria».
+5. **iPad · Safari**: lo mismo que 3 con un video apaisado; mirar el diseño con la hoja de opciones y a letra grande (Ajustes → Tamaño del texto).
+6. **iPhone/iPad · WebM**: ¿se ofrece WebM? Si Safari no codifica VP9 debe decirlo bajo el selector («WebM no está disponible…»), no fallar.
+7. **Safari anterior a 26 (sin AudioEncoder)**, si hay alguno: un MOV con audio AAC debe conservar el audio (se copia); uno con audio no-AAC debe avisar que saldrá sin sonido.
+8. Un video **HDR** de iPhone: debe avisar; con «Conservar» y MOV→MP4 H.264 sin cambios no hay recodificacion (HEVC → se recodifica y sale SDR).
+9. **Windows · Chrome/Edge** con un MOV HEVC sin extension HEVC: debe decir «No sabemos leer el códec de este video» (no un error generico).
+10. Un MP4 truncado y un `.mp3` renombrado a `.mp4`: «No se puede leer este video». Un `.m4a` (solo audio) renombrado: «Este archivo no tiene imagen» con enlace al Convertidor de audio.
+11. ES/EN y claro/oscuro en el telefono; descargar el resultado y compartirlo (Archivos / WhatsApp / Fotos) y reproducirlo.
+
+### Decisiones
+
+- **Sin `ToolShell`**: su zona de carga y su banner hablan de PDF (aviso «supera los 100 MB… divide con Dividir PDF», errores «PDF dañado»), y un convertidor de video necesita
+  sus propios limites y mensajes. Se compone con las piezas compartidas (`FileDropzone`, `OptionsPanel`, `ProcessingOverlay`, `DownloadScreen`, `ErrorBanner`) y se ignora el
+  `tooLarge` de la zona de carga (los limites son los de `limits.ts`).
+- **MPL-2.0 aceptada** para la libreria de contenedores (ver arriba), aislada en `convertCore.ts`.
+- **Worker terminado al cancelar** en vez de cancelacion cooperativa: mas simple y libera todo.
+- **Resultado en memoria** (`Blob`), sin File System Access (opcional en el encargo): el tope por peso estimado es el control de seguridad.
+- «Conservar» es el valor por defecto: lo mas rapido y sin perdida cuando se puede.
+
+### Para el orquestador (fuera de mi alcance)
+
+- `FileDropzone` muestra fijo «Acepta … · hasta 100 MB» (`MAX_SAFE_FILE_SIZE`); en video es falso (se avisa a 500 MB y se acepta hasta 4 GB). Conviene una propiedad opcional para ocultarlo o cambiarlo.
+- `DownloadScreen` dice «Tu documento está preparado para descargar» (`t.tool.doneSubtitle`) tambien para un video.
+- `src/lib/tools-registry.pro.test.ts` ya falla en la base (espera `redact-pdf` como ultimo slug y solo `powerpoint-to-pdf` en «soon»); al pasar `video-converter` a `live`
+  su lista de «soon» debe ser la de las herramientas aun no hechas.

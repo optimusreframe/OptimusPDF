@@ -626,7 +626,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "video-converter": {
     icon: FileVideo,
     category: "convert-to",
-    status: "soon",
+    status: "live",
     accept: ["video/*"],
     extensions: [".mp4", ".mov", ".webm", ".mkv", ".m4v"],
     multiple: false,
