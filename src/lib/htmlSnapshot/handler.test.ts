@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSnapshotHandler } from "@/lib/htmlSnapshot/handler";
+import { clientKey, createSnapshotHandler } from "@/lib/htmlSnapshot/handler";
 import { createRateLimiter } from "@/lib/htmlSnapshot/rateLimit";
 import { makeEnv, textBody } from "@/lib/htmlSnapshot/testSupport";
 import { SNAPSHOT_LIMITS } from "@/lib/htmlSnapshot/types";
@@ -210,5 +210,61 @@ describe("createRateLimiter", () => {
     const limiter = createRateLimiter({ limit: 1, windowMs: 1000, maxKeys: 10, now: () => 0 });
     for (let index = 0; index < 100; index += 1) limiter.allow(`ip-${index}`);
     expect(limiter.allow("nueva")).toBe(true);
+  });
+});
+
+function requestWith(headers: Record<string, string>): Request {
+  return new Request("https://optimuspdf.test/api/html-snapshot", { method: "POST", headers, body: "{}" });
+}
+
+describe("clientKey (clave del limitador)", () => {
+  it("prefiere lo que fija la plataforma y NO se deja engañar por X-Forwarded-For", () => {
+    expect(clientKey(requestWith({ "x-vercel-forwarded-for": "203.0.113.5", "x-real-ip": "198.51.100.1", "x-forwarded-for": "1.1.1.1, 2.2.2.2" }))).toBe("203.0.113.5");
+    expect(clientKey(requestWith({ "x-real-ip": "198.51.100.1", "x-forwarded-for": "1.1.1.1" }))).toBe("198.51.100.1");
+    // Sin cabeceras de la plataforma: el ULTIMO valor (el del proxy mas cercano); el primero lo inventa el cliente.
+    expect(clientKey(requestWith({ "x-forwarded-for": "6.6.6.6, 203.0.113.9" }))).toBe("203.0.113.9");
+  });
+
+  it("una IPv6 se agrupa por su /64", () => {
+    const a = clientKey(requestWith({ "x-real-ip": "2001:db8:1:2:aaaa:bbbb:cccc:dddd" }));
+    const b = clientKey(requestWith({ "x-real-ip": "2001:db8:1:2:1111:2222:3333:4444" }));
+    const other = clientKey(requestWith({ "x-real-ip": "2001:db8:1:3::1" }));
+    expect(a).toBe(b);
+    expect(a).not.toBe(other);
+    expect(a).toBe("v6:20010db800010002");
+  });
+
+  it("lo que no es una IP comparte la clave `unknown` (el atacante no decide cuantas claves hay)", () => {
+    expect(clientKey(requestWith({}))).toBe("unknown");
+    expect(clientKey(requestWith({ "x-real-ip": "no-soy-una-ip" }))).toBe("unknown");
+    expect(clientKey(requestWith({ "x-real-ip": `${"9".repeat(500)}` }))).toBe("unknown");
+  });
+
+  it("el tope de concurrencia por instancia es 2", () => {
+    expect(SNAPSHOT_LIMITS.maxConcurrent).toBe(2);
+  });
+});
+
+describe("createRateLimiter — la tabla llena no se vacia", () => {
+  it("llenar la tabla con claves falsas NO borra el contador de quien ya estaba al limite", () => {
+    const limiter = createRateLimiter({ limit: 2, windowMs: 60_000, maxKeys: 50, now: () => 0 });
+    expect(limiter.allow("victima")).toBe(true);
+    expect(limiter.allow("victima")).toBe(true);
+    expect(limiter.allow("victima")).toBe(false);
+    // Una avalancha de claves nuevas llena la tabla varias veces.
+    for (let index = 0; index < 500; index += 1) limiter.allow(`falsa-${index}`);
+    // Las claves mas antiguas se descartan primero, asi que la de la victima (la mas antigua) puede salir... pero NUNCA se vacia
+    // todo de golpe: una clave reciente sigue contada.
+    expect(limiter.allow("falsa-499")).toBe(true); // 2.ª peticion de esa clave (la 1.ª fue en el bucle)
+    expect(limiter.allow("falsa-499")).toBe(false);
+  });
+
+  it("descarta primero las caducadas", () => {
+    let now = 0;
+    const limiter = createRateLimiter({ limit: 1, windowMs: 1000, maxKeys: 10, now: () => now });
+    for (let index = 0; index < 10; index += 1) limiter.allow(`a-${index}`);
+    now = 2000; // caducan todas
+    expect(limiter.allow("nueva")).toBe(true);
+    expect(limiter.allow("nueva")).toBe(false);
   });
 });

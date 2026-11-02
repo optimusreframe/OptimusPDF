@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { escapeForStyleElement, scanCss } from "@/lib/htmlSnapshot/cssScan";
+import { decodeIdentifierEscapes, escapeForStyleElement, scanCss } from "@/lib/htmlSnapshot/cssScan";
 
 const text = (css: string) => scanCss(css).pieces.filter((p) => p.kind === "text").map((p) => (p as { value: string }).value).join("");
 
@@ -53,5 +53,37 @@ describe("escapeForStyleElement", () => {
     expect(safe).not.toMatch(/<\/style/i);
     expect(safe).not.toContain("<!--");
     expect(escapeForStyleElement("</STYLE>")).not.toMatch(/<\/style/i);
+  });
+});
+
+describe("decodeIdentifierEscapes", () => {
+  it("decodifica los escapes que escriben una letra (la forma en que se camuflaba url( / @import / image-set()", () => {
+    expect(decodeIdentifierEscapes("u\\72l(http://x)")).toBe("url(http://x)");
+    expect(decodeIdentifierEscapes("\\75rl(http://x)")).toBe("url(http://x)");
+    expect(decodeIdentifierEscapes("\\75 rl(http://x)")).toBe("url(http://x)");
+    expect(decodeIdentifierEscapes("\\000075rl(http://x)")).toBe("url(http://x)");
+    expect(decodeIdentifierEscapes('@\\69mport "a.css"')).toBe('@import "a.css"');
+    expect(decodeIdentifierEscapes("\\69mage-set(a)")).toBe("image-set(a)");
+    expect(decodeIdentifierEscapes("\\55\\52\\4c(x)")).toBe("URL(x)");
+    expect(decodeIdentifierEscapes("u\\rl(x)")).toBe("url(x)");
+    expect(decodeIdentifierEscapes("image\\2d set(x)")).toBe("image-set(x)");
+  });
+
+  it("NO toca los escapes de signos ni de digitos (nombres de clase de Tailwind), ni lo que va en cadenas o comentarios", () => {
+    for (const same of [".md\\:flex", ".w-1\\/2", ".\\31 0", ".a\\.b", "a{content:\"\\75rl(\"}", "/* \\75rl( */a{}", "a\\{b", ".\\e9 x"]) {
+      expect(decodeIdentifierEscapes(same), same).toBe(same);
+    }
+  });
+
+  it("sin barras invertidas devuelve el mismo texto", () => {
+    const css = "a{color:red}";
+    expect(decodeIdentifierEscapes(css)).toBe(css);
+  });
+
+  it("scanCss ve las referencias camufladas como lo que son", () => {
+    const { pieces } = scanCss("a{background:u\\72l(http://x.example/a.png)} @\\69mport 'b.css'; c{background:\\69mage-set(url(d.png) 1x)}");
+    expect(pieces.filter((p) => p.kind === "url").map((p) => p.value)).toEqual(["http://x.example/a.png"]);
+    expect(pieces.filter((p) => p.kind === "import")).toHaveLength(1);
+    expect(pieces.filter((p) => p.kind === "text").map((p) => (p as { value: string }).value).join("")).toContain("background:none");
   });
 });

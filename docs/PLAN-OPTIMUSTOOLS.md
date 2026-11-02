@@ -413,3 +413,8 @@ Capas independientes que siguen existiendo en el navegador: `sanitizeHtml` vuelv
 6. **iPhone y iPad (Safari)**: lo mismo, sobre todo: teclado con el campo (que no haga zoom), consulta, «Procesar» con un artículo largo (¿se queda en un porcentaje? ¿memoria?), descargar y abrir el PDF; rotar el iPad.
 7. Claro/oscuro, ES/EN, tipografía grande del sistema: sin desbordes.
 8. En producción, con DevTools → Red: la única petición con tu dirección es `POST /api/html-snapshot`; el PDF no genera ninguna petición.
+
+## Operacion de `/api/html-snapshot` (2026-11-02)
+- Tres revisiones de seguridad independientes; los hallazgos de las tres se corrigieron (SSRF/DNS-rebinding sin hallazgos; DoS por parse5 cortado desde dentro con un `treeAdapter` + filtro previo; CSS con escapes y `\f`; presupuesto de peticiones; tamaño de respuesta).
+- Residual conocido: sin Worker, una sola llamada larga a parse5 no se interrumpe; el coste se acota con topes (1,5 MB, 100 000 elementos, 1000 de profundidad, 256 atributos, 3 MB de CSS). Una pagina legitima por encima se rechaza con `too-large`.
+- El limitador por IP es de memoria por instancia (best effort). La proteccion real es una **regla de limite de tasa en el firewall de Vercel** para `POST /api/html-snapshot` (pendiente de que el propietario la active). Si el dominio pasa por un proxy (p. ej. Cloudflare), la IP que ve la ruta seria la del proxy.

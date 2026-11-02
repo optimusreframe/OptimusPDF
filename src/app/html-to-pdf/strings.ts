@@ -134,7 +134,7 @@ const es: HtmlToPdfStrings = {
     "too-large": {
       title: "La página es demasiado grande",
       message:
-        "Pesa más de lo que se puede consultar (5 MB de HTML). Guárdala como archivo HTML y súbela en «Archivo HTML».",
+        "Pesa más de lo que se puede consultar (1,5 MB de HTML). Guárdala como archivo HTML y súbela en «Archivo HTML».",
     },
     "unsupported-type": {
       title: "Eso no es una página web",
@@ -167,7 +167,7 @@ const es: HtmlToPdfStrings = {
     "Las páginas que se arman con JavaScript pueden salir incompletas o casi vacías: se lee el HTML que envía el servidor, no lo que el navegador construye después.",
     "Las páginas que piden iniciar sesión, o que están detrás de un muro de pago, no se pueden leer.",
     "Se incluyen hasta 10 hojas de estilo y 30 imágenes; las tipografías propias de la página no se incluyen.",
-    "Límites: 5 MB de HTML y unos 3,5 MB en total una vez incluidos los estilos y las imágenes.",
+    "Límites: 1,5 MB de HTML y unos 3,5 MB en total una vez incluidos los estilos y las imágenes.",
   ],
 
   snapshotTitle: "Página leída",
@@ -254,7 +254,7 @@ const en: HtmlToPdfStrings = {
     },
     "too-large": {
       title: "The page is too large",
-      message: "It is bigger than what can be looked up (5 MB of HTML). Save it as an HTML file and upload it in “HTML file”.",
+      message: "It is bigger than what can be looked up (1.5 MB of HTML). Save it as an HTML file and upload it in “HTML file”.",
     },
     "unsupported-type": {
       title: "That is not a web page",
@@ -287,7 +287,7 @@ const en: HtmlToPdfStrings = {
     "Pages built with JavaScript may come out incomplete or nearly empty: the HTML the server sends is what is read, not what the browser builds afterwards.",
     "Pages that require signing in, or sit behind a paywall, cannot be read.",
     "Up to 10 stylesheets and 30 images are included; the page's own fonts are not.",
-    "Limits: 5 MB of HTML and about 3.5 MB in total once styles and images are included.",
+    "Limits: 1.5 MB of HTML and about 3.5 MB in total once styles and images are included.",
   ],
 
   snapshotTitle: "Page read",

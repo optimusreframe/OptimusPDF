@@ -94,8 +94,25 @@ export const SNAPSHOT_LIMITS = {
   maxRequestBytes: 4096,
   /** Tiempo total por peticion (pagina + recursos), en milisegundos. */
   totalTimeoutMs: 10_000,
-  /** HTML de la pagina, ya DESCOMPRIMIDO. */
-  maxPageBytes: 5 * 1024 * 1024,
+  /**
+   * HTML de la pagina, ya DESCOMPRIMIDO. Tope DURO antes de analizarlo: el analizador de HTML es sincrono (no lo corta
+   * ningun plazo) y su coste crece mas que lineal con ciertos documentos hostiles, asi que el tamano y la complejidad se
+   * limitan ANTES de analizar (ver `checkHtmlComplexity`).
+   */
+  maxPageBytes: 1.5 * 1024 * 1024,
+  /** Filtro BARATO previo (no es una defensa): etiquetas (`<tag`, aperturas y cierres) que se admiten en la pagina. */
+  maxTags: 200_000,
+  /**
+   * Cortes DENTRO del analizador (`guardedParse.ts`), la defensa real: elementos creados (incluye los clonados al reconstruir
+   * los elementos de formato) y profundidad de la pila de elementos abiertos.
+   */
+  maxParseElements: 100_000,
+  maxParseDepth: 1000,
+  /** Atributos por etiqueta y bytes de una etiqueta SIN contar el contenido de sus valores entre comillas (`preParse.ts`). */
+  maxAttributesPerTag: 256,
+  maxTagBytes: 16 * 1024,
+  /** CSS total por snapshot ya EXPANDIDO (texto + ~90 caracteres por cada `url()`), contando `<style>`, hojas y `style=""`. */
+  maxCssExpanded: 3 * 1024 * 1024,
   /** Cada hoja de estilo, ya descomprimida. */
   maxCssBytes: 1024 * 1024,
   /** Hojas de estilo en total (enlaces + `@import`). */
@@ -106,12 +123,25 @@ export const SNAPSHOT_LIMITS = {
   maxImages: 30,
   /** Cada imagen, ya descomprimida. */
   maxImageBytes: 2.5 * 1024 * 1024,
+  /** Largo maximo de un `srcset` (caracteres) y de candidatos que se leen. */
+  maxSrcsetLength: 4096,
+  maxSrcsetCandidates: 20,
   /** Redirecciones que se siguen (a mano, validando cada salto). */
   maxRedirects: 5,
-  /** Tamano maximo del HTML de la respuesta (Vercel limita las funciones a 4,5 MB). */
-  maxResponseBytes: 3.5 * 1024 * 1024,
+  /**
+   * Tamano maximo de la RESPUESTA JSON (`JSON.stringify` del resultado, bytes). Vercel limita las funciones a 4,5 MB; el
+   * JSON puede ser bastante mayor que el HTML crudo (comillas y saltos de linea se duplican, un caracter de control ocupa 6).
+   */
+  maxResponseBytes: 4_000_000,
+  /** Peticiones salientes por snapshot, contando redirecciones y recursos. */
+  maxOutboundRequests: 40,
+  /** Servidores distintos por snapshot. */
+  maxHosts: 6,
+  /** Conexiones salientes a la vez por snapshot, en total y por servidor. */
+  maxOutboundConcurrent: 4,
+  maxOutboundPerHost: 2,
   /** Peticiones simultaneas por instancia. */
-  maxConcurrent: 4,
+  maxConcurrent: 2,
   /** Peticiones por IP y minuto (limitador en memoria, de mejor esfuerzo). */
   perIpPerMinute: 10,
   /** Profundidad maxima de anidado de elementos que se conserva. */

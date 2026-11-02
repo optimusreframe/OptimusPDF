@@ -1,6 +1,14 @@
-import { defaultTreeAdapter, html as parse5Html, parse, serialize, type DefaultTreeAdapterMap } from "parse5";
+import { defaultTreeAdapter, html as parse5Html, serialize, type DefaultTreeAdapterMap } from "parse5";
 import { decodeText } from "@/lib/htmlSnapshot/decodeText";
-import { escapeForStyleElement, scanCss, TRANSPARENT_PIXEL } from "@/lib/htmlSnapshot/cssScan";
+import {
+  decodeIdentifierEscapes,
+  escapeForStyleElement,
+  normalizeCssNewlines,
+  scanCss,
+  TRANSPARENT_PIXEL,
+} from "@/lib/htmlSnapshot/cssScan";
+import { parseGuarded } from "@/lib/htmlSnapshot/guardedParse";
+import { checkHtmlComplexity } from "@/lib/htmlSnapshot/preParse";
 import { SnapshotError, SNAPSHOT_LIMITS, type SnapshotNote } from "@/lib/htmlSnapshot/types";
 
 /**
@@ -25,6 +33,7 @@ import { SnapshotError, SNAPSHOT_LIMITS, type SnapshotNote } from "@/lib/htmlSna
  */
 
 type Node = DefaultTreeAdapterMap["childNode"];
+type ChildNode = DefaultTreeAdapterMap["childNode"];
 type ParentNode = DefaultTreeAdapterMap["parentNode"];
 type Element = DefaultTreeAdapterMap["element"];
 type TextNode = DefaultTreeAdapterMap["textNode"];
@@ -42,6 +51,8 @@ export type BuildInput = {
   /** Direccion final de la pagina (base para resolver URL relativas). */
   pageUrl: string;
   fetchResource: ResourceFetcher;
+  /** Instante limite (ms desde epoch) para el presupuesto de tiempo cooperativo; por defecto, 10 s desde ahora. */
+  deadline?: number;
 };
 
 export type BuildOutput = { html: string; title: string; notes: SnapshotNote[] };
@@ -127,6 +138,28 @@ const DROP_ATTRIBUTES = new Set([
   "dynsrc",
   "lowsrc",
   "ismap",
+]);
+
+/**
+ * Atributos de PRESENTACION (SVG y heredados de HTML) cuyo valor es CSS: `fill="url(http://...)"` pide un recurso externo igual
+ * que un `style`. Solo se admiten referencias a un fragmento (`url(#degradado)`); cualquier otra se quita.
+ */
+const PRESENTATION_URL_ATTRIBUTES = new Set([
+  "fill",
+  "stroke",
+  "filter",
+  "mask",
+  "clip-path",
+  "marker",
+  "marker-start",
+  "marker-mid",
+  "marker-end",
+  "cursor",
+  "clip",
+  "color-profile",
+  "mask-image",
+  "list-style-image",
+  "background-image",
 ]);
 
 /** Atributos de carga perezosa de imagenes y sus alternativas. */
@@ -246,36 +279,65 @@ export function normalizeInlineDataUri(raw: string): string | null {
 
 type SrcsetCandidate = { url: string; score: number };
 
+/** Espacio segun HTML (no `\s`: sin regex). */
+const isSpace = (code: number) => code === 32 || code === 9 || code === 10 || code === 12 || code === 13;
+
+/** Numero decimal corto de un descriptor (`400w`, `1.5x`): como mucho 9 cifras enteras y 3 decimales; sin regex con retroceso. */
+function readDescriptorNumber(text: string, unit: "w" | "x"): number | null {
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) !== (unit === "w" ? 119 : 120) && text.charCodeAt(index) !== (unit === "w" ? 87 : 88)) continue;
+    // Hacia atras: las cifras (y un punto) que preceden a la unidad.
+    let start = index;
+    while (start > 0 && start > index - 13 && /[0-9.]/.test(text[start - 1])) start -= 1;
+    if (start === index) continue;
+    const value = Number(text.slice(start, index));
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+/**
+ * Lee un `srcset`. ACOTADO a proposito: un atributo hostil de decenas de miles de caracteres no puede costar mas que su
+ * longitud (antes, 80 000 cifras en un descriptor tardaban 21,8 s en una regex y 80 000 comas 3 s): se ignora un `srcset` de mas
+ * de `maxSrcsetLength` caracteres, se leen como mucho `maxSrcsetCandidates` candidatos y cada descriptor mide <= 64 caracteres.
+ */
 export function parseSrcset(value: string): SrcsetCandidate[] {
   const out: SrcsetCandidate[] = [];
   const length = value.length;
+  if (length > SNAPSHOT_LIMITS.maxSrcsetLength) return out;
   let index = 0;
-  while (index < length) {
-    while (index < length && /[\s,]/.test(value[index])) index += 1;
+  while (index < length && out.length < SNAPSHOT_LIMITS.maxSrcsetCandidates) {
+    while (index < length && (isSpace(value.charCodeAt(index)) || value.charCodeAt(index) === 44)) index += 1;
     if (index >= length) break;
     const start = index;
-    while (index < length && !/\s/.test(value[index])) index += 1;
-    let url = value.slice(start, index);
+    while (index < length && !isSpace(value.charCodeAt(index))) index += 1;
+    let end = index;
     let descriptors = "";
-    if (url.endsWith(",")) {
-      url = url.replace(/,+$/, "");
+    if (value.charCodeAt(end - 1) === 44) {
+      while (end > start && value.charCodeAt(end - 1) === 44) end -= 1;
     } else {
       const descriptorStart = index;
       let depth = 0;
-      while (index < length) {
-        const char = value[index];
-        if (char === "(") depth += 1;
-        else if (char === ")") depth -= 1;
-        else if (char === "," && depth === 0) break;
+      while (index < length && index - descriptorStart < 64) {
+        const code = value.charCodeAt(index);
+        if (code === 40) depth += 1;
+        else if (code === 41) depth -= 1;
+        else if (code === 44 && depth === 0) break;
         index += 1;
       }
-      descriptors = value.slice(descriptorStart, index);
+      // Un descriptor de mas de 64 caracteres no es un descriptor: se salta hasta la siguiente coma.
+      if (index - descriptorStart >= 64) {
+        while (index < length && value.charCodeAt(index) !== 44) index += 1;
+      } else {
+        descriptors = value.slice(descriptorStart, index);
+      }
     }
+    const url = value.slice(start, end);
     if (url === "") continue;
-    const width = /(\d+(?:\.\d+)?)\s*w\b/i.exec(descriptors);
-    const density = /(\d+(?:\.\d+)?)\s*x\b/i.exec(descriptors);
+    const width = readDescriptorNumber(descriptors, "w");
+    const density = readDescriptorNumber(descriptors, "x");
     // Referencia: una hoja carta a 96 ppp mide 816 px; con densidad 2x harian falta ~1632.
-    const score = width ? Number(width[1]) : density ? Number(density[1]) * 800 : 800;
+    const score = width !== null ? width : density !== null ? density * 800 : 800;
     out.push({ url, score });
   }
   return out;
@@ -352,14 +414,6 @@ function removeAttr(element: Element, name: string): void {
   element.attrs = element.attrs.filter((attribute) => attribute.name.toLowerCase() !== name);
 }
 
-function detach(node: Node): void {
-  const parent = node.parentNode as ParentNode | null;
-  if (!parent) return;
-  const index = parent.childNodes.indexOf(node as never);
-  if (index !== -1) parent.childNodes.splice(index, 1);
-  node.parentNode = null;
-}
-
 function textOf(element: Element): string {
   let text = "";
   for (const child of element.childNodes) if (child.nodeName === "#text") text += (child as TextNode).value;
@@ -398,6 +452,7 @@ class Builder {
   };
   private base: URL;
   private cssTickets = 0;
+  private cssBudget = 0;
   private readonly styleTasks: Array<Promise<StyleTask | null>> = [];
   private readonly attrStyles: AttrStyleTask[] = [];
   private readonly imageTasks: ImageTask[] = [];
@@ -407,11 +462,30 @@ class Builder {
     private readonly document: DefaultTreeAdapterMap["document"],
     private readonly pageUrl: URL,
     private readonly fetchResource: ResourceFetcher,
+    private readonly deadline: number,
   ) {
     this.base = pageUrl;
   }
 
+  /**
+   * Presupuesto de tiempo COOPERATIVO. El analizador y los recorridos son sincronos: un temporizador (`AbortSignal.timeout`)
+   * no se dispara mientras el hilo esta ocupado, asi que se mira el reloj entre fases y cada ~1000 nodos y se aborta con
+   * `timeout`. No interrumpe una sola llamada larga (de ahi los topes de `checkHtmlComplexity`), solo evita encadenar fases.
+   */
+  checkpoint(): void {
+    if (Date.now() > this.deadline) throw new SnapshotError("timeout");
+  }
+
   /* -------------------------- 1. recorrido -------------------------- */
+
+  /**
+   * Guarda una tarea de hoja de estilo. Se marca como "atendida" desde ya: si algo la rechaza (tope de CSS, plazo) antes de que
+   * `finish()` la espere, Node no la ve como rechazo sin atender (que tumba el proceso); el error le llega a `finish()` igual.
+   */
+  private trackStyle(task: Promise<StyleTask | null>): void {
+    task.catch(() => undefined);
+    this.styleTasks.push(task);
+  }
 
   /** `<base href>`: se respeta SOLO para resolver direcciones relativas; el elemento se elimina. */
   private findBase(): void {
@@ -456,18 +530,21 @@ class Builder {
     this.findTitle();
 
     const containers: Array<{ container: ParentNode; depth: number }> = [{ container: this.document, depth: 0 }];
+    let visited = 0;
     while (containers.length > 0) {
       const { container, depth } = containers.pop()!;
-      let index = 0;
-      while (index < container.childNodes.length) {
-        const child = container.childNodes[index];
+      // UNA sola pasada por los hijos: se construye la lista nueva en vez de quitar uno a uno con `indexOf` + `splice`
+      // (cuadratico: 200 000 `<meta>` tardaban 14,6 s). Los hijos de un `<form>` desenvuelto vuelven a la cola, en su sitio.
+      const pending: ChildNode[] = container.childNodes.slice().reverse();
+      const kept: ChildNode[] = [];
+      while (pending.length > 0) {
+        const child = pending.pop()!;
+        visited += 1;
+        if ((visited & 1023) === 0) this.checkpoint();
 
-        if (child.nodeName === "#comment") {
-          detach(child);
-          continue;
-        }
+        if (child.nodeName === "#comment") continue;
         if (!isElement(child)) {
-          index += 1;
+          kept.push(child);
           continue;
         }
 
@@ -476,41 +553,36 @@ class Builder {
         if (REMOVE_ELEMENTS.has(name)) {
           if (name === "script") this.counters.scripts += 1;
           if (EMBED_ELEMENTS.has(name)) this.counters.embeds += 1;
-          detach(child);
+          child.parentNode = null;
           continue;
         }
 
         if (UNWRAP_ELEMENTS.has(name)) {
-          // Los hijos ocupan el sitio del elemento y se procesan en esta misma vuelta.
-          const children = child.childNodes;
-          container.childNodes.splice(index, 1, ...children);
-          for (const grandchild of children) grandchild.parentNode = container;
+          for (let index = child.childNodes.length - 1; index >= 0; index -= 1) pending.push(child.childNodes[index]);
           child.parentNode = null;
           child.childNodes = [];
           continue;
         }
 
         if (depth + 1 > SNAPSHOT_LIMITS.maxDepth) {
-          detach(child);
+          child.parentNode = null;
           continue;
         }
 
         if (name === "link") {
           const replacement = this.handleLink(child);
+          child.parentNode = null;
           if (replacement) {
-            container.childNodes.splice(index, 1, replacement);
             replacement.parentNode = container;
-            child.parentNode = null;
-            index += 1;
-          } else {
-            detach(child);
+            kept.push(replacement);
           }
           continue;
         }
 
         if (name === "style") {
           this.handleStyleElement(child);
-          index += 1;
+          child.parentNode = container;
+          kept.push(child);
           continue;
         }
 
@@ -519,9 +591,11 @@ class Builder {
         else if (name === "image") this.handleSvgImage(child);
 
         // Hijos: `<template>` ya se elimino; el resto se recorre.
+        child.parentNode = container;
+        kept.push(child);
         containers.push({ container: child, depth: depth + 1 });
-        index += 1;
       }
+      container.childNodes = kept;
     }
   }
 
@@ -541,7 +615,7 @@ class Builder {
 
     const style = defaultTreeAdapter.createElement("style", parse5Html.NS.HTML, []);
     const media = (getAttr(element, "media") ?? "").trim();
-    this.styleTasks.push(
+    this.trackStyle(
       (async () => {
         const result = await this.fetchResource(target.href, "css");
         if (!result.ok || result.mime !== "text/css") {
@@ -561,7 +635,7 @@ class Builder {
     const css = textOf(element);
     element.attrs = [];
     setText(element, "");
-    this.styleTasks.push(
+    this.trackStyle(
       this.expandCss(css, this.base, 0).then((pieces) => ({ element, pieces: this.wrapMedia(media, pieces) })),
     );
   }
@@ -584,6 +658,11 @@ class Builder {
         const { pieces } = this.expandInlineStyle(attribute.value);
         this.attrStyles.push({ element, pieces });
         continue; // se vuelve a poner al final, ya resuelto
+      }
+      if (PRESENTATION_URL_ATTRIBUTES.has(attrName)) {
+        // Los escapes CSS (`u\72l(`) valen igual en estos atributos: se comprueba el valor ya decodificado.
+        if (cssIsSelfContained(attribute.value)) kept.push(attribute);
+        continue;
       }
       if (attrName === "href") {
         if (name === "a" || name === "area") {
@@ -661,8 +740,27 @@ class Builder {
     return target ? { k: "u", v: target.href } : { k: "s", v: `url("${TRANSPARENT_PIXEL}")` };
   }
 
+  /**
+   * Presupuesto de CSS EXPANDIDO del snapshot entero (`maxCssExpanded`, 3 MB): texto + lo que ocupara cada `url()` una vez
+   * resuelta (un `url(a)` de 6 caracteres pasa a `url("data:image/gif;base64,...")`, ~90: 10 hojas de 1 MB llenas de `url()` se
+   * expandian a ~1,3 GB). Se carga ANTES de construir nada, a partir del recuento del lector, y al pasarse es `too-large`.
+   */
+  private chargeCss(pieces: ReadonlyArray<{ kind: string; value?: string }>): void {
+    let cost = 0;
+    for (const piece of pieces) cost += piece.kind === "text" ? (piece.value?.length ?? 0) : TRANSPARENT_PIXEL.length + 8;
+    this.cssBudget += cost;
+    if (this.cssBudget > SNAPSHOT_LIMITS.maxCssExpanded) throw new SnapshotError("too-large");
+  }
+
+  /** Rechaza ANTES de escanear lo que ya no cabe en el presupuesto de CSS (el escaner reserva memoria proporcional al texto). */
+  private precheckCss(css: string): void {
+    if (this.cssBudget + css.length > SNAPSHOT_LIMITS.maxCssExpanded) throw new SnapshotError("too-large");
+  }
+
   private expandInlineStyle(css: string): { pieces: RenderPiece[] } {
+    this.precheckCss(css);
     const { pieces } = scanCss(css);
+    this.chargeCss(pieces);
     const out: RenderPiece[] = [];
     for (const piece of pieces) {
       if (piece.kind === "text") out.push({ k: "s", v: piece.value });
@@ -672,8 +770,10 @@ class Builder {
   }
 
   private async expandCss(css: string, base: URL, depth: number): Promise<RenderPiece[]> {
+    this.precheckCss(css);
     const { pieces, fontFaceBlocks } = scanCss(css);
     this.counters.fontFaces += fontFaceBlocks;
+    this.chargeCss(pieces);
 
     const parts = await Promise.all(
       pieces.map(async (piece): Promise<RenderPiece[]> => {
@@ -704,6 +804,7 @@ class Builder {
   /* -------------------------- 3. ensamblado -------------------------- */
 
   async finish(): Promise<BuildOutput> {
+    this.checkpoint();
     const styleResults = (await Promise.all(this.styleTasks)).filter((task): task is StyleTask => task !== null);
     // Las hojas que fallaron dejan su `<style>` vacio; se retiran para no ensuciar el HTML.
     // (Un `<link>` fallido ya sumo en stylesSkipped.)
@@ -722,7 +823,9 @@ class Builder {
     const wanted = order.slice(0, SNAPSHOT_LIMITS.maxImages);
     this.counters.imagesLimit = order.length - wanted.length;
 
-    const fetched = new Map<string, string>(); // url -> data URI
+    // url -> bytes ya validados. El base64 se calcula SOLO para las imagenes que al final se incluyen: pasar a base64 (x1,33) las
+    // 30 imagenes de 2,5 MB para descartar despues casi todas cuesta ~100 MB de cadenas.
+    const fetched = new Map<string, { mime: string; bytes: Uint8Array; dataLength: number }>();
     const queue = [...wanted];
     const worker = async () => {
       for (let url = queue.shift(); url !== undefined; url = queue.shift()) {
@@ -732,10 +835,17 @@ class Builder {
           this.counters.imagesSkipped += 1;
           continue;
         }
-        fetched.set(url, `data:${mime};base64,${toBase64(result.bytes)}`);
+        const dataLength = `data:${mime};base64,`.length + Math.ceil(result.bytes.length / 3) * 4;
+        // Una imagen que ya sola no cabe en la respuesta no se guarda ni se pasa a base64.
+        if (dataLength > SNAPSHOT_LIMITS.maxResponseBytes - 100_000) {
+          this.counters.imagesBudget += 1;
+          continue;
+        }
+        fetched.set(url, { mime, bytes: result.bytes, dataLength });
       }
     };
     await Promise.all(Array.from({ length: Math.min(6, wanted.length) }, worker));
+    this.checkpoint();
 
     // ----- Tamano: primero SIN imagenes, para saber cuanto sitio queda.
     const apply = (included: Map<string, string>) => {
@@ -758,11 +868,16 @@ class Builder {
 
     apply(new Map());
     this.prepareHead();
-    const baseBytes = Buffer.byteLength(serialize(this.document), "utf-8");
-    const room = SNAPSHOT_LIMITS.maxResponseBytes - baseBytes - 64 * 1024;
+    // El tope es sobre la RESPUESTA JSON, no sobre el HTML crudo: `JSON.stringify` duplica comillas y saltos de linea y escribe
+    // un caracter de control como 6 (una pagina de 1,4 MB de `"` ya ocupa 2,8 MB). Se deja margen para titulo, direccion y avisos.
+    const htmlBudget = SNAPSHOT_LIMITS.maxResponseBytes - 24_000;
+    const jsonBytes = (value: string) => Buffer.byteLength(JSON.stringify(value), "utf-8");
+    const baseBytes = jsonBytes(serialize(this.document));
+    this.checkpoint();
+    const room = htmlBudget - baseBytes - 64 * 1024;
     if (room < 0) throw new SnapshotError("too-large");
 
-    const cost = (url: string) => (fetched.get(url)?.length ?? 0) * (occurrences.get(url) ?? 1);
+    const cost = (url: string) => (fetched.get(url)?.dataLength ?? 0) * (occurrences.get(url) ?? 1);
     const included = new Map<string, string>();
     let used = 0;
     // Las mas pequenas primero: se omiten antes las mas grandes.
@@ -772,22 +887,25 @@ class Builder {
         continue;
       }
       used += cost(url);
-      included.set(url, fetched.get(url)!);
+      const image = fetched.get(url)!;
+      included.set(url, `data:${image.mime};base64,${toBase64(image.bytes)}`);
     }
 
     apply(included);
     let html = serialize(this.document);
     // Margen de seguridad: si por la codificacion aun pasa del tope, se van quitando las mas grandes.
-    while (Buffer.byteLength(html, "utf-8") > SNAPSHOT_LIMITS.maxResponseBytes && included.size > 0) {
+    while (jsonBytes(html) > htmlBudget && included.size > 0) {
       const largest = [...included.keys()].sort((a, b) => cost(b) - cost(a))[0];
       included.delete(largest);
       this.counters.imagesBudget += 1;
       apply(included);
       html = serialize(this.document);
+      this.checkpoint();
     }
-    if (Buffer.byteLength(html, "utf-8") > SNAPSHOT_LIMITS.maxResponseBytes) throw new SnapshotError("too-large");
+    if (jsonBytes(html) > htmlBudget) throw new SnapshotError("too-large");
 
     assertClean(html);
+    this.checkpoint();
 
     const littleContent = this.counters.scripts > 0 && this.visibleTextLength() < 120;
     return { html, title: this.title, notes: this.notes(littleContent) };
@@ -797,11 +915,16 @@ class Builder {
     const stack: ParentNode[] = [this.document];
     while (stack.length > 0) {
       const container = stack.pop()!;
-      for (const child of [...container.childNodes]) {
-        if (!isElement(child)) continue;
-        if (child.tagName.toLowerCase() === "style" && !keep.has(child)) detach(child);
-        else stack.push(child);
+      const kept: ChildNode[] = [];
+      for (const child of container.childNodes) {
+        if (isElement(child) && child.tagName.toLowerCase() === "style" && !keep.has(child)) {
+          child.parentNode = null;
+          continue;
+        }
+        kept.push(child);
+        if (isElement(child)) stack.push(child);
       }
+      container.childNodes = kept;
     }
   }
 
@@ -865,10 +988,48 @@ const FORBIDDEN_AFTER = new Set([
   "video",
 ]);
 
-/** Todo `url(...)` apunta a un data URI o a un fragmento, y no queda ningun `@import`. */
+/**
+ * Todo `url(...)` apunta a un data URI o a un fragmento, y no queda ningun `@import` ni `image-set`. Se comprueba sobre el texto
+ * con los saltos de linea NORMALIZADOS y los escapes de letras DECODIFICADOS en todas partes, tambien dentro de cadenas y
+ * comentarios (`u\72l(http://x)` es `url(http://x)`; un `\f` dentro de una cadena CSS la cierra): sobre-decodificar solo hace
+ * ver MAS cosas sospechosas. Falla cerrado ante cualquier forma camuflada.
+ *
+ * Recorrido LINEAL a mano (una regex `url\(\s*["']?(?:data:|#)[^"')]*...` era cuadratica con `url(#url(#url(#...`: 200 KB = 7,5 s):
+ * cada `url(` consume hasta su `)`, y el primer `url(` que no encaje devuelve `false` sin seguir.
+ */
 function cssIsSelfContained(css: string): boolean {
-  const rest = css.replace(/url\("(?:data:|#)[^"]*"\)/gi, "");
-  return !/url\s*\(|@import|image-set\s*\(/i.test(rest);
+  const text = decodeIdentifierEscapes(normalizeCssNewlines(css), true).toLowerCase();
+  if (text.includes("@import") || /image-set\s*\(/.test(text)) return false;
+
+  const length = text.length;
+  let index = 0;
+  while ((index = text.indexOf("url", index)) !== -1) {
+    let cursor = index + 3;
+    while (cursor < length && /\s/.test(text[cursor])) cursor += 1;
+    if (text[cursor] !== "(") {
+      index += 3; // la palabra `url` suelta (un nombre, una cadena): no es una funcion
+      continue;
+    }
+    cursor += 1;
+    while (cursor < length && /\s/.test(text[cursor])) cursor += 1;
+    const quote = text[cursor] === '"' || text[cursor] === "'" ? text[cursor] : "";
+    if (quote) cursor += 1;
+    if (!(text.startsWith("data:", cursor) || text[cursor] === "#")) return false;
+    // Hasta el cierre: sin parentesis ni comillas distintas dentro (un `url(` anidado o un valor raro no es seguro).
+    for (; cursor < length; cursor += 1) {
+      const char = text[cursor];
+      if (char === ")" || char === '"' || char === "'" || char === "(") break;
+    }
+    if (cursor >= length) return false;
+    if (text[cursor] === '"' || text[cursor] === "'") {
+      if (text[cursor] !== quote) return false;
+      cursor += 1;
+      while (cursor < length && /\s/.test(text[cursor])) cursor += 1;
+    }
+    if (text[cursor] !== ")") return false;
+    index = cursor + 1;
+  }
+  return true;
 }
 
 /**
@@ -876,7 +1037,7 @@ function cssIsSelfContained(css: string): boolean {
  * seguridad frente a un analisis/serializacion que no sean simetricos (mXSS): nunca deberia saltar.
  */
 export function assertClean(html: string): void {
-  const reparsed = parse(html, { scriptingEnabled: false });
+  const reparsed = parseGuarded(html);
   const stack: ParentNode[] = [reparsed];
   while (stack.length > 0) {
     const container = stack.pop()!;
@@ -897,7 +1058,9 @@ export function assertClean(html: string): void {
           throw new SnapshotError("unreachable");
         }
         if (attrName === "src" && /^(?:https?:)?\/\//i.test(attribute.value.trim())) throw new SnapshotError("unreachable");
-        if (attrName === "style" && !cssIsSelfContained(attribute.value)) throw new SnapshotError("unreachable");
+        if ((attrName === "style" || PRESENTATION_URL_ATTRIBUTES.has(attrName)) && !cssIsSelfContained(attribute.value)) {
+          throw new SnapshotError("unreachable");
+        }
       }
       if (name === "style" && !cssIsSelfContained(textOf(child))) throw new SnapshotError("unreachable");
       stack.push(child);
@@ -916,8 +1079,13 @@ export async function buildSnapshot(input: BuildInput): Promise<BuildOutput> {
   } catch {
     throw new SnapshotError("invalid-url");
   }
-  const document = parse(input.html, { scriptingEnabled: false });
-  const builder = new Builder(document, pageUrl, input.fetchResource);
+  // Tope DURO antes de analizar (el analizador es sincrono y cuadratico con ciertos documentos hostiles).
+  if (input.html.length > SNAPSHOT_LIMITS.maxPageBytes || !checkHtmlComplexity(input.html)) throw new SnapshotError("too-large");
+  const deadline = input.deadline ?? Date.now() + SNAPSHOT_LIMITS.totalTimeoutMs;
+  const document = parseGuarded(input.html);
+  if (Date.now() > deadline) throw new SnapshotError("timeout");
+  const builder = new Builder(document, pageUrl, input.fetchResource, deadline);
   builder.sanitizeTree();
+  builder.checkpoint();
   return builder.finish();
 }

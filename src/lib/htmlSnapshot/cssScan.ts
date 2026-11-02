@@ -30,8 +30,10 @@ function skipString(css: string, start: number): number {
       continue;
     }
     if (char === quote) return index + 1;
-    // Un salto de linea sin escapar cierra la cadena (CSS: cadena mal formada).
-    if (char === "\n") return index;
+    // Un salto de linea sin escapar cierra la cadena (CSS: cadena mal formada). En CSS son saltos de linea \n, \r y \f (y \r\n):
+    // si aqui solo cerrara \n, un `\f` dentro de una cadena haria que este lector siguiera "dentro" de ella mientras el navegador
+    // ya salio, y lo que viene despues (`u\72l(http://...)`) pasaria sin verse.
+    if (char === "\n" || char === "\r" || char === "\f") return index;
     index += 1;
   }
   return css.length;
@@ -85,14 +87,96 @@ function skipBalanced(css: string, open: number): number {
 
 const FUNCTION_TO_NONE = /^(?:-webkit-)?(?:image-set|cross-fade|element|src)\(/i;
 
+/**
+ * En CSS son saltos de linea `\n`, `\r`, `\r\n` y `\f`: todos se llevan a `\n` para que ningun lector de este modulo (ni el
+ * navegador, que si los trata asi) discrepe en donde acaba una cadena. Se aplica al INICIO de `scanCss` y de la comprobacion de salida.
+ */
+export function normalizeCssNewlines(css: string): string {
+  return css.replace(/\r\n?|\f/g, "\n");
+}
+
+/**
+ * Decodifica los escapes CSS que escriben una LETRA (o `-`/`_`): `u\72l(` y `\75rl(` son `url(`, `@\69mport` es `@import`,
+ * `\69mage-set(` es `image-set(`. El navegador los entiende igual que si estuvieran escritos normales, asi que el lector tiene que
+ * verlos igual o se cuelan por debajo de las comprobaciones (se vio en la revision de seguridad). Los demas escapes (`\:`, `\/`,
+ * `\31 0`: los de los nombres de clase de Tailwind) NO se tocan. Respeta comentarios y cadenas. Sigue la sintaxis de CSS: de 1 a
+ * 6 digitos hexadecimales y UN espacio opcional de cierre; `\` + letra no hexadecimal es esa letra.
+ *
+ * Con `everywhere`, decodifica TAMBIEN dentro de cadenas y comentarios (sobre-decodificar solo hace que la comprobacion final
+ * vea MAS cosas sospechosas, nunca menos): es lo que usa la comprobacion de salida, que no puede fiarse de donde empieza y
+ * acaba una cadena.
+ */
+export function decodeIdentifierEscapes(css: string, everywhere = false): string {
+  if (!css.includes("\\")) return css;
+  const parts: string[] = [];
+  let last = 0;
+  let index = 0;
+  const length = css.length;
+  const isHex = (char: string) => (char >= "0" && char <= "9") || (char >= "a" && char <= "f") || (char >= "A" && char <= "F");
+  const isLetter = (char: string) => (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
+
+  while (index < length) {
+    const char = css[index];
+    if (!everywhere && char === "/" && css[index + 1] === "*") {
+      const end = css.indexOf("*/", index + 2);
+      index = end === -1 ? length : end + 2;
+      continue;
+    }
+    if (!everywhere && (char === '"' || char === "'")) {
+      index = skipString(css, index);
+      continue;
+    }
+    if (char !== "\\") {
+      index += 1;
+      continue;
+    }
+    const next = css[index + 1] ?? "";
+    let decoded = "";
+    let end = index + 2;
+    if (isHex(next)) {
+      let digits = 1;
+      end = index + 2;
+      while (end < length && digits < 6 && isHex(css[end])) {
+        end += 1;
+        digits += 1;
+      }
+      const code = parseInt(css.slice(index + 1, end), 16);
+      // Un espacio (o CRLF) detras cierra el escape y se consume con el.
+      if (css[end] === "\r" && css[end + 1] === "\n") end += 2;
+      else if (end < length && /[ \t\n\r\f]/.test(css[end])) end += 1;
+      const letter = code < 128 ? String.fromCharCode(code) : "";
+      if (isLetter(letter) || letter === "-" || letter === "_") decoded = letter;
+    } else if (isLetter(next)) {
+      decoded = next;
+    }
+    if (decoded !== "") {
+      parts.push(css.slice(last, index), decoded);
+      last = end;
+    }
+    index = end;
+  }
+  parts.push(css.slice(last));
+  return parts.join("");
+}
+
 export function scanCss(input: string): CssScanResult {
-  const css = input.replace(/<!--|-->/g, " ");
+  const css = decodeIdentifierEscapes(normalizeCssNewlines(input)).replace(/<!--|-->/g, " ");
   const pieces: CssPiece[] = [];
   let buffer = "";
   let fontFaceBlocks = 0;
   let index = 0;
+  // Los caracteres normales se acumulan como UN tramo (`plainStart`..`to`) y se copian con `slice` al llegar algo especial:
+  // `buffer += char` caracter a caracter creaba una cadena de cons de ~32 bytes por caracter (1,4 MB de `a` = ~44 MB por hoja).
+  let plainStart = -1;
+  const commit = (to: number) => {
+    if (plainStart !== -1) {
+      buffer += css.slice(plainStart, to);
+      plainStart = -1;
+    }
+  };
 
-  const flush = () => {
+  const flush = (to: number) => {
+    commit(to);
     if (buffer !== "") {
       pieces.push({ kind: "text", value: buffer });
       buffer = "";
@@ -103,17 +187,20 @@ export function scanCss(input: string): CssScanResult {
     const char = css[index];
 
     if (char === "/" && css[index + 1] === "*") {
+      commit(index);
       const end = css.indexOf("*/", index + 2);
       index = end === -1 ? css.length : end + 2;
       continue;
     }
     if (char === '"' || char === "'") {
+      commit(index);
       const end = skipString(css, index);
       buffer += css.slice(index, end);
       index = end;
       continue;
     }
     if (char === "\\") {
+      commit(index);
       buffer += css.slice(index, index + 2);
       index += 2;
       continue;
@@ -144,13 +231,14 @@ export function scanCss(input: string): CssScanResult {
           else tailEnd += 1;
         }
         const tail = css.slice(cursor, tailEnd).trim();
-        flush();
+        flush(index);
         if (target !== null) pieces.push({ kind: "import", value: target, media: tail });
         index = css[tailEnd] === ";" ? tailEnd + 1 : tailEnd;
         continue;
       }
 
       if (name === "font-face") {
+        commit(index);
         let cursor = index;
         while (cursor < css.length && css[cursor] !== "{") cursor += 1;
         let depth = 0;
@@ -176,6 +264,7 @@ export function scanCss(input: string): CssScanResult {
       }
 
       if (name === "charset") {
+        commit(index);
         const end = css.indexOf(";", index);
         index = end === -1 ? css.length : end + 1;
         continue;
@@ -187,9 +276,10 @@ export function scanCss(input: string): CssScanResult {
       const token = readUrlToken(css, index + 3);
       if (!token) {
         // `url(` sin cerrar: se descarta el resto en vez de adivinar.
+        commit(index);
         break;
       }
-      flush();
+      flush(index);
       pieces.push({ kind: "url", value: token.value });
       index = token.end;
       continue;
@@ -199,17 +289,18 @@ export function scanCss(input: string): CssScanResult {
       const head = css.slice(index, index + 18);
       const match = FUNCTION_TO_NONE.exec(head);
       if (match) {
+        commit(index);
         index = skipBalanced(css, index + match[0].length - 1);
         buffer += "none";
         continue;
       }
     }
 
-    buffer += char;
+    if (plainStart === -1) plainStart = index;
     index += 1;
   }
 
-  flush();
+  flush(css.length > index ? index : css.length);
   return { pieces, fontFaceBlocks };
 }
 

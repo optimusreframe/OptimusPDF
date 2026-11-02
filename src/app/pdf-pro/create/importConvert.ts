@@ -41,7 +41,7 @@ export type ImportOptions = {
 export const DEFAULT_IMPORT_OPTIONS: ImportOptions = {
   word: { pageSize: "a4", orientation: "portrait", margin: "small" },
   excel: { pageSize: "a4", orientation: "landscape", sheet: "all" },
-  html: { pageSize: "a4", orientation: "portrait", margin: "small" },
+  html: { pageSize: "letter", orientation: "portrait", margin: "small" },
 };
 
 /** Convierte un archivo de Office o HTML a PDF con el motor de su herramienta suelta. */

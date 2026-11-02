@@ -1,5 +1,6 @@
 import { dnsResolver } from "@/lib/htmlSnapshot/dnsResolver";
 import type { GuardedFetchDeps } from "@/lib/htmlSnapshot/guardedFetch";
+import { parseIp } from "@/lib/htmlSnapshot/ipGuard";
 import { nodeTransport } from "@/lib/htmlSnapshot/nodeTransport";
 import { createRateLimiter, type RateLimiter } from "@/lib/htmlSnapshot/rateLimit";
 import { createSnapshot } from "@/lib/htmlSnapshot/snapshot";
@@ -14,10 +15,13 @@ import { validateSnapshotUrl } from "@/lib/htmlSnapshot/urlGuard";
 /**
  * Logica de `POST /api/html-snapshot` (la ruta solo la enchufa). Defensas de esta capa, en el orden en que se aplican:
  *
- *   1. SOLO la propia web: `Sec-Fetch-Site: same-origin` o `Origin` con el mismo host. Es una barrera contra el uso
- *      desde otras paginas, no una autenticacion (un cliente que no sea un navegador puede poner las cabeceras que quiera).
+ *   1. `Sec-Fetch-Site: same-origin` o `Origin` con el mismo host. OJO: esto NO autentica ni protege nada frente a un atacante:
+ *      cualquier cliente que no sea un navegador pone esas cabeceras a mano. Solo evita que OTRAS PAGINAS usen la ruta desde el
+ *      navegador de sus visitantes (y las peticiones de curiosos). La proteccion contra el abuso es el limite de tasa del
+ *      firewall de la plataforma, no esta comprobacion.
  *   2. `Content-Type: application/json` y cuerpo de 4 KB como maximo (se corta la lectura, no se fia de Content-Length).
- *   3. Limitador por IP (10/minuto, en memoria, de mejor esfuerzo) y tope de 4 peticiones simultaneas por instancia.
+ *   3. Limitador por IP (10/minuto) y tope de 2 peticiones simultaneas por instancia. Ambos son EN MEMORIA y de mejor esfuerzo:
+ *      por instancia, se reinician en frio y no se comparten (ver `rateLimit.ts`).
  *   4. Validacion de la direccion (`validateSnapshotUrl`) y, dentro de `createSnapshot`, todas las de `guardedFetch`.
  *
  * Nunca se registra la direccion ni el contenido (ni `console.*`). Todas las respuestas llevan `Cache-Control: no-store`.
@@ -48,9 +52,24 @@ function isSameSite(request: Request): boolean {
   return host !== "" && originHost === host;
 }
 
-function clientKey(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
+/**
+ * Clave del limitador. NO se confia en lo que el cliente pueda escribir: se usan las cabeceras que fija la plataforma
+ * (`x-vercel-forwarded-for`, luego `x-real-ip`) y, solo si no estan (desarrollo, otro alojamiento), el ULTIMO valor de
+ * `x-forwarded-for` (el que anade el proxy mas cercano; el primero lo puede inventar el cliente). Una IPv6 se agrupa por su /64
+ * (quien tiene un /64 dispone de 2^64 direcciones y rotaria de clave en cada peticion). Lo que no sea una IP valida comparte la
+ * clave `unknown`: el numero de claves no lo decide el atacante.
+ */
+export function clientKey(request: Request): string {
+  const headers = request.headers;
+  const candidate =
+    headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    headers.get("x-real-ip")?.trim() ||
+    headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ||
+    "";
+  const ip = parseIp(candidate);
+  if (!ip) return "unknown";
+  if (ip.family === 4) return candidate;
+  return `v6:${ip.bytes.slice(0, 8).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 async function readLimitedText(request: Request, maxBytes: number): Promise<string | null> {

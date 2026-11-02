@@ -3,6 +3,7 @@ import { decodeText } from "@/lib/htmlSnapshot/decodeText";
 import { guardedFetch, type GuardedFetchDeps } from "@/lib/htmlSnapshot/guardedFetch";
 import { SnapshotError, SNAPSHOT_LIMITS, type SnapshotResult } from "@/lib/htmlSnapshot/types";
 import { memoizeResolver } from "@/lib/htmlSnapshot/dnsResolver";
+import { RequestBudget, withRequestBudget } from "@/lib/htmlSnapshot/requestBudget";
 
 /**
  * De una direccion a la instantanea: descarga la pagina (con `guardedFetch`), construye el HTML autocontenido y ya
@@ -16,10 +17,13 @@ export async function createSnapshot(
   deps: GuardedFetchDeps,
   external?: AbortSignal,
 ): Promise<SnapshotResult> {
+  const startedAt = Date.now();
   const deadline = AbortSignal.timeout(SNAPSHOT_LIMITS.totalTimeoutMs);
   const signal = external ? AbortSignal.any([deadline, external]) : deadline;
-  // La misma IP ya validada para la pagina y todos sus recursos del mismo servidor.
-  const guarded: GuardedFetchDeps = { transport: deps.transport, resolve: memoizeResolver(deps.resolve) };
+  // Presupuesto de peticiones salientes (40, 6 servidores, 4 a la vez, 2 por servidor) y la misma IP ya validada para la pagina
+  // y todos sus recursos del mismo servidor.
+  const budgeted = withRequestBudget(deps, new RequestBudget());
+  const guarded: GuardedFetchDeps = { transport: budgeted.transport, resolve: memoizeResolver(budgeted.resolve) };
 
   try {
     const page = await guardedFetch(address, "page", { maxBytes: SNAPSHOT_LIMITS.maxPageBytes }, guarded, signal);
@@ -41,7 +45,14 @@ export async function createSnapshot(
       }
     };
 
-    const built = await buildSnapshot({ html, pageUrl: page.url.href, fetchResource });
+    // `AbortSignal.timeout` no se dispara mientras el hilo esta ocupado analizando: el plazo del analisis es un instante absoluto
+    // que `buildSnapshot` comprueba entre fases.
+    const built = await buildSnapshot({
+      html,
+      pageUrl: page.url.href,
+      fetchResource,
+      deadline: startedAt + SNAPSHOT_LIMITS.totalTimeoutMs,
+    });
     return { html: built.html, finalUrl: page.url.href, title: built.title, notes: built.notes };
   } catch (error) {
     if (error instanceof SnapshotError) throw error;

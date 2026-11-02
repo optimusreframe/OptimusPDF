@@ -343,14 +343,213 @@ describe("buildSnapshot — imagenes", () => {
     expect(inspect(out.html).tags).not.toContain("base");
   });
 
-  it("un arbol anidado a miles de niveles no revienta ni se cuelga", async () => {
+  it("un arbol anidado a miles de niveles se rechaza (too-large) ANTES de analizarlo y uno razonable pasa", async () => {
     const deep = "<div>".repeat(5000) + "x" + "</div>".repeat(5000);
-    const out = await build(`<html><body>${deep}</body></html>`);
+    await expect(build(`<html><body>${deep}</body></html>`)).rejects.toMatchObject({ code: "too-large" });
+    const fine = "<div>".repeat(300) + "x" + "</div>".repeat(300);
+    const out = await build(`<html><body>${fine}</body></html>`);
     expect(out.html.length).toBeGreaterThan(0);
   });
 });
 
+describe("escapes CSS camuflados (revision de seguridad)", () => {
+  const EXTERNAL = /x\.example/;
+  const styleOf = (css: string) => `<html><head><style>${css}</style></head><body><p>hola</p></body></html>`;
+
+  const HOSTILE_CSS = [
+    "a{background:u\\72l(http://x.example/a.png)}",
+    "a{background:\\75rl(http://x.example/a.png)}",
+    'a{background:\\75 rl("http://x.example/a.png")}',
+    '@\\69mport "http://x.example/a.css";a{color:red}',
+    '@\\69mport url(http://x.example/a.css);a{color:red}',
+    'a{background:\\69mage-set("http://x.example/a.png" 1x)}',
+    "a{background:-webkit-\\69mage-set(url(http://x.example/a.png) 1x)}",
+    "a{background:U\\52L(http://x.example/a.png)}",
+  ];
+  for (const css of HOSTILE_CSS) {
+    it(`en <style> no se cuela: ${css}`, async () => {
+      const log: string[] = [];
+      const out = await build(styleOf(css), {}, log);
+      expect(out.html).not.toMatch(EXTERNAL);
+      expect(out.html).not.toMatch(/@import|image-set/i);
+      expect(() => assertClean(out.html)).not.toThrow();
+    });
+  }
+
+  it("la imagen escondida tras u\\72l( SI se trata como la url() que es: se descarga (validada) y se incrusta", async () => {
+    const log: string[] = [];
+    const out = await build(styleOf("a{background:u\\72l(http://x.example/a.png)}"), { "http://x.example/a.png": { mime: "image/png", bytes: PNG_1X1 } }, log);
+    expect(log).toEqual(["http://x.example/a.png"]);
+    expect(out.html).toContain("data:image/png;base64,");
+  });
+
+  it("el @import camuflado se pide como @import (con todas las defensas) y queda incrustado", async () => {
+    const log: string[] = [];
+    const out = await build(styleOf('@\\69mport "http://x.example/a.css";'), { "http://x.example/a.css": { mime: "text/css", bytes: enc(".dentro{color:red}") } }, log);
+    expect(log).toEqual(["http://x.example/a.css"]);
+    expect(out.html).toContain(".dentro{color:red}");
+    expect(out.html).not.toMatch(EXTERNAL);
+  });
+
+  it("en style=\"\" tampoco", async () => {
+    for (const style of ["background:u\\72l(http://x.example/a.png)", "background:\\75rl(http://x.example/a.png)", "background:\\69mage-set(\"http://x.example/a.png\" 1x)"]) {
+      const out = await build(`<html><body><div style='${style}'>x</div></body></html>`);
+      expect(out.html).not.toMatch(EXTERNAL);
+      expect(() => assertClean(out.html)).not.toThrow();
+    }
+  });
+
+  it("atributos de presentacion SVG con url() externa se quitan; url(#fragmento) se conserva", async () => {
+    const out = await build(
+      `<html><body><svg><defs><linearGradient id="g"></linearGradient></defs>
+        <rect fill="url(http://x.example/a.svg#g)" stroke="url('http://x.example/b.svg')" filter="u\\72l(http://x.example/c.svg)" mask="\\75rl(http://x.example/d.svg)"/>
+        <rect id="bueno" fill="url(#g)" stroke="red"/></svg></body></html>`,
+    );
+    expect(out.html).not.toMatch(EXTERNAL);
+    expect(out.html).toContain('fill="url(#g)"');
+    expect(out.html).toContain('stroke="red"');
+    expect(() => assertClean(out.html)).not.toThrow();
+  });
+
+  it("los escapes de los nombres de clase de Tailwind NO se tocan", async () => {
+    const out = await build(styleOf(".md\\:flex{display:flex}.w-1\\/2{width:50%}.\\31 0{x:1}"));
+    expect(out.html).toContain(".md\\:flex{display:flex}");
+    expect(out.html).toContain(".w-1\\/2{width:50%}");
+    expect(out.html).toContain(".\\31 0{x:1}");
+  });
+
+  it("assertClean falla cerrado ante las mismas cadenas si llegaran al resultado", () => {
+    for (const css of ["a{background:u\\72l(http://x.example/a.png)}", "a{background:\\75rl(http://x.example/a.png)}", '@\\69mport "http://x.example/a.css";', 'a{background:\\69mage-set("http://x.example/a.png" 1x)}']) {
+      expect(() => assertClean(`<html><head><style>${css}</style></head><body></body></html>`), css).toThrow(SnapshotError);
+    }
+    expect(() => assertClean('<html><body><div style="background:u\\72l(http://x.example/a.png)">x</div></body></html>')).toThrow(SnapshotError);
+    expect(() => assertClean('<html><body><svg><rect fill="url(http://x.example/a.svg)"/></svg></body></html>')).toThrow(SnapshotError);
+    expect(() => assertClean('<html><body><svg><rect fill="u\\72l(http://x.example/a.svg)"/></svg></body></html>')).toThrow(SnapshotError);
+    expect(() => assertClean('<html><body><svg><rect fill="url(#g)"/></svg></body></html>')).not.toThrow();
+  });
+});
+
+describe("rendimiento y topes (revision de seguridad: DoS del hilo)", () => {
+  const FAST_MS = 1500;
+  async function timed(html: string) {
+    const started = Date.now();
+    let outcome: "ok" | string = "ok";
+    try {
+      await build(html);
+    } catch (error) {
+      outcome = error instanceof SnapshotError ? error.code : `otro:${String(error)}`;
+    }
+    return { ms: Date.now() - started, outcome };
+  }
+
+  it("<body> + <div> x40 000 sin cerrar (antes 21 s) y x1 000 000 (antes >100 s): se rechazan al instante", async () => {
+    for (const count of [40_000, 1_000_000]) {
+      const { ms, outcome } = await timed("<body>" + "<div>".repeat(count));
+      expect(outcome).toBe("too-large");
+      expect(ms).toBeLessThan(FAST_MS);
+    }
+  });
+
+  it("<table> + <div>x x20 000 (foster-parenting, antes 2,3 s): se rechaza al instante", async () => {
+    const { ms, outcome } = await timed("<table>" + "<div>x".repeat(20_000));
+    expect(outcome).toBe("too-large");
+    expect(ms).toBeLessThan(FAST_MS);
+  });
+
+  it("200 000 <meta> (antes 14,6 s): se rechaza por exceso de etiquetas; 38 000 (dentro del tope) se quitan de una pasada en menos de 1,5 s", async () => {
+    expect((await timed("<head>" + "<meta>".repeat(200_000))).outcome).toBe("too-large");
+    const { ms, outcome } = await timed("<head>" + "<meta>".repeat(38_000) + "</head><body><p>x</p></body>");
+    expect(outcome).toBe("ok");
+    expect(ms).toBeLessThan(FAST_MS);
+  });
+
+  it("srcset con 80 000 cifras en un descriptor (antes 21,8 s) o 80 000 comas (antes 3 s): se ignora sin coste", async () => {
+    for (const srcset of [`a ${"1".repeat(80_000)}x`, `a${",".repeat(80_000)}`, `${"a 1w,".repeat(20_000)}`]) {
+      const { ms, outcome } = await timed(`<html><body><img srcset="${srcset}" src="/ok.png"></body></html>`);
+      expect(outcome).toBe("ok");
+      expect(ms).toBeLessThan(FAST_MS);
+    }
+  });
+
+  it("<i>x repetido: se rechaza al instante y la memoria no se dispara", async () => {
+    const before = process.memoryUsage().rss;
+    const { ms, outcome } = await timed("<i>x".repeat(200_000));
+    expect(outcome).toBe("too-large");
+    expect(ms).toBeLessThan(FAST_MS);
+    expect(process.memoryUsage().rss - before).toBeLessThan(150 * 1024 * 1024);
+  });
+
+  it("decenas de miles de atributos en UNA etiqueta (antes 13 s): se rechaza", async () => {
+    const attributes = Array.from({ length: 60_000 }, (_, index) => `a${index}=1`).join(" ");
+    const { ms, outcome } = await timed(`<div ${attributes}>x</div>`);
+    expect(outcome).toBe("too-large");
+    expect(ms).toBeLessThan(FAST_MS);
+  });
+
+  it("una pagina grande pero bien formada (35 000 etiquetas) se procesa rapido y assertClean pasa", async () => {
+    const spans = "<span class=a>x</span>".repeat(17_000);
+    const { ms, outcome } = await timed(`<html><body><div>${spans}</div></body></html>`);
+    expect(outcome).toBe("ok");
+    expect(ms).toBeLessThan(FAST_MS);
+  });
+
+  it("mas de 1,5 MB decodificados -> too-large sin analizar", async () => {
+    const { ms, outcome } = await timed(`<p>${"a".repeat(1.6 * 1024 * 1024)}</p>`);
+    expect(outcome).toBe("too-large");
+    expect(ms).toBeLessThan(FAST_MS);
+  });
+
+  it("presupuesto de tiempo cooperativo: con el plazo vencido se aborta con timeout entre fases", async () => {
+    await expect(buildSnapshot({ html: "<html><body><p>x</p></body></html>", pageUrl: PAGE, fetchResource: fetcher({}), deadline: Date.now() - 1 })).rejects.toMatchObject({
+      code: "timeout",
+    });
+  });
+});
+
+describe("tamano de la respuesta JSON (no del HTML crudo)", () => {
+  const png = (size: number) => {
+    const bytes = new Uint8Array(size);
+    bytes.set(PNG_1X1.subarray(0, 8));
+    return bytes;
+  };
+
+  it("1,4 MB de comillas ocupan ~2,8 MB en JSON y caben; el JSON final nunca pasa de 4 MB", async () => {
+    const out = await build(`<html><body><p>${'"'.repeat(1_400_000)}</p></body></html>`);
+    expect(Buffer.byteLength(JSON.stringify({ html: out.html, finalUrl: PAGE, title: out.title, notes: out.notes }), "utf-8")).toBeLessThanOrEqual(4_000_000);
+    expect(out.html.length).toBeGreaterThan(1_400_000);
+  });
+
+  it("las imagenes se reducen hasta que el JSON quepa (las mas grandes primero)", async () => {
+    const out = await build(
+      `<html><body><p>${'"'.repeat(900_000)}</p><img src="/a.png"><img src="/b.png"><img src="/c.png"><img src="/pequena.png"></body></html>`,
+      {
+        "https://sitio.example.com/a.png": { mime: "image/png", bytes: png(800_000) },
+        "https://sitio.example.com/b.png": { mime: "image/png", bytes: png(800_000) },
+        "https://sitio.example.com/c.png": { mime: "image/png", bytes: png(800_000) },
+        "https://sitio.example.com/pequena.png": { mime: "image/png", bytes: png(20_000) },
+      },
+    );
+    const json = Buffer.byteLength(JSON.stringify({ html: out.html, finalUrl: PAGE, title: out.title, notes: out.notes }), "utf-8");
+    expect(json).toBeLessThanOrEqual(4_000_000);
+    expect(out.notes.some((note) => note.code === "images-budget")).toBe(true);
+    const srcs = inspect(out.html).attrs.filter((a) => a.tag === "img" && a.name === "src");
+    expect(srcs.some((a) => a.value.length < 40_000)).toBe(true); // la pequena SIEMPRE cabe
+  });
+
+  it("caracteres de control (6 bytes cada uno en JSON) que no caben ni sin imagenes -> too-large", async () => {
+    await expect(build(`<html><body><p>${"\u0001".repeat(1_000_000)}</p></body></html>`)).rejects.toMatchObject({ code: "too-large" });
+  });
+});
+
 describe("helpers", () => {
+  it("parseSrcset esta acotado: atributo largo ignorado, 20 candidatos como mucho, descriptores de 64 caracteres", () => {
+    expect(parseSrcset(`a ${"1".repeat(5000)}w`)).toEqual([]);
+    expect(parseSrcset(Array.from({ length: 50 }, (_, i) => `/i${i}.png ${i + 1}w`).join(", "))).toHaveLength(20);
+    expect(parseSrcset(`/a.png ${"9".repeat(100)}w, /b.png 200w`).map((c) => c.url)).toEqual(["/a.png", "/b.png"]);
+    expect(parseSrcset("/a.png 99999999999999w")[0].score).toBeGreaterThan(1700);
+    expect(parseSrcset(",,,/a.png,,, ").map((c) => c.url)).toEqual(["/a.png"]);
+  });
+
   it("parseSrcset / chooseSrcsetCandidate", () => {
     expect(parseSrcset("a.png 1x, b.png 2x")).toEqual([
       { url: "a.png", score: 800 },
