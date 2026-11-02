@@ -2,6 +2,9 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { exportBlob, freshLibrary, seedDoc, seedTemplate } from "@/lib/backup/__fixtures__/libraryKit";
+import { vaultInput } from "@/lib/backup/__fixtures__/testKit";
+import { clearVault, saveVaultEntry } from "@/app/sign-pdf/signVault";
+import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { asFile } from "@/lib/backup/__fixtures__/testKit";
 import { LAST_BACKUP_KEY } from "@/lib/backup/lastBackup";
 import { MyDocumentsView } from "@/components/views/MyDocumentsView";
@@ -118,6 +121,51 @@ describe("Mis documentos · respaldo", () => {
     fireEvent.click(await screen.findByRole("button", { name: es.documents.exportOne }));
     const dialog = await screen.findByRole("dialog", { name: es.documents.backup.exportSelectedTitle });
     await within(dialog).findByText(/Se exportará: 1 documento, 1 plantilla/);
+  });
+
+  it("«Firmas guardadas» muestra a cada firmante con firma/iniciales y permite exportar todas, solo las seleccionadas e importar", async () => {
+    await clearVault();
+    for (const input of [vaultInput("Ana Pérez"), vaultInput("Luis Gómez", { sig: 3, ini: null })]) {
+      const saved = await saveVaultEntry(input);
+      if (!saved.ok) throw new Error(saved.reason);
+    }
+    await seedDoc("a", 1, { name: "Contrato A" });
+    renderView();
+    const section = (await screen.findByRole("heading", { name: es.documents.signatures.title })).closest("section") as HTMLElement;
+    expect(within(section).getByText(es.documents.signatures.countMany.replace("{n}", "2"))).toBeTruthy();
+    const ana = section.querySelector('[data-signature-id]') as HTMLElement;
+    expect(section.textContent).toContain(es.documents.signatures.both);
+    expect(section.textContent).toContain(es.documents.signatures.onlySignature);
+    expect(ana).toBeTruthy();
+    // Sin seleccion no hay «Exportar seleccionadas»; con una sí, y lleva solo esa.
+    expect(within(section).queryByRole("button", { name: /Exportar seleccionadas/ })).toBeNull();
+    fireEvent.click(within(section).getByRole("checkbox", { name: es.documents.signatures.select.replace("{name}", "Luis Gómez") }));
+    fireEvent.click(within(section).getByRole("button", { name: es.documents.signatures.exportSelected.replace("{n}", "1") }));
+    const dialog = await screen.findByRole("dialog", { name: SIGN_STRINGS.es.vaultBackup.exportSelectedTitle });
+    expect(dialog.textContent).toContain(SIGN_STRINGS.es.vaultBackup.exportBody(1));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: SIGN_STRINGS.es.vaultBackup.protect }));
+    fireEvent.click(within(dialog).getByRole("button", { name: SIGN_STRINGS.es.vaultBackup.exportConfirm }));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // «Exportar todas» lleva las 2; «Importar firmas» abre su hoja.
+    fireEvent.click(within(section).getByRole("button", { name: es.documents.signatures.exportAll.replace("{n}", "2") }));
+    const all = await screen.findByRole("dialog", { name: SIGN_STRINGS.es.vaultBackup.exportTitle });
+    expect(all.textContent).toContain(SIGN_STRINGS.es.vaultBackup.exportBody(2));
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(within(section).getByRole("button", { name: es.documents.signatures.importAction }));
+    await screen.findByRole("dialog", { name: SIGN_STRINGS.es.vaultBackup.importTitle });
+  });
+
+  it("«Firmas guardadas» sin firmas dice que no hay y deja importar, sin ofrecer exportar", async () => {
+    await clearVault();
+    await seedDoc("a", 1, { name: "Contrato A" });
+    renderView();
+    const section = (await screen.findByRole("heading", { name: es.documents.signatures.title })).closest("section") as HTMLElement;
+    expect(within(section).getByText(es.documents.signatures.empty)).toBeTruthy();
+    expect(within(section).queryByRole("button", { name: /Exportar/ })).toBeNull();
+    expect(within(section).getByRole("button", { name: es.documents.signatures.importAction })).toBeTruthy();
   });
 
   it("Escape cierra la hoja de exportar sin crear nada", async () => {

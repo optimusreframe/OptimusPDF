@@ -11,6 +11,7 @@ import {
   applySignaturesImport,
   exportSignatures,
   planSignaturesImport,
+  signaturesModuleFromEntries,
   type ImportPlan,
 } from "@/lib/backup/modules/signatures";
 
@@ -109,9 +110,19 @@ export type ExportBuildOptions = {
   /** Con valor, el paquete entero se cifra con ella. Sin valor, queda en claro. */
   password?: string;
   now?: Date;
+  /** Solo estas firmas guardadas (por id). Sin valor viaja TODO el baul. */
+  entryIds?: readonly string[];
 };
 
-/** Empaqueta TODO el baul actual (nunca un subconjunto); no escribe ni descarga nada. */
+/** Modulo «Firmas» con SOLO las entradas pedidas (las que ya no existan no cuentan). */
+async function exportSignaturesOf(ids: readonly string[]) {
+  const list = await listVault();
+  if (!list.ok) throw new PackageError("unavailable");
+  const wanted = new Set(ids);
+  return signaturesModuleFromEntries(list.entries.filter((entry) => wanted.has(entry.id)));
+}
+
+/** Empaqueta TODO el baul actual, o solo las firmas de `entryIds`; no escribe ni descarga nada. */
 export async function buildSignaturesExport(
   options: ExportBuildOptions = {},
 ): Promise<ExportBuildResult> {
@@ -120,7 +131,7 @@ export async function buildSignaturesExport(
     return { ok: false, reason: "encryptionUnavailable" };
   }
   try {
-    const signaturesModule = await exportSignatures();
+    const signaturesModule = options.entryIds ? await exportSignaturesOf(options.entryIds) : await exportSignatures();
     const count = typeof signaturesModule.meta?.count === "number" ? signaturesModule.meta.count : 0;
     if (count === 0) return { ok: false, reason: "empty" };
     const blob = await buildPackage({ modules: [signaturesModule], password });

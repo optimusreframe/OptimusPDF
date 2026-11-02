@@ -144,6 +144,21 @@ describe("buildSignaturesExport", () => {
     expect((await readPackage(result.blob, "una-clave-larga")).encrypted).toBe(true);
   });
 
+  it("con `entryIds` lleva SOLO esas firmas; un id inexistente no cuenta; sin ninguna existente → empty", async () => {
+    await seed(vaultInput("Ana Pérez"), vaultInput("Luis Gómez", { sig: 3, ini: null }), vaultInput("Marta Ríos", { sig: 5 }));
+    const all = await vault();
+    const luis = all.find((entry) => entry.signerName === "Luis Gómez")!;
+    const marta = all.find((entry) => entry.signerName === "Marta Ríos")!;
+    const result = await buildSignaturesExport({ entryIds: [luis.id, marta.id, "no-existe"] });
+    expect(result).toMatchObject({ ok: true, count: 2, encrypted: false });
+    if (!result.ok) return;
+    const read = await readPackage(result.blob);
+    expect(read.modules.map((module) => [module.name, module.meta])).toEqual([["signatures", { count: 2 }]]);
+    expect(await buildSignaturesExport({ entryIds: ["no-existe"] })).toEqual({ ok: false, reason: "empty" });
+    // Con contraseña también cifra el subconjunto.
+    expect(await buildSignaturesExport({ entryIds: [luis.id], password: "una-clave-larga" })).toMatchObject({ ok: true, count: 1, encrypted: true });
+  });
+
   it("contraseña vacia = sin cifrar (nunca un archivo «protegido» con clave vacia)", async () => {
     await seed(vaultInput("Ana Pérez"));
     expect(await buildSignaturesExport({ password: "" })).toMatchObject({ ok: true, encrypted: false });

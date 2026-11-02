@@ -11,6 +11,7 @@ import { BackupReminder } from "@/app/settings/BackupReminder";
 import { ExportPackageSheet } from "@/app/settings/ExportPackageSheet";
 import { AddDocumentSheet, DocumentMenuSheet, RenameSheet } from "@/app/documents/DocumentSheets";
 import { MAX_SELECTION, pruneSelection, toggleSelection, type ErrorKey } from "@/app/documents/documentsModel";
+import { SavedSignaturesSection } from "@/app/documents/SavedSignaturesSection";
 import { StoragePanel } from "@/app/documents/StoragePanel";
 import { useDocumentLibrary } from "@/app/documents/useDocumentLibrary";
 import { useOpenInSign } from "@/app/documents/useOpenInSign";
@@ -291,6 +292,8 @@ export function MyDocumentsView() {
           </Button>
         </div>
       ) : null}
+
+      {loaded && available ? <SavedSignaturesSection onNotice={say} /> : null}
 
       {loaded && available ? (
         <StoragePanel

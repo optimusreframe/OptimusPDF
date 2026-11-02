@@ -799,6 +799,8 @@ export type VaultBackupStrings = {
   exportButton: string;
   importButton: string;
   exportTitle: string;
+  /** Título de la hoja cuando solo viajan las firmas elegidas. */
+  exportSelectedTitle: string;
   exportBody: (count: number) => string;
   protect: string;
   protectHint: string;
@@ -2271,6 +2273,7 @@ const es: SignStrings = {
     exportButton: "Exportar todas mis firmas",
     importButton: "Importar firmas",
     exportTitle: "Exportar todas mis firmas",
+    exportSelectedTitle: "Exportar las firmas elegidas",
     exportBody: (count) =>
       `Se creará un archivo .zip con ${count === 1 ? "tu firma guardada" : `tus ${count} firmas guardadas`}, con sus iniciales y los datos de cada firmante. Sirve de respaldo y para llevarlas a otro dispositivo.`,
     protect: "Proteger con contraseña",
@@ -3149,6 +3152,7 @@ const en: SignStrings = {
     exportButton: "Export all my signatures",
     importButton: "Import signatures",
     exportTitle: "Export all my signatures",
+    exportSelectedTitle: "Export the chosen signatures",
     exportBody: (count) =>
       `A .zip file will be created with ${count === 1 ? "your saved signature" : `your ${count} saved signatures`}, their initials and each signer's details. Use it as a backup or to move them to another device.`,
     protect: "Protect with a password",

@@ -56,14 +56,16 @@ export type SignatureExportSheetProps = {
   count: number;
   /** Aviso para la region de estado de quien abrio la hoja. */
   onDone?: (message: string) => void;
+  /** Exportar SOLO estas firmas guardadas (por id); `count` debe ser cuantas son. Sin valor, todo el baul. */
+  entryIds?: readonly string[] | null;
 };
 
-export function SignatureExportSheet({ open, onClose, strings, count, onDone }: SignatureExportSheetProps) {
+export function SignatureExportSheet({ open, onClose, strings, count, onDone, entryIds }: SignatureExportSheetProps) {
   const { t } = useI18n();
   const copy = strings.vaultBackup;
   return (
-    <Sheet open={open} onClose={onClose} title={copy.exportTitle} closeLabel={t.common.close} initialFocus="[data-backup-first]">
-      <ExportBody copy={copy} count={count} onClose={onClose} onDone={onDone} />
+    <Sheet open={open} onClose={onClose} title={entryIds ? copy.exportSelectedTitle : copy.exportTitle} closeLabel={t.common.close} initialFocus="[data-backup-first]">
+      <ExportBody copy={copy} count={count} onClose={onClose} onDone={onDone} entryIds={entryIds ?? null} />
     </Sheet>
   );
 }
@@ -75,7 +77,9 @@ function ExportBody({
   count,
   onClose,
   onDone,
+  entryIds,
 }: {
+  entryIds: readonly string[] | null;
   copy: VaultBackupStrings;
   count: number;
   onClose: () => void;
@@ -142,7 +146,7 @@ function ExportBody({
       }
     }
     setPhase("building");
-    const result = await buildSignaturesExport({ password: protect && canEncrypt ? password : undefined });
+    const result = await buildSignaturesExport({ password: protect && canEncrypt ? password : undefined, ...(entryIds ? { entryIds } : {}) });
     if (!aliveRef.current) return;
     if (!result.ok) {
       setPhase("form");
