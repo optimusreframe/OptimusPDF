@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { FilePlus2, FolderOpen, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Download, FilePlus2, FolderOpen, ShieldCheck, TriangleAlert } from "lucide-react";
 import { addDocument, deleteDoc, keepTemplate, renameDoc, replaceDoc } from "@/app/documents/documentActions";
 import { DocumentCard } from "@/app/documents/DocumentCard";
 import { ExportBackupSheet } from "@/app/documents/ExportBackupSheet";
@@ -50,6 +50,8 @@ export function MyDocumentsView() {
   const [warning, setWarning] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [backupSheet, setBackupSheet] = useState<"export" | "import" | null>(null);
+  /** Alcance de «Exportar»: `null` = toda la biblioteca; una lista = solo esos documentos y sus plantillas. Se fija al abrir. */
+  const [exportScope, setExportScope] = useState<readonly string[] | null>(null);
   /** «Respaldar ahora» del recordatorio (U4.7): abre «Exportar mi paquete» (todo, no solo plantillas y documentos). */
   const [packageOpen, setPackageOpen] = useState(false);
   // El panel de almacenamiento solo se pinta cuando la biblioteca ya cargó (en el navegador): leer aquí no desajusta la hidratación.
@@ -271,6 +273,19 @@ export function MyDocumentsView() {
           <Button variant="ghost" size="md" wrap onClick={() => setSelected(new Set())}>
             {t.documents.clearSelection}
           </Button>
+          <Button
+            variant="secondary"
+            size="md"
+            wrap
+            data-export-selected=""
+            onClick={() => {
+              setExportScope(selectedIds);
+              setBackupSheet("export");
+            }}
+          >
+            <Download aria-hidden="true" className="size-4 shrink-0" />
+            {fill(t.documents.backup.exportSelectedAction, { n: String(selectedIds.length) })}
+          </Button>
           <Button size="md" wrap onClick={() => openInSign(selectedIds, "sign")}>
             {fill(t.documents.signSelected, { n: String(selectedIds.length) })}
           </Button>
@@ -285,7 +300,10 @@ export function MyDocumentsView() {
           requesting={requesting}
           lastBackup={lastBackup}
           lastParts={lastParts}
-          onExport={() => setBackupSheet("export")}
+          onExport={() => {
+            setExportScope(null);
+            setBackupSheet("export");
+          }}
           onImport={() => setBackupSheet("import")}
         />
       ) : null}
@@ -308,9 +326,12 @@ export function MyDocumentsView() {
 
       <ExportBackupSheet
         open={backupSheet === "export"}
+        documentIds={exportScope}
         onClose={() => {
           refreshBackup();
           setBackupSheet(null);
+          // Desde el menú ⋯ de un documento el boton que abrio la hoja ya no esta: si el foco se pierde, vuelve al titulo.
+          if (exportScope) focusFallbackWhenIdle(() => headingRef.current);
         }}
         onDone={(message) => {
           refreshBackup();
@@ -347,6 +368,11 @@ export function MyDocumentsView() {
         onRename={() => {
           setRenameId(menuId);
           setMenuId(null);
+        }}
+        onExport={() => {
+          if (menuId) setExportScope([menuId]);
+          setMenuId(null);
+          setBackupSheet("export");
         }}
         onReplace={() => {
           replaceTargetRef.current = menuId;

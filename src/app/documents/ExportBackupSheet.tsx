@@ -31,16 +31,37 @@ const LEVEL_COLORS = ["bg-destructive", "bg-accent-edit", "bg-signal", "bg-succe
 
 type Phase = "form" | "building" | "ready" | "done";
 
-export function ExportBackupSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone?: (message: string) => void }) {
+/**
+ * `documentIds` = exportar SOLO esos documentos y sus plantillas («Exportar seleccionados»). Sin él, toda la biblioteca. Un
+ * subconjunto NO cuenta como respaldo (no marca «último respaldo»): lo que no viaja sigue sin respaldar.
+ */
+export function ExportBackupSheet({
+  open,
+  onClose,
+  onDone,
+  documentIds,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone?: (message: string) => void;
+  documentIds?: readonly string[] | null;
+}) {
   const { t } = useI18n();
+  const subset = documentIds ?? null;
   return (
-    <Sheet open={open} onClose={onClose} title={t.documents.backup.exportTitle} closeLabel={t.common.close} initialFocus="[data-backup-first]">
-      <ExportBody onClose={onClose} onDone={onDone} />
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={subset ? t.documents.backup.exportSelectedTitle : t.documents.backup.exportTitle}
+      closeLabel={t.common.close}
+      initialFocus="[data-backup-first]"
+    >
+      <ExportBody onClose={onClose} onDone={onDone} documentIds={subset} />
     </Sheet>
   );
 }
 
-function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (message: string) => void }) {
+function ExportBody({ onClose, onDone, documentIds }: { onClose: () => void; onDone?: (message: string) => void; documentIds: readonly string[] | null }) {
   const { t, language } = useI18n();
   const copy = t.documents.backup;
   const locale = localeTag(language);
@@ -64,7 +85,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
 
   useEffect(() => {
     aliveRef.current = true;
-    void summarizeLibraryExport().then((value) => {
+    void summarizeLibraryExport(documentIds ? { documentIds } : {}).then((value) => {
       if (aliveRef.current) setSummary(value);
     });
     void describeExport({ modules: { signatures: true, library: true, drafts: true, settings: true } })
@@ -77,6 +98,8 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
     return () => {
       aliveRef.current = false;
     };
+    // El alcance se fija al abrir la hoja (se monta de nuevo cada vez): no cambia mientras esta abierta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (!mountedRef.current) {
@@ -96,8 +119,12 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
 
   const finish = (file: File, documents: number, templates: number, encrypted: boolean, skipped: number) => {
     // Solo viajaron plantillas y documentos: no es un respaldo completo si hay firmas o borradores sin respaldar.
-    const announce = () => onDone?.(fillText(copy.announceExported, { docs: docsText(documents), templates: templatesText(templates) }));
-    if (emptyPartsRef.current) {
+    const announce = () =>
+      onDone?.(fillText(documentIds ? copy.announceExportedSelected : copy.announceExported, { docs: docsText(documents), templates: templatesText(templates) }));
+    if (documentIds) {
+      // Solo viajo una parte: no es un respaldo y no se marca como tal.
+      announce();
+    } else if (emptyPartsRef.current) {
       markLastBackup(new Date(), { traveled: ["library"], empty: emptyPartsRef.current });
       announce();
     } else {
@@ -127,7 +154,7 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
       }
     }
     setPhase("building");
-    const result = await buildLibraryExport({ password: wantsPassword ? password : undefined });
+    const result = await buildLibraryExport({ password: wantsPassword ? password : undefined, ...(documentIds ? { documentIds } : {}) });
     if (!aliveRef.current) return;
     if (!result.ok) {
       setPhase("form");
@@ -193,6 +220,11 @@ function ExportBody({ onClose, onDone }: { onClose: () => void; onDone?: (messag
           {summary && summary.withoutCopy > 0 ? (
             <p className="text-footnote text-muted-foreground">
               {countText(summary.withoutCopy, copy.withoutCopyOne, copy.withoutCopyMany)}
+            </p>
+          ) : null}
+          {documentIds ? (
+            <p className="text-footnote text-muted-foreground" data-backup-selection-note="">
+              {copy.exportSelectedNote}
             </p>
           ) : null}
           <p className="text-footnote text-muted-foreground">{copy.exportNever}</p>

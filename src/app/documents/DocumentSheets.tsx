@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type FormEvent } from "react";
-import { FilePlus2, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { Download, FilePlus2, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { looksLikePdf, suggestedName, type ErrorKey } from "@/app/documents/documentsModel";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
@@ -165,6 +165,7 @@ export function DocumentMenuSheet({
   open,
   onClose,
   onRename,
+  onExport,
   onReplace,
   onDelete,
 }: {
@@ -172,6 +173,8 @@ export function DocumentMenuSheet({
   open: boolean;
   onClose: () => void;
   onRename: () => void;
+  /** Exporta solo este documento y su plantilla. */
+  onExport: () => void;
   onReplace: () => void;
   onDelete: () => void;
 }) {
@@ -183,6 +186,12 @@ export function DocumentMenuSheet({
           <button type="button" data-menu-first="" className={ROW} onClick={onRename}>
             <Pencil aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
             {t.documents.rename}
+          </button>
+        </li>
+        <li>
+          <button type="button" className={ROW} data-menu-export="" onClick={onExport}>
+            <Download aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+            {t.documents.exportOne}
           </button>
         </li>
         <li>

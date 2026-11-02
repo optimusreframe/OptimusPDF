@@ -87,6 +87,34 @@ describe("exportar", () => {
     expect(template.documentId).toBe("doc-a");
   });
 
+  it("un subconjunto lleva SOLO esos documentos y las plantillas que cuelgan de ellos", async () => {
+    await seedThree();
+    const { module: mod, report } = await exportLibraryWithReport({ documentIds: ["doc-b"] });
+    expect(report).toMatchObject({ documents: 1, templates: 1, skippedDocuments: 0 });
+    expect(mod.meta).toEqual({ documents: 1, templates: 1 });
+    const paths = mod.files.map((file) => file.path);
+    expect(paths.filter((p) => p.endsWith(".pdf"))).toHaveLength(1);
+    expect(paths).toContain("templates/tpl-b.json");
+    expect(paths).not.toContain("templates/tpl-a.json");
+    const index = JSON.parse(new TextDecoder().decode(mod.files.find((f) => f.path === "documents/index.json")!.data));
+    expect(index.map((doc: { id: string }) => doc.id)).toEqual(["doc-b"]);
+    const template = JSON.parse(new TextDecoder().decode(mod.files.find((f) => f.path === "templates/tpl-b.json")!.data));
+    expect(template.documentId).toBe("doc-b");
+    // Dos documentos: el que no tiene plantilla viaja sin ella.
+    const two = await exportLibraryWithReport({ documentIds: ["doc-a", "doc-c"] });
+    expect(two.report).toMatchObject({ documents: 2, templates: 1 });
+    // Un id que no existe no lleva nada (y no revienta).
+    const none = await exportLibraryWithReport({ documentIds: ["no-existe"] });
+    expect(none.report).toMatchObject({ documents: 0, templates: 0 });
+  });
+
+  it("el resumen de un subconjunto cuenta solo lo elegido; sin subconjunto, todo", async () => {
+    await seedThree();
+    expect(await summarizeLibraryExport({ documentIds: ["doc-a"] })).toMatchObject({ available: true, documents: 1, templates: 1, withoutCopy: 0 });
+    expect(await summarizeLibraryExport({ documentIds: ["doc-c"] })).toMatchObject({ documents: 1, templates: 0 });
+    expect(await summarizeLibraryExport()).toMatchObject({ documents: 3, templates: 2 });
+  });
+
   it("omite un documento sin copia o con una copia que no corresponde a su huella, y dice cuántos", async () => {
     await seedDoc("ok", 1);
     // Sin copia (byteLength 0).

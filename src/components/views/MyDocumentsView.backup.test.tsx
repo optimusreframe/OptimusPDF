@@ -81,6 +81,45 @@ describe("Mis documentos · respaldo", () => {
     expect(document.querySelector("[data-documents-live]")?.textContent).toContain("Respaldo creado: 1 documento, 1 plantilla.");
   });
 
+  it("con documentos seleccionados, «Exportar seleccionados» lleva SOLO esos (y sus plantillas) y no marca un respaldo", async () => {
+    await seedDoc("a", 1, { name: "Contrato A" });
+    await seedDoc("b", 2, { name: "Contrato B" });
+    await seedTemplate("a", {}, "tpl-a");
+    await seedTemplate("b", {}, "tpl-b");
+    renderView();
+    const boxes = await screen.findAllByRole("checkbox");
+    // Sin selección no hay botón de exportar seleccionados.
+    expect(screen.queryByRole("button", { name: /Exportar seleccionados/ })).toBeNull();
+    const first = boxes.find((box) => box.closest("li")?.textContent?.includes("Contrato A")) as HTMLElement;
+    fireEvent.click(first);
+    const trigger = await screen.findByRole("button", { name: es.documents.backup.exportSelectedAction.replace("{n}", "1") });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog", { name: es.documents.backup.exportSelectedTitle });
+    await within(dialog).findByText(/Se exportará: 1 documento, 1 plantilla/);
+    expect(within(dialog).getByText(es.documents.backup.exportSelectedNote)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: es.documents.backup.protect }));
+    fireEvent.click(within(dialog).getByRole("button", { name: es.documents.backup.exportConfirm }));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(downloadBlob).mock.calls[0][1]).toBe("OptimusPDF-seleccion.optimuspdf.zip");
+    fireEvent.click(await within(dialog).findByRole("button", { name: es.documents.backup.doneClose }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Una parte no es un respaldo: «Último respaldo» no se mueve.
+    expect(window.localStorage.getItem(LAST_BACKUP_KEY)).toBeNull();
+    expect(screen.getByText(es.documents.backup.lastNever)).toBeTruthy();
+    expect(document.querySelector("[data-documents-live]")?.textContent).toContain("Exportado: 1 documento, 1 plantilla.");
+  });
+
+  it("el menú ⋯ de un documento exporta solo ese documento y su plantilla", async () => {
+    await seedDoc("a", 1, { name: "Contrato A" });
+    await seedDoc("b", 2, { name: "Contrato B" });
+    await seedTemplate("b", {}, "tpl-b");
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Más acciones de Contrato B" }));
+    fireEvent.click(await screen.findByRole("button", { name: es.documents.exportOne }));
+    const dialog = await screen.findByRole("dialog", { name: es.documents.backup.exportSelectedTitle });
+    await within(dialog).findByText(/Se exportará: 1 documento, 1 plantilla/);
+  });
+
   it("Escape cierra la hoja de exportar sin crear nada", async () => {
     await seedDoc("a", 1);
     renderView();

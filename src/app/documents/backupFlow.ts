@@ -26,6 +26,8 @@ export { MIN_PASSWORD_LENGTH, canShareFile, checkNewPassword, passwordStrength, 
 
 /** Nombre del archivo que se descarga o se comparte. */
 export const LIBRARY_BACKUP_FILENAME = "OptimusPDF-documentos.optimuspdf.zip";
+/** Nombre cuando solo viajan los documentos elegidos (y sus plantillas). */
+export const LIBRARY_SELECTION_FILENAME = "OptimusPDF-seleccion.optimuspdf.zip";
 
 /* ------------------------------------------------------------------------------------------------------------ */
 /* Exportar                                                                                                       */
@@ -55,24 +57,25 @@ export type LibraryExportBuild =
 /** Margen del índice y los JSON dentro del tope de bytes del paquete. */
 const PACKAGE_SLACK_BYTES = 8 * 1024 * 1024;
 
-/** Empaqueta TODA la biblioteca (nunca un subconjunto); no escribe ni descarga nada. */
-export async function buildLibraryExport(options: { password?: string } = {}): Promise<LibraryExportBuild> {
+/** Empaqueta TODA la biblioteca, o solo los documentos de `documentIds` con sus plantillas; no escribe ni descarga nada. */
+export async function buildLibraryExport(options: { password?: string; documentIds?: readonly string[] } = {}): Promise<LibraryExportBuild> {
   const password = options.password === "" ? undefined : options.password;
+  const subset = options.documentIds ? { documentIds: options.documentIds } : {};
   if (password !== undefined && !passwordBoxAvailable()) return { ok: false, reason: "encryptionUnavailable" };
   try {
-    const summary = await summarizeLibraryExport();
+    const summary = await summarizeLibraryExport(subset);
     if (!summary.available) return { ok: false, reason: "unavailable" };
     if (summary.documents === 0 && summary.templates === 0) return { ok: false, reason: "empty" };
     // Antes de leer los PDF: un paquete que pasara del tope no se podría importar.
     const limit = PACKAGE_LIMITS.maxUncompressedBytes - PACKAGE_SLACK_BYTES;
     if (summary.bytes > limit) return { ok: false, reason: "tooLarge", overBy: summary.bytes - limit };
-    const { module, report } = await exportLibraryWithReport();
+    const { module, report } = await exportLibraryWithReport(subset);
     if (report.documents === 0 && report.templates === 0) return { ok: false, reason: "empty" };
     const blob = await buildPackage({ modules: [module], password });
     return {
       ok: true,
       blob,
-      filename: LIBRARY_BACKUP_FILENAME,
+      filename: options.documentIds ? LIBRARY_SELECTION_FILENAME : LIBRARY_BACKUP_FILENAME,
       documents: report.documents,
       templates: report.templates,
       bytes: report.bytes,

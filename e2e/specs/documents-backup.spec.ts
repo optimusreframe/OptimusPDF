@@ -375,6 +375,80 @@ test.describe("exportar e importar: ida y vuelta", () => {
  * 2. Zips hostiles
  * ------------------------------------------------------------------ */
 
+test.describe("exportar solo lo seleccionado", () => {
+  const SELECTION_ZIP = "OptimusPDF-seleccion.optimuspdf.zip";
+  const exportSelectedLabel = (n: number) => es.documents.backup.exportSelectedAction.replace("{n}", String(n));
+
+  test("seleccionar 2 de 3 → «Exportar seleccionados (2)» lleva solo esos y su plantilla, no marca respaldo y se importa de vuelta; el menú ⋯ exporta uno solo", async ({ browser }) => {
+    const context = await newContext(browser);
+    await noShare(context);
+    const page = await context.newPage();
+    const errors = trackErrors(page);
+    try {
+      await seedThree(page);
+      const original = await stored(page);
+      const [one, two, three] = contracts;
+      // Sin selección no hay boton de exportar seleccionados.
+      await expect(page.getByRole("button", { name: /Exportar seleccionados/ })).toHaveCount(0);
+
+      // Se eligen el contrato 1 (con plantilla) y el 3 (sin plantilla).
+      await card(page, one.name).getByRole("checkbox").check();
+      await card(page, three.name).getByRole("checkbox").check();
+      const trigger = page.getByRole("button", { name: exportSelectedLabel(2) });
+      await expect(trigger).toBeVisible();
+      await trigger.click();
+      const dialog = page.getByRole("dialog", { name: es.documents.backup.exportSelectedTitle });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.locator("[data-backup-summary]")).toContainText("Se exportará: 2 documentos, 1 plantilla");
+      await expect(dialog.locator("[data-backup-selection-note]")).toContainText("No cuenta como respaldo completo");
+      await expectClean(page, dialog, "Exportar seleccionados");
+      await setProtect(dialog, "Proteger con contraseña (recomendado)", false);
+      const { bytes, filename } = await downloadFile(page, () => dialog.getByRole("button", { name: "Crear respaldo" }).click());
+      expect(filename).toBe(SELECTION_ZIP);
+      await expect(dialog.locator("[data-backup-result]")).toContainText("2 documentos, 1 plantilla");
+      await dialog.getByRole("button", { name: "Listo" }).click();
+      await expect(dialog).toBeHidden();
+      // Una parte NO es un respaldo.
+      await expect(page.locator("[data-backup-last]")).toHaveText("Aún no has hecho un respaldo.");
+      expect(await page.evaluate(() => window.localStorage.getItem("optimuspdf.lastBackup"))).toBeNull();
+      const read = await readPackage(new Blob([new Uint8Array(bytes)]));
+      expect(read.modules.map((m) => [m.name, m.meta])).toEqual([["library", { documents: 2, templates: 1 }]]);
+
+      // Borrar todo e importar el archivo: vuelven SOLO esos dos, con la plantilla del 1.
+      await clearAll(page);
+      const importing = await openImport(page, { name: SELECTION_ZIP, buffer: bytes });
+      await expect(importing.getByText("El archivo trae 2 documentos, 1 plantilla.")).toBeVisible();
+      await importing.getByRole("button", { name: "Importar 2 elementos" }).click();
+      await expect(importing.getByText("Importación terminada: 2 documentos, 1 plantilla.").first()).toBeVisible({ timeout: 60_000 });
+      await importing.getByRole("button", { name: "Listo" }).click();
+      await expect(card(page, one.name)).toBeVisible();
+      await expect(card(page, three.name)).toBeVisible();
+      await expect(card(page, two.name)).toHaveCount(0);
+      await expect(stateOf(page, one.name)).toHaveAttribute("data-template-state", "ready");
+      await expect(stateOf(page, three.name)).toHaveAttribute("data-template-state", "none");
+      const back = await stored(page);
+      for (const doc of back) expect(doc.hash).toBe(original.find((o) => o.id === doc.id)?.hash);
+      expect(back.map((d) => d.name).sort()).toEqual([one.name, three.name].sort());
+
+      // El menú ⋯ de un documento: exporta solo ese y su plantilla.
+      await page.getByRole("button", { name: `Más acciones de ${one.name}` }).click();
+      await page.getByRole("button", { name: es.documents.exportOne }).click();
+      const single = page.getByRole("dialog", { name: es.documents.backup.exportSelectedTitle });
+      await expect(single.locator("[data-backup-summary]")).toContainText("Se exportará: 1 documento, 1 plantilla");
+      await setProtect(single, "Proteger con contraseña (recomendado)", false);
+      const one1 = await downloadFile(page, () => single.getByRole("button", { name: "Crear respaldo" }).click());
+      expect((await readPackage(new Blob([new Uint8Array(one1.bytes)]))).modules.map((m) => m.meta)).toEqual([{ documents: 1, templates: 1 }]);
+      await single.getByRole("button", { name: "Listo" }).click();
+      await expect(single).toBeHidden();
+      // El foco no se pierde en <body> al cerrar (el boton ⋯ ya no esta bajo el menu).
+      await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY");
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+});
+
 test.describe("zips hostiles: rechazados sin escribir nada", () => {
   test("el corpus del contenedor se rechaza con un error claro y la biblioteca no cambia", async ({ browser }) => {
     const context = await newContext(browser);

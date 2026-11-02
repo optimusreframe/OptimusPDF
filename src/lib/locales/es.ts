@@ -514,6 +514,7 @@ export const es = {
     select: "Seleccionar {name}",
     selectedOne: "1 seleccionado",
     selectedCount: "{n} seleccionados",
+    exportOne: "Exportar este documento y su plantilla",
     signSelected: "Firmar seleccionados ({n})",
     selectionMax: "Puedes firmar hasta {max} documentos a la vez.",
     clearSelection: "Quitar selección",
@@ -560,6 +561,10 @@ export const es = {
       lastDays: "Último respaldo: hace {n} días.",
       // Exportar
       exportTitle: "Exportar plantillas y documentos",
+      exportSelectedAction: "Exportar seleccionados ({n})",
+      exportSelectedTitle: "Exportar los seleccionados",
+      exportSelectedNote:
+        "Solo viajan los documentos que elegiste y sus plantillas. No cuenta como respaldo completo: lo demás sigue sin respaldar.",
       summaryLoading: "Calculando lo que se va a exportar…",
       summary: "Se exportará: {docs}, {templates}, {size}.",
       docsOne: "1 documento",
@@ -700,6 +705,7 @@ export const es = {
         failed: "No se pudo importar. No se escribió nada; inténtalo de nuevo.",
       },
       announceExported: "Respaldo creado: {docs}, {templates}.",
+      announceExportedSelected: "Exportado: {docs}, {templates}.",
       announceImported: "Importados {docs} y {templates}.",
     },
     unavailableTitle: "Este navegador no puede guardar documentos",

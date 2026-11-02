@@ -2,10 +2,11 @@ import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PACKAGE_LIMITS } from "@/lib/backup/types";
 import { buildPackage, readPackage } from "@/lib/backup/package";
-import { applyLibraryBackup, buildLibraryExport, readLibraryBackup, LIBRARY_BACKUP_FILENAME } from "@/app/documents/backupFlow";
+import { applyLibraryBackup, buildLibraryExport, readLibraryBackup, LIBRARY_BACKUP_FILENAME, LIBRARY_SELECTION_FILENAME } from "@/app/documents/backupFlow";
 import { defaultLibraryDecisions } from "@/lib/backup/modules/library";
 import { exportBlob, freshLibrary, seedDoc, seedTemplate } from "@/lib/backup/__fixtures__/libraryKit";
 import { clearLibrary, listDocuments, putDocument } from "@/lib/docLibrary/store";
+import { listTemplates } from "@/lib/docLibrary/templatesStore";
 import { sampleFingerprint } from "@/lib/docLibrary/testing/sampleDocs";
 import { hostileCorpus } from "@/lib/backup/__fixtures__/hostileCorpus";
 
@@ -79,6 +80,33 @@ describe("buildLibraryExport", () => {
     await expect(readPackage(sealed.blob)).rejects.toMatchObject({ code: "needsPassword" });
     // Contraseña vacía = sin cifrar.
     expect(await buildLibraryExport({ password: "" })).toMatchObject({ ok: true, encrypted: false });
+  });
+});
+
+describe("buildLibraryExport · solo los documentos elegidos", () => {
+  it("empaqueta el subconjunto con su plantilla, con otro nombre de archivo, y se importa de vuelta", async () => {
+    await seedDoc("a", 1);
+    await seedDoc("b", 2);
+    await seedDoc("c", 3);
+    await seedTemplate("a", {}, "tpl-a");
+    await seedTemplate("b", {}, "tpl-b");
+    const built = await buildLibraryExport({ documentIds: ["b"] });
+    expect(built).toMatchObject({ ok: true, filename: LIBRARY_SELECTION_FILENAME, documents: 1, templates: 1, encrypted: false });
+    expect(LIBRARY_SELECTION_FILENAME).toBe("OptimusPDF-seleccion.optimuspdf.zip");
+    if (!built.ok) return;
+    await clearLibrary();
+    const read = await readLibraryBackup(built.blob, undefined, { validatePdf: guardOk });
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    const applied = await applyLibraryBackup(read.plan, defaultLibraryDecisions(read.plan));
+    expect(applied).toMatchObject({ ok: true, summary: { documents: 1, templates: 1, skipped: 0 } });
+    expect((await listDocuments()).documents.map((doc) => doc.id)).toEqual(["b"]);
+    expect((await listTemplates()).templates.map((template) => template.id)).toEqual(["tpl-b"]);
+  });
+  it("una selección que ya no existe → empty; con contraseña sale cifrado", async () => {
+    await seedDoc("a", 1);
+    expect(await buildLibraryExport({ documentIds: ["fantasma"] })).toEqual({ ok: false, reason: "empty" });
+    expect(await buildLibraryExport({ documentIds: ["a"], password: "una-clave-larga" })).toMatchObject({ ok: true, encrypted: true });
   });
 });
 

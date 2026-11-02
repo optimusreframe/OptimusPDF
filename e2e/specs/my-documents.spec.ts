@@ -546,6 +546,30 @@ test.describe("sin desbordes con tipografía ancha (375 y 320 px)", () => {
           if (language === "en") await switchLanguage(page, "es");
         }
       }
+      // Con documentos seleccionados la barra lleva «Exportar seleccionados» y «Firmar seleccionados»: caben a 375 y 320 px, tambien en ingles.
+      for (const language of ["es", "en"] as const) {
+        await page.goto("/documents");
+        if (language === "en") await switchLanguage(page, "en");
+        await expect(page.locator("[data-document-id]").first()).toBeVisible();
+        await page.locator("[data-document-id]").first().getByRole("checkbox").check();
+        await page.locator("[data-document-id]").nth(1).getByRole("checkbox").check();
+        await expect(page.locator("[data-documents-selection] [data-export-selected]")).toBeVisible();
+        for (const width of [375, 320]) {
+          await page.setViewportSize({ width, height: 812 });
+          await page.waitForTimeout(500);
+          const measured = await overflow(page);
+          expect(measured.overflow, `barra de seleccion · ${language} · ${width}px: scroll horizontal`).toBeLessThanOrEqual(1);
+          expect(measured.offenders, `barra de seleccion · ${language} · ${width}px: elementos fuera`).toEqual([]);
+          const tooShort = await page.evaluate(() =>
+            Array.from(document.querySelectorAll<HTMLElement>("[data-documents-selection] button"))
+              .filter((element) => element.getBoundingClientRect().height < 43.5)
+              .map((element) => (element.textContent ?? "").trim()),
+          );
+          expect(tooShort, `barra de seleccion · ${language} · ${width}px: objetivos < 44 px`).toEqual([]);
+        }
+        await page.setViewportSize({ width: 1280, height: 900 });
+        if (language === "en") await switchLanguage(page, "es");
+      }
       // Objetivos de toque >= 44 px en las tarjetas de /documents a 375 px.
       await page.goto("/documents");
       await page.setViewportSize({ width: 375, height: 812 });

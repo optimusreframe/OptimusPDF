@@ -128,11 +128,22 @@ export type LibraryExportSummary = {
   withoutCopy: number;
 };
 
+/**
+ * Subconjunto a exportar: solo esos documentos y las plantillas que cuelgan de ellos (`documentId` dentro del conjunto).
+ * Sin él viaja TODA la biblioteca (el respaldo de siempre).
+ */
+export type LibraryExportOptions = { documentIds?: readonly string[] };
+
 /** Cuánto llevaría el respaldo (sin leer los PDF): «N documentos, M plantillas, X MB». Nunca lanza. */
-export async function summarizeLibraryExport(): Promise<LibraryExportSummary> {
-  const listed = await listDocuments();
-  if (!listed.available) return { available: false, documents: 0, templates: 0, bytes: 0, withoutCopy: 0 };
-  const templates = await listTemplates();
+export async function summarizeLibraryExport(options: LibraryExportOptions = {}): Promise<LibraryExportSummary> {
+  const everything = await listDocuments();
+  if (!everything.available) return { available: false, documents: 0, templates: 0, bytes: 0, withoutCopy: 0 };
+  const only = options.documentIds ? new Set(options.documentIds) : null;
+  const listed = only ? { ...everything, documents: everything.documents.filter((doc) => only.has(doc.id)) } : everything;
+  const allTemplates = await listTemplates();
+  const templates = only
+    ? { ...allTemplates, templates: allTemplates.templates.filter((template) => template.documentId !== null && only.has(template.documentId)) }
+    : allTemplates;
   // «Con copia» = la fila dice que tiene PDF Y la copia existe de verdad: un documento cuyo PDF se perdio no viajaria y no
   // se cuenta (antes se contaba y el respaldo lo omitia en silencio).
   const blobIds = await listBlobIds();
@@ -151,10 +162,18 @@ export async function summarizeLibraryExport(): Promise<LibraryExportSummary> {
  * corresponde a su huella se OMITE (un respaldo que no se podría importar es peor que ninguno) y se cuenta.
  * Sin IndexedDB lanza `LibraryError("unavailable")`.
  */
-export async function exportLibraryWithReport(): Promise<{ module: PackageModuleInput; report: LibraryExportReport }> {
-  const listed = await listDocuments();
-  const templateList = await listTemplates();
-  if (!listed.available || !templateList.available) throw new LibraryError("unavailable");
+export async function exportLibraryWithReport(
+  options: LibraryExportOptions = {},
+): Promise<{ module: PackageModuleInput; report: LibraryExportReport }> {
+  const everything = await listDocuments();
+  const allTemplates = await listTemplates();
+  if (!everything.available || !allTemplates.available) throw new LibraryError("unavailable");
+  // Un subconjunto lleva solo esos documentos y las plantillas que cuelgan de ellos.
+  const only = options.documentIds ? new Set(options.documentIds) : null;
+  const listed = only ? { ...everything, documents: everything.documents.filter((doc) => only.has(doc.id)) } : everything;
+  const templateList = only
+    ? { ...allTemplates, templates: allTemplates.templates.filter((template) => template.documentId !== null && only.has(template.documentId)) }
+    : allTemplates;
 
   const used = new Set<string>([DOCS_INDEX, TEMPLATES_INDEX]);
   const files: PackageFileInput[] = [];
