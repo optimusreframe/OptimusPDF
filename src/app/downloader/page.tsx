@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { ToolPageSoon } from "@/components/tool/ToolPageSoon";
+import { DownloaderView } from "@/app/downloader/DownloaderView";
 
 export const metadata: Metadata = {
   title: "Downloader",
-  description: "Downloader en OptimusPDF. Todavía no está disponible.",
+  description:
+    "Downloader de OptimusTOOLS: descargar de redes sociales necesita un servidor, por eso aún no está disponible. Qué puedes hacer mientras tanto, en tu dispositivo.",
   alternates: { canonical: "/downloader" },
 };
 
 export default function DownloaderPage() {
-  return <ToolPageSoon slug="downloader" />;
+  return <DownloaderView />;
 }

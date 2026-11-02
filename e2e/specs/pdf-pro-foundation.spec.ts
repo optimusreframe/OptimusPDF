@@ -79,9 +79,11 @@ test.describe("Home", () => {
     // Primera: antes que cualquier otra tarjeta de herramienta y antes del catalogo por categorias.
     const organize = (await page.locator("#organize").boundingBox())!;
     expect(cardBox.y + cardBox.height).toBeLessThan(organize.y);
-    // Y primer item de la barra lateral.
-    const firstNav = page.getByRole("navigation", { name: es.nav.primaryNav }).getByRole("link").first();
-    await expect(firstNav).toHaveAttribute("href", "/pdf-pro");
+    // Y tercer item de la barra lateral, tras «Inicio» y «Recientes» (plan OptimusTOOLS).
+    const navLinks = page.getByRole("navigation", { name: es.nav.primaryNav }).getByRole("link");
+    await expect(navLinks.nth(0)).toHaveAttribute("href", "/");
+    await expect(navLinks.nth(1)).toHaveAttribute("href", "/recent");
+    await expect(navLinks.nth(2)).toHaveAttribute("href", "/pdf-pro");
     await noHorizontalOverflow(page);
   });
 

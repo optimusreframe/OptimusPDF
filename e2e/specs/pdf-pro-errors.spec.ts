@@ -625,7 +625,7 @@ test.describe("PDF Pro · errores al abrir · traspaso desde otra herramienta (e
       await expectFileProblem(banner(page), { name: file.name, ...PROBLEM[kind] });
       await expect(openInProLink(page)).toHaveCount(0);
       // Entrar a PDF Pro a mano (navegacion de cliente desde la barra lateral) deja el estado vacio, sin suite rota.
-      await page.getByRole("navigation", { name: es.nav.primaryNav }).getByRole("link").first().click();
+      await page.getByRole("navigation", { name: es.nav.primaryNav }).getByRole("link", { name: "PDF Pro", exact: true }).click();
       await expect(page).toHaveURL(/\/pdf-pro$/);
       await expect(page.getByRole("heading", { level: 1, name: "PDF Pro" })).toBeVisible();
       await expect(page.getByRole("tablist")).toHaveCount(0);

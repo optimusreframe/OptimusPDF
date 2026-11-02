@@ -12,6 +12,9 @@ import {
   getRelatedTools,
   getTool,
   getToolsByCategory,
+  getToolsByGroup,
+  getToolsBySuite,
+  GROUP_ORDER,
   toolHref,
 } from "@/lib/tools-registry";
 import { es } from "@/lib/locales/es";
@@ -28,10 +31,11 @@ describe("registro — PDF Pro es la primera herramienta", () => {
 
   it("el orden del resto de herramientas no cambia (merge-pdf sigue siendo la primera de Organizar)", () => {
     expect(TOOL_SLUGS[1]).toBe("merge-pdf");
-    expect(TOOL_SLUGS[TOOL_SLUGS.length - 1]).toBe("redact-pdf");
+    // Las 38 herramientas de PDF (38 desde «Extraer elementos», F7 · U7.4) van primero y acaban en `redact-pdf`; las seis de
+    // OptimusTOOLS (docs/PLAN-OPTIMUSTOOLS.md) se añaden despues.
+    expect(TOOL_SLUGS[37]).toBe("redact-pdf");
     expect(new Set(TOOL_SLUGS).size).toBe(TOOL_SLUGS.length);
-    // 38 desde «Extraer elementos» (`extract-assets`, F7 · U7.4): las 37 anteriores + 1.
-    expect(TOOL_SLUGS).toHaveLength(38);
+    expect(TOOL_SLUGS).toHaveLength(44);
   });
 
   it("esta disponible (live), acepta PDF y un solo archivo", () => {
@@ -74,8 +78,12 @@ describe("registro — PDF Pro es la primera herramienta", () => {
     }
   });
 
-  it("el catalogo por categorias suma todas las herramientas MENOS las destacadas", () => {
-    const grouped = CATEGORY_ORDER.flatMap((category) => getToolsByCategory(category));
+  it("el catalogo por secciones (categorias de PDF + OptimusSCAN + grupos de OptimusTOOLS) suma todas MENOS las destacadas", () => {
+    const grouped = [
+      ...CATEGORY_ORDER.flatMap((category) => getToolsByCategory(category)),
+      ...getToolsBySuite("scan"),
+      ...GROUP_ORDER.flatMap((group) => getToolsByGroup(group)),
+    ];
     expect(grouped).toHaveLength(TOOLS.length - getFeaturedTools().length);
     expect(grouped.map((tool) => tool.slug).sort()).toEqual(
       TOOLS.filter((tool) => !tool.featured)
@@ -101,10 +109,11 @@ describe("registro — PDF Pro es la primera herramienta", () => {
     expect(getRelatedTools("pdf-pro", 3)).toHaveLength(3);
   });
 
-  it("las demas herramientas conservan su estado: solo powerpoint-to-pdf esta en camino", () => {
-    expect(TOOLS.filter((tool) => tool.status === "soon").map((tool) => tool.slug)).toEqual([
-      "powerpoint-to-pdf",
-    ]);
+  it("en las suites de PDF y SCAN conservan su estado: solo powerpoint-to-pdf esta en camino", () => {
+    // Las de OptimusTOOLS nacen `soon` y sus duenas las pasan a `live` al integrar: por eso se miran aparte.
+    expect(
+      TOOLS.filter((tool) => tool.suite !== "tools" && tool.status === "soon").map((tool) => tool.slug),
+    ).toEqual(["powerpoint-to-pdf"]);
   });
 });
 

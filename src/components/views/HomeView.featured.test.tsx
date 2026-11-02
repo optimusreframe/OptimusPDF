@@ -120,8 +120,9 @@ describe("Home — tarjeta destacada de PDF Pro", () => {
     renderHome();
     const live = TOOLS.filter((tool) => tool.status === "live").length;
     expect(screen.getByText(`${live} disponibles ahora`)).toBeTruthy();
-    // 37 desde «Extraer elementos» (`extract-assets`): 38 slugs menos `powerpoint-to-pdf`, que sigue «en camino».
-    expect(live).toBe(37);
+    // 37 desde «Extraer elementos» (`extract-assets`): 38 slugs de PDF menos `powerpoint-to-pdf`, que sigue «en camino». Las de
+    // OptimusTOOLS se cuentan aparte: sus duenas las pasan a `live` al integrar y este numero no debe depender de ello.
+    expect(TOOLS.filter((tool) => tool.suite !== "tools" && tool.status === "live")).toHaveLength(37);
   });
 
   it("la region tiene nombre accesible", () => {

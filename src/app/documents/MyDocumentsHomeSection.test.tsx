@@ -11,6 +11,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { HomeView } from "@/components/views/HomeView";
 import { resetSignHandoffForTests, SIGN_HANDOFF_KEY } from "@/lib/docLibrary/signHandoff";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
+import { ThemeProvider } from "@/lib/theme";
 import { es } from "@/lib/locales/es";
 import { addRecentEntry, clearRecentEntries } from "@/lib/recent";
 
@@ -134,11 +135,13 @@ describe("Inicio — sección «Mis documentos»", () => {
 describe("navegación a /documents", () => {
   it("la barra lateral, la cabecera y la barra móvil enlazan a Mis documentos", () => {
     render(
-      <LanguageProvider>
-        <Sidebar />
-        <Header />
-        <MobileTabBar />
-      </LanguageProvider>,
+      <ThemeProvider>
+        <LanguageProvider>
+          <Sidebar />
+          <Header />
+          <MobileTabBar />
+        </LanguageProvider>
+      </ThemeProvider>,
     );
     const links = screen.getAllByRole("link", { name: es.nav.documents });
     expect(links).toHaveLength(3);

@@ -3,10 +3,11 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
-import { CATEGORY_ORDER, getToolsByCategory } from "@/lib/tools-registry";
+import { ThemeProvider } from "@/lib/theme";
+import { CATEGORY_ORDER, GROUP_ORDER, getToolsByCategory, getToolsByGroup } from "@/lib/tools-registry";
 import { es } from "@/lib/locales/es";
 
-/** Menus con PDF Pro: primer item (cabecera tablet y barra lateral), sin categoria nueva, buscador. */
+/** Menus con PDF Pro: primer item de la cabecera tablet; en la barra lateral va tras «Inicio» y «Recientes» (plan OptimusTOOLS). */
 
 let pathname = "/";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
@@ -31,9 +32,11 @@ function renderHeader() {
 
 function renderSidebar() {
   return render(
-    <LanguageProvider>
-      <Sidebar />
-    </LanguageProvider>,
+    <ThemeProvider>
+      <LanguageProvider>
+        <Sidebar />
+      </LanguageProvider>
+    </ThemeProvider>,
   );
 }
 
@@ -66,9 +69,26 @@ describe("Header — menu Herramientas", () => {
     }
   });
 
-  it("solo hay seis secciones de categoria (ninguna nueva)", () => {
+  it("tres suites (h3) con las seis categorias de PDF y los tres grupos de OptimusTOOLS (h4)", () => {
     renderHeader();
-    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(6);
+    expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      es.suites.pdf.label,
+      es.suites.scan.label,
+      es.suites.tools.label,
+    ]);
+    expect(screen.getAllByRole("heading", { level: 4 })).toHaveLength(CATEGORY_ORDER.length + GROUP_ORDER.length);
+  });
+
+  it("Escanear a PDF vive en OptimusSCAN y deja de estar en «Convertir a PDF»; los grupos listan sus herramientas", () => {
+    renderHeader();
+    const convertTo = screen.getByRole("heading", { name: es.categories["convert-to"].label }).closest("section")!;
+    expect(convertTo.querySelector("a[href='/scan-to-pdf']")).toBeNull();
+    const scanHeading = screen.getByRole("heading", { name: es.suites.scan.label });
+    expect(scanHeading.nextElementSibling?.querySelector("a[href='/scan-to-pdf']")).not.toBeNull();
+    for (const group of GROUP_ORDER) {
+      const section = screen.getByRole("heading", { name: es.groups[group].label }).closest("section")!;
+      expect(within(section).getAllByRole("link")).toHaveLength(getToolsByGroup(group).length);
+    }
   });
 
   it("elegir PDF Pro cierra el menu", () => {
@@ -85,22 +105,28 @@ describe("Header — menu Herramientas", () => {
 });
 
 describe("Sidebar — barra lateral", () => {
-  it("PDF Pro es el PRIMER enlace de la navegacion, antes de «Inicio»", () => {
+  it("el orden de arriba es «Inicio», «Recientes» y PDF Pro (plan OptimusTOOLS)", () => {
     renderSidebar();
     const nav = screen.getByRole("navigation", { name: es.nav.primaryNav });
     const links = within(nav).getAllByRole("link");
-    expect(links[0].getAttribute("href")).toBe("/pdf-pro");
-    expect(links[0].textContent).toBe("PDF Pro");
-    expect(links[1].getAttribute("href")).toBe("/");
+    expect(links.slice(0, 3).map((l) => l.getAttribute("href"))).toEqual(["/", "/recent", "/pdf-pro"]);
+    expect(links[2].textContent).toBe("PDF Pro");
   });
 
-  it("las categorias siguen siendo las seis de siempre como anclas de Home", () => {
+  it("las seis categorias de PDF y los tres grupos de OptimusTOOLS son anclas de Home", () => {
     renderSidebar();
     for (const category of CATEGORY_ORDER) {
       expect(screen.getByRole("link", { name: es.categories[category].label }).getAttribute("href")).toBe(`/#${category}`);
     }
+    for (const group of GROUP_ORDER) {
+      // El nombre accesible puede llevar la insignia «Pronto» (Downloader): se comprueba que EMPIEZA por la etiqueta.
+      const link = document.querySelector(`a[href='/#${group}']`)!;
+      expect(link.textContent?.startsWith(es.groups[group].label)).toBe(true);
+    }
     const nav = screen.getByRole("navigation", { name: es.nav.primaryNav });
-    expect(within(nav).getAllByRole("link").filter((l) => l.getAttribute("href")?.startsWith("/#"))).toHaveLength(6);
+    expect(within(nav).getAllByRole("link").filter((l) => l.getAttribute("href")?.startsWith("/#"))).toHaveLength(
+      CATEGORY_ORDER.length + GROUP_ORDER.length,
+    );
   });
 
   it("en /pdf-pro la entrada esta marcada como pagina actual", () => {

@@ -31,7 +31,8 @@ describe("registro", () => {
       "add-page-numbers", "add-watermark", "crop-pdf", "edit-pdf", "sign-pdf", "compare-pdf", "extract-assets", "pdf-summarizer", "translate-pdf",
     ]);
     expect(CATEGORY_ORDER).toContain(getTool("extract-assets").category);
-    expect(TOOL_SLUGS[TOOL_SLUGS.length - 1]).toBe("redact-pdf");
+    // Las 38 herramientas de PDF van primero; las de OptimusTOOLS se añaden al final (ver docs/PLAN-OPTIMUSTOOLS.md).
+    expect(TOOL_SLUGS[37]).toBe("redact-pdf");
     expect(new Set(TOOL_SLUGS).size).toBe(TOOL_SLUGS.length);
     expect(TOOLS).toHaveLength(TOOL_SLUGS.length);
   });

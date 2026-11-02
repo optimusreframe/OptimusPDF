@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
+import { ThemeProvider } from "@/lib/theme";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/merge-pdf" }));
 
@@ -11,9 +12,11 @@ beforeAll(() => {
 
 function renderSidebar() {
   render(
-    <LanguageProvider>
-      <Sidebar />
-    </LanguageProvider>,
+    <ThemeProvider>
+      <LanguageProvider>
+        <Sidebar />
+      </LanguageProvider>
+    </ThemeProvider>,
   );
   return screen.getByRole("searchbox", { name: "Buscar herramienta…" });
 }

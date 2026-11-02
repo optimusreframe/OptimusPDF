@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { ToolPageSoon } from "@/components/tool/ToolPageSoon";
+import { ImageConverterToolClient } from "@/app/image-converter/ImageConverterToolClient";
 
 export const metadata: Metadata = {
   title: "Convertidor de imágenes",
-  description: "Convertidor de imágenes en OptimusPDF. Todavía no está disponible.",
+  description:
+    "Convierte imágenes entre JPG, PNG, WebP y otros formatos, eligiendo calidad, tamaño y color de fondo. Varias a la vez, todo en tu navegador, sin subir nada.",
   alternates: { canonical: "/image-converter" },
 };
 
 export default function ImageConverterPage() {
-  return <ToolPageSoon slug="image-converter" />;
+  return <ImageConverterToolClient />;
 }

@@ -14,9 +14,13 @@ import { springs, withCrossFadeOpacity } from "@/lib/motion";
 import {
   ACCENT_TEXT,
   CATEGORY_ORDER,
+  GROUP_ORDER,
   getFeaturedTools,
   getToolsByCategory,
+  getToolsByGroup,
+  getToolsBySuite,
   toolHref,
+  type Tool,
 } from "@/lib/tools-registry";
 
 /**
@@ -161,43 +165,37 @@ export function Header() {
                     );
                   })}
                 </ul>
+                {/* Tres suites: OptimusPDF (seis categorias), OptimusSCAN y OptimusTOOLS (sus grupos). Mismo orden que la barra lateral. */}
+                <h3 className="ui-label px-3 pt-1 pb-1 text-caption text-foreground">
+                  {t.suites.pdf.label}
+                </h3>
                 <div className="grid grid-cols-2 gap-x-2 gap-y-3">
                   {CATEGORY_ORDER.map((category) => (
-                    <section key={category} aria-labelledby={`${menuId}-${category}`}>
-                      <h3
-                        id={`${menuId}-${category}`}
-                        className="ui-label px-3 pt-1 pb-1 text-caption text-muted-foreground"
-                      >
-                        {t.categories[category].label}
-                      </h3>
-                      <ul>
-                        {getToolsByCategory(category).map((tool) => {
-                          const Icon = tool.icon;
-                          return (
-                            <li key={tool.slug}>
-                              <Link
-                                href={toolHref(tool.slug)}
-                                onClick={() => setOpen(false)}
-                                className="flex h-10 items-center gap-2.5 rounded-ios-sm px-3 transition-colors duration-[var(--duration-fast)] pointer-coarse:h-11 hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
-                              >
-                                <Icon
-                                  aria-hidden="true"
-                                  className={cn("size-4 shrink-0", ACCENT_TEXT[tool.accent])}
-                                />
-                                <span className="min-w-0 truncate text-subheadline font-medium text-foreground">
-                                  {t.tools[tool.slug].name}
-                                </span>
-                                {tool.status === "soon" ? (
-                                  <Badge variant="soon" className="ml-auto shrink-0">
-                                    {t.common.soon}
-                                  </Badge>
-                                ) : null}
-                              </Link>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </section>
+                    <ToolMenuSection
+                      key={category}
+                      id={`${menuId}-${category}`}
+                      title={t.categories[category].label}
+                      tools={getToolsByCategory(category)}
+                      onPick={() => setOpen(false)}
+                    />
+                  ))}
+                </div>
+                <h3 className="ui-label mt-4 px-3 pt-1 pb-1 text-caption text-foreground">
+                  {t.suites.scan.label}
+                </h3>
+                <ToolMenuList tools={getToolsBySuite("scan")} onPick={() => setOpen(false)} />
+                <h3 className="ui-label mt-4 px-3 pt-1 pb-1 text-caption text-foreground">
+                  {t.suites.tools.label}
+                </h3>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-3">
+                  {GROUP_ORDER.map((group) => (
+                    <ToolMenuSection
+                      key={group}
+                      id={`${menuId}-${group}`}
+                      title={t.groups[group].label}
+                      tools={getToolsByGroup(group)}
+                      onPick={() => setOpen(false)}
+                    />
                   ))}
                 </div>
                 <div className="mt-2 border-t border-hairline px-3 pt-2 pb-1">
@@ -239,5 +237,58 @@ export function Header() {
         </div>
       </div>
     </header>
+  );
+}
+
+/** Seccion del menu (categoria de PDF o grupo de OptimusTOOLS): titulo de nivel 4 y la lista de sus herramientas. */
+function ToolMenuSection({
+  id,
+  title,
+  tools,
+  onPick,
+}: {
+  id: string;
+  title: string;
+  tools: Tool[];
+  onPick: () => void;
+}) {
+  return (
+    <section aria-labelledby={id}>
+      <h4 id={id} className="ui-label px-3 pt-1 pb-1 text-caption text-muted-foreground">
+        {title}
+      </h4>
+      <ToolMenuList tools={tools} onPick={onPick} />
+    </section>
+  );
+}
+
+/** Enlaces de herramienta del menu. Segun su `status`: live = enlace normal; soon = el mismo enlace con la insignia «Próximamente». */
+function ToolMenuList({ tools, onPick }: { tools: Tool[]; onPick: () => void }) {
+  const t = useT();
+  return (
+    <ul>
+      {tools.map((tool) => {
+        const Icon = tool.icon;
+        return (
+          <li key={tool.slug}>
+            <Link
+              href={toolHref(tool.slug)}
+              onClick={onPick}
+              className="flex h-10 items-center gap-2.5 rounded-ios-sm px-3 transition-colors duration-[var(--duration-fast)] pointer-coarse:h-11 hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+            >
+              <Icon aria-hidden="true" className={cn("size-4 shrink-0", ACCENT_TEXT[tool.accent])} />
+              <span className="min-w-0 truncate text-subheadline font-medium text-foreground">
+                {t.tools[tool.slug].name}
+              </span>
+              {tool.status === "soon" ? (
+                <Badge variant="soon" className="ml-auto shrink-0">
+                  {t.nav.soonShort}
+                </Badge>
+              ) : null}
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

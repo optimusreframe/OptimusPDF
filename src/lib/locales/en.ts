@@ -1,4 +1,4 @@
-import type { ToolCategory, ToolSlug } from "@/lib/tools-registry";
+import type { ToolCategory, ToolGroup, ToolSlug, ToolSuite } from "@/lib/tools-registry";
 import type { Dictionary, ToolCopy } from "@/lib/locales/es";
 
 const tools: Record<ToolSlug, ToolCopy> = {
@@ -199,7 +199,8 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   downloader: {
     name: "Downloader",
-    description: "Social media downloads: coming soon.",
+    description:
+      "Downloading from Instagram, Facebook, TikTok, X, Threads or Telegram needs a server: it is not available for now.",
   },
 
 };
@@ -263,6 +264,50 @@ const categories: Record<
   },
 };
 
+const suites: Record<ToolSuite, { label: string; description: string }> = {
+  pdf: {
+    label: "OptimusPDF",
+    description: "Merge, split, convert, edit, sign and protect your PDFs.",
+  },
+  scan: {
+    label: "OptimusSCAN",
+    description: "Turn photos and camera shots into a PDF.",
+  },
+  tools: {
+    label: "OptimusTOOLS",
+    description: "Image, audio and video converters, and an audio studio.",
+  },
+};
+
+const groups: Record<ToolGroup, { label: string; description: string }> = {
+  downloader: {
+    label: "Downloader",
+    description: "Social media downloads: they need a server, so they do not exist yet.",
+  },
+  "audio-studio": {
+    label: "Audio Studio",
+    description: "Pull audio out of a video, trim, join and edit your audio.",
+  },
+  converter: {
+    label: "Converter",
+    description: "Change the format of your images, audio and video.",
+  },
+};
+
+/** `/downloader` page: honest about why it does not exist and which local alternatives there are. */
+const downloaderPage: Dictionary["downloaderPage"] = {
+  lead: "Downloading videos or photos from a social network cannot be done with your browser alone, so it is not available today.",
+  whyTitle: "Why it is not available",
+  whyBody:
+    "Pulling something from a social network needs a server that queries that platform for you. That clashes with OptimusPDF's promise: what you open here never leaves your device. We would rather not offer it than break that promise.",
+  platformsTitle: "Platforms this page is about",
+  platformsBody: "None of them is available today and there is no planned date.",
+  alternativesTitle: "What you can do on your device",
+  alternativesBody:
+    "These tools work on files you already have, without sending them anywhere.",
+  back: "Back to the catalogue",
+};
+
 export const en: Dictionary = {
   common: {
     brandFirst: "Optimus",
@@ -301,8 +346,16 @@ export const en: Dictionary = {
     expandSidebar: "Expand sidebar",
     categoriesLabel: "Categories",
     documents: "My documents",
+    soonShort: "Soon",
+    moreSoon: "More soon…",
+    toggleSection: "Show or hide",
+    backupLabel: "Export / Import",
+    themeLabel: "Appearance",
   },
   categories,
+  suites,
+  groups,
+  downloaderPage,
   home: {
     title: "Tools",
     searchPlaceholder: "Search tools",

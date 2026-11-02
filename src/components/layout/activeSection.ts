@@ -1,20 +1,20 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { ToolCategory } from "@/lib/tools-registry";
+import type { SectionId } from "@/lib/tools-registry";
 
 /*
- * Categoria del catalogo que esta a la vista en Home. La publica
+ * Seccion del catalogo (categoria de PDF, OptimusSCAN o grupo de OptimusTOOLS) que esta a la vista en Home. La publica
  * `ToolCatalogGrid` (IntersectionObserver sobre sus secciones) y la leen
  * el Sidebar y la barra de categorias para resaltar el ancla activa.
  * Store externo minimo (mismo patron que i18n/theme): sin contexto, para
  * que el Sidebar -- que vive en el layout raiz -- no dependa de la Home.
  */
 
-let active: ToolCategory | null = null;
+let active: SectionId | null = null;
 const listeners = new Set<() => void>();
 
-export function setActiveSection(next: ToolCategory | null): void {
+export function setActiveSection(next: SectionId | null): void {
   if (next === active) return;
   active = next;
   for (const listener of listeners) listener();
@@ -27,15 +27,15 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-function getSnapshot(): ToolCategory | null {
+function getSnapshot(): SectionId | null {
   return active;
 }
 
-function getServerSnapshot(): ToolCategory | null {
+function getServerSnapshot(): SectionId | null {
   return null;
 }
 
-export function useActiveSection(): ToolCategory | null {
+export function useActiveSection(): SectionId | null {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
@@ -45,14 +45,14 @@ export function useActiveSection(): ToolCategory | null {
  * `hashchange`), asi que la Home no se enteraria por su cuenta; con esto
  * limpia la busqueda (si la hay) y desplaza a la seccion una vez pintada.
  */
-const requestListeners = new Set<(category: ToolCategory) => void>();
+const requestListeners = new Set<(section: SectionId) => void>();
 
-export function requestSection(category: ToolCategory): void {
-  for (const listener of requestListeners) listener(category);
+export function requestSection(section: SectionId): void {
+  for (const listener of requestListeners) listener(section);
 }
 
 export function onSectionRequest(
-  listener: (category: ToolCategory) => void,
+  listener: (section: SectionId) => void,
 ): () => void {
   requestListeners.add(listener);
   return () => {

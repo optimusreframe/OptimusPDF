@@ -1,4 +1,4 @@
-import type { ToolCategory, ToolSlug } from "@/lib/tools-registry";
+import type { ToolCategory, ToolGroup, ToolSlug, ToolSuite } from "@/lib/tools-registry";
 
 export type ToolCopy = {
   name: string;
@@ -210,7 +210,8 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   downloader: {
     name: "Downloader",
-    description: "Descarga de redes sociales: próximamente.",
+    description:
+      "Descargar de Instagram, Facebook, TikTok, X, Threads o Telegram necesita un servidor: por ahora no está disponible.",
   },
 
 };
@@ -279,6 +280,50 @@ const categories: Record<
   },
 };
 
+const suites: Record<ToolSuite, { label: string; description: string }> = {
+  pdf: {
+    label: "OptimusPDF",
+    description: "Une, divide, convierte, edita, firma y protege tus PDF.",
+  },
+  scan: {
+    label: "OptimusSCAN",
+    description: "Convierte fotos y capturas de cámara en un PDF.",
+  },
+  tools: {
+    label: "OptimusTOOLS",
+    description: "Convertidores de imagen, audio y video, y un estudio de audio.",
+  },
+};
+
+const groups: Record<ToolGroup, { label: string; description: string }> = {
+  downloader: {
+    label: "Downloader",
+    description: "Descargas de redes sociales: necesitan un servidor, por eso aún no existen.",
+  },
+  "audio-studio": {
+    label: "Audio Studio",
+    description: "Saca el audio de un video, corta, une y edita tus audios.",
+  },
+  converter: {
+    label: "Converter",
+    description: "Cambia el formato de tus imágenes, audios y videos.",
+  },
+};
+
+/** Pagina `/downloader`: honesta sobre por que no existe y que alternativas locales hay. */
+const downloaderPage = {
+  lead: "Descargar videos o fotos de una red social no se puede hacer solo con tu navegador, y por eso hoy no está disponible.",
+  whyTitle: "Por qué no está disponible",
+  whyBody:
+    "Para bajar algo de una red social hace falta un servidor que consulte esa plataforma por ti. Eso choca con la promesa de OptimusPDF: lo que abres aquí no sale de tu dispositivo. Preferimos no ofrecerlo antes que romperla.",
+  platformsTitle: "Plataformas de las que habla esta página",
+  platformsBody: "Ninguna está disponible hoy y no hay fecha prevista.",
+  alternativesTitle: "Lo que sí puedes hacer en tu dispositivo",
+  alternativesBody:
+    "Estas herramientas trabajan con archivos que ya tienes, sin enviarlos a ningún sitio.",
+  back: "Volver al catálogo",
+};
+
 export const es = {
   common: {
     brandFirst: "Optimus",
@@ -317,8 +362,16 @@ export const es = {
     expandSidebar: "Expandir barra lateral",
     categoriesLabel: "Categorías",
     documents: "Mis documentos",
+    soonShort: "Pronto",
+    moreSoon: "Próximamente…",
+    toggleSection: "Mostrar u ocultar",
+    backupLabel: "Exportar / Importar",
+    themeLabel: "Apariencia",
   },
   categories,
+  suites,
+  groups,
+  downloaderPage,
   home: {
     title: "Herramientas",
     searchPlaceholder: "Buscar herramienta",

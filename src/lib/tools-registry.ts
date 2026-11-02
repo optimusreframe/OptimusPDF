@@ -1,5 +1,9 @@
 import {
   Archive,
+  ArrowRightLeft,
+  AudioWaveform,
+  Boxes,
+  ScanLine,
   ArrowDownToLine,
   ArrowUpFromLine,
   Braces,
@@ -66,10 +70,27 @@ export type ToolAccent =
 
 export type ToolStatus = "live" | "soon";
 
+/**
+ * Suites del producto (docs/PLAN-OPTIMUSTOOLS.md): `pdf` = OptimusPDF (las seis categorias de siempre), `scan` = OptimusSCAN
+ * (Escanear a PDF) y `tools` = OptimusTOOLS (convertidores, Audio Studio y el Downloader). Cada herramienta pertenece a UNA.
+ */
+export type ToolSuite = "pdf" | "scan" | "tools";
+
+/** Grupos de OptimusTOOLS (solo la suite `tools` los usa; las otras dos no tienen grupos). */
+export type ToolGroup = "downloader" | "audio-studio" | "converter";
+
 export type Tool = {
   slug: ToolSlug;
   icon: LucideIcon;
+  /**
+   * Categoria de PDF. Solo organiza el catalogo de la suite `pdf` (`getToolsByCategory`); en `scan` y `tools` es la afinidad
+   * historica (acento de color y orden de «Sigue con estas») y no define ninguna seccion.
+   */
   category: ToolCategory;
+  /** Suite a la que pertenece (barra lateral, Inicio y menus se agrupan por ella). */
+  suite: ToolSuite;
+  /** Grupo dentro de OptimusTOOLS; `undefined` en `pdf` y `scan`. */
+  group?: ToolGroup;
   accent: ToolAccent;
   status: ToolStatus;
   /** Tipos MIME aceptados en la entrada. */
@@ -145,6 +166,18 @@ export const TOOL_SLUGS = [
 
 export type ToolSlug = (typeof TOOL_SLUGS)[number];
 
+/** Orden de las suites en la barra lateral, Inicio y los menus. */
+export const SUITE_ORDER: ToolSuite[] = ["pdf", "scan", "tools"];
+
+/**
+ * Plataformas del Downloader. Son nombres de marca (datos, no texto de interfaz) y NO tienen pagina: se pintan como entradas
+ * deshabilitadas, nunca como enlaces. Si algun dia el Downloader existe, esta lista pasa a ser de enlaces reales.
+ */
+export const DOWNLOADER_PLATFORMS = ["Instagram", "Facebook", "TikTok", "X", "Threads", "Telegram"] as const;
+
+/** Orden de los grupos de OptimusTOOLS. */
+export const GROUP_ORDER: ToolGroup[] = ["downloader", "audio-studio", "converter"];
+
 export const CATEGORY_ORDER: ToolCategory[] = [
   "organize",
   "optimize",
@@ -153,6 +186,14 @@ export const CATEGORY_ORDER: ToolCategory[] = [
   "edit",
   "security",
 ];
+
+/**
+ * Secciones ancladas de Inicio (`/#id`): las seis categorias de PDF, la suite OptimusSCAN (`scan`, sin subsecciones) y los
+ * grupos de OptimusTOOLS. Sus ids no chocan entre si. El orden es el de la pagina, de arriba abajo.
+ */
+export type SectionId = ToolCategory | "scan" | ToolGroup;
+
+export const SECTION_ORDER: SectionId[] = [...CATEGORY_ORDER, "scan", ...GROUP_ORDER];
 
 export const CATEGORY_ACCENT: Record<ToolCategory, ToolAccent> = {
   organize: "organize",
@@ -171,6 +212,19 @@ export const CATEGORY_ICON: Record<ToolCategory, LucideIcon> = {
   "convert-from": ArrowUpFromLine,
   edit: PenTool,
   security: ShieldCheck,
+};
+
+/** Icono de cada suite y de cada grupo, para navegacion (barra lateral, Inicio). */
+export const SUITE_ICON: Record<ToolSuite, LucideIcon> = {
+  pdf: FileText,
+  scan: ScanLine,
+  tools: Boxes,
+};
+
+export const GROUP_ICON: Record<ToolGroup, LucideIcon> = {
+  downloader: Download,
+  "audio-studio": AudioWaveform,
+  converter: ArrowRightLeft,
 };
 
 /**
@@ -215,7 +269,29 @@ const PDF_EXT = [".pdf"];
 const IMAGE_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 const IMAGE_EXT = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
 
-type ToolDefinition = Omit<Tool, "slug" | "accent">;
+type ToolDefinition = Omit<Tool, "slug" | "accent" | "suite" | "group">;
+
+/**
+ * Herramientas de cada grupo de OptimusTOOLS, EN EL ORDEN en que se muestran (plan: «Extraer audio · Audio Studio» y
+ * «Audio Converter · Image Converter · Video Converter»). Es la unica fuente de la pertenencia a un grupo.
+ */
+const GROUP_MEMBERS: Record<ToolGroup, ToolSlug[]> = {
+  downloader: ["downloader"],
+  "audio-studio": ["audio-extractor", "audio-studio"],
+  converter: ["audio-converter", "image-converter", "video-converter"],
+};
+
+/**
+ * Suite y grupo de las herramientas que NO son de la suite `pdf` (todas las demas lo son). Vive aparte de `DEFINITIONS` a
+ * proposito: las duenas de cada herramienta nueva solo tocan su linea de `status`/`accept`, y la estructura de navegacion
+ * (esto) no choca con ellas.
+ */
+const PLACEMENT = new Map<ToolSlug, { suite: ToolSuite; group?: ToolGroup }>([
+  ["scan-to-pdf", { suite: "scan" }],
+  ...(Object.entries(GROUP_MEMBERS) as [ToolGroup, ToolSlug[]][]).flatMap(([group, members]) =>
+    members.map((slug): [ToolSlug, { suite: ToolSuite; group: ToolGroup }] => [slug, { suite: "tools", group }]),
+  ),
+]);
 
 const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "pdf-pro": {
@@ -534,7 +610,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   },  "image-converter": {
     icon: Repeat,
     category: "convert-to",
-    status: "soon",
+    status: "live",
     accept: ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif", "image/bmp", "image/avif"],
     extensions: [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".avif"],
     multiple: true,
@@ -588,6 +664,8 @@ export const TOOLS: Tool[] = TOOL_SLUGS.map((slug) => {
     slug,
     accent: definition.featured ? "pro" : CATEGORY_ACCENT[definition.category],
     ...definition,
+    suite: PLACEMENT.get(slug)?.suite ?? "pdf",
+    group: PLACEMENT.get(slug)?.group,
   };
 });
 
@@ -604,9 +682,29 @@ export function getTool(slug: ToolSlug): Tool {
 /** Slug de la herramienta destacada: PDF Pro, la suite todo-en-uno. */
 export const PRO_SLUG: ToolSlug = "pdf-pro";
 
-/** Herramientas de una categoria. Las destacadas no pertenecen a ninguna seccion. */
+/**
+ * Herramientas de una categoria de PDF. Solo cuenta la suite `pdf`: Escanear a PDF (suite `scan`) y las de OptimusTOOLS ya
+ * no se listan dentro de «Convertir a PDF». Las destacadas no pertenecen a ninguna seccion.
+ */
 export function getToolsByCategory(category: ToolCategory): Tool[] {
-  return TOOLS.filter((tool) => tool.category === category && !tool.featured);
+  return TOOLS.filter(
+    (tool) => tool.suite === "pdf" && tool.category === category && !tool.featured,
+  );
+}
+
+/** Herramientas de una suite, en el orden del registro. Las destacadas no pertenecen a ninguna seccion. */
+export function getToolsBySuite(suite: ToolSuite): Tool[] {
+  return TOOLS.filter((tool) => tool.suite === suite && !tool.featured);
+}
+
+/** Herramientas de un grupo de OptimusTOOLS, en el orden en que se muestran. */
+export function getToolsByGroup(group: ToolGroup): Tool[] {
+  return GROUP_MEMBERS[group].map(getTool);
+}
+
+/** Estado de una herramienta, para que la navegacion decida entre enlace normal e insignia «Pronto». */
+export function isToolLive(slug: ToolSlug): boolean {
+  return getTool(slug).status === "live";
 }
 
 /** Herramientas destacadas (hoy solo PDF Pro), en el orden del registro. */
@@ -623,17 +721,27 @@ export function toolHref(slug: ToolSlug): string {
 }
 
 /**
- * Herramientas relacionadas: primero de la misma categoria, luego live
- * de otras categorias, para rellenar siempre el grid de sugerencias.
+ * Herramientas relacionadas, por cercania: 1) misma familia (categoria en `pdf`, grupo en `tools`; en `scan` la afinidad
+ * historica con «Convertir a PDF»), cualquier estado; 2) live del resto de la misma suite; 3) live de la misma categoria
+ * en otra suite; 4) el resto live. Rellena siempre el grid de sugerencias.
  */
 export function getRelatedTools(slug: ToolSlug, limit = 3): Tool[] {
   const current = getTool(slug);
   // La destacada ya se ofrece aparte («Abrir en PDF Pro»): no ocupa un hueco de «Sigue con estas».
-  const sameCategory = TOOLS.filter(
-    (tool) => tool.category === current.category && tool.slug !== slug && !tool.featured,
+  const candidates = TOOLS.filter((tool) => tool.slug !== slug && !tool.featured);
+  const sameFamily = (tool: Tool) =>
+    current.suite === "tools"
+      ? tool.suite === "tools" && tool.group === current.group
+      : tool.suite === current.suite && tool.category === current.category;
+  const first = candidates.filter(sameFamily);
+  const taken = new Set(first.map((tool) => tool.slug));
+  const live = candidates.filter((tool) => !taken.has(tool.slug) && tool.status === "live");
+  const sameSuite = live.filter((tool) => tool.suite === current.suite);
+  const sameCategory = live.filter(
+    (tool) => tool.suite !== current.suite && tool.category === current.category,
   );
-  const rest = TOOLS.filter(
-    (tool) => tool.category !== current.category && tool.status === "live" && !tool.featured,
+  const rest = live.filter(
+    (tool) => tool.suite !== current.suite && tool.category !== current.category,
   );
-  return [...sameCategory, ...rest].slice(0, limit);
+  return [...first, ...sameSuite, ...sameCategory, ...rest].slice(0, limit);
 }

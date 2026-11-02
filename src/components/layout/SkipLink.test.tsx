@@ -7,6 +7,7 @@ import { SkipLink, MAIN_CONTENT_ID } from "@/components/layout/SkipLink";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { LanguageProvider, useI18n, type Language } from "@/lib/i18n";
+import { ThemeProvider } from "@/lib/theme";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/merge-pdf" }));
 
@@ -31,19 +32,21 @@ function Lang({ code }: { code: Language }) {
 
 function renderPage() {
   return render(
-    <LanguageProvider>
-      <Lang code="es" />
-      <SkipLink />
-      <div className="flex">
-        <Sidebar />
-        <div>
-          <Header />
-          <main id={MAIN_CONTENT_ID} tabIndex={-1}>
-            <button type="button">Seleccionar archivo</button>
-          </main>
+    <ThemeProvider>
+      <LanguageProvider>
+        <Lang code="es" />
+        <SkipLink />
+        <div className="flex">
+          <Sidebar />
+          <div>
+            <Header />
+            <main id={MAIN_CONTENT_ID} tabIndex={-1}>
+              <button type="button">Seleccionar archivo</button>
+            </main>
+          </div>
         </div>
-      </div>
-    </LanguageProvider>,
+      </LanguageProvider>
+    </ThemeProvider>,
   );
 }
 

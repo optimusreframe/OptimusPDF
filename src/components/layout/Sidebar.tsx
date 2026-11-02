@@ -18,24 +18,19 @@ import {
   House,
   Search,
   Settings,
-  type LucideIcon,
 } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
-import { requestSection, useActiveSection } from "@/components/layout/activeSection";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { SidebarLink } from "@/components/layout/SidebarLink";
+import { SidebarTree, matchesRoute } from "@/components/layout/SidebarTree";
+import { useActiveSection } from "@/components/layout/activeSection";
 import { Badge } from "@/components/ui/Badge";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { springs, withCrossFadeOpacity } from "@/lib/motion";
 import { useViewportTier } from "@/lib/touch/viewportTier";
-import {
-  ACCENT_TEXT,
-  CATEGORY_ICON,
-  CATEGORY_ORDER,
-  TOOLS,
-  getFeaturedTools,
-  toolHref,
-} from "@/lib/tools-registry";
+import { ACCENT_TEXT, TOOLS, getFeaturedTools, toolHref } from "@/lib/tools-registry";
 
 const SIDEBAR_STORAGE_KEY = "optimuspdf.sidebarCollapsed";
 
@@ -92,9 +87,11 @@ function fold(text: string): string {
 /**
  * Sidebar persistente de escritorio (>=1024px), al estilo de las barras
  * laterales de macOS: superficie solida (no hay contenido que pase por
- * debajo, asi que el blur seria coste sin efecto), categorias como anclas
- * de la Home con la seccion visible resaltada (scroll-spy), accesos
- * rapidos y buscador. Un unico indicador activo se desliza entre
+ * debajo, asi que el blur seria coste sin efecto), arbol de suites
+ * (OptimusPDF, OptimusSCAN, OptimusTOOLS) cuyas categorias y grupos son
+ * anclas de la Home con la seccion visible resaltada (scroll-spy) y se
+ * despliegan en sus herramientas, accesos rapidos y buscador. Al pie van
+ * el idioma y el tema (Claro/Oscuro/Sistema). Un unico indicador activo se desliza entre
  * entradas con spring (`layoutId`). Colapsa a un riel de iconos. Por
  * debajo de 1024px lo cubren `Header` (<1024px) y `MobileTabBar` (<768px).
  */
@@ -153,14 +150,15 @@ export function Sidebar() {
       : [];
 
   const isHome = pathname === "/";
-  const isRecent = pathname.startsWith("/recent");
-  const isDocuments = pathname.startsWith("/documents");
-  const isSettings = pathname.startsWith("/settings");
-  const featuredActive = getFeaturedTools().find((tool) => pathname.startsWith(toolHref(tool.slug)));
-  /* Una sola entrada activa: en Home manda la seccion visible; si aun no
-     hay ninguna (arriba del todo), "Inicio". */
+  const isRecent = matchesRoute(pathname, "/recent");
+  const isDocuments = matchesRoute(pathname, "/documents");
+  const isSettings = matchesRoute(pathname, "/settings");
+  const featuredActive = getFeaturedTools().find((tool) => matchesRoute(pathname, toolHref(tool.slug)));
+  /* Una sola entrada activa. En Home manda la seccion visible (la resuelve SidebarTree); si aun no hay ninguna (arriba
+     del todo), «Inicio». Fuera de Home: PDF Pro, o la pagina de Recientes/Documentos/Ajustes; las herramientas las marca
+     SidebarTree por su ruta. */
   const activeKey = isHome
-    ? (activeSection ?? "home")
+    ? (activeSection ? "section" : "home")
     : featuredActive
       ? featuredActive.slug
       : isDocuments
@@ -254,6 +252,11 @@ export function Sidebar() {
                               className={cn("size-4 shrink-0", ACCENT_TEXT[tool.accent])}
                             />
                             <span className="truncate">{t.tools[tool.slug].name}</span>
+                            {tool.status === "soon" ? (
+                              <Badge variant="soon" className="ml-auto shrink-0">
+                                {t.nav.soonShort}
+                              </Badge>
+                            ) : null}
                           </Link>
                         </li>
                       );
@@ -275,6 +278,20 @@ export function Sidebar() {
         className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3"
       >
         <ul className="space-y-0.5">
+          <SidebarLink
+            href="/"
+            icon={House}
+            label={t.nav.home}
+            active={activeKey === "home"}
+            collapsed={collapsed}
+          />
+          <SidebarLink
+            href="/recent"
+            icon={Clock}
+            label={t.nav.recent}
+            active={activeKey === "recent"}
+            collapsed={collapsed}
+          />
           {getFeaturedTools().map((tool) => (
             <SidebarLink
               key={tool.slug}
@@ -286,67 +303,46 @@ export function Sidebar() {
               iconClassName={ACCENT_TEXT[tool.accent]}
             />
           ))}
-          <SidebarLink
-            href="/"
-            icon={House}
-            label={t.nav.home}
-            active={activeKey === "home"}
-            collapsed={collapsed}
-          />
         </ul>
 
-        <ul className="mt-5 space-y-0.5">
+        <div className="mt-5">
+          <SidebarTree
+            pathname={pathname}
+            collapsed={collapsed}
+            spySection={activeSection}
+            isHome={isHome}
+          />
+        </div>
+
+        <div className="mt-4 border-t border-hairline pt-3">
           {collapsed ? null : (
-            <li
-              aria-hidden="true"
-              className="ui-label px-2.5 pb-1.5 text-caption text-muted-foreground"
-            >
-              {t.nav.categoriesLabel}
-            </li>
+            <p className="ui-label px-2.5 pb-1.5 text-caption text-muted-foreground">{t.nav.backupLabel}</p>
           )}
-          {CATEGORY_ORDER.map((category) => (
+          <ul className="space-y-0.5">
             <SidebarLink
-              key={category}
-              href={`/#${category}`}
-              icon={CATEGORY_ICON[category]}
-              label={t.categories[category].label}
-              active={activeKey === category}
+              href="/documents"
+              icon={FolderOpen}
+              label={t.nav.documents}
+              active={activeKey === "documents"}
               collapsed={collapsed}
-              onClick={() => requestSection(category)}
             />
-          ))}
-        </ul>
-
-        <ul className="mt-4 space-y-0.5 border-t border-hairline pt-3">
-          <SidebarLink
-            href="/documents"
-            icon={FolderOpen}
-            label={t.nav.documents}
-            active={activeKey === "documents"}
-            collapsed={collapsed}
-          />
-          <SidebarLink
-            href="/recent"
-            icon={Clock}
-            label={t.nav.recent}
-            active={activeKey === "recent"}
-            collapsed={collapsed}
-          />
-          <SidebarLink
-            href="/settings"
-            icon={Settings}
-            label={t.nav.settings}
-            active={activeKey === "settings"}
-            collapsed={collapsed}
-          />
-        </ul>
+            <SidebarLink
+              href="/settings"
+              icon={Settings}
+              label={t.nav.settings}
+              active={activeKey === "settings"}
+              collapsed={collapsed}
+            />
+          </ul>
+        </div>
 
         {collapsed ? null : (
           <ul className="mt-4 space-y-0.5 border-t border-hairline pt-3">
             <li>
               <Link
                 href="/pricing"
-                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote pointer-coarse:h-11 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
+                aria-current={matchesRoute(pathname, "/pricing") ? "page" : undefined}
+                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote pointer-coarse:h-11 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
               >
                 {t.nav.pricing}
               </Link>
@@ -354,7 +350,8 @@ export function Sidebar() {
             <li>
               <Link
                 href="/about"
-                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote pointer-coarse:h-11 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
+                aria-current={matchesRoute(pathname, "/about") ? "page" : undefined}
+                className="flex h-9 items-center rounded-ios-sm px-2.5 text-footnote pointer-coarse:h-11 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
               >
                 {t.nav.about}
               </Link>
@@ -382,62 +379,10 @@ export function Sidebar() {
               {t.common.localAndZeroUploads}
             </Badge>
             <LanguageToggle className="-ml-0.5" />
+            <ThemeToggle />
           </>
         )}
       </div>
     </aside>
-  );
-}
-
-function SidebarLink({
-  href,
-  icon: Icon,
-  label,
-  active = false,
-  collapsed,
-  onClick,
-  iconClassName,
-}: {
-  href: string;
-  icon: LucideIcon;
-  label: string;
-  active?: boolean;
-  collapsed: boolean;
-  onClick?: () => void;
-  /** Color propio del icono en reposo (la entrada destacada lleva el acento de PDF Pro). */
-  iconClassName?: string;
-}) {
-  return (
-    <li>
-      <Link
-        href={href}
-        onClick={onClick}
-        title={collapsed ? label : undefined}
-        aria-current={active ? "page" : undefined}
-        className={cn(
-          "relative isolate flex h-10 items-center gap-2.5 rounded-ios-sm px-2.5 text-subheadline font-medium pointer-coarse:h-11",
-          "transition-[color,background-color] duration-[var(--duration-fast)]",
-          "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal",
-          collapsed && "justify-center px-0",
-          active
-            ? "text-foreground"
-            : "text-muted-foreground hover:bg-white/6 hover:text-foreground",
-        )}
-      >
-        {active ? (
-          <motion.span
-            aria-hidden="true"
-            layoutId="sidebar-active-pill"
-            transition={springs.snappy}
-            className="absolute inset-0 -z-10 rounded-ios-sm bg-white/10 forced-colors:border-2 forced-colors:border-[Highlight]"
-          />
-        ) : null}
-        <Icon
-          aria-hidden="true"
-          className={cn("size-[18px] shrink-0", active ? "text-signal" : iconClassName)}
-        />
-        {collapsed ? null : <span className="truncate">{label}</span>}
-      </Link>
-    </li>
   );
 }
