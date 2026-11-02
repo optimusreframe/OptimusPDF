@@ -194,7 +194,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "audio-converter": {
     name: "Convertidor de audio",
-    description: "Pasa un audio de un formato a otro (MP3, WAV, M4A, OGG…) en tu dispositivo.",
+    description: "Pasa tus audios de un formato a otro (WAV, M4A, Opus) en tu dispositivo: varios a la vez, sin subirlos a ningún sitio.",
   },
   "video-converter": {
     name: "Convertidor de video",
@@ -206,7 +206,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "audio-extractor": {
     name: "Extraer audio de un video",
-    description: "Saca la pista de audio de un video que tienes en tu dispositivo y guárdala como MP3, WAV u otro formato.",
+    description: "Saca la pista de audio de un video que tienes en tu dispositivo y guárdala como WAV, M4A u Opus.",
   },
   downloader: {
     name: "Downloader",

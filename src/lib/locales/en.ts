@@ -183,7 +183,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "audio-converter": {
     name: "Audio Converter",
-    description: "Turn an audio file into another format (MP3, WAV, M4A, OGG…) on your device.",
+    description: "Turn your audio files into another format (WAV, M4A, Opus) on your device: several at once, nothing uploaded anywhere.",
   },
   "video-converter": {
     name: "Video Converter",
@@ -195,7 +195,7 @@ const tools: Record<ToolSlug, ToolCopy> = {
   },
   "audio-extractor": {
     name: "Extract audio from video",
-    description: "Pull the audio track out of a video on your device and save it as MP3, WAV or another format.",
+    description: "Pull the audio track out of a video on your device and save it as WAV, M4A or Opus.",
   },
   downloader: {
     name: "Downloader",

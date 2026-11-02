@@ -618,7 +618,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "audio-converter": {
     icon: FileAudio,
     category: "convert-to",
-    status: "soon",
+    status: "live",
     accept: ["audio/*"],
     extensions: [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".weba"],
     multiple: true,
@@ -634,7 +634,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "audio-studio": {
     icon: AudioLines,
     category: "edit",
-    status: "soon",
+    status: "live",
     accept: ["audio/*"],
     extensions: [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".weba"],
     multiple: true,
@@ -642,7 +642,7 @@ const DEFINITIONS: Record<ToolSlug, ToolDefinition> = {
   "audio-extractor": {
     icon: Mic2,
     category: "convert-to",
-    status: "soon",
+    status: "live",
     accept: ["video/*"],
     extensions: [".mp4", ".mov", ".webm", ".mkv", ".m4v"],
     multiple: false,

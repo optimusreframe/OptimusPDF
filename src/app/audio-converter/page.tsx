@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { ToolPageSoon } from "@/components/tool/ToolPageSoon";
+import { AudioConverterClient } from "@/app/audio-converter/AudioConverterClient";
 
 export const metadata: Metadata = {
   title: "Convertidor de audio",
-  description: "Convertidor de audio en OptimusPDF. Todavía no está disponible.",
+  description:
+    "Convierte audios entre WAV, M4A (AAC) y Opus en tu propio dispositivo. Varios archivos a la vez, con ZIP y tamaño antes y después. Nada se sube a ningún servidor.",
   alternates: { canonical: "/audio-converter" },
 };
 
 export default function AudioConverterPage() {
-  return <ToolPageSoon slug="audio-converter" />;
+  return <AudioConverterClient />;
 }

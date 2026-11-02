@@ -269,3 +269,60 @@ dev), tiempos en Windows/Linux, y los limites de movil.
 - `DownloadScreen` dice «Tu documento está preparado para descargar» (`t.tool.doneSubtitle`) tambien para un video.
 - `src/lib/tools-registry.pro.test.ts` ya falla en la base (espera `redact-pdf` como ultimo slug y solo `powerpoint-to-pdf` en «soon»); al pasar `video-converter` a `live`
   su lista de «soon» debe ser la de las herramientas aun no hechas.
+
+## W-AUDIO · Convertidor de audio, Extraer audio y Audio Studio
+
+Slugs `audio-converter`, `audio-extractor`, `audio-studio`: pasan de `soon` a `live` (una línea cada uno en el registro) y sus páginas sustituyen a las provisionales. 100 % locales: ninguna petición de red con el contenido; no se guarda nada (ni borradores). **Dependencias nuevas: ninguna** (ni `mediabunny` ni codificadores de MP3).
+
+### Diseño
+
+Motor común en `src/lib/media/audio/` (sin `src/lib/media/video/`):
+
+| Pieza | Qué hace |
+|---|---|
+| `wav.ts` | Codificador WAV 16 bits y lector WAV propio (PCM 8/16/24/32 y flotante): conserva la frecuencia original, no depende del navegador. |
+| `probe.ts`, `mp4.ts`, `webm.ts`, `blobReader.ts` | Sonda barata (tipo, frecuencia, canales, duración, ¿hay pista de audio?) y lectores propios de MP4/MOV/M4A y WebM/Matroska que leen **solo la pista de audio por trozos** (también grabaciones de `MediaRecorder` con clusters de tamaño desconocido). Un MP4 fragmentado (`moof`) se detecta y se declara. |
+| `decode.ts` | Tres vías, de más fiel a más general: lector WAV propio → `decodeAudioData` (contexto a la frecuencia sondeada, sin remuestrear) → lector de contenedor propio + `AudioDecoder` (WebCodecs; sirve para videos grandes y para lo que `decodeAudioData` no abre). Avisa **antes** de decodificar si no cabe en memoria. |
+| `encode.ts`, `m4a.ts`, `ogg.ts`, `capabilities.ts` | WAV propio; M4A (AAC-LC) y Opus con `AudioEncoder` + empaquetado propio (MP4 con `moov` al principio; Ogg Opus con CRC y recorte del relleno). Se pregunta al navegador con `isConfigSupported`. |
+| `resample.ts`, `pcm.ts` | Remuestreo sinc/Kaiser por bloques, mezcla de canales, orígenes de muestras **peresosos** (`PcmSource`): nada se copia entero en cada paso. |
+| `convert.ts`, `names.ts` | Lote secuencial (un solo audio decodificado a la vez), ZIP con `jszip` (ya en el proyecto), informe de fallos parciales, nombres únicos. |
+| `edit.ts`, `player.ts` | Modelo del estudio: pista = secuencia de **segmentos** que apuntan a audios inmutables con ganancia y rampas lineales. Cortar/quitar/dividir/unir/reordenar no copian muestras; deshacer/rehacer son gratis (estados inmutables que comparten buffers). Vista previa con Web Audio en trozos de 0,5 s con 1,5 s de margen (no mezcla la pista entera). |
+
+Interfaz: `src/lib/media/audio/ui/` (marco común de convertidor y extractor, zona de carga con el tope real, opciones de salida, textos compartidos) y `src/app/audio-*/` (cada herramienta con su `strings.ts` ES/EN). No usan `ToolShell`: su texto de errores, sus pistas («Reparar PDF») y el tope de 100 MB son de PDF y engañarían con audio. Sí reutilizan `OptionsPanel`, `ErrorBanner`, `ProcessingOverlay`, `DownloadScreen`, `useFocusTarget`, `Button`, `Slider`, `ChoiceGroup` y `addRecentEntry` (solo guarda el nombre, como el resto).
+
+Audio Studio: onda en `canvas` (decorativa) con un `slider` accesible (valor = cursor; `aria-valuetext` = duración y selección); flechas (0,1 s; Ctrl 1 s; Re/Av Pág 5 s; Inicio/Fin), Mayús para seleccionar, Espacio reproduce, Esc quita la selección, Ctrl+Z / Ctrl+Mayús+Z; campos numéricos de inicio y fin; botones para marcar inicio/fin en el cursor; recortar, quitar, dividir, fundidos (sobre la selección o los N primeros/últimos segundos), volumen en dB, normalizar a −1 dBFS, lista de clips con subir/bajar/quitar, exportar con las mismas opciones que el convertidor. Cada acción se anuncia en una región viva.
+
+### Decisiones que hay que conocer
+
+1. **MP3 como salida: no existe.** Los navegadores no traen codificador y todos los codificadores de MP3 en JS/WASM son LAME (LGPL; `lamejs`, `@breezystack/lamejs`, `@toots/shine.js`; `@rocket.chat/mp3-encoder` y `wasm-media-encoders` declaran MIT pero empaquetan LAME) o `@mediabunny/mp3-encoder` (MPL-2.0 sobre LAME). Por regla del plan no se empaquetan. En la interfaz MP3 aparece **desactivado con el motivo escrito**, y se ofrece M4A (se abre en todo) o WAV. MP3 sigue siendo **entrada** soportada (lo decodifica el navegador). Si el usuario aceptara LGPL cargada como archivo separado y sustituible (`public/`, en un Worker), el cambio es aditivo; no se ha hecho.
+2. **`mediabunny` no es MIT: es MPL-2.0** (versión 1.65.0, 11 MB desempaquetado). No se ha usado. En su lugar hay lectores propios de MP4/WebM (~600 líneas con pruebas). Si W-VIDEO lo añade, la licencia es decisión del orquestador/usuario; este motor no depende de él.
+3. **Opus en Ogg (`.opus`)**, no WebM. No se ha escrito el empaquetador WebM de audio.
+4. **No se usan Workers**: la decodificación (`decodeAudioData`, `AudioDecoder`) y la codificación (`AudioEncoder`) ya van fuera del hilo; el resto (remuestreo, mezcla, WAV) corre por bloques cediendo el hilo con `MessageChannel` (no `requestAnimationFrame`, que se pausa en una pestaña en segundo plano). 60 s estéreo: WAV 154 ms, WAV 22,05 kHz mono (con remuestreo) 341 ms, Opus 96 kbps 407 ms en Chromium headless de un Mac.
+5. Los formatos con perdida se crean a la frecuencia pedida (M4A) o a 48 kHz (Opus); no hay conversión «sin pérdida» a M4A/Opus.
+
+### Límites (con mensaje claro en la interfaz)
+
+- Archivo de audio ≤ 300 MB; video ≤ 2 GB (solo se lee la pista de audio por trozos); entregar el archivo entero a `decodeAudioData` solo hasta 200 MB de video. Lote ≤ 50 archivos, ≤ 800 MB de salida acumulada; Studio ≤ 40 clips.
+- Memoria: el audio decodificado ocupa `s × Hz × canales × 4` bytes. Tope 1 GiB (≈ 50 min de estéreo 44,1 kHz) o 384 MiB (≈ 19 min) en iPhone/iPad/Android o `deviceMemory ≤ 4`. Si la duración se conoce por la sonda, se avisa antes de decodificar con los minutos que caben.
+- WAV ≤ ~4 GiB (límite del formato). MP4 fragmentado: la estructura se ve, los paquetes no se extraen (queda `decodeAudioData`).
+- Audio Studio: sin zoom (la precisión fina va por los campos numéricos y el teclado); fundidos lineales; no hay borradores ni recuperación tras recargar (decisión de privacidad).
+
+### Pruebas
+
+- Unitarias: `src/lib/media/audio/*.test.ts` (WAV, PCM, remuestreo, edición/historial, contenedores MP4/WebM/Ogg/M4A construidos a mano, sonda, decodificación con Web Audio y WebCodecs simulados, codificación con `AudioEncoder` simulado, lote/ZIP, nombres/formatos/límites, reproductor con contexto falso) y de componentes (opciones de salida, onda, lista de clips, estudio de punta a punta con exportación WAV real, convertidor y extractor). 165 pruebas.
+- E2E (Chromium headless, códecs reales): `audio-converter.spec.ts`, `audio-extractor.spec.ts`, `audio-studio.spec.ts` (axe 0 de WCAG 2.0/2.1 A y AA, sin desborde a 1280/375/320 px, tipografía ancha, claro/oscuro, ES/EN, objetivos de 44 px, teclado, sin red) y `audio-converter-engine.spec.ts` (motor en el navegador con `AudioEncoder`/`AudioDecoder` reales y un WebM real de `MediaRecorder`, también por la vía de nuestro lector + `AudioDecoder`).
+
+### No verificado
+
+Safari y Firefox (macOS/iOS/iPadOS), M4A reproducido por un reproductor real, un MP4/MOV real de cámara o móvil, videos o audios de cientos de MB, el límite de memoria en un iPhone real, `next build`/bundle de rutas (no se ejecutó: peso por ruta sin medir; no hay dependencias nuevas), la suite completa. Tests ajenos que dependen del recuento de herramientas disponibles (`HomeView.featured.test.tsx`: 37 → 40) y del estado `soon` (`tools-registry.pro.test.ts`) ya no coinciden con el registro tras pasar los tres slugs a `live`: actualizarlos en la integración.
+
+### Pruebas manuales para el visto bueno (Mac, iPhone, iPad)
+
+1. **Convertidor** (Mac Safari y Chrome): subir un MP3, un M4A de Notas de Voz, un OGG y un FLAC → WAV; comprobar que suenan igual y que el tamaño «antes → después» es coherente. Elegir varios a la vez → ZIP; añadir uno roto → debe salir el informe de fallo parcial.
+2. **Formatos**: en cada navegador mirar qué sale activado (WAV siempre; M4A y Opus según el navegador) y que el motivo del desactivado se entiende. Descargar un `.m4a` y un `.opus` y abrirlos en Música/VLC/WhatsApp. Confirmar que MP3 sale desactivado con su explicación.
+3. **Extraer audio**: un video real de iPhone (`.mov`), uno de Android/cámara (`.mp4`), uno `.mkv` y uno `.webm`; a WAV y a M4A. Un video sin sonido → mensaje «no tiene pista de audio». Un video grande (≥ 500 MB) en el Mac: debe avisar o extraer sin colgar la pestaña; en iPhone, que avise de límites con claridad.
+4. **Audio Studio** (iPhone, iPad con teclado, Mac): unir 3 audios y reordenarlos; seleccionar arrastrando con el dedo; recortar, quitar un tramo, dividir, fundidos, volumen, normalizar, deshacer/rehacer; reproducir y pausar con el cursor; exportar a WAV y M4A y escucharlo. Con teclado (Mac/iPad): flechas, Mayús, Espacio, Esc, ⌘Z.
+5. **Móvil**: a 320 y 375 px (iPhone SE y 15 Pro) y con tipografía grande del sistema: nada desborda, el editor se maneja con una mano, la barra «Opciones/Procesar» no tapa contenido.
+6. **Memoria**: en iPhone, abrir un audio de ~40–60 min; debe avisar con los minutos que caben en lugar de cerrarse la pestaña. En un Mac, uno de ~1 h.
+7. **Accesibilidad**: VoiceOver en el Studio (la onda se anuncia como control deslizante con duración y selección; cada acción se anuncia) y en el convertidor (errores y resultado).
+8. **Privacidad**: con las herramientas de red del navegador abiertas, convertir y editar: no debe verse ninguna petición con el audio; tras recargar no queda ningún audio.
