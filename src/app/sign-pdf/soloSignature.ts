@@ -134,6 +134,8 @@ export function buildTextPlacements(
       pageIndex: field.pageIndex,
       rect: field.rect,
       align: fieldTypeOf(field) === "checkbox" ? "center" : "left",
+      // Tamano de letra propio del campo (modo «Editar campos»); la casilla no lo usa.
+      ...(field.fontSize && fieldTypeOf(field) !== "checkbox" ? { fontSize: field.fontSize } : {}),
     });
   }
   return placements;

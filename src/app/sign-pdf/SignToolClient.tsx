@@ -43,6 +43,7 @@ import {
   type DocumentCanvasApi,
   type PlacementTool,
 } from "@/app/sign-pdf/DocumentCanvas";
+import { FieldEditModeProvider } from "@/app/sign-pdf/editMode/FieldEditModeProvider";
 import { useCanvasSequence } from "@/app/sign-pdf/DocumentSequence";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
 import { SignatureVaultSheet } from "@/app/sign-pdf/SignatureVaultSheet";
@@ -2245,6 +2246,8 @@ export function SignToolClient() {
       strings={strings}
     />
     <FileAdmissionContext.Provider value={admission}>
+    {/* Modo «Editar campos» a pantalla completa (W3-B1): el lienzo ofrece el boton y se pinta en el portal de este proveedor. */}
+    <FieldEditModeProvider>
     <ToolShell<SignSession>
       tool={tool}
       defaultOptions={DEFAULT_SESSION}
@@ -2599,6 +2602,7 @@ export function SignToolClient() {
       // El editor de plantillas ocupa toda la pantalla: la hoja «Opciones» del movil no se queda abierta encima.
       suspended={editor !== null}
     />
+    </FieldEditModeProvider>
     </FileAdmissionContext.Provider>
     <LeaveSheet state={leave} strings={strings.resume} closeLabel={t.common.close} />
     <Sheet

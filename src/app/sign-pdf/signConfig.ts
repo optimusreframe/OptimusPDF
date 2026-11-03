@@ -158,6 +158,14 @@ function isValidDetectedField(value: unknown): value is DetectedField {
   }
   // `tag` es opcional (W3-A1; una configuracion anterior no la trae): si esta, tiene que tener forma de clave de dato.
   if (field.tag !== undefined && !isValidTag(field.tag)) return false;
+  // `optional` y `fontSize` (modo «Editar campos», W3-B1) son opcionales: una configuracion anterior no los trae.
+  if (field.optional !== undefined && typeof field.optional !== "boolean") return false;
+  if (
+    field.fontSize !== undefined &&
+    (typeof field.fontSize !== "number" || !Number.isFinite(field.fontSize) || field.fontSize < 4 || field.fontSize > 72)
+  ) {
+    return false;
+  }
   return field.label === undefined || typeof field.label === "string";
 }
 

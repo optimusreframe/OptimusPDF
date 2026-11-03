@@ -221,6 +221,11 @@ export function DocumentSequence({
     },
     onNoPendingHere,
     othersPending,
+    docs: docs.map((doc) => ({ id: doc.id, name: doc.name, active: doc.id === activeId })),
+    selectDoc: (docId) => {
+      if (docId === activeId) return;
+      go({ docId, pageIndex: docStateOf(session.docs, docId).fieldPageIndex });
+    },
   };
 
   /* --- Anuncios: UNA sola region viva para documento y pagina --- */

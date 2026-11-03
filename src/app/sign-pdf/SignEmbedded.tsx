@@ -11,6 +11,7 @@ import { useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
 import { DocumentSessionHost } from "@/app/sign-pdf/DocumentSessionHost";
 import { editResultText } from "@/app/sign-pdf/editReport";
 import { CanvasCompactContext } from "@/app/sign-pdf/canvasCompact";
+import { FieldEditModeProvider } from "@/app/sign-pdf/editMode/FieldEditModeProvider";
 import {
   MultiFlow,
   SoloSignatureSurface,
@@ -309,6 +310,8 @@ function SignEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
 
   return (
     <CanvasCompactContext.Provider value>
+    {/* Modo «Editar campos» a pantalla completa (W3-B1): mismo lienzo, boton de entrada y portal propios. */}
+    <FieldEditModeProvider>
     <section
       ref={rootRef}
       aria-label={e.regionLabel}
@@ -368,6 +371,7 @@ function SignEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
         )}
       </DocumentSessionHost>
     </section>
+    </FieldEditModeProvider>
     </CanvasCompactContext.Provider>
   );
 }

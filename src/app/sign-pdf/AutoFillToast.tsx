@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { StatusRegion } from "@/components/tool/liveRouting";
+import { LiveSinkProvider, StatusRegion } from "@/components/tool/liveRouting";
 import { cn } from "@/lib/cn";
+import { useFieldEditMode } from "@/app/sign-pdf/editMode/FieldEditModeProvider";
 import { useTagStrings } from "@/app/sign-pdf/tagStrings";
 
 /** Lo que se avisa: el texto y si se puede deshacer. `id` cambia con cada aviso nuevo (reinicia los 6 s). */
@@ -25,10 +27,12 @@ type Props = {
  * de pantalla lo lee sin que la persona tenga que ir a buscarlo.
  *
  * Va fija por encima de las barras de abajo: en el telefono, de la paleta, «Opciones/Procesar» y la barra de pestañas
- * (~12,5 rem); en pantallas mayores, por encima de la barra pegajosa de acciones.
+ * (~12,5 rem); en pantallas mayores, por encima de la barra pegajosa de acciones. Con el modo «Editar campos» a pantalla
+ * completa abierto (W3-B1) la pagina esta inerte: el aviso (y su region viva) se pintan DENTRO de ese modo, sobre sus barras.
  */
 export function AutoFillToast({ notice, onUndo, onDismiss }: Props) {
   const strings = useTagStrings();
+  const editContainer = useFieldEditMode()?.container ?? null;
   /** Aviso que la persona esta apuntando o tiene enfocado: no se va solo (el estado es del aviso, no se arrastra al siguiente). */
   const [heldId, setHeldId] = useState<number | null>(null);
   const noticeId = notice?.id ?? null;
@@ -40,14 +44,16 @@ export function AutoFillToast({ notice, onUndo, onDismiss }: Props) {
     return () => window.clearTimeout(timer);
   }, [noticeId, held, onDismiss]);
 
-  return (
+  const region = (
     <StatusRegion text={notice?.message ?? ""} data-autofill-region="" aria-label={strings.autoFillRegion}>
       {notice ? (
         <div
           className={cn(
             "pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4",
             // Con el asistente «Rellenar» abierto (W3-B2) su panel publica su altura en `--fill-dock-h`: el aviso se coloca sobre el.
-            "bottom-[calc(env(safe-area-inset-bottom,0px)+var(--fill-dock-h,6rem))] max-md:bottom-[calc(env(safe-area-inset-bottom,0px)+var(--fill-dock-h,13.5rem))]",
+            editContainer
+              ? "bottom-[calc(env(safe-area-inset-bottom,0px)+9.5rem)]"
+              : "bottom-[calc(env(safe-area-inset-bottom,0px)+var(--fill-dock-h,6rem))] max-md:bottom-[calc(env(safe-area-inset-bottom,0px)+var(--fill-dock-h,13.5rem))]",
           )}
         >
           <div
@@ -82,4 +88,5 @@ export function AutoFillToast({ notice, onUndo, onDismiss }: Props) {
       ) : null}
     </StatusRegion>
   );
+  return editContainer ? createPortal(<LiveSinkProvider value={null}>{region}</LiveSinkProvider>, editContainer) : region;
 }

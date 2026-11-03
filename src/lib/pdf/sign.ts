@@ -175,6 +175,11 @@ export type TextSignPlacement = {
   rect: NormalizedRect;
   /** Ausente = "left" (comportamiento de siempre). "center" es para una casilla marcada ("X"), que se veria pegada al borde si no. */
   align?: "left" | "center";
+  /**
+   * Tamano de letra (pt) elegido por la persona (modo «Editar campos»), como MAXIMO: si el texto no cabe en el hueco se
+   * encoge hasta caber, igual que el automatico. Ausente = automatico (sigue al alto del hueco), como siempre.
+   */
+  fontSize?: number;
 };
 
 export type SignPlacement = ImageSignPlacement | TextSignPlacement;
@@ -229,6 +234,8 @@ function stampSignedMetadata(document: PDFDocument, signed: boolean): void {
 
 /** Cuerpo maximo de letra para un campo de texto, antes de encajar. */
 const MAX_TEXT_FIELD_FONT_SIZE = 24;
+/** Tope del tamano de letra que elige la persona (el inspector ofrece hasta 36 pt). */
+const MAX_CHOSEN_FONT_SIZE = 36;
 
 /**
  * Encaja `value` dentro de `maxWidth`x`maxHeight` (puntos PDF), encogiendo
@@ -242,11 +249,13 @@ function fitTextToRect(
   value: string,
   maxWidth: number,
   maxHeight: number,
+  preferredSize?: number,
 ): { size: number; lines: string[] } {
-  let size = Math.min(
-    MAX_TEXT_FIELD_FONT_SIZE,
-    Math.max(MIN_FONT_SIZE, maxHeight / LINE_HEIGHT_FACTOR),
-  );
+  // Con tamano propio (`fontSize`) es el de partida; sin el, el que sigue al alto del hueco.
+  let size =
+    preferredSize !== undefined && Number.isFinite(preferredSize) && preferredSize > 0
+      ? Math.min(MAX_CHOSEN_FONT_SIZE, Math.max(MIN_FONT_SIZE, preferredSize))
+      : Math.min(MAX_TEXT_FIELD_FONT_SIZE, Math.max(MIN_FONT_SIZE, maxHeight / LINE_HEIGHT_FACTOR));
   let lines = wrapText(font, value, size, maxWidth);
 
   while (
@@ -277,7 +286,7 @@ function drawTextPlacement(
   const value = placement.value.trim();
   if (value.length === 0) return;
 
-  const { size, lines } = fitTextToRect(font, value, maxWidth, maxHeight);
+  const { size, lines } = fitTextToRect(font, value, maxWidth, maxHeight, placement.fontSize);
   if (lines.length === 0 || lines.every((line) => line.length === 0)) return;
 
   const lineHeight = size * LINE_HEIGHT_FACTOR;

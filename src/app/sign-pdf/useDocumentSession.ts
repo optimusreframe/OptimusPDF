@@ -414,6 +414,7 @@ export function useDocumentSession<T extends SessionOptions>({
   const textFieldsMissing = options.textFields.filter(
     (field) =>
       !isSuggestionOnly(field, options.textValues[field.id]) &&
+      field.optional !== true &&
       !isFieldFilled(field, options.textValues[field.id]),
   ).length;
   /**

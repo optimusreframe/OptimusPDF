@@ -89,6 +89,16 @@ export type DetectedField = {
    * que descarta lo que no tenga forma de clave.
    */
   tag?: string;
+  /**
+   * Campo OPCIONAL (modo «Editar campos»): puede quedar vacio sin que cuente como pendiente (aviso de campos sin rellenar,
+   * «siguiente campo», revision antes de descargar). Ausente = obligatorio, como siempre; nunca se escribe `false`.
+   */
+  optional?: boolean;
+  /**
+   * Tamano de letra (puntos PDF) con el que se empotra el texto, como MAXIMO: si no cabe en el hueco se encoge hasta caber.
+   * Ausente = automatico (la letra sigue al alto del hueco), como siempre. Solo texto, fecha e iniciales.
+   */
+  fontSize?: number;
 };
 
 /** Tipo efectivo de un campo, con el default de "ausente = texto libre" ya resuelto. */

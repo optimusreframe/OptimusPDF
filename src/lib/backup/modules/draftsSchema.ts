@@ -234,6 +234,12 @@ function parseTextFields(value: unknown): DetectedField[] | null {
     const rect = raw.rect;
     // Etiqueta del campo (W3-A1): opcional; una que no tiene forma de clave se descarta sin tumbar el campo.
     const tag = sanitizeTag(raw.tag);
+    // Modo «Editar campos» (W3-B1): `optional` y `fontSize` son opcionales; lo que no tenga la forma esperada se descarta sin tumbar el campo.
+    const optional = raw.optional === true ? true : undefined;
+    const fontSize =
+      typeof raw.fontSize === "number" && Number.isFinite(raw.fontSize) && raw.fontSize >= 4 && raw.fontSize <= 72
+        ? raw.fontSize
+        : undefined;
     out.push({
       id,
       pageIndex,
@@ -243,6 +249,8 @@ function parseTextFields(value: unknown): DetectedField[] | null {
       ...(label !== undefined ? { label } : {}),
       ...(type !== undefined ? { type } : {}),
       ...(tag !== undefined ? { tag } : {}),
+      ...(optional !== undefined ? { optional } : {}),
+      ...(fontSize !== undefined ? { fontSize } : {}),
     });
   }
   return out;

@@ -101,6 +101,7 @@ function emptyTextFields(doc: DocState): number {
   return doc.textFields.filter(
     (field) =>
       !isSuggestionOnly(field, doc.textValues[field.id]) &&
+      field.optional !== true &&
       !isFieldFilled(field, doc.textValues[field.id]),
   ).length;
 }

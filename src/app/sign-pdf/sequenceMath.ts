@@ -122,8 +122,9 @@ export function isPendingElsewhere(
   values: Readonly<Record<string, string>>,
 ): boolean {
   const value = values[field.id] ?? "";
-  // Una sugerencia sin tocar no es un campo del documento: no cuenta como pendiente.
+  // Una sugerencia sin tocar no es un campo del documento: no cuenta como pendiente. Un campo opcional tampoco.
   if (isSuggestionOnly(field, value)) return false;
+  if (field.optional === true) return false;
   return fieldTypeOf(field) === "checkbox"
     ? value.length === 0
     : value.trim().length === 0;

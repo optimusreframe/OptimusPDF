@@ -154,6 +154,8 @@ export function SuggestionBar({
     const root = rootRef.current;
     if (!input || !root) return;
     const frame = window.requestAnimationFrame(() => {
+      // A pantalla completa (modo «Editar campos») la hoja es fija: es el lienzo quien la reencuadra sobre el teclado.
+      if (input.closest("[data-field-edit-mode]")) return;
       const barTop = root.getBoundingClientRect().top;
       const overlap = input.getBoundingClientRect().bottom + 12 - barTop;
       if (overlap > 0) scrollVerticallyBy(findScrollParent(input), overlap);

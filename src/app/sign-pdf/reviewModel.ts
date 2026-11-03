@@ -88,7 +88,8 @@ export function reviewDocument(input: ReviewInput): ReviewDoc {
   for (const field of state.textFields) {
     const value = state.textValues[field.id];
     if (isSuggestionOnly(field, value)) continue;
-    const done = isFieldFilled(field, value);
+    // Un campo opcional (modo «Editar campos») puede quedar vacio: cuenta como hecho.
+    const done = isFieldFilled(field, value) || field.optional === true;
     // Una casilla sin marcar es una respuesta valida: cuenta como hecha (`isFieldFilled`).
     push(field.pageIndex, { id: field.id, kind: "text", signerId: null, done, rect: field.rect });
     textTotal += 1;

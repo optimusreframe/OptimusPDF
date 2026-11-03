@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type Ref,
 } from "react";
@@ -27,6 +28,7 @@ import {
   Copy,
   CornerUpLeft,
   Hand,
+  Maximize2,
   Move,
   PenLine,
   Signature,
@@ -41,7 +43,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ButtonGroup } from "@/components/ui/ButtonGroup";
-import { StatusRegion } from "@/components/tool/liveRouting";
+import { LiveSinkProvider, StatusRegion } from "@/components/tool/liveRouting";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { Spinner } from "@/components/ui/Spinner";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -146,6 +148,41 @@ import {
   scrollVerticallyBy,
   type Box,
 } from "@/lib/touch/scrollRegion";
+import { useFieldEditMode } from "@/app/sign-pdf/editMode/FieldEditModeProvider";
+import { useEditModeStrings } from "@/app/sign-pdf/editMode/editModeStrings";
+import { EditModeFrame, type DockTab } from "@/app/sign-pdf/editMode/EditModeFrame";
+import { EditInspector } from "@/app/sign-pdf/editMode/EditInspector";
+import { ElementsPanel, HelpPanel, PagesPanel, type ElementIcon, type ElementRow } from "@/app/sign-pdf/editMode/EditPanels";
+import { SwitchRow } from "@/app/sign-pdf/editMode/editUi";
+import { useEditStage } from "@/app/sign-pdf/editMode/useEditStage";
+import { useEditHistory, type EditSnapshot } from "@/app/sign-pdf/editMode/useEditHistory";
+import { useEditInput, type EditInputApi } from "@/app/sign-pdf/editMode/useEditInput";
+import {
+  EDIT_MAX_ZOOM,
+  clampPanTo,
+  initialPan,
+  nextPageWithFields,
+  pageSwipeIntent,
+  panForZoomAt,
+  revealShift,
+  stepZoom,
+  zoomForField,
+  type FreeBox,
+  type Insets as ViewInsets,
+  type Size as ViewSize,
+} from "@/app/sign-pdf/editMode/viewMath";
+import {
+  alignTo,
+  clampFontSize,
+  matchSizeTo,
+  nearestOther,
+  nudge as nudgeRect,
+  pasteSpot,
+  repeatTargets,
+  resizeTo,
+  type AlignMode,
+} from "@/app/sign-pdf/editMode/editGeometry";
+import { LINE_HEIGHT_FACTOR, MIN_FONT_SIZE } from "@/lib/pdf/editPdf";
 
 /*
  * W2-C: el mismo lienzo sirve al modo "Solo yo" (`solo`): la firma propia es el
@@ -187,6 +224,8 @@ const MIN_FIELD_SIDE = 0.02;
  * pagina con dos dedos» y empiece a ampliar. Por debajo, el zoom no se mueve aunque los dedos se abran o cierren un poco.
  */
 const PINCH_SCALE_SLOP = 0.06;
+/** A pantalla completa dos dedos son TAMBIEN el gesto de pasar de pagina: el margen es mayor para que un arrastre rapido no se tome por pellizco. */
+const PINCH_SCALE_SLOP_EDIT = 0.12;
 
 /** Movimiento por debajo del cual un puntero sobre lienzo vacio cuenta como clic, no arrastre. */
 const CLICK_SLOP = 0.004;
@@ -385,6 +424,10 @@ export type CanvasSequence = {
   onNoPendingHere: (direction: 1 | -1) => boolean;
   /** Hay campos pendientes en otros documentos (activa «siguiente/anterior campo»). */
   othersPending: boolean;
+  /** Los documentos de la ronda, para cambiar de uno a otro desde el modo «Editar campos» (W3-B1). */
+  docs?: readonly { id: string; name: string; active: boolean }[];
+  /** Pasa a otro documento (en su ultima pagina vista). */
+  selectDoc?: (docId: string) => void;
 };
 
 /**
@@ -621,6 +664,24 @@ function DocumentCanvasInner({
   /** Dentro de PDF Pro el layout de tablet lo gobierna la suite (paleta en carril desde 768 px); fuera, desde 1 280 px. */
   const inPro = useInProSuite();
   const isDesktop = useIsDesktop();
+  /*
+   * Modo «Editar campos» a pantalla completa (W3-B1). El MISMO lienzo y la misma sesion: con el modo abierto la hoja se
+   * pinta en el nodo del modo (un portal a pantalla completa, `editMode/`) en vez de en la pagina, y estos gestos y
+   * funciones cambian de sitio de reparto (hoja fija, zoom y desplazamiento propios, panel de edicion); con el modo
+   * cerrado, o sin proveedor (Rellenar, editor de plantillas), nada de esto se nota.
+   */
+  const editHost = useFieldEditMode();
+  const editStrings = useEditModeStrings();
+  const immersive = Boolean(editHost?.active && editHost.container);
+  const [dockState, setDockState] = useState<{ open: boolean; tab: DockTab }>({ open: false, tab: "element" });
+  const [dockSelKey, setDockSelKey] = useState<string | null>(null);
+  const [smoothView, setSmoothView] = useState(false);
+  /** Alto que tenia el lienzo en la pagina al abrir el modo: el marcador que lo sustituye lo conserva para no mover el scroll. */
+  const [inlineHeight, setInlineHeight] = useState(0);
+  const [clipboardKind, setClipboardKind] = useState<CanvasElementKind | null>(null);
+  const clipboardRef = useRef<
+    { kind: "slot"; field: SignatureField } | { kind: "text"; field: DetectedField; value: string } | null
+  >(null);
   /** Recuento de paginas que da la pasada de miniaturas (la vista grande trae el suyo). */
   const [thumbPageCount, setThumbPageCount] = useState(0);
   const [thumbs, setThumbs] = useState<string[]>([]);
@@ -635,6 +696,7 @@ function DocumentCanvasInner({
   /** Tamano de layout de la pagina (sin zoom): `hostSize` se mide transformado. */
   const [layoutSize, setLayoutSize] = useState({ width: 0, height: 0 });
   const coarse = useMediaQuery("(pointer: coarse)");
+  const wideScreen = useMediaQuery("(min-width: 900px)");
   /** Campo cuyo selector de tipo esta abierto en la barra (se cierra al cambiar de seleccion o al salir el foco de la barra). */
   const [typePickerFor, setTypePickerFor] = useState<string | null>(null);
   /** Campo cuyos chips de etiqueta estan abiertos en la barra flotante (raton): se cierra igual que el selector de tipo. */
@@ -687,10 +749,17 @@ function DocumentCanvasInner({
     lastMid: { x: number; y: number };
     /** Centro (px de pantalla) de la hoja al empezar: con `transform-origin: center` es `centro de layout + pan`. */
     startCenter: { x: number; y: number };
+    /** A pantalla completa y con la hoja ajustada, este gesto ya cambio de pagina (una vez por gesto). */
+    flipped: boolean;
   } | null>(null);
   /** Valores vivos de zoom y pan para los gestos (los manejadores de puntero no deben leer un cierre viejo). */
   const zoomRef = useRef(1);
   const panRef = useRef({ x: 0, y: 0 });
+  /** Valores vivos del modo a pantalla completa para los gestos (los manejadores no deben leer un cierre viejo). */
+  const immersiveRef = useRef(immersive);
+  const freeRef = useRef<FreeBox>({ width: 1, height: 1, cx: 0, cy: 0 });
+  const insetsRef = useRef<ViewInsets>({ top: 0, right: 0, bottom: 0, left: 0 });
+  const sheetRef = useRef<ViewSize | null>(null);
   /**
    * Modo de antes («Un dedo dibuja» apagado), con una herramienta de creacion armada y un dedo: toque corto = colocar, quieto
    * `HOLD_TO_DRAW_MS` = dibujar, deslizar antes = desplazar. `holdRef` guarda el candidato mientras decide. El lapiz no pasa
@@ -852,6 +921,7 @@ function DocumentCanvasInner({
   const gesturePageRef = useRef(pageIndex);
   /** Pagina visible y `goToPage` vivos para la API imperativa (`apiRef`): que la API no lea un cierre viejo. */
   const pageIndexRef = useRef(pageIndex);
+  const pageCountRef = useRef(0);
   const goToPageForRevealRef = useRef<(index: number) => void>(() => {});
   useEffect(() => {
     pageIndexRef.current = pageIndex;
@@ -880,9 +950,10 @@ function DocumentCanvasInner({
     sequenceRef.current?.setThumbsSlot(element);
   }, []);
 
-  /* Miniaturas de navegacion: una pasada secuencial por el documento. */
+  /* Miniaturas de navegacion: una pasada secuencial por el documento. En la vista continua las pinta el envoltorio; el modo «Editar campos» las necesita aqui. */
+  const needThumbs = !thumbsInSequence || immersive;
   useEffect(() => {
-    if (!file || thumbsInSequence) return;
+    if (!file || !needThumbs) return;
     let cancelled = false;
 
     void (async () => {
@@ -912,7 +983,7 @@ function DocumentCanvasInner({
     return () => {
       cancelled = true;
     };
-  }, [file, thumbsInSequence]);
+  }, [file, needThumbs]);
 
   /*
    * Vista grande de la pagina activa: dibujada al tamano real en que se ve
@@ -939,6 +1010,11 @@ function DocumentCanvasInner({
   const loading = image.loading;
   const pageCount = image.pageCount || thumbPageCount;
   const imagePageCount = image.pageCount;
+  /** Tamano de la pagina en puntos PDF: convierte el tamano de letra (pt) a pixeles de la hoja. */
+  const pageSizePt = useMemo(() => {
+    const view = image.page?.getViewport?.({ scale: 1 });
+    return view && view.width > 0 && view.height > 0 ? { width: view.width, height: view.height } : null;
+  }, [image.page]);
   useEffect(() => {
     if (imagePageCount > 0) sequenceRef.current?.onPageCount(imagePageCount);
   }, [imagePageCount]);
@@ -955,7 +1031,13 @@ function DocumentCanvasInner({
     const observer = new ResizeObserver(update);
     observer.observe(host);
     return () => observer.disconnect();
-  }, [preview]);
+    // La hoja cambia de nodo al abrir o cerrar el modo a pantalla completa: se vuelve a observar.
+  }, [preview, immersive]);
+
+  /* Escenario del modo «Editar campos»: tamano de la hoja fija y lo que la tapa (ver `useEditStage`). */
+  const aspectForFit =
+    previewAspect ?? (hostSize.width > 0 && hostSize.height > 0 ? hostSize.width / hostSize.height : 0.75);
+  const stage = useEditStage({ enabled: immersive, clipRef, aspect: aspectForFit, watchKey: editingId });
 
   /* ---------------------------------------------------------------- *
    * Derivados
@@ -985,14 +1067,16 @@ function DocumentCanvasInner({
       ? null
       : TOOL_CREATES[effectiveTool];
   const editingText = effectiveTool === "editText";
+  /** Zoom y desplazamiento con dos dedos: el ajuste de Firmar o, siempre, el modo a pantalla completa (hoja fija). */
+  const zoomOn = pinchZoomEnabled || immersive;
   /** Un dedo con una herramienta armada dibuja de inmediato (la prop manda; sin ella, el interruptor visible, encendido por defecto). */
-  const fingerDrawOn = gestureMode === "draw" || (gestureMode === undefined && fingerDraw);
+  const fingerDrawOn = immersive || gestureMode === "draw" || (gestureMode === undefined && fingerDraw);
   /**
    * Gestos de varios dedos (pellizco y arrastre de dos dedos para mover la pagina): con el zoom activado, o con una
    * herramienta armada y un dedo que dibuja (entonces dos dedos son la UNICA forma de mover la pagina sin soltar la
    * herramienta). El lapiz nunca cuenta para el pellizco.
    */
-  const multiTouchOn = pinchZoomEnabled || (creates !== null && fingerDrawOn);
+  const multiTouchOn = zoomOn || (creates !== null && fingerDrawOn);
 
   /* «Editar texto»: la capa de bloques de Editar PDF sobre la MISMA imagen (ver `useSignTextEditing`). */
   const imageRef = useRef<HTMLImageElement>(null);
@@ -1220,11 +1304,12 @@ function DocumentCanvasInner({
         // Campo nuevo: se ofrecen los chips de etiqueta (con el dedo, en la barra sobre el teclado; con raton, en la barra flotante).
         if (tagging && (type === "text" || type === "date")) {
           setFreshTagId(field.id);
-          if (!coarse) setTagPickerFor(field.id);
+          // A pantalla completa no hay barra flotante: las etiquetas van en el panel de edicion.
+          if (!coarse && !immersive) setTagPickerFor(field.id);
         }
       }
     },
-    [textFields, onTextFieldsChange, onSelectionChange, onEditingIdChange, pageIndex, tagging, coarse],
+    [textFields, onTextFieldsChange, onSelectionChange, onEditingIdChange, pageIndex, tagging, coarse, immersive],
   );
 
   const patchRect = useCallback(
@@ -1322,6 +1407,12 @@ function DocumentCanvasInner({
   const toolRef = useRef(effectiveTool);
   const toolsRef = useRef(tools);
   const changeToolRef = useRef(changeTool);
+  /** Acciones del modo a pantalla completa que Escape necesita (cerrar el panel, salir): se refrescan en cada pintado. */
+  const immersiveActionsRef = useRef<{ dockOpen: boolean; closeDock: () => void; exit: () => void }>({
+    dockOpen: false,
+    closeDock: () => {},
+    exit: () => {},
+  });
   useEffect(() => {
     removeRef.current = removeElement;
     editingIdRef.current = editingId;
@@ -1336,7 +1427,14 @@ function DocumentCanvasInner({
       // ni Supr borra por detras ni Escape toca el editor.
       if (confirmOpenRef.current) return;
       const origin = event.target as HTMLElement | null;
-      if (origin?.closest?.('[role="dialog"], [aria-modal="true"]')) return;
+      // El propio modo «Editar campos» es un dialogo modal, pero sus teclas SON las del lienzo.
+      if (
+        origin?.closest?.(
+          '[role="dialog"]:not([data-field-edit-mode]), [aria-modal="true"]:not([data-field-edit-mode])',
+        )
+      ) {
+        return;
+      }
       // Un Escape ya atendido (p. ej. el que cierra las sugerencias del
       // input) no sale ademas de la edicion.
       if (event.defaultPrevented) return;
@@ -1358,6 +1456,19 @@ function DocumentCanvasInner({
           onToolChange("select");
           return;
         }
+        if (immersiveRef.current) {
+          // A pantalla completa, un Escape por capa: panel abierto, seleccion y, al final, salir del modo.
+          if (immersiveActionsRef.current.dockOpen) {
+            immersiveActionsRef.current.closeDock();
+            return;
+          }
+          if (selection) {
+            onSelectionChange(null);
+            return;
+          }
+          immersiveActionsRef.current.exit();
+          return;
+        }
         onEditingIdChange(null);
         return;
       }
@@ -1371,7 +1482,7 @@ function DocumentCanvasInner({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selection, onEditingIdChange, onToolChange]);
+  }, [selection, onEditingIdChange, onToolChange, onSelectionChange]);
 
   /*
    * Atajos de una letra para las herramientas (V F I T C D). WCAG 2.1.4: solo
@@ -1384,14 +1495,22 @@ function DocumentCanvasInner({
       if (event.isComposing || event.repeat || confirmOpenRef.current) return;
       const target = event.target instanceof Element ? (event.target as HTMLElement) : null;
       if (isTypingTarget(target)) return;
-      if (target?.closest?.('[role="dialog"], [aria-modal="true"]')) return;
+      if (
+        target?.closest?.(
+          '[role="dialog"]:not([data-field-edit-mode]), [aria-modal="true"]:not([data-field-edit-mode])',
+        )
+      ) {
+        return;
+      }
       // «Editar texto»: teclear una letra con un bloque enfocado EDITA ese bloque (no cambia de herramienta).
       if (toolRef.current === "editText" && target?.closest?.("[data-block-layer]")) return;
       const inScope =
         !target ||
         target === document.body ||
         target === document.documentElement ||
-        Boolean(rootRef.current?.contains(target));
+        Boolean(rootRef.current?.contains(target)) ||
+        // A pantalla completa el foco esta en el nodo del modo, fuera de la pagina.
+        Boolean(target.closest?.("[data-field-edit-mode]"));
       if (!inScope) return;
       const next = toolFromShortcut(event.key);
       if (!next || !toolsRef.current.includes(next)) return;
@@ -1436,6 +1555,7 @@ function DocumentCanvasInner({
   const isPendingForNav = useCallback(
     (field: DetectedField) => {
       const value = values[field.id] ?? "";
+      if (field.optional === true) return false;
       if (fieldTypeOf(field) === "checkbox") {
         return value.length === 0 && !touchedCheckboxes.has(field.id);
       }
@@ -1590,12 +1710,22 @@ function DocumentCanvasInner({
 
   /** Botones de zoom: la alternativa fiable al pellizco (que en Seleccionar compite con el scroll). */
   const setZoomLevel = (next: number) => {
+    if (immersiveRef.current) {
+      zoomEdit(next, null);
+      return;
+    }
     applyView(next, next === 1 ? { x: 0, y: 0 } : clampPan(panRef.current, next, layoutSize));
   };
   const zoomIn = () =>
-    setZoomLevel(ZOOM_STEPS.find((step) => step > zoom + 0.01) ?? zoom);
+    setZoomLevel(
+      immersiveRef.current ? stepZoom(zoomRef.current, 1) : (ZOOM_STEPS.find((step) => step > zoom + 0.01) ?? zoom),
+    );
   const zoomOut = () =>
-    setZoomLevel([...ZOOM_STEPS].reverse().find((step) => step < zoom - 0.01) ?? 1);
+    setZoomLevel(
+      immersiveRef.current
+        ? stepZoom(zoomRef.current, -1)
+        : ([...ZOOM_STEPS].reverse().find((step) => step < zoom - 0.01) ?? 1),
+    );
 
   const hasOtherPendingField =
     Boolean(sequence?.othersPending) ||
@@ -1649,6 +1779,8 @@ function DocumentCanvasInner({
 
   /** Ancho de la hoja en px de layout (sin zoom); cae a la medida con transformacion si aun no hay layout. */
   const pageWidthPx = layoutSize.width || hostSize.width;
+  /** Pixeles de la hoja por punto PDF (para el tamano de letra propio de un campo). */
+  const pointScale = pageSizePt && layoutSize.width > 0 ? layoutSize.width / pageSizePt.width : undefined;
 
   /** Tamano por defecto de lo que crea la herramienta activa, en fracciones de la pagina. */
   const defaultSize = (): { width: number; height: number } => {
@@ -1818,6 +1950,8 @@ function DocumentCanvasInner({
         ...(source.type ? { type: source.type } : {}),
         // La copia lleva el mismo dato (la misma etiqueta): si la sesion ya lo tiene, se rellena sola (`useFieldTagging`).
         ...(tagOf(source) ? { tag: tagOf(source) } : {}),
+        ...(source.optional ? { optional: true } : {}),
+        ...(source.fontSize ? { fontSize: source.fontSize } : {}),
       };
       onTextFieldsChange([...textFields, copy]);
       select({ kind: "text", id: copy.id });
@@ -1911,12 +2045,41 @@ function DocumentCanvasInner({
     return { x: (clientX - bounds.left) / bounds.width, y: (clientY - bounds.top) / bounds.height };
   };
 
-  /** Fija zoom y desplazamiento a la vez (estado y refs vivos para los gestos). */
-  const applyView = (nextZoom: number, nextPan: { x: number; y: number }) => {
+  /**
+   * Fija zoom y desplazamiento a la vez (estado y refs vivos para los gestos). `animate` (solo a pantalla completa y con los
+   * botones, el teclado o un reencuadre) lleva la hoja con una transicion suave; un gesto la corta y sigue al dedo 1:1.
+   */
+  const applyView = (nextZoom: number, nextPan: { x: number; y: number }, animate = false) => {
     zoomRef.current = nextZoom;
     panRef.current = nextPan;
     setZoom(nextZoom);
     setPan(nextPan);
+    setSmoothView(animate);
+  };
+
+  /** Limita el desplazamiento al recorrido de la hoja: el de siempre o, a pantalla completa, contra la caja libre del escenario. */
+  const limitPan = (nextPan: { x: number; y: number }, nextZoom: number) =>
+    immersiveRef.current
+      ? clampPanTo(nextPan, nextZoom, layoutSizeRef.current, freeRef.current)
+      : clampPan(nextPan, nextZoom, layoutSizeRef.current);
+
+  /**
+   * Zoom de la hoja fija alrededor de `anchor` (px de pantalla; por defecto el centro de la zona libre, que es lo que se ve
+   * entre el panel y el teclado). `next` exactamente 1 vuelve al AJUSTE (borde superior a la vista).
+   */
+  const zoomEdit = (next: number, anchor: { x: number; y: number } | null, animate = true) => {
+    const target = clamp(next, 1, EDIT_MAX_ZOOM);
+    const surface = clipRef.current?.getBoundingClientRect();
+    const free = freeRef.current;
+    if (!surface) return;
+    const from = anchor
+      ? { x: anchor.x - (surface.left + surface.width / 2), y: anchor.y - (surface.top + surface.height / 2) }
+      : { x: free.cx, y: free.cy };
+    const raw = panForZoomAt(panRef.current, zoomRef.current, target, from);
+    const nextPan =
+      target === 1 ? initialPan(1, layoutSizeRef.current, free) : clampPanTo(raw, target, layoutSizeRef.current, free);
+    applyView(target, nextPan, animate);
+    if (animate) setAnnouncement(editStrings.zoomStatus(Math.round(target * 100)));
   };
 
   /** Quita el candidato de «mantener para dibujar» (y su temporizador). */
@@ -1999,6 +2162,7 @@ function DocumentCanvasInner({
           startCenter: bounds
             ? { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }
             : mid,
+          flipped: false,
         };
         return;
       }
@@ -2018,7 +2182,8 @@ function DocumentCanvasInner({
         x: event.clientX,
         y: event.clientY,
       };
-      if (pinchZoomEnabled && zoomRef.current > 1) {
+      // A pantalla completa la hoja es fija: un dedo sobre lo vacio la mueve siempre que haya donde (con zoom o hoja alta).
+      if (zoomOn && (immersiveRef.current || zoomRef.current > 1)) {
         panDragRef.current = {
           pointerId: event.pointerId,
           lastX: event.clientX,
@@ -2031,6 +2196,11 @@ function DocumentCanvasInner({
     if (creates.kind === "slot" && !canPlaceSlot) return;
     const point = toNormalized(event.clientX, event.clientY);
     if (!point) return;
+    // A pantalla completa los gestos escuchan en todo el escenario: un toque fuera de la hoja no crea nada.
+    if (immersiveRef.current) {
+      const raw = toRawNormalized(event.clientX, event.clientY);
+      if (raw && (raw.x < 0 || raw.x > 1 || raw.y < 0 || raw.y > 1)) return;
+    }
 
     // Con un campo abierto en edicion, un toque corto de dedo o lapiz solo lo cierra (ver `closeOnlyRef`).
     closeOnlyRef.current = fromTouch && editingId !== null;
@@ -2178,29 +2348,33 @@ function DocumentCanvasInner({
           // Dos dedos que se desplazan casi nunca conservan la distancia al milimetro (y cada dedo manda su propio
           // `pointermove`): hasta que la separacion cambie mas de `PINCH_SCALE_SLOP` el gesto SOLO mueve la pagina y no
           // amplia. Sin el zoom activado (solo dedo que dibuja) los dos dedos nunca amplian: la hoja se queda a 1x.
-          if (!pinch.scaling && Math.abs(ratio - 1) > PINCH_SCALE_SLOP) pinch.scaling = true;
+          if (
+            !pinch.scaling &&
+            Math.abs(ratio - 1) > (immersiveRef.current ? PINCH_SCALE_SLOP_EDIT : PINCH_SCALE_SLOP)
+          ) {
+            pinch.scaling = true;
+          }
           const nextZoom = pinch.scaling
-            ? clamp(pinch.startZoom * ratio, 1, pinchZoomEnabled ? MAX_ZOOM : 1)
+            ? clamp(pinch.startZoom * ratio, 1, zoomOn ? (immersiveRef.current ? EDIT_MAX_ZOOM : MAX_ZOOM) : 1)
             : pinch.startZoom;
           const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
           const prevZoom = zoomRef.current;
           const prevPan = panRef.current;
           // Los dedos mandan: el punto de la hoja que estaba entre ellos sigue entre ellos (zoom con foco en el centro).
-          const nextPan =
-            nextZoom === 1
+          const pinched = panForPinch({
+            pan0: pinch.startPan,
+            zoom0: pinch.startZoom,
+            zoom1: nextZoom,
+            mid0: pinch.startMid,
+            mid1: mid,
+            rectCenter0: pinch.startCenter,
+          });
+          // A pantalla completa la hoja ajustada puede ser mas alta que el escenario: se recorre tambien sin zoom.
+          const nextPan = immersiveRef.current
+            ? limitPan(pinched, nextZoom)
+            : nextZoom === 1
               ? { x: 0, y: 0 }
-              : clampPan(
-                  panForPinch({
-                    pan0: pinch.startPan,
-                    zoom0: pinch.startZoom,
-                    zoom1: nextZoom,
-                    mid0: pinch.startMid,
-                    mid1: mid,
-                    rectCenter0: pinch.startCenter,
-                  }),
-                  nextZoom,
-                  layoutSize,
-                );
+              : clampPan(pinched, nextZoom, layoutSize);
           // A 1x en reposo no hay nada que repintar (evita un render por movimiento al desplazar con dos dedos).
           if (nextZoom !== prevZoom || nextPan.x !== prevPan.x || nextPan.y !== prevPan.y) {
             applyView(nextZoom, nextPan);
@@ -2213,9 +2387,22 @@ function DocumentCanvasInner({
             panDy: nextPan.y - prevPan.y,
             zoomChanged: nextZoom !== prevZoom,
           });
-          if (scroll !== 0 && hostRef.current) {
+          if (scroll !== 0 && hostRef.current && !immersiveRef.current) {
             scrollVerticallyBy(findScrollParent(hostRef.current), scroll);
             dragRegionRef.current = null;
+          }
+          // Hoja ajustada: arrastrar dos dedos hacia los lados pasa de pagina (una vez por gesto, nunca si pellizca).
+          if (immersiveRef.current && !pinch.flipped) {
+            const step = pageSwipeIntent({
+              dx: mid.x - pinch.startMid.x,
+              dy: mid.y - pinch.startMid.y,
+              zoom: nextZoom,
+              scaled: pinch.scaling,
+            });
+            if (step !== 0 && pageIndexRef.current + step >= 0 && pageIndexRef.current + step < Math.max(1, pageCountRef.current)) {
+              pinch.flipped = true;
+              goToPageRef.current(pageIndexRef.current + step);
+            }
           }
         }
         return;
@@ -2231,7 +2418,7 @@ function DocumentCanvasInner({
         clearHold();
         // Con zoom el lienzo se queda el gesto (`touch-action: none`): mover la hoja y, en el borde, la pagina.
         // A 1x el navegador ya desplaza la pagina por su cuenta (y mandara `pointercancel`).
-        if (pinchZoomEnabled && zoomRef.current > 1) {
+        if (zoomOn && zoomRef.current > 1) {
           panDragRef.current = {
             pointerId: event.pointerId,
             lastX: hold.x,
@@ -2250,17 +2437,27 @@ function DocumentCanvasInner({
     const panning = panDragRef.current;
     if (panning && event.pointerId === panning.pointerId && !tapCandidateRef.current && !holdRef.current) {
       event.preventDefault();
-      const moved = panWithOverflow(
-        panRef.current,
-        { x: event.clientX - panning.lastX, y: event.clientY - panning.lastY },
-        zoomRef.current,
-        layoutSize,
-      );
+      const moved = immersiveRef.current
+        ? (() => {
+            const desired = {
+              x: panRef.current.x + (event.clientX - panning.lastX),
+              y: panRef.current.y + (event.clientY - panning.lastY),
+            };
+            const limited = limitPan(desired, zoomRef.current);
+            return { pan: limited, overflow: { x: desired.x - limited.x, y: desired.y - limited.y } };
+          })()
+        : panWithOverflow(
+            panRef.current,
+            { x: event.clientX - panning.lastX, y: event.clientY - panning.lastY },
+            zoomRef.current,
+            layoutSize,
+          );
       panning.lastX = event.clientX;
       panning.lastY = event.clientY;
       applyView(zoomRef.current, moved.pan);
       // Lo que la hoja no absorbio sigue con la pagina (el dedo sube, la pagina baja): se encadena el scroll.
-      if (moved.overflow.y !== 0 && hostRef.current) {
+      // A pantalla completa la hoja es fija: no hay pagina que desplazar.
+      if (moved.overflow.y !== 0 && hostRef.current && !immersiveRef.current) {
         scrollVerticallyBy(findScrollParent(hostRef.current), -moved.overflow.y);
       }
       return;
@@ -2306,7 +2503,11 @@ function DocumentCanvasInner({
     const pinch = pinchRef.current;
     if (pinch && pinch.pointerIds.includes(pointerId)) {
       pinchRef.current = null;
-      if (zoomRef.current <= 1.02) applyView(1, { x: 0, y: 0 });
+      if (zoomRef.current <= 1.02) {
+        // A pantalla completa la hoja ajustada se queda donde esta (su pan lo limita la caja libre), solo con zoom 1 exacto.
+        if (immersiveRef.current) applyView(1, limitPan(panRef.current, 1));
+        else applyView(1, { x: 0, y: 0 });
+      }
     }
   };
 
@@ -2408,6 +2609,7 @@ function DocumentCanvasInner({
     }
     // Un dedo que arrastra casi en vertical y lejos intentaba DESPLAZAR la pagina (habito): no crea un campo estrecho y alto.
     if (
+      !immersiveRef.current &&
       startClient &&
       isScrollLikeSwipe({
         pointerType: event.pointerType,
@@ -2566,6 +2768,11 @@ function DocumentCanvasInner({
     pinchEnabledRef.current = multiTouchOn;
     layoutSizeRef.current = layoutSize;
     gestureModeRef.current = gestureMode ?? (fingerDraw ? "draw" : "auto");
+    immersiveRef.current = immersive;
+    freeRef.current = stage.free;
+    insetsRef.current = stage.insets;
+    sheetRef.current = stage.sheet;
+    pageCountRef.current = pageCount;
   });
 
   /** Zona visible en la que el dedo NO desplaza: la libre del scroller (sin barras fijas) y, con zoom, la de la tarjeta. */
@@ -2601,6 +2808,18 @@ function DocumentCanvasInner({
     const regionOf = (): Box => {
       const host = hostRef.current;
       if (!host) return { top: 0, bottom: 0, left: 0, right: 0 };
+      if (immersiveRef.current) {
+        // A pantalla completa la zona libre es el escenario menos lo que tapan el panel y el teclado.
+        const surface = clipRef.current?.getBoundingClientRect();
+        if (!surface) return { top: 0, bottom: 0, left: 0, right: 0 };
+        const covered = insetsRef.current;
+        return {
+          top: surface.top + covered.top,
+          bottom: surface.bottom - covered.bottom,
+          left: surface.left + covered.left,
+          right: surface.right - covered.right,
+        };
+      }
       const cached = dragRegionRef.current;
       const nowMs = performance.now();
       if (!cached || nowMs - cached.at > 200) {
@@ -2629,15 +2848,25 @@ function DocumentCanvasInner({
     const scroller = createEdgeAutoScroller({
       pointer: () => lastPointerRef.current,
       region: regionOf,
+      // A pantalla completa la hoja se recorre tambien en horizontal (se lee por fotograma: sigue al modo vigente).
+      get horizontal() {
+        return immersiveRef.current;
+      },
       scroll: (dx, dy) => {
         const host = hostRef.current;
         if (!host) return { dx: 0, dy: 0 };
         let appliedX = 0;
         let appliedY = 0;
         let restY = dy;
-        if (zoomRef.current > 1.001) {
+        if (zoomRef.current > 1.001 || immersiveRef.current) {
           // Con la hoja ampliada, el dedo en el borde de la tarjeta primero la mueve y, agotada, sigue con la pagina.
-          const result = panWithOverflow(panRef.current, { x: -dx, y: -dy }, zoomRef.current, layoutSizeRef.current);
+          const result = immersiveRef.current
+            ? (() => {
+                const desired = { x: panRef.current.x - dx, y: panRef.current.y - dy };
+                const limited = clampPanTo(desired, zoomRef.current, layoutSizeRef.current, freeRef.current);
+                return { pan: limited };
+              })()
+            : panWithOverflow(panRef.current, { x: -dx, y: -dy }, zoomRef.current, layoutSizeRef.current);
           appliedX = -(result.pan.x - panRef.current.x);
           appliedY = -(result.pan.y - panRef.current.y);
           if (appliedX !== 0 || appliedY !== 0) applyView(zoomRef.current, result.pan);
@@ -2645,7 +2874,10 @@ function DocumentCanvasInner({
         }
         // (M5 · N6) La pagina solo se desplaza mientras quede hoja por descubrir en esa direccion: con el borde de la hoja ya a la
         // vista el elemento (sujeto a ese borde) no puede ir mas lejos, y seguir desplazando lo sacaba de la pantalla.
-        if (restY !== 0 && sheetHasRoomToScroll(restY)) appliedY += scrollVerticallyBy(findScrollParent(host), restY);
+        // A pantalla completa no hay pagina que desplazar: todo el recorrido es el de la hoja.
+        if (!immersiveRef.current && restY !== 0 && sheetHasRoomToScroll(restY)) {
+          appliedY += scrollVerticallyBy(findScrollParent(host), restY);
+        }
         dragRegionRef.current = null;
         return { dx: appliedX, dy: appliedY };
       },
@@ -2671,17 +2903,22 @@ function DocumentCanvasInner({
    * cambiar a mitad de un gesto.
    */
   useEffect(() => {
-    const element = hostRef.current;
+    // A pantalla completa los gestos escuchan en todo el escenario (no solo en la hoja).
+    const element = immersive ? clipRef.current : hostRef.current;
     if (!element) return;
     const onTouchMove = (event: TouchEvent) => {
       if (!event.cancelable) return;
-      if (blockNativeScrollRef.current || (pinchEnabledRef.current && event.touches.length >= 2)) {
+      if (
+        blockNativeScrollRef.current ||
+        (pinchEnabledRef.current && event.touches.length >= 2) ||
+        immersiveRef.current
+      ) {
         event.preventDefault();
       }
     };
     element.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => element.removeEventListener("touchmove", onTouchMove);
-  }, [hasFile]);
+  }, [hasFile, immersive]);
 
   /** Lleva `rect` (fracciones de la hoja) a la zona libre; con zoom, centra tambien la hoja bajo el hueco. */
   const revealRect = (rect: NormalizedRect, options: RevealOptions = {}): boolean => {
@@ -2689,6 +2926,43 @@ function DocumentCanvasInner({
     if (!host) return false;
     const bounds = host.getBoundingClientRect();
     if (bounds.width === 0 || bounds.height === 0) return false;
+    const flash = (id: string) => {
+      const mark = host.querySelector<HTMLElement>(`[data-element-id="${CSS.escape(id)}"][data-drag-mode="move"]`);
+      if (mark) {
+        mark.setAttribute("data-flash", "");
+        window.setTimeout(() => mark.removeAttribute("data-flash"), 1200);
+      }
+    };
+    if (immersiveRef.current) {
+      // Hoja fija: no hay pagina que desplazar. Se mueve la hoja hasta dejar el hueco en la zona libre (entre el panel y el teclado).
+      const surface = clipRef.current?.getBoundingClientRect();
+      if (!surface) return false;
+      const covered = insetsRef.current;
+      const shift = revealShift(
+        {
+          left: bounds.left + rect.x * bounds.width,
+          right: bounds.left + (rect.x + rect.width) * bounds.width,
+          top: bounds.top + rect.y * bounds.height,
+          bottom: bounds.top + (rect.y + rect.height) * bounds.height,
+        },
+        {
+          left: surface.left + covered.left,
+          right: surface.right - covered.right,
+          top: surface.top + covered.top,
+          bottom: surface.bottom - covered.bottom,
+        },
+        { margin: options.margin ?? 12, center: (options.block ?? "center") === "center" },
+      );
+      if (shift.x !== 0 || shift.y !== 0) {
+        applyView(
+          zoomRef.current,
+          limitPan({ x: panRef.current.x + shift.x, y: panRef.current.y + shift.y }, zoomRef.current),
+          true,
+        );
+      }
+      if (options.highlightId) flash(options.highlightId);
+      return true;
+    }
     const scroller = findScrollParent(host);
     const region = freeRegion(scroller);
     let target = {
@@ -2729,13 +3003,7 @@ function DocumentCanvasInner({
         typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       scrollVerticallyBy(scroller, delta, options.behavior === "smooth" && !reduced ? "smooth" : "auto");
     }
-    if (options.highlightId) {
-      const mark = host.querySelector<HTMLElement>(`[data-element-id="${CSS.escape(options.highlightId)}"][data-drag-mode="move"]`);
-      if (mark) {
-        mark.setAttribute("data-flash", "");
-        window.setTimeout(() => mark.removeAttribute("data-flash"), 1200);
-      }
-    }
+    if (options.highlightId) flash(options.highlightId);
     return true;
   };
 
@@ -2795,6 +3063,18 @@ function DocumentCanvasInner({
       },
       getFreeRegion: () => {
         const host = hostRef.current;
+        if (host && immersiveRef.current) {
+          const surface = clipRef.current?.getBoundingClientRect();
+          const covered = insetsRef.current;
+          if (surface) {
+            return {
+              top: surface.top + covered.top,
+              bottom: surface.bottom - covered.bottom,
+              left: surface.left + covered.left,
+              right: surface.right - covered.right,
+            };
+          }
+        }
         return host
           ? freeRegion(findScrollParent(host))
           : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
@@ -2803,6 +3083,405 @@ function DocumentCanvasInner({
     }),
     [],
   );
+
+  /* ---------------------------------------------------------------- *
+   * Modo «Editar campos» a pantalla completa (W3-B1): escenario, historial, entradas y reencuadre.
+   * Todo esto solo trabaja con `immersive`; con el modo cerrado son efectos que no hacen nada.
+   * ---------------------------------------------------------------- */
+
+  const { setChromeInsets } = stage;
+  const containerRef = useRef<HTMLElement | null>(null);
+  const elementsOnPageRef = useRef(0);
+  const selectedRectRef = useRef<NormalizedRect | null>(null);
+  const editingRectRef = useRef<NormalizedRect | null>(null);
+
+  const editApply = (snap: EditSnapshot) => {
+    onSlotsChange(snap.slots);
+    commitTextFields(snap.textFields);
+    const current = valuesRef.current;
+    for (const id of new Set([...Object.keys(snap.values), ...Object.keys(current)])) {
+      const wanted = snap.values[id] ?? "";
+      if ((current[id] ?? "") !== wanted) onValueChange(id, wanted);
+    }
+    const gone =
+      selection !== null &&
+      !(selection.kind === "slot"
+        ? snap.slots.some((field) => field.id === selection.id)
+        : snap.textFields.some((field) => field.id === selection.id));
+    if (gone) {
+      onEditingIdChange(null);
+      onSelectionChange(null);
+    }
+  };
+  const history = useEditHistory({
+    enabled: immersive,
+    slots,
+    textFields: allTextFields,
+    values,
+    apply: editApply,
+  });
+  const runUndo = () => setAnnouncement(history.undo() ? editStrings.undone : editStrings.nothingToUndo);
+  const runRedo = () => setAnnouncement(history.redo() ? editStrings.redone : editStrings.nothingToRedo);
+
+  /** Elementos de la pagina visible (para alinear, pegar y repetir). */
+  const othersOnPage = (kind: CanvasElementKind, id: string) => [
+    ...slots
+      .filter((field) => field.pageIndex === pageIndex && !(kind === "slot" && field.id === id))
+      .map((field) => ({ kind: "slot" as const, id: field.id, rect: field.rect, name: slotLabel(field) })),
+    ...textFields
+      .filter((field) => field.pageIndex === pageIndex && !(kind === "text" && field.id === id))
+      .map((field) => ({ kind: "text" as const, id: field.id, rect: field.rect, name: textLabel(field) })),
+  ];
+
+  const cloneTextField = (source: DetectedField, page: number, rect: NormalizedRect): DetectedField => {
+    const tag = tagOf(source);
+    return {
+      id: nextTextFieldId(),
+      pageIndex: page,
+      rect,
+      source: "manual",
+      confidence: "high",
+      ...(source.type ? { type: source.type } : {}),
+      ...(tag ? { tag } : {}),
+      ...(source.optional ? { optional: true } : {}),
+      ...(source.fontSize ? { fontSize: source.fontSize } : {}),
+    };
+  };
+
+  const copySelected = () => {
+    if (!selection) return;
+    if (selection.kind === "slot") {
+      const field = slots.find((candidate) => candidate.id === selection.id);
+      if (!field || solo) return;
+      clipboardRef.current = { kind: "slot", field };
+    } else {
+      const field = textFields.find((candidate) => candidate.id === selection.id);
+      if (!field) return;
+      clipboardRef.current = { kind: "text", field, value: values[field.id] ?? "" };
+    }
+    setClipboardKind(clipboardRef.current?.kind ?? null);
+    setAnnouncement(editStrings.copiedStatus);
+  };
+
+  const pasteHere = () => {
+    const clip = clipboardRef.current;
+    if (!clip) return;
+    const others = [...slots, ...textFields].filter((field) => field.pageIndex === pageIndex).map((field) => field.rect);
+    if (clip.kind === "slot") {
+      if (solo) return;
+      const copy: SignatureField = { ...clip.field, id: nextFieldId(), pageIndex, rect: pasteSpot(clip.field.rect, others) };
+      onSlotsChange([...slots, copy]);
+      select({ kind: "slot", id: copy.id });
+    } else {
+      const copy = cloneTextField(clip.field, pageIndex, pasteSpot(clip.field.rect, others));
+      onTextFieldsChange([...textFields, copy]);
+      if (clip.value) onValueChange(copy.id, clip.value);
+      select({ kind: "text", id: copy.id });
+    }
+    setAnnouncement(editStrings.pastedStatus(pageIndex + 1));
+  };
+
+  /** Iniciales: el mismo elemento en el mismo sitio de cada pagina que aun no lo tiene. */
+  const repeatSelected = () => {
+    if (!selection) return;
+    const pages = repeatTargets(Math.max(1, pageCount), pageIndex);
+    if (selection.kind === "slot") {
+      const source = slots.find((field) => field.id === selection.id);
+      if (!source || solo) return;
+      const created: SignatureField[] = [];
+      for (const page of pages) {
+        const taken = slots.some(
+          (field) =>
+            field.pageIndex === page &&
+            field.signerId === source.signerId &&
+            field.type === source.type &&
+            rectsOverlap(field.rect, source.rect),
+        );
+        if (!taken) created.push({ ...source, id: nextFieldId(), pageIndex: page });
+      }
+      if (created.length === 0) {
+        setAnnouncement(editStrings.nothingToRepeat);
+        return;
+      }
+      onSlotsChange([...slots, ...created]);
+      setAnnouncement(editStrings.repeatedStatus(created.length));
+      return;
+    }
+    const source = textFields.find((field) => field.id === selection.id);
+    if (!source) return;
+    const created: DetectedField[] = [];
+    for (const page of pages) {
+      const taken = textFields.some(
+        (field) => field.pageIndex === page && fieldTypeOf(field) === fieldTypeOf(source) && rectsOverlap(field.rect, source.rect),
+      );
+      if (!taken) created.push(cloneTextField(source, page, source.rect));
+    }
+    if (created.length === 0) {
+      setAnnouncement(editStrings.nothingToRepeat);
+      return;
+    }
+    onTextFieldsChange([...textFields, ...created]);
+    const copied = values[source.id] ?? "";
+    if (copied) for (const field of created) onValueChange(field.id, copied);
+    setAnnouncement(editStrings.repeatedStatus(created.length));
+  };
+
+  const alignSelected = (mode: AlignMode) => {
+    if (!selection) return;
+    const rect = (selection.kind === "slot" ? slots : textFields).find((field) => field.id === selection.id)?.rect;
+    if (!rect) return;
+    const other = nearestOther(rect, othersOnPage(selection.kind, selection.id));
+    if (!other) {
+      setAnnouncement(editStrings.alignNoNeighbor);
+      return;
+    }
+    patchRect(selection.kind, selection.id, alignTo(rect, other.rect, mode));
+    setAnnouncement(editStrings.alignedStatus(mode, other.name));
+  };
+
+  const matchSelectedSize = () => {
+    if (!selection) return;
+    const rect = (selection.kind === "slot" ? slots : textFields).find((field) => field.id === selection.id)?.rect;
+    if (!rect) return;
+    const other = nearestOther(rect, othersOnPage(selection.kind, selection.id), (candidate) => candidate.kind === selection.kind);
+    if (!other) {
+      setAnnouncement(editStrings.alignNoNeighbor);
+      return;
+    }
+    patchRect(selection.kind, selection.id, matchSizeTo(rect, other.rect));
+    setAnnouncement(editStrings.matchedStatus(other.name));
+  };
+
+  /** Propiedades opcionales de un campo de texto (letra y obligatorio): se quitan del campo en vez de guardar el valor por defecto. */
+  const patchTextField = (id: string, patch: { fontSize?: number | null; optional?: boolean }) => {
+    onTextFieldsChange(
+      textFields.map((field) => {
+        if (field.id !== id) return field;
+        const next: DetectedField = { ...ownField(field) };
+        if (patch.fontSize !== undefined) {
+          if (patch.fontSize === null) delete next.fontSize;
+          else next.fontSize = clampFontSize(patch.fontSize);
+        }
+        if (patch.optional !== undefined) {
+          if (patch.optional) next.optional = true;
+          else delete next.optional;
+        }
+        return next;
+      }),
+    );
+  };
+
+  /** Pone la hoja en `zoomTo` con el centro de `rect` en el centro de la zona libre (el campo que se escribe, sobre el teclado). */
+  const centerOn = (rect: NormalizedRect, zoomTo: number, animate = true) => {
+    const size = layoutSizeRef.current;
+    const free = freeRef.current;
+    const local = { x: (rect.x + rect.width / 2 - 0.5) * size.width, y: (rect.y + rect.height / 2 - 0.5) * size.height };
+    applyView(
+      zoomTo,
+      limitPan({ x: free.cx - zoomTo * local.x, y: free.cy - zoomTo * local.y }, zoomTo),
+      animate,
+    );
+  };
+
+  const openDockTab = (tab: DockTab) =>
+    setDockState((current) => (current.open && current.tab === tab ? { ...current, open: false } : { open: true, tab }));
+  const closeDock = () => {
+    // Cerrar el panel del elemento suelta la seleccion (como cerrar la hoja de propiedades de iOS).
+    if (dockState.tab === "element" && selection) {
+      onEditingIdChange(null);
+      onSelectionChange(null);
+    }
+    setDockState((current) => ({ ...current, open: false }));
+  };
+  const exitEditMode = () => {
+    onEditingIdChange(null);
+    editHost?.close();
+  };
+
+  /** Elementos por pagina (para los puntos de las miniaturas y «siguiente pagina con campos»). */
+  const elementsOnPageIndex = (index: number): number =>
+    slots.filter((field) => field.pageIndex === index).length +
+    textFields.filter((field) => field.pageIndex === index).length;
+  const stepWithFields = (direction: 1 | -1) => {
+    const target = nextPageWithFields(pageIndex, direction, Math.max(1, pageCount), elementsOnPageIndex);
+    if (target === null) {
+      setAnnouncement(editStrings.noPageWithFields);
+      return;
+    }
+    goToPage(target);
+  };
+
+  /** Selecciona un elemento desde la lista (sin gestos), cambiando de pagina si hace falta, y lo lleva a la vista. */
+  const selectFromList = (row: ElementRow) => {
+    const field = (row.kind === "slot" ? slots : textFields).find((candidate) => candidate.id === row.id);
+    if (!field) return;
+    if (toolRef.current !== "select") onToolChange("select");
+    if (field.pageIndex !== pageIndex) {
+      pendingRevealRef.current = { rect: field.rect, options: { pageIndex: field.pageIndex, block: "nearest" }, pageIndex: field.pageIndex };
+      goToPage(field.pageIndex);
+    }
+    select({ kind: row.kind, id: row.id });
+    setAnnouncement(editStrings.elementSelectedStatus(row.name, row.pageIndex + 1));
+  };
+
+  const inputApiRef = useRef<EditInputApi | null>(null);
+  useEffect(() => {
+    containerRef.current = editHost?.container ?? null;
+    selectedRectRef.current = selection
+      ? ((selection.kind === "slot" ? slots : textFields).find((field) => field.id === selection.id)?.rect ?? null)
+      : null;
+    editingRectRef.current = editingId ? (textFields.find((field) => field.id === editingId)?.rect ?? null) : null;
+    immersiveActionsRef.current = { dockOpen: dockState.open, closeDock, exit: exitEditMode };
+    inputApiRef.current = {
+      zoomBy: (factor, anchor) => zoomEdit(zoomRef.current * factor, anchor, false),
+      zoomStep: (direction) => zoomEdit(stepZoom(zoomRef.current, direction), null, true),
+      zoomFit: () => zoomEdit(1, null, true),
+      panBy: (dx, dy) => {
+        const next = limitPan({ x: panRef.current.x + dx, y: panRef.current.y + dy }, zoomRef.current);
+        if (next.x === panRef.current.x && next.y === panRef.current.y) return false;
+        applyView(zoomRef.current, next);
+        return true;
+      },
+      hasSelection: () => selection !== null,
+      nudge: (dx, dy) => {
+        if (!selection) return;
+        const rect = (selection.kind === "slot" ? slots : textFields).find((field) => field.id === selection.id)?.rect;
+        if (rect) patchRect(selection.kind, selection.id, nudgeRect(rect, dx, dy));
+      },
+      stepPage: (direction) => {
+        const target = pageIndex + direction;
+        if (target >= 0 && target < Math.max(1, pageCount)) goToPage(target);
+      },
+      undo: runUndo,
+      redo: runRedo,
+      copy: copySelected,
+      paste: pasteHere,
+      duplicate: duplicateSelected,
+      help: () => setDockState({ open: true, tab: "help" }),
+    };
+  });
+  useEditInput({ enabled: immersive, surfaceRef: clipRef, apiRef: inputApiRef, containerRef });
+
+  /* Alta del lienzo en el proveedor (si el modo esta abierto y se queda sin lienzo, se cierra solo) y entrada automatica. */
+  const registerEditCanvas = editHost?.registerCanvas;
+  useEffect(() => {
+    if (!registerEditCanvas) return;
+    return registerEditCanvas();
+  }, [registerEditCanvas]);
+  const offerAutoOpen = editHost?.offerAutoOpen;
+  const canOfferAutoOpen = Boolean(preview) && !immersive;
+  useEffect(() => {
+    if (canOfferAutoOpen) offerAutoOpen?.();
+  }, [canOfferAutoOpen, offerAutoOpen]);
+
+  /* «Editar texto» (el texto original del PDF) vive en su propia capa y no entra en este modo: se vuelve a Seleccionar. */
+  useEffect(() => {
+    if (immersive && toolRef.current === "editText") onToolChange("select");
+  }, [immersive, onToolChange]);
+
+  /*
+   * La hoja se vuelve a ajustar (zoom 1 y borde superior a la vista) al abrir el modo, al cambiar de pagina o de ajuste y
+   * cuando llega la proporcion real de la pagina. El ajuste espera a que la hoja ya mida lo que dice el escenario.
+   */
+  const viewKey = immersive ? `${pageIndex}|${stage.fitMode}|${aspectForFit.toFixed(3)}` : "inline";
+  const viewKeyRef = useRef(viewKey);
+  const alignPendingRef = useRef(false);
+  useEffect(() => {
+    if (viewKeyRef.current === viewKey) return;
+    viewKeyRef.current = viewKey;
+    if (!immersive) {
+      queueMicrotask(() => applyView(1, { x: 0, y: 0 }));
+      return;
+    }
+    alignPendingRef.current = true;
+  }, [viewKey, immersive]);
+  const sheetWidth = stage.sheet?.width ?? 0;
+  useEffect(() => {
+    if (!immersive) return;
+    const frame = requestAnimationFrame(() => {
+      const layout = layoutSizeRef.current;
+      const wanted = sheetRef.current;
+      const measured = wanted !== null && layout.width > 0 && Math.abs(layout.width - wanted.width) < 2;
+      if (alignPendingRef.current && measured) {
+        alignPendingRef.current = false;
+        applyView(1, initialPan(1, layout, freeRef.current));
+      } else if (measured) {
+        applyView(zoomRef.current, limitPan(panRef.current, zoomRef.current));
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+    // Cuando cambia el tamano de la hoja medida, la caja libre o la llave de ajuste.
+  }, [immersive, layoutSize.width, layoutSize.height, sheetWidth, stage.free.width, stage.free.height, stage.free.cx, stage.free.cy, viewKey]);
+
+  /* El elemento seleccionado se reencuadra sobre el panel y el teclado cuando la seleccion o lo que tapa se asienta. */
+  const revealKey = immersive && selection ? `${selection.kind}:${selection.id}:${pageIndex}` : "";
+  const insetsKey = `${Math.round(stage.insets.top)}|${Math.round(stage.insets.right)}|${Math.round(stage.insets.bottom)}`;
+  useEffect(() => {
+    if (!revealKey) return;
+    const timer = window.setTimeout(() => {
+      const rect = selectedRectRef.current;
+      if (!rect || dragRef.current || draftOriginRef.current) return;
+      revealRectRef.current(rect, { block: "nearest", margin: 16 });
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [revealKey, insetsKey]);
+
+  /* Escribir en un campo con el dedo: se acerca hasta que se lee comodo y se centra sobre el teclado. */
+  const editingKey = immersive && coarse && editingId ? `${editingId}:${pageIndex}` : "";
+  useEffect(() => {
+    if (!editingKey) return;
+    const timer = window.setTimeout(() => {
+      const rect = editingRectRef.current;
+      if (!rect || dragRef.current) return;
+      const fieldWidthPx = rect.width * layoutSizeRef.current.width * zoomRef.current;
+      const target = zoomForField({
+        zoom: zoomRef.current,
+        fieldWidthPx,
+        freeWidth: freeRef.current.width,
+        fraction: 0.8,
+        comfortablePx: 300,
+        max: 3,
+      });
+      centerOn(rect, Math.max(zoomRef.current, target));
+    }, 180);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingKey, insetsKey]);
+
+  /*
+   * El panel de edicion se abre solo al seleccionar un hueco o una casilla (nada que escribir) y se cierra al soltar la
+   * seleccion. Un campo de texto o de fecha se ESCRIBE al tocarlo (teclado): su panel no tapa la hoja, se abre con el boton
+   * «Propiedades». Se decide al pintar, sobre la llave de la seleccion, no en un efecto.
+   */
+  const dockSelKeyNow = immersive && selection ? `${selection.kind}:${selection.id}` : null;
+  if (dockSelKeyNow !== dockSelKey) {
+    setDockSelKey(dockSelKeyNow);
+    if (dockSelKeyNow === null) {
+      if (dockState.tab === "element") setDockState((current) => ({ ...current, open: false }));
+    } else {
+      const picked = selection?.kind === "text" ? textFields.find((field) => field.id === selection.id) : undefined;
+      const typing = picked !== undefined && fieldTypeOf(picked) !== "checkbox";
+      // Con raton y pantalla ancha el panel es lateral y no tapa la hoja ni el teclado: se abre tambien con los campos de texto.
+      if (!typing || (!coarse && wideScreen)) setDockState({ open: true, tab: "element" });
+    }
+  }
+
+  /* Anuncio de la pagina visible. */
+  useEffect(() => {
+    if (!immersive) return;
+    const timer = window.setTimeout(
+      () =>
+        setAnnouncement(
+          editStrings.pageStatus(pageIndex + 1, Math.max(1, pageCountRef.current), elementsOnPageRef.current),
+        ),
+      0,
+    );
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [immersive, pageIndex]);
+  useEffect(() => {
+    elementsOnPageRef.current = elementsOnPageIndex(pageIndex);
+  });
 
   if (!file) return null;
 
@@ -3008,6 +3687,165 @@ function DocumentCanvasInner({
     return true;
   };
 
+  /* La hoja con sus huecos y campos: la misma en la pagina y a pantalla completa. */
+  const hostElement = (
+    <div
+      ref={hostRef}
+      data-canvas="host"
+      data-tool={effectiveTool}
+      // Ultimo recurso del foco tras quitar elementos (ver arriba); no entra en el orden de Tab.
+      tabIndex={-1}
+      // A pantalla completa los gestos escuchan en todo el escenario (ver `clipRef` del modo), no solo en la hoja.
+      onPointerDown={immersive ? undefined : startCreate}
+      onPointerMove={immersive ? undefined : onPointerMove}
+      onPointerUp={immersive ? undefined : onPointerUp}
+      onPointerCancel={immersive ? undefined : onPointerCancel}
+      className={cn(
+        "relative select-none",
+        // A pantalla completa la hoja mide lo que dice el escenario (ver `useEditStage`); en la pagina, el ancho de siempre.
+        immersive ? "shrink-0 shadow-elevation-2" : "w-full max-w-[640px]",
+        // Tablet (768-1279 px, fuera de PDF Pro): la hoja pasa de los 640 px de escritorio (en un iPad vertical y
+        // horizontal ocupaba 295-460 px). El escritorio (>= 1 280 px) queda igual.
+        !immersive && !inPro && "md:max-xl:max-w-[52rem]",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
+        // GE-01 / W3-A3: con Seleccionar un dedo sobre la hoja DESPLAZA la pagina (`pan-x pan-y`). Con una herramienta
+        // armada el lienzo se queda el gesto (`touch-none`, fijado ANTES del toque: en iOS no se cambia a mitad
+        // de un gesto): el dedo y el lapiz dibujan de inmediato y la pagina se mueve con DOS dedos. Con «Un dedo
+        // dibuja» apagado vuelve el modo de antes (arrastrar desplaza; quieto un momento y arrastrar, dibuja).
+        // Los elementos y tiradores llevan `touch-none` propio. Con zoom el lienzo tambien se queda el gesto
+        // (mover la hoja y, en su borde, la pagina).
+        // A pantalla completa no hay pagina que desplazar: `touch-none` desde el primer toque (en iOS no se cambia a mitad de gesto).
+        immersive || zoom > 1.001 || (creates && fingerDrawOn) ? "touch-none" : "touch-pan-x touch-pan-y",
+        immersive && smoothView && "transition-transform duration-[280ms] ease-[var(--ease-spring)] motion-reduce:transition-none",
+        creates ? "cursor-crosshair" : "cursor-default",
+        // «Editar texto»: los huecos y campos se ven pero no reciben puntero (el texto manda).
+        editingText && "[&_.sign-field-box]:pointer-events-none",
+      )}
+      style={
+        immersive
+          ? ({
+              width: stage.sheet ? stage.sheet.width : undefined,
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: "center center",
+              willChange: "transform",
+              visibility: stage.sheet ? undefined : "hidden",
+              "--sheet-zoom": zoom,
+            } as CSSProperties)
+          : zoom !== 1 || pan.x !== 0 || pan.y !== 0
+            ? {
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: "center center",
+              }
+            : undefined
+      }
+    >
+      {preview ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          ref={imageRef}
+          src={preview}
+          alt={strings.documentTitle}
+          draggable={false}
+          className="block w-full rounded-[10px]"
+        />
+      ) : (
+        <div className="flex aspect-[3/4] w-full items-center justify-center rounded-[10px] bg-white/5">
+          {loading ? (
+            <Spinner className="size-5" label={strings.loadingPreview} />
+          ) : null}
+        </div>
+      )}
+
+      {pageSlots.map((field) => (
+        <SlotBox
+          key={field.id}
+          field={field}
+          signer={signerById(field.signerId)}
+          selected={selection?.kind === "slot" && selection.id === field.id}
+          label={slotLabel(field)}
+          role={slotRole}
+          resizeLabel={solo ? strings.soloResizeSignature : strings.resizeField}
+          image={solo && solo.signaturePng ? solo.signaturePng : null}
+          strings={strings}
+          hit={hitInsets?.get(`slot:${field.id}`)}
+          tiny={isTiny(field.rect)}
+          onPointerDownHandler={startDrag}
+          onFocusSelect={() => select({ kind: "slot", id: field.id })}
+          onTabToBar={focusBar}
+        />
+      ))}
+
+      {pageTextFields.map((field) => (
+        <TextFieldBox
+          key={field.id}
+          field={field}
+          label={textLabel(field)}
+          value={values[field.id] ?? ""}
+          onValueChange={(value) => onValueChange(field.id, value)}
+          memoryKey={memoryKeyOf(field)}
+          tag={tagOf(field) ?? null}
+          impliedTag={impliedTagOf(field)}
+          taggable={tagging ? taggableTypeOf(field) : null}
+          autoMark={tagging?.autoFilled[field.id]}
+          freshTag={field.id === freshTagId}
+          onCommitValue={tagging ? (committed) => tagging.onCommit(field.id, committed) : undefined}
+          onTag={(next) => changeTag(field, next)}
+          onOtherTag={() => setCustomTagFor(field.id)}
+          selected={selection?.kind === "text" && selection.id === field.id}
+          fillCurrent={field.id === fillFocusId}
+          editing={field.id === editingId}
+          suggested={isSuggestionOnly(field, values[field.id])}
+          strings={strings}
+          hit={hitInsets?.get(`text:${field.id}`)}
+          tiny={isTiny(field.rect)}
+          suggestionsPlacement={suggestionSideFor(field)}
+          onPointerDownHandler={startDrag}
+          onFocusSelect={() => select({ kind: "text", id: field.id })}
+          onOpenEditor={() => {
+            select({ kind: "text", id: field.id });
+            onEditingIdChange(field.id);
+          }}
+          onEditEnd={() => onEditingIdChange(null)}
+          onAdvance={
+            keyboardNavEnabled
+              ? (direction) => advanceToNextEmptyField(field.id, direction)
+              : undefined
+          }
+          onToggle={
+            fieldTypeOf(field) === "checkbox"
+              ? () => toggleCheckbox(field)
+              : undefined
+          }
+          onTabToBar={focusBar}
+          pointScale={pointScale}
+          pageHeightPt={pageSizePt?.height}
+          fitFont={immersive}
+        />
+      ))}
+
+      {textEditing.layer}
+
+      {draft ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute rounded-[4px] border-2 border-dashed"
+          style={{
+            left: percent(Math.min(draft.x, draft.toX)),
+            top: percent(Math.min(draft.y, draft.toY)),
+            width: percent(Math.abs(draft.toX - draft.x)),
+            height: percent(Math.abs(draft.toY - draft.y)),
+            borderColor:
+              creates?.kind === "slot"
+                ? solo
+                  ? SOLO_COLOR
+                  : (activeSigner?.color ?? ORPHAN_SLOT_COLOR)
+                : TEXT_FIELD_COLOR,
+          }}
+        />
+      ) : null}
+    </div>
+  );
+
   /** Botones de zoom (en la vista continua van a la barra pegajosa del envoltorio). */
   /* VI-07: `ButtonGroup` separa 4 px con raton y 8 px con dedo (antes 2 px): un dedo gordo no acierta el vecino. */
   const zoomGroup = (
@@ -3206,6 +4044,35 @@ function DocumentCanvasInner({
     </Button>
   ) : null;
 
+  /* Entrada al modo «Editar campos» a pantalla completa (solo con proveedor: Firmar y Firmar de PDF Pro). */
+  const openEditMode = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    setInlineHeight(rootRef.current?.offsetHeight ?? 0);
+    if (toolRef.current === "editText") onToolChange("select");
+    editHost?.open(event.currentTarget);
+  };
+  const entry = editHost ? (
+    coarse && !merged ? (
+      <div className="space-y-2.5 rounded-ios-sm bg-signal/10 p-3" data-edit-entry-card="">
+        <Button variant="primary" size="md" fullWidth wrap data-edit-entry="" onClick={openEditMode}>
+          <Maximize2 aria-hidden="true" className="size-4" />
+          {editStrings.entryButtonTouch}
+        </Button>
+        <p className="text-footnote leading-relaxed text-muted-foreground">{editStrings.entryHint}</p>
+        <SwitchRow
+          label={editStrings.entryOpenAlways}
+          hint={editStrings.entryOpenAlwaysHint}
+          checked={editHost.openOnEnter}
+          onChange={editHost.setOpenOnEnter}
+        />
+      </div>
+    ) : (
+      <Button variant="secondary" size="sm" className={COARSE_TALL} data-edit-entry="" onClick={openEditMode}>
+        <Maximize2 aria-hidden="true" className="size-4" />
+        {editStrings.entryButton}
+      </Button>
+    )
+  ) : null;
+
   /*
    * Estado y acciones destructivas, encima del lienzo: en movil se hace scroll dentro de la vista previa para
    * moverse por el documento, asi que ningun boton que borre queda en esa ruta. Con los controles en la barra
@@ -3349,6 +4216,298 @@ function DocumentCanvasInner({
     </div>
   );
 
+  /* ---------------------------------------------------------------- *
+   * Modo «Editar campos» a pantalla completa: lo que se pinta en el nodo del proveedor (portal).
+   * ---------------------------------------------------------------- */
+  if (immersive && editHost?.container) {
+    const visibleText = textFields.filter((field) => !isSuggestionOnly(field, values[field.id]));
+    const total = Math.max(1, pageCount, thumbs.length);
+    const counts = Array.from({ length: total }, (_, index) => elementsOnPageIndex(index));
+
+    const iconOfText = (field: DetectedField): ElementIcon => {
+      const type = fieldTypeOf(field);
+      return type === "checkbox" ? "checkbox" : type === "date" ? "date" : type === "initials" ? "textInitials" : "text";
+    };
+    const rows: ElementRow[] = [
+      ...[...slots].sort(byDocumentOrder).map(
+        (field): ElementRow => ({
+          key: `slot:${field.id}`,
+          id: field.id,
+          kind: "slot",
+          pageIndex: field.pageIndex,
+          name: slotLabel(field),
+          detail: slotTypeLabel(field.type),
+          done: null,
+          color: signerById(field.signerId)?.color ?? ORPHAN_SLOT_COLOR,
+          icon: field.type,
+          selected: selection?.kind === "slot" && selection.id === field.id,
+        }),
+      ),
+      ...[...visibleText].sort(byDocumentOrder).map(
+        (field): ElementRow => ({
+          key: `text:${field.id}`,
+          id: field.id,
+          kind: "text",
+          pageIndex: field.pageIndex,
+          name: textLabel(field),
+          detail: fieldTypeOf(field) === "checkbox" ? textTypeLabel("checkbox") : (values[field.id] ?? "").trim().slice(0, 60),
+          done: isFieldFilled(field, values[field.id]) || field.optional === true,
+          color: TEXT_FIELD_COLOR,
+          icon: iconOfText(field),
+          selected: selection?.kind === "text" && selection.id === field.id,
+        }),
+      ),
+    ].sort((a, b) => a.pageIndex - b.pageIndex);
+
+    const frameTools = tools.filter((id) => id !== "editText");
+    const dockTab: DockTab = dockState.tab === "element" && !selectedElement ? "elements" : dockState.tab;
+    const dockTabs: DockTab[] = selectedElement
+      ? ["element", "elements", "pages", "help"]
+      : ["elements", "pages", "help"];
+
+    const neighbors = selection ? othersOnPage(selection.kind, selection.id) : [];
+    const heightPt = selectedTextField && pageSizePt ? selectedTextField.rect.height * pageSizePt.height : 0;
+    const autoFontSize = clampFontSize(Math.min(24, Math.max(MIN_FONT_SIZE, heightPt / LINE_HEIGHT_FACTOR)) || 12);
+    const selectedType = selectedTextField ? fieldTypeOf(selectedTextField) : null;
+
+    const inspector = selectedElement ? (
+      <EditInspector
+        strings={strings}
+        edit={editStrings}
+        name={selectedSlot ? slotLabel(selectedSlot) : selectedTextField ? textLabel(selectedTextField) : ""}
+        typeName={
+          selectedSlot ? slotTypeLabel(selectedSlot.type) : selectedType ? textTypeLabel(selectedType) : ""
+        }
+        color={
+          selectedSlot ? (signerById(selectedSlot.signerId)?.color ?? ORPHAN_SLOT_COLOR) : TEXT_FIELD_COLOR
+        }
+        kind={selectedSlot ? "slot" : "text"}
+        rect={selectedElement.rect}
+        signer={
+          selectedSlot && !solo && signers.length > 1
+            ? {
+                value: selectedSlot.signerId,
+                choices: signers.map((signer, index) => ({
+                  value: signer.id,
+                  label: signerDisplayName(signer.name, index, strings.defaultSignerName),
+                  color: signer.color,
+                })),
+              }
+            : null
+        }
+        slotType={selectedSlot && !solo ? selectedSlot.type : null}
+        textType={selectedType}
+        richTypes={richFieldTypesEnabled}
+        tag={
+          tagging && selectedTextField && taggableTypeOf(selectedTextField)
+            ? {
+                type: taggableTypeOf(selectedTextField) as TaggableType,
+                current: selectedTag,
+                suggested: impliedTagOf(selectedTextField),
+              }
+            : null
+        }
+        optional={selectedTextField?.optional === true}
+        fontSize={selectedTextField?.fontSize}
+        autoFontSize={autoFontSize}
+        hasNeighbor={neighbors.length > 0}
+        canPaste={clipboardKind !== null && !(solo && clipboardKind === "slot")}
+        canRepeat={
+          Math.max(1, pageCount) > 1 &&
+          !solo &&
+          (selectedSlot ? selectedSlot.type === "initials" : selectedType === "initials")
+        }
+        canDuplicate={!(solo && selectedSlot)}
+        canCopy={!(solo && selectedSlot)}
+        onSize={(size) => selection && patchRect(selection.kind, selection.id, resizeTo(selectedElement.rect, size))}
+        onSigner={(signerId) => selectedSlot && changeSlot(selectedSlot, { signerId })}
+        onSlotType={(type) => selectedSlot && changeSlot(selectedSlot, { type })}
+        onTextType={(type) => selectedTextField && changeTextType(selectedTextField, type)}
+        onTag={(next) => selectedTextField && changeTag(selectedTextField, next)}
+        onOtherTag={() => selectedTextField && setCustomTagFor(selectedTextField.id)}
+        onOptional={(optional) => selectedTextField && patchTextField(selectedTextField.id, { optional })}
+        onFontSize={(size) =>
+          selectedTextField && patchTextField(selectedTextField.id, { fontSize: size === undefined ? null : size })
+        }
+        onAlign={alignSelected}
+        onMatchSize={matchSelectedSize}
+        onDuplicate={duplicateSelected}
+        onCopy={copySelected}
+        onPaste={pasteHere}
+        onRepeat={repeatSelected}
+        onDelete={() => {
+          if (!selection) return;
+          removeElement(selection.kind, selection.id);
+          setAnnouncement(editStrings.removedStatus);
+        }}
+      />
+    ) : null;
+
+    const dockBody = (layout: { dockSide: "bottom" | "right" }) =>
+      dockTab === "element" ? (
+        inspector
+      ) : dockTab === "elements" ? (
+        <ElementsPanel rows={rows} pageIndex={pageIndex} edit={editStrings} onSelect={selectFromList} />
+      ) : dockTab === "pages" ? (
+        <PagesPanel
+          thumbs={thumbs}
+          pageCount={total}
+          pageIndex={pageIndex}
+          counts={counts}
+          strip={layout.dockSide === "bottom"}
+          strings={strings}
+          edit={editStrings}
+          onGo={goToPage}
+          onStepWithFields={stepWithFields}
+          docs={sequence?.docs}
+          onSelectDoc={sequence?.selectDoc}
+        />
+      ) : (
+        <HelpPanel
+          edit={editStrings}
+          fitMode={stage.fitMode}
+          onFit={stage.setFitMode}
+          openOnEnter={editHost.openOnEnter}
+          onOpenOnEnter={editHost.setOpenOnEnter}
+        />
+      );
+
+    const stageNode = (
+      <div ref={stageRef} className="absolute inset-0" data-edit-stage-root="">
+        <StatusRegion text={announcement} className="sr-only" data-canvas-announcer="">
+          {announcement}
+        </StatusRegion>
+        <div
+          ref={clipRef}
+          data-edit-stage=""
+          onPointerDown={startCreate}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerCancel}
+          className={cn(
+            "absolute inset-0 flex touch-none items-center justify-center overflow-hidden select-none",
+            creates ? "cursor-crosshair" : "cursor-default",
+          )}
+        >
+          {hostElement}
+        </div>
+        {fingerHintOpen && creates ? (
+          <div
+            aria-hidden="true"
+            data-finger-hint=""
+            className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-3"
+          >
+            <p className="material-thick shadow-elevation-2 flex max-w-full items-center gap-2 rounded-ios px-3.5 py-2 text-center text-footnote font-medium text-foreground">
+              <Hand aria-hidden="true" className="size-4 shrink-0" />
+              {gestureStrings.fingerHint}
+            </p>
+          </div>
+        ) : null}
+        <StatusRegion text={pendingUndoText} className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-3">
+          {pendingUndo ? (
+            <div className="animate-rise-in material-thick pointer-events-auto flex max-w-full items-center gap-1 rounded-full py-1 pr-1 pl-4 shadow-elevation-3">
+              <span className="min-w-0 py-2 text-footnote font-medium text-foreground">{pendingUndoText}</span>
+              <Button ref={undoButtonRef} variant="ghost" size="sm" className="rounded-full" onClick={restorePendingUndo}>
+                {pendingUndo.kind === "slot"
+                  ? strings.undoRemoveField
+                  : pendingUndo.kind === "type"
+                    ? strings.undoTypeChange
+                    : strings.undoRemoveTextField}
+              </Button>
+            </div>
+          ) : null}
+        </StatusRegion>
+      </div>
+    );
+
+    return (
+      <>
+        <div
+          ref={rootRef}
+          data-edit-stub=""
+          style={{ minHeight: inlineHeight || undefined }}
+          className="surface-card rounded-ios p-4 text-footnote text-muted-foreground"
+        >
+          {editStrings.stub}
+        </div>
+        {createPortal(
+          <LiveSinkProvider value={null}>
+            <EditModeFrame
+              strings={strings}
+              edit={editStrings}
+              title={sequence?.docs && sequence.docs.length > 1 ? (sequence.docs.find((doc) => doc.active)?.name ?? editStrings.title) : editStrings.title}
+              onDone={exitEditMode}
+              history={{ canUndo: history.canUndo, canRedo: history.canRedo, onUndo: runUndo, onRedo: runRedo }}
+              tools={frameTools}
+              tool={effectiveTool}
+              toolLabel={toolLabel}
+              onTool={changeTool}
+              signers={
+                solo
+                  ? []
+                  : signers.map((signer, index) => ({
+                      id: signer.id,
+                      name: signerDisplayName(signer.name, index, strings.defaultSignerName),
+                      color: signer.color,
+                    }))
+              }
+              activeSignerId={activeSignerId}
+              onActiveSigner={onActiveSignerIdChange}
+              pages={{
+                index: pageIndex,
+                count: total,
+                onPrev: () => goToPage(Math.max(0, pageIndex - 1)),
+                onNext: () => goToPage(Math.min(total - 1, pageIndex + 1)),
+                onStepWithFields: stepWithFields,
+              }}
+              zoom={{
+                value: zoom,
+                canIn: zoom < EDIT_MAX_ZOOM - 0.01,
+                canOut: zoom > 1.01,
+                onIn: zoomIn,
+                onOut: zoomOut,
+                onFit: () => zoomEdit(1, null, true),
+                fitMode: stage.fitMode,
+                onToggleFit: () => {
+                  const next = stage.fitMode === "height" ? "width" : "height";
+                  stage.setFitMode(next);
+                  setAnnouncement(editStrings.fitStatus(next));
+                },
+              }}
+              dock={{
+                open: dockState.open,
+                tab: dockTab,
+                tabs: dockTabs,
+                onTab: (tab) => setDockState({ open: true, tab }),
+                onClose: closeDock,
+                body: dockBody,
+              }}
+              properties={{
+                visible: Boolean(selectedElement) && !(dockState.open && dockTab === "element"),
+                onClick: () => setDockState({ open: true, tab: "element" }),
+              }}
+              onOpenTab={openDockTab}
+              stage={stageNode}
+              onChromeInsets={setChromeInsets}
+            />
+          </LiveSinkProvider>,
+          editHost.container,
+        )}
+        {tagging ? (
+          <CustomTagSheet
+            open={customTagFor !== null}
+            onClose={() => setCustomTagFor(null)}
+            closeLabel={strings.confirmClose}
+            onCreated={(tag) => {
+              const target = textFields.find((field) => field.id === customTagFor);
+              if (target) changeTag(target, tag);
+            }}
+          />
+        ) : null}
+      </>
+    );
+  }
+
   return (
     <div ref={rootRef}>
       {/* Region viva SIEMPRE montada: herramienta activa, duplicados, saltos de campo. */}
@@ -3368,6 +4527,7 @@ function DocumentCanvasInner({
         <div className={cn("surface-card rounded-ios space-y-3", compact ? "mb-2 p-2" : "mb-3 p-3")}>
           {signatureControls}
           {placeControl}
+          {entry}
         </div>
       )}
 
@@ -3401,6 +4561,7 @@ function DocumentCanvasInner({
             >
               {signatureControls}
               {placeControl}
+              {entry}
             </div>
           ) : null}
           <ButtonGroup>
@@ -3547,144 +4708,7 @@ function DocumentCanvasInner({
               merged ? "p-1.5" : "p-3",
             )}
           >
-            <div
-              ref={hostRef}
-              data-canvas="host"
-              data-tool={effectiveTool}
-              // Ultimo recurso del foco tras quitar elementos (ver arriba); no entra en el orden de Tab.
-              tabIndex={-1}
-              onPointerDown={startCreate}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onPointerCancel={onPointerCancel}
-              className={cn(
-                "relative w-full max-w-[640px] select-none",
-                // Tablet (768-1279 px, fuera de PDF Pro): la hoja pasa de los 640 px de escritorio (en un iPad vertical y
-                // horizontal ocupaba 295-460 px). El escritorio (>= 1 280 px) queda igual.
-                !inPro && "md:max-xl:max-w-[52rem]",
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
-                // GE-01 / W3-A3: con Seleccionar un dedo sobre la hoja DESPLAZA la pagina (`pan-x pan-y`). Con una herramienta
-                // armada el lienzo se queda el gesto (`touch-none`, fijado ANTES del toque: en iOS no se cambia a mitad
-                // de un gesto): el dedo y el lapiz dibujan de inmediato y la pagina se mueve con DOS dedos. Con «Un dedo
-                // dibuja» apagado vuelve el modo de antes (arrastrar desplaza; quieto un momento y arrastrar, dibuja).
-                // Los elementos y tiradores llevan `touch-none` propio. Con zoom el lienzo tambien se queda el gesto
-                // (mover la hoja y, en su borde, la pagina).
-                zoom > 1.001 || (creates && fingerDrawOn) ? "touch-none" : "touch-pan-x touch-pan-y",
-                creates ? "cursor-crosshair" : "cursor-default",
-                // «Editar texto»: los huecos y campos se ven pero no reciben puntero (el texto manda).
-                editingText && "[&_.sign-field-box]:pointer-events-none",
-              )}
-              style={
-                zoom !== 1 || pan.x !== 0 || pan.y !== 0
-                  ? {
-                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                      transformOrigin: "center center",
-                    }
-                  : undefined
-              }
-            >
-              {preview ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  ref={imageRef}
-                  src={preview}
-                  alt={strings.documentTitle}
-                  draggable={false}
-                  className="block w-full rounded-[10px]"
-                />
-              ) : (
-                <div className="flex aspect-[3/4] w-full items-center justify-center rounded-[10px] bg-white/5">
-                  {loading ? (
-                    <Spinner className="size-5" label={strings.loadingPreview} />
-                  ) : null}
-                </div>
-              )}
-
-              {pageSlots.map((field) => (
-                <SlotBox
-                  key={field.id}
-                  field={field}
-                  signer={signerById(field.signerId)}
-                  selected={selection?.kind === "slot" && selection.id === field.id}
-                  label={slotLabel(field)}
-                  role={slotRole}
-                  resizeLabel={solo ? strings.soloResizeSignature : strings.resizeField}
-                  image={solo && solo.signaturePng ? solo.signaturePng : null}
-                  strings={strings}
-                  hit={hitInsets?.get(`slot:${field.id}`)}
-                  tiny={isTiny(field.rect)}
-                  onPointerDownHandler={startDrag}
-                  onFocusSelect={() => select({ kind: "slot", id: field.id })}
-                  onTabToBar={focusBar}
-                />
-              ))}
-
-              {pageTextFields.map((field) => (
-                <TextFieldBox
-                  key={field.id}
-                  field={field}
-                  label={textLabel(field)}
-                  value={values[field.id] ?? ""}
-                  onValueChange={(value) => onValueChange(field.id, value)}
-                  memoryKey={memoryKeyOf(field)}
-                  tag={tagOf(field) ?? null}
-                  impliedTag={impliedTagOf(field)}
-                  taggable={tagging ? taggableTypeOf(field) : null}
-                  autoMark={tagging?.autoFilled[field.id]}
-                  freshTag={field.id === freshTagId}
-                  onCommitValue={tagging ? (committed) => tagging.onCommit(field.id, committed) : undefined}
-                  onTag={(next) => changeTag(field, next)}
-                  onOtherTag={() => setCustomTagFor(field.id)}
-                  selected={selection?.kind === "text" && selection.id === field.id}
-                  fillCurrent={field.id === fillFocusId}
-                  editing={field.id === editingId}
-                  suggested={isSuggestionOnly(field, values[field.id])}
-                  strings={strings}
-                  hit={hitInsets?.get(`text:${field.id}`)}
-                  tiny={isTiny(field.rect)}
-                  suggestionsPlacement={suggestionSideFor(field)}
-                  onPointerDownHandler={startDrag}
-                  onFocusSelect={() => select({ kind: "text", id: field.id })}
-                  onOpenEditor={() => {
-                    select({ kind: "text", id: field.id });
-                    onEditingIdChange(field.id);
-                  }}
-                  onEditEnd={() => onEditingIdChange(null)}
-                  onAdvance={
-                    keyboardNavEnabled
-                      ? (direction) => advanceToNextEmptyField(field.id, direction)
-                      : undefined
-                  }
-                  onToggle={
-                    fieldTypeOf(field) === "checkbox"
-                      ? () => toggleCheckbox(field)
-                      : undefined
-                  }
-                  onTabToBar={focusBar}
-                />
-              ))}
-
-              {textEditing.layer}
-
-              {draft ? (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute rounded-[4px] border-2 border-dashed"
-                  style={{
-                    left: percent(Math.min(draft.x, draft.toX)),
-                    top: percent(Math.min(draft.y, draft.toY)),
-                    width: percent(Math.abs(draft.toX - draft.x)),
-                    height: percent(Math.abs(draft.toY - draft.y)),
-                    borderColor:
-                      creates?.kind === "slot"
-                        ? solo
-                          ? SOLO_COLOR
-                          : (activeSigner?.color ?? ORPHAN_SLOT_COLOR)
-                        : TEXT_FIELD_COLOR,
-                  }}
-                />
-              ) : null}
-            </div>
+            {hostElement}
           </div>
 
           <FloatingFieldBar
@@ -4063,6 +5087,8 @@ function ElementLabel({ label, color, className }: ElementLabelProps) {
     <span
       className={cn(
         "pointer-events-none absolute -top-0.5 left-0 flex max-w-full -translate-y-full items-center gap-1 rounded-t-[4px] border border-b-0 bg-elevated px-1.5 py-0.5 text-caption-2 leading-tight font-semibold text-foreground",
+        // A pantalla completa (`--sheet-zoom` en la hoja) la pestana no crece con el zoom: se queda del tamano de siempre.
+        "origin-bottom-left [scale:calc(1/var(--sheet-zoom,1))]",
         className,
       )}
       style={{ borderColor: color }}
@@ -4113,6 +5139,8 @@ function ResizeHandle({
       onPointerDown={onPointerDownHandler}
       className={cn(
         "absolute flex size-6 cursor-nwse-resize touch-none items-center justify-center rounded-full border-2 border-foreground bg-signal",
+        // A pantalla completa (`--sheet-zoom` en la hoja) el tirador no crece con el zoom: se queda de 24 px con su zona de 44.
+        "[scale:calc(1/var(--sheet-zoom,1))]",
         outside ? "-right-11 -bottom-11" : "-right-2.5 -bottom-2.5",
         outside ? COARSE_HIT_HANDLE_OUTSIDE : COARSE_HIT_HANDLE,
       )}
@@ -4327,6 +5355,11 @@ type TextFieldBoxProps = HitProps & {
   onToggle?: () => void;
   /** Tab con el campo enfocado (sin editar): entra en la barra flotante. Devuelve `true` si lo hizo. */
   onTabToBar: () => boolean;
+  /** Pixeles de la hoja por punto PDF: el texto con tamano de letra propio (`field.fontSize`) se ve a su tamano real. */
+  pointScale?: number;
+  /** Alto de la pagina en puntos PDF. Con `fitFont` (modo «Editar campos»), el texto automatico se ve al tamano que tendra en el PDF. */
+  pageHeightPt?: number;
+  fitFont?: boolean;
 };
 
 /**
@@ -4364,12 +5397,24 @@ function TextFieldBox({
   onAdvance,
   onToggle,
   onTabToBar,
+  pointScale,
+  pageHeightPt,
+  fitFont = false,
 }: TextFieldBoxProps) {
   const type = fieldTypeOf(field);
   const dashed = field.confidence === "low";
   const color = dashed ? LOW_CONFIDENCE_COLOR : TEXT_FIELD_COLOR;
   const filled = isFieldFilled(field, value);
-  const status = filled ? strings.a11yFilled : strings.a11yPending;
+  const editStrings = useEditModeStrings();
+  const status = filled ? strings.a11yFilled : field.optional === true ? editStrings.optionalMark : strings.a11yPending;
+  /** Tamano de letra propio del campo, en pixeles de la hoja (con el editor abierto: el de la caja antes de reducirla al 75 %). */
+  // Letra automatica: la del PDF (sigue al alto del hueco, 6-24 pt); asi el texto crece y encoge con la hoja en vez de quedarse en 12 px.
+  const autoPt =
+    fitFont && pageHeightPt && !field.fontSize
+      ? Math.min(24, Math.max(MIN_FONT_SIZE, (field.rect.height * pageHeightPt) / LINE_HEIGHT_FACTOR))
+      : null;
+  const fontPt = field.fontSize ?? autoPt;
+  const fontPx = fontPt && pointScale ? fontPt * pointScale : null;
   const language = useOptionalLanguage();
   const tagName = tag ? tagLabel(tag, language, customTagNames()) : null;
   const autoFilled = autoMark === "filled" && filled;
@@ -4552,6 +5597,7 @@ function TextFieldBox({
                 : strings.textFieldPlaceholder
             }
             maxLength={type === "initials" ? 4 : undefined}
+            style={fontPx ? { fontSize: `${Math.max(16, fontPx / 0.75)}px` } : undefined}
             autoFocus
             onPointerDown={(event) => event.stopPropagation()}
             onChange={(event) => {
@@ -4671,8 +5717,8 @@ function TextFieldBox({
       ) : value ? (
         <>
           <span
-            className="pointer-events-none absolute inset-0 flex items-center truncate px-1.5 text-xs"
-            style={{ color: INK_ON_PAGE }}
+            className={cn("pointer-events-none absolute inset-0 flex items-center truncate px-1.5", !fontPx && "text-xs")}
+            style={{ color: INK_ON_PAGE, ...(fontPx ? { fontSize: `${fontPx}px`, lineHeight: 1.1 } : {}) }}
           >
             {value}
           </span>
