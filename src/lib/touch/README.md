@@ -29,15 +29,19 @@ canvas.current?.getGestureMode();  // "auto" | "scroll" | "draw"
 window.dispatchEvent(new CustomEvent(CANVAS_REVEAL_EVENT, { detail: { rect, options } }));
 ```
 
-`gestureMode` (que hace UN dedo con una herramienta de creacion armada):
+`gestureMode` (que hace UN dedo con una herramienta de creacion armada; W3-A3):
 
-- `auto` (defecto): toque = colocar, deslizar = desplazar la pagina, mantener ~260 ms y arrastrar = dibujar.
-  Con puntero grueso aparece el interruptor visible «Dibujar con el dedo».
-- `scroll`: igual, sin interruptor.
-- `draw`: arrastrar dibuja de inmediato (el dedo ya no desplaza con la herramienta armada).
+- Ausente (lo normal): manda el interruptor visible «Un dedo dibuja» (puntero grueso), ENCENDIDO por defecto y recordado en
+  `localStorage` (`optimuspdf.sign.fingerDraw`). Encendido: un dedo dibuja de inmediato (`touch-action: none` en la hoja,
+  fijado antes del toque) y DOS dedos mueven la pagina (pellizco = zoom). Apagado: el modo de antes (toque = colocar, deslizar =
+  desplazar, mantener ~260 ms y arrastrar = dibujar).
+- `auto` / `scroll`: el modo de antes y sin interruptor (`getGestureMode()` devuelve `auto`).
+- `draw`: el dedo dibuja de inmediato y dos dedos mueven la pagina, sin interruptor.
 
 Sin herramienta (Seleccionar) un dedo siempre desplaza la pagina (`touch-action: pan-x pan-y`); con zoom > 1 mueve la
-hoja y, al llegar a su borde, sigue con la pagina. Raton: dibuja de inmediato. Lapiz: como el dedo.
+hoja y, al llegar a su borde, sigue con la pagina. Raton y lapiz dibujan de inmediato; el lapiz ademas rechaza la palma
+(`canvasGestures.ts`: los toques de dedo se ignoran mientras el lapiz toca la hoja y 500 ms despues; no cuentan para el
+pellizco). La herramienta armada SE QUEDA armada tras colocar un elemento (`toolAfterPlacement`).
 
 La paleta de Firmar ya no es una capa fija (integracion M4): en el telefono es un dock pegajoso plegable DETRAS de la
 hoja (`[data-palette-dock]`); `freeRegion` / `measureObstructions` lo cuentan como obstruccion inferior.

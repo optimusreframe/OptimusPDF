@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Copy,
   CornerUpLeft,
+  Hand,
   Move,
   PenLine,
   Signature,
@@ -101,9 +102,24 @@ import {
   TOOL_CREATES,
   availableTools,
   convertValueForType,
+  rectsOverlap,
+  toolAfterPlacement,
   toolFromShortcut,
   type PlacementTool,
 } from "@/app/sign-pdf/canvasTools";
+import {
+  FINGER_HINT_MS,
+  createPenGuard,
+  isDraftTap,
+  isScrollLikeSwipe,
+  markFingerHintSeen,
+  pageScrollForTwoFingers,
+  readFingerDrawPref,
+  readFingerHintSeen,
+  writeFingerDrawPref,
+  type PenPhase,
+} from "@/app/sign-pdf/canvasGestures";
+import { useGestureStrings } from "@/app/sign-pdf/gestureStrings";
 import {
   forgetValue,
   recordValue,
@@ -119,7 +135,6 @@ import {
   scrollVerticallyBy,
   type Box,
 } from "@/lib/touch/scrollRegion";
-import { useTouchStrings } from "@/lib/touch/strings";
 
 /*
  * W2-C: el mismo lienzo sirve al modo "Solo yo" (`solo`): la firma propia es el
@@ -155,6 +170,12 @@ export const SUGGESTIONS_DEFAULT_MAX = 8;
 
 /** Lado minimo de un elemento, en fraccion de pagina. */
 const MIN_FIELD_SIDE = 0.02;
+
+/**
+ * Cuanto debe cambiar la distancia entre dos dedos (fraccion de la inicial) para que el gesto deje de ser «mover la
+ * pagina con dos dedos» y empiece a ampliar. Por debajo, el zoom no se mueve aunque los dedos se abran o cierren un poco.
+ */
+const PINCH_SCALE_SLOP = 0.06;
 
 /** Movimiento por debajo del cual un puntero sobre lienzo vacio cuenta como clic, no arrastre. */
 const CLICK_SLOP = 0.004;
@@ -216,9 +237,9 @@ const CHECKBOX_DRAWN_MIN_PX = 16;
 const TINY_ELEMENT_PX = 40;
 
 /**
- * Tiempo (ms) que el dedo debe estar QUIETO sobre la hoja, con una herramienta de creacion armada, para que el
- * arrastre siguiente DIBUJE el recuadro en vez de desplazar la pagina (GE-01). Un toque corto coloca el elemento por
- * defecto; deslizar de inmediato desplaza.
+ * Tiempo (ms) que el dedo debe estar QUIETO sobre la hoja, con una herramienta de creacion armada y «Un dedo dibuja»
+ * APAGADO, para que el arrastre siguiente DIBUJE el recuadro en vez de desplazar la pagina (GE-01). Un toque corto coloca
+ * el elemento por defecto; deslizar de inmediato desplaza.
  */
 const HOLD_TO_DRAW_MS = 260;
 
@@ -356,13 +377,15 @@ export type CanvasSequence = {
 };
 
 /**
- * Que hace UN dedo sobre la hoja cuando hay una herramienta de creacion armada (GE-01):
- *  - `auto`   (por defecto): un toque coloca el elemento por defecto, deslizar DESPLAZA la pagina y mantener pulsado
- *    ~260 ms antes de arrastrar dibuja el recuadro. La persona puede activar «Dibujar con el dedo» (interruptor visible).
- *  - `scroll`: igual que `auto` y sin interruptor (el dedo nunca dibuja por arrastre inmediato).
- *  - `draw`  : arrastrar dibuja de inmediato (la hoja deja de desplazarse con un dedo mientras la herramienta esta armada).
+ * Que hace UN dedo sobre la hoja cuando hay una herramienta de creacion armada (GE-01 / W3-A3):
+ * Con la prop AUSENTE manda el interruptor visible «Un dedo dibuja» (puntero grueso), ENCENDIDO por defecto y recordado en
+ * este navegador: encendido el dedo dibuja de inmediato y DOS dedos mueven la pagina; apagado, un toque coloca, deslizar
+ * desplaza la pagina y mantener quieto ~260 ms antes de arrastrar dibuja. Con la prop presente:
+ *  - `auto` y `scroll`: el modo de antes (toque = colocar, deslizar = desplazar, mantener = dibujar) y sin interruptor.
+ *    `getGestureMode()` devuelve `auto` con el interruptor apagado.
+ *  - `draw`  : el dedo dibuja de inmediato y dos dedos mueven la pagina, sin interruptor.
  * Sin herramienta (Seleccionar) el dedo siempre desplaza la pagina (a 1x) o mueve la hoja ampliada y, al llegar a su borde,
- * sigue con la pagina. Con raton o lapiz el arrastre siempre dibuja de inmediato.
+ * sigue con la pagina. Con raton o lapiz el arrastre siempre dibuja de inmediato (el lapiz, ademas, con rechazo de palma).
  */
 export type GestureMode = "auto" | "scroll" | "draw";
 
@@ -437,7 +460,7 @@ export type DocumentCanvasProps = {
   sequence?: CanvasSequence;
   /** Acceso imperativo (`scrollIntoViewRect`...): ver `DocumentCanvasApi`. */
   apiRef?: Ref<DocumentCanvasApi>;
-  /** Que hace un dedo sobre la hoja con una herramienta armada: ver `GestureMode`. Ausente = `auto` con interruptor visible. */
+  /** Que hace un dedo sobre la hoja con una herramienta armada: ver `GestureMode`. Ausente = `auto` (interruptor «Un dedo dibuja», encendido). */
   gestureMode?: GestureMode;
   /**
    * Presente = la herramienta «Editar texto» existe en la paleta: las ediciones del texto
@@ -568,7 +591,7 @@ function DocumentCanvasInner({
   apiRef,
   gestureMode,
 }: DocumentCanvasProps) {
-  const touchStrings = useTouchStrings();
+  const gestureStrings = useGestureStrings();
   const compact = useCanvasCompact();
   /** Dentro de PDF Pro el layout de tablet lo gobierna la suite (paleta en carril desde 768 px); fuera, desde 1 280 px. */
   const inPro = useInProSuite();
@@ -627,6 +650,10 @@ function DocumentCanvasInner({
     startZoom: number;
     startPan: { x: number; y: number };
     startMid: { x: number; y: number };
+    /** La separacion de los dedos ya supero `PINCH_SCALE_SLOP`: desde ahi el gesto tambien amplia (antes solo mueve la pagina). */
+    scaling: boolean;
+    /** Punto medio de los dedos en el ultimo movimiento: lo que se mueven DOS dedos en vertical desplaza la pagina. */
+    lastMid: { x: number; y: number };
     /** Centro (px de pantalla) de la hoja al empezar: con `transform-origin: center` es `centro de layout + pan`. */
     startCenter: { x: number; y: number };
   } | null>(null);
@@ -634,8 +661,9 @@ function DocumentCanvasInner({
   const zoomRef = useRef(1);
   const panRef = useRef({ x: 0, y: 0 });
   /**
-   * Con una herramienta de creacion armada y un dedo: toque corto = colocar, quieto `HOLD_TO_DRAW_MS` = dibujar, deslizar
-   * antes = desplazar. `holdRef` guarda el candidato mientras decide.
+   * Modo de antes («Un dedo dibuja» apagado), con una herramienta de creacion armada y un dedo: toque corto = colocar, quieto
+   * `HOLD_TO_DRAW_MS` = dibujar, deslizar antes = desplazar. `holdRef` guarda el candidato mientras decide. El lapiz no pasa
+   * por aqui: dibuja de inmediato.
    */
   const holdRef = useRef<{
     pointerId: number;
@@ -651,8 +679,25 @@ function DocumentCanvasInner({
   const autoScrollRef = useRef<EdgeAutoScroller | null>(null);
   /** Donde (px de pantalla) empezo el recuadro: el auto-desplazamiento espera a que el dedo se mueva de verdad. */
   const draftStartClientRef = useRef<{ x: number; y: number } | null>(null);
-  /** Interruptor visible «Dibujar con el dedo» (GE-01): con una herramienta armada, arrastrar dibuja en vez de desplazar. */
-  const [fingerDraw, setFingerDraw] = useState(false);
+  /**
+   * Interruptor visible «Un dedo dibuja» (GE-01 / W3-A3): con una herramienta de creacion armada, un dedo dibuja de
+   * inmediato (y dos dedos mueven la pagina). Viene ENCENDIDO por defecto y la preferencia se recuerda en este navegador;
+   * apagado vuelve al modo de antes (arrastrar desplaza, mantener quieto un momento y arrastrar dibuja).
+   */
+  const [fingerDraw, setFingerDraw] = useState(readFingerDrawPref);
+  /** Pista de la primera vez («Un dedo dibuja · dos dedos mueven la pagina»), visible unos segundos. */
+  const [fingerHintOpen, setFingerHintOpen] = useState(false);
+  const fingerHintTimerRef = useRef<number | null>(null);
+  /** Lapiz en contacto o reciente: sus dedos vecinos (la palma) no crean ni dibujan. Ver `canvasGestures.ts`. */
+  const penGuardRef = useRef(createPenGuard());
+  /** Punteros de dedo rechazados como palma: sus eventos siguientes (mover, soltar) no tocan ningun gesto en curso. */
+  const ignoredPointersRef = useRef<Set<number>>(new Set());
+  /**
+   * Con dedo o lapiz, un toque corto sobre la hoja vacia MIENTRAS un campo estaba abierto en edicion solo lo cierra (y
+   * suelta la seleccion): no crea otro. Al cerrarse el teclado la hoja cambia de sitio y el toque no apuntaba donde parecia, y
+   * asi cerrar no deja un campo fantasma. Arrastrar, o un segundo toque, si crean. Con raton crea al momento.
+   */
+  const closeOnlyRef = useRef(false);
 
   /*
    * Sugerencias de la heuristica: una capa OPCIONAL, no campos del documento. Una
@@ -906,8 +951,14 @@ function DocumentCanvasInner({
       ? null
       : TOOL_CREATES[effectiveTool];
   const editingText = effectiveTool === "editText";
-  /** Un dedo con una herramienta armada dibuja de inmediato (la prop manda; sin ella, el interruptor visible). */
+  /** Un dedo con una herramienta armada dibuja de inmediato (la prop manda; sin ella, el interruptor visible, encendido por defecto). */
   const fingerDrawOn = gestureMode === "draw" || (gestureMode === undefined && fingerDraw);
+  /**
+   * Gestos de varios dedos (pellizco y arrastre de dos dedos para mover la pagina): con el zoom activado, o con una
+   * herramienta armada y un dedo que dibuja (entonces dos dedos son la UNICA forma de mover la pagina sin soltar la
+   * herramienta). El lapiz nunca cuenta para el pellizco.
+   */
+  const multiTouchOn = pinchZoomEnabled || (creates !== null && fingerDrawOn);
 
   /* «Editar texto»: la capa de bloques de Editar PDF sobre la MISMA imagen (ver `useSignTextEditing`). */
   const imageRef = useRef<HTMLImageElement>(null);
@@ -1015,6 +1066,38 @@ function DocumentCanvasInner({
     [editingId, onEditingIdChange, selection, onSelectionChange],
   );
 
+  /*
+   * Pista de la primera vez (W3-A3): con un dedo que dibuja de inmediato la pagina ya no se desplaza con un dedo; se dice
+   * UNA vez («Un dedo dibuja · dos dedos mueven la pagina») al armar la primera herramienta, visible unos segundos y por la
+   * region viva. Se da por vista al terminar o al colocar el primer elemento; sin almacenamiento puede volver a salir. Un
+   * arrastre de dedo casi vertical (intento de desplazar) la recuerda sin dejar un campo (ver `isScrollLikeSwipe`).
+   */
+  const hideFingerHint = useCallback(() => {
+    if (fingerHintTimerRef.current !== null) window.clearTimeout(fingerHintTimerRef.current);
+    fingerHintTimerRef.current = null;
+    setFingerHintOpen(false);
+  }, []);
+  /** Muestra la pista unos segundos (y la lee la region viva); `markSeen` la da por vista al terminar (la de la primera vez). */
+  const showFingerHint = useCallback(
+    (markSeen: boolean) => {
+      if (fingerHintTimerRef.current !== null) window.clearTimeout(fingerHintTimerRef.current);
+      setFingerHintOpen(true);
+      setAnnouncement(gestureStrings.fingerHint);
+      fingerHintTimerRef.current = window.setTimeout(() => {
+        fingerHintTimerRef.current = null;
+        if (markSeen) markFingerHintSeen();
+        setFingerHintOpen(false);
+      }, FINGER_HINT_MS);
+    },
+    [gestureStrings.fingerHint],
+  );
+  useEffect(
+    () => () => {
+      if (fingerHintTimerRef.current !== null) window.clearTimeout(fingerHintTimerRef.current);
+    },
+    [],
+  );
+
   /**
    * Armar una herramienta de creacion deselecciona: la barra flotante (que
    * flota sobre los vecinos del elemento) estorbaria al tocar la pagina para
@@ -1032,8 +1115,13 @@ function DocumentCanvasInner({
       }
       if (next !== "select") select(null);
       onToolChange(next);
+      if (next === "select") {
+        hideFingerHint();
+      } else if (next !== "editText" && coarse && fingerDrawOn && !readFingerHintSeen()) {
+        showFingerHint(true);
+      }
     },
-    [select, onToolChange, solo],
+    [select, onToolChange, solo, coarse, fingerDrawOn, hideFingerHint, showFingerHint],
   );
 
   /* ---------------------------------------------------------------- *
@@ -1041,7 +1129,7 @@ function DocumentCanvasInner({
    * ---------------------------------------------------------------- */
 
   const addSlot = useCallback(
-    (rect: NormalizedRect, type: SignatureFieldType) => {
+    (rect: NormalizedRect, type: SignatureFieldType, quiet = false) => {
       if (solo) {
         // Una sola firma: colocarla otra vez la MUEVE (mismo id, mismo dueño).
         const field: SignatureField = {
@@ -1065,6 +1153,10 @@ function DocumentCanvasInner({
         rect,
       };
       onSlotsChange([...slots, field]);
+      // Con la herramienta aun armada (`quiet`) el hueco nuevo NO queda seleccionado ni enfocado: su barra y su tirador
+      // taparian el sitio del siguiente toque (iniciales una tras otra) y el boton "Anadir aqui" sigue en pantalla con el
+      // foco del teclado. Tocarlo lo selecciona, como siempre.
+      if (quiet) return;
       select({ kind: "slot", id: field.id });
       // El boton "Anadir aqui" (si lo pulso el teclado) se desmonta al volver a
       // Seleccionar: el foco pasa al hueco recien creado.
@@ -1329,6 +1421,7 @@ function DocumentCanvasInner({
     const hold = holdRef.current;
     if (hold?.timer != null) window.clearTimeout(hold.timer);
     holdRef.current = null;
+    closeOnlyRef.current = false;
     setDraft(null);
   }, []);
 
@@ -1543,7 +1636,11 @@ function DocumentCanvasInner({
     };
   };
 
-  /** Crea lo que toca la herramienta activa y vuelve a Seleccionar (cada herramienta es de un solo uso). */
+  /**
+   * Crea lo que toca la herramienta activa. La herramienta SE QUEDA armada (W3-A3): cambia solo cuando la persona toca otra
+   * en la paleta («Seleccionar» incluida), pulsa Escape o su atajo (`toolAfterPlacement`; la firma de «Solo yo» es la unica
+   * que vuelve a Seleccionar). Asi se ponen las iniciales de cada pagina o varias casillas sin volver a elegirla.
+   */
   const createWithTool = (rect: NormalizedRect) => {
     if (!creates) return;
     if (creates.kind === "text" && creates.fieldType === "checkbox") {
@@ -1563,9 +1660,26 @@ function DocumentCanvasInner({
         };
       }
     }
-    if (creates.kind === "slot") addSlot(rect, creates.slotType);
-    else addTextField(rect, creates.fieldType);
-    onToolChange("select");
+    const nextTool = toolAfterPlacement(effectiveTool, { solo: Boolean(solo) });
+    const stays = nextTool !== "select";
+    if (creates.kind === "slot") addSlot(rect, creates.slotType, stays);
+    else {
+      addTextField(rect, creates.fieldType);
+      // Una casilla no abre editor: con la herramienta aun armada no queda seleccionada (ver `addSlot`). Un campo de texto
+      // o de fecha si queda abierto en edicion; tocar luego la hoja vacia (dedo o lapiz) solo lo cierra.
+      if (stays && creates.fieldType === "checkbox") {
+        onSelectionChange(null);
+        restoreFocusToRef.current = null;
+      }
+    }
+    if (!stays) {
+      onToolChange("select");
+      return;
+    }
+    // La pista de la primera vez ya cumplio (la persona acaba de colocar algo) y la region viva lo cuenta sin ruido.
+    markFingerHintSeen();
+    hideFingerHint();
+    setAnnouncement(gestureStrings.placedStillArmed(toolLabel(effectiveTool)));
   };
 
   const addCentered = (x: number, y: number) => {
@@ -1580,6 +1694,31 @@ function DocumentCanvasInner({
   };
 
   const addDrawn = (rect: NormalizedRect) => createWithTool(rect);
+
+  /**
+   * «Anadir aqui» (sin puntero): como la herramienta sigue armada, pulsarlo otra vez NO apila otro elemento encima del
+   * anterior: se busca el hueco libre mas cercano (en «Solo yo» la firma es una y simplemente se coloca).
+   */
+  const addAtDefaultSpot = () => {
+    if (!creates) return;
+    const size = defaultSize();
+    const centered: NormalizedRect = {
+      x: clamp(0.5 - size.width / 2, 0, Math.max(0, 1 - size.width)),
+      y: clamp(0.75 - size.height / 2, 0, Math.max(0, 1 - size.height)),
+      width: size.width,
+      height: size.height,
+    };
+    if (solo && creates.kind === "slot") {
+      createWithTool(centered);
+      return;
+    }
+    const others = [...pageSlots, ...pageTextFields].map((field) => field.rect);
+    createWithTool(
+      others.some((other) => rectsOverlap(centered, other))
+        ? { ...findFreeSpot(centered, others), width: centered.width, height: centered.height }
+        : centered,
+    );
+  };
 
   /**
    * Alcance de "quitar de la pagina" / "borrar todo": lo que crea la
@@ -1772,39 +1911,59 @@ function DocumentCanvasInner({
   };
 
   const startCreate = (event: ReactPointerEvent<HTMLDivElement>) => {
-    // Dedo y lapiz (Apple Pencil desplaza la pagina como un dedo): solo el raton dibuja de inmediato.
-    const fromTouch = event.pointerType === "touch" || event.pointerType === "pen";
-    if (pinchZoomEnabled) {
+    const isPen = event.pointerType === "pen";
+    const isFinger = event.pointerType === "touch";
+    // Dedo y lapiz impiden el desplazamiento nativo mientras dibujan (`touchmove` no pasivo); solo el raton no lo necesita.
+    const fromTouch = isFinger || isPen;
+    // Un id de puntero se puede reutilizar (Chrome recicla ids pequenos): un toque nuevo nunca hereda un rechazo viejo.
+    ignoredPointersRef.current.delete(event.pointerId);
+    // Palma: con el lapiz tocando la hoja, ningun dedo hace nada (ni cuenta para el pellizco). Ver `canvasGestures.ts`.
+    if (isFinger && penGuardRef.current.penInContact()) {
+      ignoredPointersRef.current.add(event.pointerId);
+      return;
+    }
+    // El lapiz nunca forma parte de un pellizco: solo los dedos (y el raton) se registran.
+    if (multiTouchOn && !isPen) {
       event.currentTarget.setPointerCapture(event.pointerId);
       activePointersRef.current.set(event.pointerId, {
         x: event.clientX,
         y: event.clientY,
       });
       // Un segundo dedo mientras no hay ningun elemento en arrastre es un
-      // pellizco, nunca un segundo intento de dibujar.
+      // pellizco (que tambien mueve la pagina con dos dedos), nunca un segundo intento de dibujar.
       if (activePointersRef.current.size === 2 && !dragRef.current) {
         const [[idA, a], [idB, b]] = [...activePointersRef.current.entries()];
         event.preventDefault();
         draftOriginRef.current = null;
         tapCandidateRef.current = null;
         panDragRef.current = null;
+        closeOnlyRef.current = false;
         clearHold();
         endDragTracking();
         setDraft(null);
         const bounds = hostRef.current?.getBoundingClientRect();
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         pinchRef.current = {
           pointerIds: [idA, idB],
           startDistance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
           startZoom: zoomRef.current,
           startPan: panRef.current,
-          startMid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+          startMid: mid,
+          scaling: false,
+          lastMid: mid,
           startCenter: bounds
             ? { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }
-            : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+            : mid,
         };
         return;
       }
       if (activePointersRef.current.size > 2 || pinchRef.current) return;
+    }
+    // Palma (cola): el lapiz se levanto hace menos de `PALM_REJECT_MS`. El dedo queda registrado (dos dedos si pellizcan),
+    // pero un solo dedo no crea, no dibuja ni deselecciona.
+    if (isFinger && penGuardRef.current.rejectsFinger()) {
+      ignoredPointersRef.current.add(event.pointerId);
+      return;
     }
 
     // Seleccionar: lo vacio solo deselecciona, y al soltar si fue un toque corto.
@@ -1828,8 +1987,12 @@ function DocumentCanvasInner({
     const point = toNormalized(event.clientX, event.clientY);
     if (!point) return;
 
-    // Un dedo con la herramienta armada: toque = colocar, quieto = dibujar, deslizar = desplazar (GE-01).
-    if (fromTouch && !fingerDrawOn) {
+    // Con un campo abierto en edicion, un toque corto de dedo o lapiz solo lo cierra (ver `closeOnlyRef`).
+    closeOnlyRef.current = fromTouch && editingId !== null;
+
+    // «Un dedo dibuja» apagado: un dedo con la herramienta armada: toque = colocar, quieto = dibujar, deslizar = desplazar (GE-01).
+    // El lapiz NO pasa por aqui: dibuja de inmediato.
+    if (isFinger && !fingerDrawOn) {
       // Sin los eventos de raton que el navegador sintetiza tras el toque (sacarian el foco del campo recien creado).
       event.preventDefault();
       clearHold();
@@ -1856,6 +2019,7 @@ function DocumentCanvasInner({
       return;
     }
 
+    // Raton, lapiz y dedo con «Un dedo dibuja»: el recuadro empieza al instante, sin espera ni desplazamiento.
     event.preventDefault();
     beginDraft(event.pointerId, point, { x: event.clientX, y: event.clientY }, event.currentTarget, fromTouch);
   };
@@ -1863,6 +2027,13 @@ function DocumentCanvasInner({
   const startDrag = (event: ReactPointerEvent<Element>) => {
     const host = hostRef.current;
     const target = event.currentTarget as HTMLElement;
+    // Palma sobre un elemento o su tirador mientras escribe el lapiz: se ignora (y no sube a la hoja).
+    ignoredPointersRef.current.delete(event.pointerId);
+    if (event.pointerType === "touch" && penGuardRef.current.rejectsFinger()) {
+      event.stopPropagation();
+      ignoredPointersRef.current.add(event.pointerId);
+      return;
+    }
     const mode = target.dataset.dragMode as DragMode | undefined;
     const kind = target.dataset.elementKind as CanvasElementKind | undefined;
     const id = target.dataset.elementId;
@@ -1944,7 +2115,7 @@ function DocumentCanvasInner({
   });
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (pinchZoomEnabled) {
+    if (multiTouchOn) {
       if (activePointersRef.current.has(event.pointerId)) {
         activePointersRef.current.set(event.pointerId, {
           x: event.clientX,
@@ -1958,15 +2129,19 @@ function DocumentCanvasInner({
         if (a && b) {
           event.preventDefault();
           const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
-          const nextZoom = clamp(
-            pinch.startZoom * (distance / pinch.startDistance),
-            1,
-            MAX_ZOOM,
-          );
+          const ratio = distance / pinch.startDistance;
+          // Dos dedos que se desplazan casi nunca conservan la distancia al milimetro (y cada dedo manda su propio
+          // `pointermove`): hasta que la separacion cambie mas de `PINCH_SCALE_SLOP` el gesto SOLO mueve la pagina y no
+          // amplia. Sin el zoom activado (solo dedo que dibuja) los dos dedos nunca amplian: la hoja se queda a 1x.
+          if (!pinch.scaling && Math.abs(ratio - 1) > PINCH_SCALE_SLOP) pinch.scaling = true;
+          const nextZoom = pinch.scaling
+            ? clamp(pinch.startZoom * ratio, 1, pinchZoomEnabled ? MAX_ZOOM : 1)
+            : pinch.startZoom;
           const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          const prevZoom = zoomRef.current;
+          const prevPan = panRef.current;
           // Los dedos mandan: el punto de la hoja que estaba entre ellos sigue entre ellos (zoom con foco en el centro).
-          applyView(
-            nextZoom,
+          const nextPan =
             nextZoom === 1
               ? { x: 0, y: 0 }
               : clampPan(
@@ -1980,12 +2155,29 @@ function DocumentCanvasInner({
                   }),
                   nextZoom,
                   layoutSize,
-                ),
-          );
+                );
+          // A 1x en reposo no hay nada que repintar (evita un render por movimiento al desplazar con dos dedos).
+          if (nextZoom !== prevZoom || nextPan.x !== prevPan.x || nextPan.y !== prevPan.y) {
+            applyView(nextZoom, nextPan);
+          }
+          // Dos dedos MUEVEN LA PAGINA: lo que la hoja no absorbe de su movimiento vertical se encadena al desplazamiento.
+          const last = pinch.lastMid;
+          pinch.lastMid = mid;
+          const scroll = pageScrollForTwoFingers({
+            fingersDy: mid.y - last.y,
+            panDy: nextPan.y - prevPan.y,
+            zoomChanged: nextZoom !== prevZoom,
+          });
+          if (scroll !== 0 && hostRef.current) {
+            scrollVerticallyBy(findScrollParent(hostRef.current), scroll);
+            dragRegionRef.current = null;
+          }
         }
         return;
       }
     }
+    // Un dedo rechazado como palma no mueve ningun gesto en curso (el del lapiz, por ejemplo).
+    if (ignoredPointersRef.current.has(event.pointerId)) return;
 
     // Candidato de «mantener para dibujar»: si el dedo se mueve antes de tiempo, es un gesto de desplazamiento.
     const hold = holdRef.current;
@@ -2065,7 +2257,6 @@ function DocumentCanvasInner({
    * no reiniciable sin pasar primero por debajo de 1x).
    */
   const endPinchPointer = (pointerId: number) => {
-    if (!pinchZoomEnabled) return;
     activePointersRef.current.delete(pointerId);
     const pinch = pinchRef.current;
     if (pinch && pinch.pointerIds.includes(pointerId)) {
@@ -2077,6 +2268,9 @@ function DocumentCanvasInner({
   /** Puntero perdido a medio gesto (interrupcion del sistema o el navegador tomo el desplazamiento): se aborta. */
   const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
     endPinchPointer(event.pointerId);
+    // La palma que se levanta no aborta el trazo del lapiz.
+    if (ignoredPointersRef.current.delete(event.pointerId)) return;
+    closeOnlyRef.current = false;
     tapCandidateRef.current = null;
     panDragRef.current = null;
     dragRef.current = null;
@@ -2088,6 +2282,7 @@ function DocumentCanvasInner({
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     endPinchPointer(event.pointerId);
+    if (ignoredPointersRef.current.delete(event.pointerId)) return;
     if (panDragRef.current?.pointerId === event.pointerId) panDragRef.current = null;
     endDragTracking();
     // Toque corto con la herramienta armada (un dedo): coloca el elemento por defecto donde se toco.
@@ -2098,6 +2293,12 @@ function DocumentCanvasInner({
       if (wasPending) {
         gesturePageRef.current = pageIndex;
         onEditingIdChange(null);
+        // Un campo estaba abierto en edicion: este toque solo lo cierra (ver `closeOnlyRef`).
+        if (closeOnlyRef.current) {
+          closeOnlyRef.current = false;
+          select(null);
+          return;
+        }
         addCentered(hold.point.x, hold.point.y);
         return;
       }
@@ -2132,14 +2333,45 @@ function DocumentCanvasInner({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    const closeOnly = closeOnlyRef.current;
+    closeOnlyRef.current = false;
     if (!origin || !current) return;
     // Defensa extra: la pagina cambio por cualquier via entre pulsar y soltar.
     if (gesturePageRef.current !== pageIndex) return;
 
     const width = Math.abs(current.toX - current.x);
     const height = Math.abs(current.toY - current.y);
-    if (width < CLICK_SLOP && height < CLICK_SLOP) {
+    const startClient = draftStartClientRef.current;
+    // Un toque: sin moverse (con dedo o lapiz, menos de `TAP_MOVE_THRESHOLD_PX` px aunque la hoja sea pequena).
+    if (
+      isDraftTap({
+        pointerType: event.pointerType,
+        movedPx: startClient ? Math.hypot(event.clientX - startClient.x, event.clientY - startClient.y) : null,
+        spanX: width,
+        spanY: height,
+        clickSlop: CLICK_SLOP,
+        tapPx: TAP_MOVE_THRESHOLD_PX,
+      })
+    ) {
+      // Con un campo abierto en edicion este toque solo lo cierra y suelta la seleccion; el siguiente crea.
+      if (closeOnly) {
+        select(null);
+        return;
+      }
       addCentered(current.x, current.y);
+      return;
+    }
+    // Un dedo que arrastra casi en vertical y lejos intentaba DESPLAZAR la pagina (habito): no crea un campo estrecho y alto.
+    if (
+      startClient &&
+      isScrollLikeSwipe({
+        pointerType: event.pointerType,
+        dxPx: event.clientX - startClient.x,
+        dyPx: event.clientY - startClient.y,
+      })
+    ) {
+      select(null);
+      showFingerHint(false);
       return;
     }
     if (width < MIN_FIELD_SIDE || height < MIN_FIELD_SIDE) {
@@ -2267,11 +2499,12 @@ function DocumentCanvasInner({
    * o se pellizca, y la API imperativa «ver este hueco».
    * ---------------------------------------------------------------- */
 
-  const pinchEnabledRef = useRef(pinchZoomEnabled);
+  /** Hay gestos de dos dedos (pellizco y/o mover la pagina): el `touchmove` nativo con 2 dedos no debe desplazar ni ampliar la pagina. */
+  const pinchEnabledRef = useRef(multiTouchOn);
   const layoutSizeRef = useRef(layoutSize);
   const gestureModeRef = useRef<GestureMode>("auto");
   useEffect(() => {
-    pinchEnabledRef.current = pinchZoomEnabled;
+    pinchEnabledRef.current = multiTouchOn;
     layoutSizeRef.current = layoutSize;
     gestureModeRef.current = gestureMode ?? (fingerDraw ? "draw" : "auto");
   });
@@ -2279,6 +2512,32 @@ function DocumentCanvasInner({
   /** Zona visible en la que el dedo NO desplaza: la libre del scroller (sin barras fijas) y, con zoom, la de la tarjeta. */
   const dragRegionRef = useRef<{ at: number; box: Box } | null>(null);
   const hasFile = Boolean(file);
+
+  /*
+   * Rechazo de palma (W3-A3): el lapiz se anota en CAPTURA sobre `window`, porque sus eventos pueden llegar a un elemento, a
+   * un tirador o a la hoja (que paran la propagacion). Solo cuenta el trazo con contacto; ver `createPenGuard`.
+   */
+  useEffect(() => {
+    const guard = penGuardRef.current;
+    const noteOf = (phase: PenPhase) => (event: PointerEvent) => {
+      if (event.pointerType === "pen") guard.pen(phase, event.pointerId);
+    };
+    const listeners: Array<[string, (event: PointerEvent) => void]> = [
+      ["pointerdown", noteOf("down")],
+      ["pointermove", noteOf("move")],
+      ["pointerup", noteOf("up")],
+      ["pointercancel", noteOf("cancel")],
+    ];
+    for (const [type, listener] of listeners) {
+      window.addEventListener(type, listener as EventListener, { capture: true, passive: true });
+    }
+    return () => {
+      for (const [type, listener] of listeners) {
+        window.removeEventListener(type, listener as EventListener, { capture: true });
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const regionOf = (): Box => {
       const host = hostRef.current;
@@ -2346,8 +2605,11 @@ function DocumentCanvasInner({
 
   /*
    * `touchmove` NATIVO y no pasivo: React registra los toques como pasivos, asi que no puede impedir el desplazamiento
-   * del navegador. Se impide solo mientras el dedo dibuja un recuadro, y con DOS dedos (pellizco propio: si el navegador
-   * los tomara como desplazamiento mandaria `pointercancel` y el zoom se perderia).
+   * del navegador. Se impide solo mientras el dedo o el lapiz dibujan un recuadro (`blockNativeScrollRef` se activa en el
+   * `pointerdown`, ANTES del primer `touchmove`, que es cuando aun es cancelable), y con DOS dedos (pellizco y desplazar con
+   * dos dedos propios: si el navegador los tomara como desplazamiento mandaria `pointercancel` y el gesto se perderia).
+   * El `touch-action` del anfitrion (`touch-none` con la herramienta armada) se fija antes de tocar: en iOS no se puede
+   * cambiar a mitad de un gesto.
    */
   useEffect(() => {
     const element = hostRef.current;
@@ -2845,7 +3107,7 @@ function DocumentCanvasInner({
       size="sm"
       className={COARSE_TALL}
       disabled={creates.kind === "slot" && !canPlaceSlot}
-      onClick={() => addCentered(0.5, 0.75)}
+      onClick={addAtDefaultSpot}
     >
       {creates.kind === "slot"
         ? solo
@@ -2926,19 +3188,18 @@ function DocumentCanvasInner({
           </button>
         ) : null}
         {coarse && creates && gestureMode === undefined ? (
-          /* GE-01: con una herramienta armada el dedo desplaza la pagina; este interruptor lo convierte en lapiz. */
+          /* GE-01 / W3-A3: con una herramienta armada un dedo dibuja (dos dedos mueven la pagina); apagado vuelve a desplazar con uno. */
           <button
             type="button"
             role="switch"
             aria-checked={fingerDraw}
             data-finger-draw-toggle=""
-            title={touchStrings.drawWithFingerHint}
+            title={gestureStrings.fingerSwitchHint}
             onClick={() => {
               const next = !fingerDraw;
               setFingerDraw(next);
-              setAnnouncement(
-                next ? touchStrings.drawWithFingerOnStatus : touchStrings.drawWithFingerOffStatus,
-              );
+              writeFingerDrawPref(next);
+              setAnnouncement(next ? gestureStrings.fingerOnStatus : gestureStrings.fingerOffStatus);
             }}
             className={cn(
               "inline-flex min-h-11 items-center gap-2 rounded-ios-sm border px-2.5 text-footnote font-medium transition-colors duration-200 ease-spring motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
@@ -2948,8 +3209,8 @@ function DocumentCanvasInner({
                 : "border-hairline bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground forced-colors:bg-[ButtonFace]",
             )}
           >
-            <PenLine aria-hidden="true" className="size-4 shrink-0" />
-            {touchStrings.drawWithFingerLabel}
+            <Hand aria-hidden="true" className="size-4 shrink-0" />
+            {gestureStrings.fingerSwitchLabel}
           </button>
         ) : null}
         {image.hasText === false ? (
@@ -3177,6 +3438,19 @@ function DocumentCanvasInner({
         />
 
         <div ref={stageRef} className="relative min-w-0 flex-1">
+          {fingerHintOpen && creates ? (
+            /* Pista de la primera vez: no recibe toques (se ve unos segundos); la region viva ya dijo lo mismo. */
+            <div
+              aria-hidden="true"
+              data-finger-hint=""
+              className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-3"
+            >
+              <p className="material-thick shadow-elevation-2 flex max-w-full items-center gap-2 rounded-ios px-3.5 py-2 text-center text-footnote font-medium text-foreground">
+                <Hand aria-hidden="true" className="size-4 shrink-0" />
+                {gestureStrings.fingerHint}
+              </p>
+            </div>
+          ) : null}
           <div
             ref={clipRef}
             className={cn(
@@ -3200,10 +3474,12 @@ function DocumentCanvasInner({
                 // horizontal ocupaba 295-460 px). El escritorio (>= 1 280 px) queda igual.
                 !inPro && "md:max-xl:max-w-[52rem]",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
-                // GE-01: por defecto un dedo sobre la hoja DESPLAZA la pagina (`pan-x pan-y`, tambien con una
-                // herramienta armada: un toque coloca y mantener pulsado dibuja); los elementos y tiradores llevan
-                // `touch-none` propio (solo mientras se arrastran). El lienzo se queda con el gesto solo con zoom
-                // (mover la hoja y, en su borde, la pagina) o con «Dibujar con el dedo» activado.
+                // GE-01 / W3-A3: con Seleccionar un dedo sobre la hoja DESPLAZA la pagina (`pan-x pan-y`). Con una herramienta
+                // armada el lienzo se queda el gesto (`touch-none`, fijado ANTES del toque: en iOS no se cambia a mitad
+                // de un gesto): el dedo y el lapiz dibujan de inmediato y la pagina se mueve con DOS dedos. Con «Un dedo
+                // dibuja» apagado vuelve el modo de antes (arrastrar desplaza; quieto un momento y arrastrar, dibuja).
+                // Los elementos y tiradores llevan `touch-none` propio. Con zoom el lienzo tambien se queda el gesto
+                // (mover la hoja y, en su borde, la pagina).
                 zoom > 1.001 || (creates && fingerDrawOn) ? "touch-none" : "touch-pan-x touch-pan-y",
                 creates ? "cursor-crosshair" : "cursor-default",
                 // «Editar texto»: los huecos y campos se ven pero no reciben puntero (el texto manda).

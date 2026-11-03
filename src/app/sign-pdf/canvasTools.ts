@@ -48,6 +48,25 @@ export const TOOL_CREATES: Record<CreationTool, ToolCreates> = {
 };
 
 /**
+ * Herramienta que queda tras colocar un elemento (W3-A3): LA MISMA. Una herramienta de creacion es un modo, no un
+ * disparo unico: se queda armada para poner el siguiente (iniciales en cada pagina, varias casillas) y solo cambia cuando
+ * la persona elige otra en la paleta («Seleccionar» incluida), pulsa Escape o su atajo. Unica excepcion: la firma de
+ * «Solo yo» (`solo`), que es UNA y colocarla otra vez la MUEVE; con la herramienta armada cualquier toque perdido
+ * desplazaria la firma ya puesta, asi que ahi vuelve a Seleccionar.
+ */
+export function toolAfterPlacement(tool: PlacementTool, ctx: { solo: boolean }): PlacementTool {
+  return ctx.solo && tool === "signature" ? "select" : tool;
+}
+
+/** Dos rectangulos (fracciones de pagina) se pisan. Se usa para que «Anadir aqui» no apile un elemento sobre otro. */
+export function rectsOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+/**
  * Atajos de una letra (los mismos en espanol e ingles, para no cambiar la
  * memoria muscular al cambiar de idioma). Solo funcionan con el foco dentro
  * del paso o sin foco en ningun control (WCAG 2.1.4) y nunca mientras se

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useMatchMedia } from "@/app/sign-pdf/useMatchMedia";
 import { useInProSuite } from "@/app/sign-pdf/useInProSuite";
+import { useGestureStrings } from "@/app/sign-pdf/gestureStrings";
 import { cn } from "@/lib/cn";
 import {
   TOOL_SHORTCUTS,
@@ -33,8 +34,11 @@ import type { SignStrings } from "@/app/sign-pdf/strings";
  *
  * Patron APG "toolbar": un unico `role="toolbar"` con tabindex itinerante
  * (una sola parada de Tab; flechas, Inicio y Fin mueven el foco; Enter y
- * Espacio activan). Las herramientas son botones con `aria-pressed`; la
- * activa se vuelve a pulsar para regresar a Seleccionar. Al final van
+ * Espacio activan). Las herramientas son botones con `aria-pressed`. La herramienta elegida SE QUEDA armada tras colocar
+ * un elemento (W3-A3) y solo cambia cuando la persona toca OTRA (Seleccionar incluida), pulsa Escape o su atajo; volver a
+ * tocar la ya activa no la apaga. Mientras hay una herramienta armada, «Seleccionar» se ofrece aparte con texto visible
+ * (junto al boton plegado en el movil; en una etiqueta sobre la paleta en tablet; en el carril de escritorio, su primer
+ * boton). Al final van
  * "Campo anterior/siguiente": la alternativa NO precisa a tocar un campo
  * pequeno (WCAG 2.2 · 2.5.8).
  *
@@ -112,6 +116,7 @@ export function ToolPalette({
 }: ToolPaletteProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
+  const gesture = useGestureStrings();
   const inPro = useInProSuite();
   /** Carril vertical: desde 1 280 px (dentro de PDF Pro, desde 768 px). Por debajo, dock pegajoso tras la hoja. */
   const railWide = useMatchMedia("(min-width: 1280px)");
@@ -180,6 +185,12 @@ export function ToolPalette({
   const fold = () => {
     focusAfterRef.current = "fab";
     setOpen(false);
+  };
+
+  /** Salir de la herramienta armada: vuelve a Seleccionar y deja el foco en un control que siga en pantalla. */
+  const exitTool = () => {
+    focusAfterRef.current = collapsible ? "fab" : "tool";
+    onToolChange("select");
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -268,7 +279,8 @@ export function ToolPalette({
             tabIndex={stop === key ? 0 : -1}
             onFocus={() => setFocusKey(key)}
             onClick={() => {
-              onToolChange(active && key !== "select" ? "select" : key);
+              // Tocar la herramienta ya activa NO la apaga: se sale con «Seleccionar», Escape o su atajo (W3-A3).
+              onToolChange(key);
               if (collapsible) fold();
             }}
             className={itemClass(active)}
@@ -350,39 +362,96 @@ export function ToolPalette({
       data-palette-dock=""
       className={
         inPro
-          ? "max-md:pointer-events-none max-md:sticky max-md:bottom-2 max-md:z-20 max-md:order-last max-md:flex max-md:justify-start md:contents"
-          : "max-xl:pointer-events-none max-xl:sticky max-xl:z-20 max-xl:order-last max-xl:flex max-xl:justify-start max-md:bottom-[calc(9.5rem+env(safe-area-inset-bottom,0px))] md:max-xl:bottom-28 xl:contents"
+          ? "max-md:pointer-events-none max-md:sticky max-md:bottom-2 max-md:z-20 max-md:order-last max-md:flex max-md:flex-col max-md:items-start max-md:gap-2 md:contents"
+          : "max-xl:pointer-events-none max-xl:sticky max-xl:z-20 max-xl:order-last max-xl:flex max-xl:flex-col max-xl:items-start max-xl:gap-2 max-md:bottom-[calc(9.5rem+env(safe-area-inset-bottom,0px))] md:max-xl:bottom-28 xl:contents"
       }
     >
       {folded ? (
-        <button
-          ref={fabRef}
-          type="button"
-          data-palette-fab=""
-          // PDF Pro pliega con «Ocultar herramientas» lo marcado `data-pro-fold` (y la barra desplegada, por `data-tool-palette`).
-          data-pro-fold=""
-          aria-label={strings.paletteExpand(labelOf(tool))}
-          aria-expanded={false}
-          title={strings.paletteExpand(labelOf(tool))}
-          onClick={() => {
-            focusAfterRef.current = "tool";
-            setOpen(true);
-          }}
-          className={cn(
-            "material-thick shadow-elevation-2 pointer-events-auto flex h-12 min-w-12 items-center justify-center gap-1.5 rounded-full px-3 text-footnote font-semibold",
-            "transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] active:scale-[0.94] active:duration-[80ms]",
-            "focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
-            armed
-              ? "text-foreground shadow-[inset_0_0_0_1.5px_var(--color-signal)] forced-colors:border-2 forced-colors:border-[Highlight]"
-              : "text-muted-foreground",
-          )}
-        >
-          <ActiveIcon aria-hidden="true" className="size-5" />
-          {armed ? <span>{labelOf(tool)}</span> : null}
-          <ChevronUp aria-hidden="true" className="size-4 opacity-70" />
-        </button>
+        <div className="flex max-w-full flex-wrap items-center gap-2">
+          <button
+            ref={fabRef}
+            type="button"
+            data-palette-fab=""
+            // PDF Pro pliega con «Ocultar herramientas» lo marcado `data-pro-fold` (y la barra desplegada, por `data-tool-palette`).
+            data-pro-fold=""
+            aria-label={strings.paletteExpand(labelOf(tool))}
+            aria-expanded={false}
+            title={strings.paletteExpand(labelOf(tool))}
+            onClick={() => {
+              focusAfterRef.current = "tool";
+              setOpen(true);
+            }}
+            className={cn(
+              "material-thick shadow-elevation-2 pointer-events-auto flex h-12 min-w-12 items-center justify-center gap-1.5 rounded-full px-3 text-footnote font-semibold",
+              "transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] active:scale-[0.94] active:duration-[80ms]",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
+              armed
+                ? "text-foreground shadow-[inset_0_0_0_1.5px_var(--color-signal)] forced-colors:border-2 forced-colors:border-[Highlight]"
+                : "text-muted-foreground",
+            )}
+          >
+            <ActiveIcon aria-hidden="true" className="size-5" />
+            {armed ? <span>{labelOf(tool)}</span> : null}
+            <ChevronUp aria-hidden="true" className="size-4 opacity-70" />
+          </button>
+          {armed ? (
+            /* Salida explicita de la herramienta armada (W3-A3): texto + icono, 48 px, junto al boton plegado. */
+            <button
+              type="button"
+              data-palette-exit=""
+              data-pro-fold=""
+              aria-label={gesture.exitToolLabel(strings.toolSelect)}
+              onClick={exitTool}
+              className={cn(
+                "material-thick shadow-elevation-2 pointer-events-auto flex h-12 min-w-12 items-center justify-center gap-1.5 rounded-full px-3.5 text-footnote font-semibold text-foreground",
+                "shadow-[inset_0_0_0_1.5px_var(--color-signal)] forced-colors:border-2 forced-colors:border-[Highlight]",
+                "transition-[background-color,color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] active:scale-[0.94] active:duration-[80ms] motion-reduce:transition-none",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
+              )}
+            >
+              <MousePointer2 aria-hidden="true" className="size-5" />
+              <span className="max-[359px]:sr-only">{strings.toolSelect}</span>
+            </button>
+          ) : null}
+        </div>
       ) : (
-        toolbar
+        <>
+          {armed && !vertical && !collapsible ? (
+            /*
+             * Tablet (carril aun no disponible): la herramienta armada se dice con TEXTO + icono y «Seleccionar» se ofrece
+             * aparte, grande. (En el carril de escritorio el estado lo da el boton activo, `aria-pressed`, y «Seleccionar» es
+             * el primero; en el movil, el boton plegado de arriba.)
+             */
+            <div
+              data-armed-label=""
+              className="material-thick shadow-elevation-2 pointer-events-auto mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-ios py-1 pr-1 pl-3 text-footnote"
+            >
+              <span className="flex min-w-0 items-center gap-2 font-semibold text-foreground">
+                <ActiveIcon aria-hidden="true" className="size-4 shrink-0" />
+                {gesture.armedLabel(labelOf(tool))}
+              </span>
+              {tool !== "editText" ? (
+                <span className="min-w-0 text-muted-foreground">{gesture.armedHint}</span>
+              ) : null}
+              <button
+                type="button"
+                data-palette-exit=""
+                aria-label={gesture.exitToolLabel(strings.toolSelect)}
+                onClick={exitTool}
+                className={cn(
+                  "flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-ios-sm bg-signal/20 px-3 font-semibold text-foreground",
+                  "shadow-[inset_0_0_0_1.5px_var(--color-signal)] forced-colors:border-2 forced-colors:border-[Highlight]",
+                  "transition-[background-color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)] hover:bg-signal/30 active:scale-[0.94] active:duration-[80ms] motion-reduce:transition-none",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2 outline-signal",
+                )}
+              >
+                <MousePointer2 aria-hidden="true" className="size-5" />
+                {strings.toolSelect}
+              </button>
+            </div>
+          ) : null}
+          {toolbar}
+        </>
       )}
     </div>
   );
