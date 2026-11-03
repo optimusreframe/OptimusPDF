@@ -1,3 +1,4 @@
+import { isCustomTag, isValidTag } from "@/lib/fieldTags";
 import { VALUE_HISTORY_STORAGE_KEY } from "@/lib/valueHistory";
 import { BIDI_CONTROLS } from "@/app/sign-pdf/signVault";
 import { CURRENT_SETTINGS_SCHEMA, migrateSettings } from "@/lib/backup/migrations/settings";
@@ -28,7 +29,7 @@ import {
  *
  * ```
  * settings/settings.json        { "settings": { "<clave de localStorage de la lista blanca>": <valor> } }
- * settings/value-history.json   OPCIONAL, desmarcado por defecto (contiene PII): { "version": 1, "entries": { "<etiqueta>": [{ value, lastUsedAt }] } }
+ * settings/value-history.json   OPCIONAL, desmarcado por defecto (contiene PII): { "version": 1, "entries": { "<etiqueta>": [{ value, lastUsedAt, uses?, pinned? }] }, "tags"?: { "custom.x": "Nombre" } }
  * ```
  *
  * LISTA BLANCA (`settingsRegistry.ts`): lo que no esta en ella no se exporta ni se escribe jamas; cada clave tiene su
@@ -42,9 +43,14 @@ import {
  *
  * `value-history.json`: el historial de valores YA existe en la app (`src/lib/valueHistory.ts`, clave
  * `optimuspdf.valueHistory`), asi que el campo esta implementado de verdad, no solo previsto. Se exporta unicamente con
- * `includeValueHistory: true`, se valida con los mismos topes que el almacen (200 etiquetas, 5 valores por etiqueta) y se
- * escribe con SU formato `{ version: 1, entries }`. Importar su contenido exige una decision propia (`valueHistory:
+ * `includeValueHistory: true`, se valida con los mismos topes que el almacen (200 etiquetas, 30 valores por etiqueta) y se
+ * escribe con SU formato `{ version: 1, entries, tags? }`. Importar su contenido exige una decision propia (`valueHistory:
  * "replace"`), que `defaultSettingsDecisions` deja en «omitir».
+ *
+ * W3-A1 (memoria por ETIQUETA): la clave de `entries` es la etiqueta del campo (o un rotulo antiguo); cada valor puede traer
+ * `uses` (veces usado) y `pinned` (fijado), y `tags` guarda el nombre visible de las etiquetas propias (`custom.*`). Los tres
+ * son OPCIONALES: un paquete anterior (sin ellos, hasta 5 valores por etiqueta) se sigue leyendo igual, y uno nuevo que
+ * lea una version anterior solo pierde esos campos.
  */
 
 const SETTINGS_PATH = "settings/settings.json";
@@ -63,8 +69,11 @@ export {
 const VALUE_HISTORY_SCHEMA = 1;
 /** Etiquetas distintas totales (`MAX_KEYS` de `valueHistory.ts`). */
 export const VALUE_HISTORY_MAX_KEYS = 200;
-/** Valores por etiqueta (`MAX_ENTRIES_PER_KEY` de `valueHistory.ts`). */
-export const VALUE_HISTORY_MAX_PER_KEY = 5;
+/** Valores por etiqueta (`MAX_ENTRIES_PER_KEY` de `valueHistory.ts`; hasta W3-A1 eran 5). */
+export const VALUE_HISTORY_MAX_PER_KEY = 30;
+/** Nombre visible de una etiqueta propia (`MAX_CUSTOM_TAG_NAME` de `fieldTags.ts`) y cuantas se guardan (`MAX_CUSTOM_TAGS`). */
+const VALUE_HISTORY_MAX_TAG_NAME = 40;
+const VALUE_HISTORY_MAX_TAGS = 30;
 const VALUE_HISTORY_MIN_VALUE = 2;
 const VALUE_HISTORY_MAX_LABEL = 200;
 const VALUE_HISTORY_MAX_VALUE = 500;
@@ -73,7 +82,10 @@ const FORBIDDEN_LABELS: ReadonlySet<string> = new Set(["__proto__", "constructor
 /** Tope de lo que se lee del `localStorage` local antes de parsear. */
 const MAX_LOCAL_VALUE_HISTORY_CHARS = 2 * 1024 * 1024;
 
-export type ValueHistoryEntries = Record<string, { value: string; lastUsedAt: string }[]>;
+export type ValueHistoryEntry = { value: string; lastUsedAt: string; uses?: number; pinned?: boolean };
+export type ValueHistoryEntries = Record<string, ValueHistoryEntry[]>;
+/** Nombre visible de cada etiqueta propia (`custom.*`). */
+export type ValueHistoryTags = Record<string, string>;
 
 function cleanText(value: unknown, max: number): string | null {
   if (typeof value !== "string" || value.length > max * 2) return null;
@@ -96,8 +108,21 @@ function hasOwn(target: object, key: string): boolean {
 }
 
 export type ValueHistoryCheck =
-  | { ok: true; entries: ValueHistoryEntries; labels: number; values: number; dropped: number }
+  | { ok: true; entries: ValueHistoryEntries; tags: ValueHistoryTags; labels: number; values: number; dropped: number }
   | { ok: false };
+
+/** Etiquetas propias del paquete: clave `custom.*` con forma de clave y nombre limpio; lo que no vale se descarta. */
+function checkTagNames(raw: unknown): ValueHistoryTags {
+  const out: ValueHistoryTags = {};
+  if (!isRecord(raw)) return out;
+  for (const key of Object.keys(raw)) {
+    if (Object.keys(out).length >= VALUE_HISTORY_MAX_TAGS) break;
+    const name = cleanText(raw[key], VALUE_HISTORY_MAX_TAG_NAME);
+    if (name === null || FORBIDDEN_LABELS.has(key) || !isCustomTag(key) || !isValidTag(key)) continue;
+    out[key] = name;
+  }
+  return out;
+}
 
 /**
  * `{ version: 1, entries }` -> historial saneado. La estructura de arriba es estricta (version, objeto, <= 200
@@ -119,7 +144,7 @@ export function checkValueHistory(raw: unknown): ValueHistoryCheck {
       dropped += list.length || 1;
       continue;
     }
-    const kept: { value: string; lastUsedAt: string }[] = [];
+    const kept: ValueHistoryEntry[] = [];
     for (const item of list) {
       const value = isRecord(item) ? cleanText(item.value, VALUE_HISTORY_MAX_VALUE) : null;
       const lastUsedAt = isRecord(item) ? cleanIso(item.lastUsedAt) : null;
@@ -127,24 +152,29 @@ export function checkValueHistory(raw: unknown): ValueHistoryCheck {
         dropped += 1;
         continue;
       }
-      kept.push({ value, lastUsedAt });
+      // `uses` y `pinned` son opcionales (W3-A1): un valor raro se ignora, no tumba la entrada.
+      const uses = isRecord(item) && Number.isInteger(item.uses) && (item.uses as number) > 1 ? Math.min(item.uses as number, 1_000_000) : undefined;
+      const pinned = isRecord(item) && item.pinned === true;
+      kept.push({ value, lastUsedAt, ...(uses !== undefined ? { uses } : {}), ...(pinned ? { pinned: true } : {}) });
     }
     if (kept.length > 0) {
       entries[cleanLabel] = kept;
       values += kept.length;
     }
   }
-  return { ok: true, entries, labels: Object.keys(entries).length, values, dropped };
+  return { ok: true, entries, tags: checkTagNames(raw.tags), labels: Object.keys(entries).length, values, dropped };
 }
 
-function valueHistoryJson(entries: ValueHistoryEntries): string {
+function valueHistoryJson(entries: ValueHistoryEntries, tags: ValueHistoryTags = {}): string {
   const sorted: ValueHistoryEntries = {};
   for (const label of Object.keys(entries).sort()) sorted[label] = entries[label];
-  return JSON.stringify({ version: VALUE_HISTORY_SCHEMA, entries: sorted });
+  const sortedTags: ValueHistoryTags = {};
+  for (const key of Object.keys(tags).sort()) sortedTags[key] = tags[key];
+  return JSON.stringify({ version: VALUE_HISTORY_SCHEMA, entries: sorted, ...(Object.keys(sortedTags).length > 0 ? { tags: sortedTags } : {}) });
 }
 
-function sameValueHistory(a: ValueHistoryEntries, b: ValueHistoryEntries): boolean {
-  return valueHistoryJson(a) === valueHistoryJson(b);
+function sameValueHistory(a: ValueHistoryEntries, aTags: ValueHistoryTags, b: ValueHistoryEntries, bTags: ValueHistoryTags): boolean {
+  return valueHistoryJson(a, aTags) === valueHistoryJson(b, bTags);
 }
 
 /* ------------------------------------------------------------------ *
@@ -188,6 +218,7 @@ function jsonBytes(text: string): Uint8Array {
 export function settingsModuleFromValues(
   values: Readonly<Record<string, SettingValue>>,
   valueHistory?: ValueHistoryEntries,
+  valueHistoryTags?: ValueHistoryTags,
 ): PackageModuleInput {
   const ordered: Record<string, SettingValue> = {};
   for (const def of SETTINGS_REGISTRY) {
@@ -206,7 +237,7 @@ export function settingsModuleFromValues(
   if (includesValueHistory) {
     files.push({
       path: HISTORY_PATH,
-      data: jsonBytes(valueHistoryJson(valueHistory as ValueHistoryEntries)),
+      data: jsonBytes(valueHistoryJson(valueHistory as ValueHistoryEntries, valueHistoryTags)),
       type: "application/json",
     });
   }
@@ -229,14 +260,14 @@ export function readLocalSettings(storage: Storage): Record<string, SettingValue
   return out;
 }
 
-function readLocalValueHistory(storage: Storage): { entries: ValueHistoryEntries; raw: string | null } {
+function readLocalValueHistory(storage: Storage): { entries: ValueHistoryEntries; tags: ValueHistoryTags; raw: string | null } {
   const raw = readRaw(storage, VALUE_HISTORY_STORAGE_KEY) ?? null;
-  if (raw === null || raw.length > MAX_LOCAL_VALUE_HISTORY_CHARS) return { entries: {}, raw };
+  if (raw === null || raw.length > MAX_LOCAL_VALUE_HISTORY_CHARS) return { entries: {}, tags: {}, raw };
   try {
     const checked = checkValueHistory(JSON.parse(raw));
-    return { entries: checked.ok ? checked.entries : {}, raw };
+    return { entries: checked.ok ? checked.entries : {}, tags: checked.ok ? checked.tags : {}, raw };
   } catch {
-    return { entries: {}, raw };
+    return { entries: {}, tags: {}, raw };
   }
 }
 
@@ -254,8 +285,8 @@ export async function exportSettings(options: ExportSettingsOptions = {}): Promi
   const storage = getStorage(options);
   if (!storage) throw new PackageError("unavailable");
   const values = readLocalSettings(storage);
-  const history = options.includeValueHistory === true ? readLocalValueHistory(storage).entries : undefined;
-  return settingsModuleFromValues(values, history);
+  const history = options.includeValueHistory === true ? readLocalValueHistory(storage) : undefined;
+  return settingsModuleFromValues(values, history?.entries, history?.tags);
 }
 
 /** Resumen previo a exportar (sin leer el contenido de los valores de PII): cuantas claves y cuantas etiquetas de historial. */
@@ -304,6 +335,8 @@ export type ValueHistoryPlan = {
   dropped: number;
   /** Lo que se escribiria; ausente si `absent`/`invalid`. */
   entries?: ValueHistoryEntries;
+  /** Nombres de las etiquetas propias que traeria (W3-A1); ausente si no trae ninguna. */
+  tags?: ValueHistoryTags;
   localRaw: string | null;
 };
 
@@ -409,14 +442,15 @@ export function planSettingsImport(read: PackageReadResult, options: SettingsSto
     } else if (checked.labels === 0) {
       plan.valueHistory = { status: "absent", labels: 0, values: 0, dropped: checked.dropped, localRaw };
     } else {
-      const local = storage ? readLocalValueHistory(storage).entries : {};
-      const hasLocal = Object.keys(local).length > 0;
+      const local = storage ? readLocalValueHistory(storage) : { entries: {}, tags: {} };
+      const hasLocal = Object.keys(local.entries).length > 0;
       plan.valueHistory = {
-        status: !hasLocal ? "new" : sameValueHistory(local, checked.entries) ? "identical" : "different",
+        status: !hasLocal ? "new" : sameValueHistory(local.entries, local.tags, checked.entries, checked.tags) ? "identical" : "different",
         labels: checked.labels,
         values: checked.values,
         dropped: checked.dropped,
         entries: checked.entries,
+        ...(Object.keys(checked.tags).length > 0 ? { tags: checked.tags } : {}),
         localRaw,
       };
     }
@@ -635,12 +669,12 @@ export async function applySettingsImport(
   if (decisions?.valueHistory === "replace") {
     const history = plan.valueHistory;
     if (history && (history.status === "new" || history.status === "different")) {
-      const checked = checkValueHistory({ version: VALUE_HISTORY_SCHEMA, entries: history.entries });
+      const checked = checkValueHistory({ version: VALUE_HISTORY_SCHEMA, entries: history.entries, tags: history.tags });
       if (!checked.ok || checked.labels === 0) return { ok: false, reason: "invalid" };
       writesHistory = true;
       writes.push({
         key: VALUE_HISTORY_STORAGE_KEY,
-        text: valueHistoryJson(checked.entries),
+        text: valueHistoryJson(checked.entries, checked.tags),
         expectRaw: { raw: history.localRaw },
       });
     }

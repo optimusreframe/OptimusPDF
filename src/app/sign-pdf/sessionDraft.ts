@@ -22,8 +22,10 @@ import type {
   SessionDraftMeta,
 } from "@/app/sign-pdf/signDrafts";
 import type { SignatureField } from "@/lib/pdf/sign";
+import type { DetectedField } from "@/lib/pdf/detectFields";
 import { sanitizeTextEdits } from "@/app/sign-pdf/textEdits";
 import { DEFAULT_COPIES, normalizeCopies } from "@/lib/pdf/signCopies";
+import { sanitizeFieldTags } from "@/lib/fieldTags";
 
 /*
  * Borrador de SESION (varios documentos): traduccion pura entre la sesion viva
@@ -221,7 +223,7 @@ function restoreDocState(
     state: {
       ...EMPTY_DOC_STATE,
       fields: asArray<SignatureField>(base.fields),
-      textFields: asArray(base.textFields),
+      textFields: sanitizeFieldTags(asArray<DetectedField>(base.textFields)),
       textValues:
         typeof base.textValues === "object" && base.textValues !== null
           ? base.textValues

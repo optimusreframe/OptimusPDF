@@ -124,6 +124,9 @@ import {
   useDocumentSession,
   type SeenStore,
 } from "@/app/sign-pdf/useDocumentSession";
+import type { CrossDocs } from "@/app/sign-pdf/useFieldTagging";
+import { memoryKeyOf } from "@/app/sign-pdf/fieldMemory";
+import { RememberedDataButton } from "@/app/sign-pdf/RememberedData";
 import {
   DocumentSessionHost,
 } from "@/app/sign-pdf/DocumentSessionHost";
@@ -223,12 +226,12 @@ import {
 } from "@/lib/pdf/core";
 import { isDecryptedCopy } from "@/lib/pdf/inputGuard";
 import { type DetectedField } from "@/lib/pdf/detectFields";
+import type { AutoMark } from "@/lib/fieldPropagation";
 import type { TextEdit } from "@/lib/pdf/editTypes";
 import {
   SIGNER_COLORS,
   buildSignerFilenamePrefix,
   dataUrlToBytes,
-  normalizeFieldLabel,
   signPdfMulti,
   type SignMultiOptions,
   type SignPlacement,
@@ -335,6 +338,12 @@ export type SignToolOptions = {
   textEdits?: TextEdit[];
 
   /**
+   * Campos de texto rellenados solos por la propagacion de etiquetas (`"filled"`) o sacados de esa cola con «Deshacer»
+   * (`"declined"`), por `id`. Ausente = ninguno. Solo vive en la sesion (ver `DocState.autoFilled`).
+   */
+  autoFilled?: Record<string, AutoMark>;
+
+  /**
    * Turno de la ceremonia de firma (de quien es y en que etapa), guardado en la sesion: el estado
    * de la ceremonia se pierde al volver a montarla (pestanas de documento, «Atras»), este no.
    * Ausente/`null` = sin turno guardado (se deriva del primer firmante pendiente).
@@ -365,6 +374,7 @@ const CLEARED_DOCUMENT_STATE: Partial<SignToolOptions> = {
   editingTextFieldId: null,
   textFieldsDetectedFor: null,
   textEdits: [],
+  autoFilled: {},
   ceremony: null,
   turnOrder: null,
 };
@@ -418,12 +428,16 @@ function dataKeysOfNotice(notice: { record: { textMeta: Record<string, { dataKey
 function recordFilledValues(
   fields: readonly DetectedField[],
   values: Record<string, string>,
+  autoFilled?: Readonly<Record<string, AutoMark>>,
 ): void {
   for (const field of fields) {
-    const label = field.label;
+    // La memoria va por ETIQUETA (la del campo o la que sugiere su rotulo); un campo dibujado sin etiqueta ni rotulo no recuerda.
+    const key = memoryKeyOf(field);
     const value = values[field.id]?.trim();
-    if (!label || !value) continue;
-    recordValue(normalizeFieldLabel(label), value);
+    if (!key || !value) continue;
+    // Lo que puso el autorrelleno ya esta en la memoria por su origen.
+    if (autoFilled?.[field.id] === "filled") continue;
+    recordValue(key, value);
   }
 }
 
@@ -669,7 +683,7 @@ export async function prepareDocumentJob(
       file,
       params: { placements },
       textEdits: options.textEdits ?? [],
-      commit: () => recordFilledValues(options.textFields, options.textValues),
+      commit: () => recordFilledValues(options.textFields, options.textValues, options.autoFilled),
     };
   }
 
@@ -705,7 +719,7 @@ export async function prepareDocumentJob(
         : undefined,
     },
     // Solo se guarda tras un empotrado con exito.
-    commit: () => recordFilledValues(options.textFields, options.textValues),
+    commit: () => recordFilledValues(options.textFields, options.textValues, options.autoFilled),
   };
 }
 
@@ -1838,6 +1852,9 @@ export function SignToolClient() {
               </Button>
             ) : null}
 
+            {/* Datos recordados (memoria por etiqueta): tambien al alcance en «Solo yo». */}
+            <RememberedDataButton variant="secondary" size="md" fullWidth />
+
             {options.signaturePng ? (
               <div className="rounded-ios-sm flex items-center justify-center border border-white/10 bg-white p-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2480,6 +2497,7 @@ export function SignToolClient() {
               onVaultOpenChange={setVaultOpen}
               vaultNotice={vaultNotice}
               onVaultNoticeChange={setVaultNotice}
+              cross={files.length > 1 && file ? { bridge, docId } : undefined}
             />
           ) : (
             <MultiFlow
@@ -2845,6 +2863,8 @@ export function MultiFlow({
     // El "Deshacer" de un firmante borrado describe el documento anterior.
     onDocumentChange: () => setPendingSignerUndo(null),
     seen,
+    // Varios documentos: el autorrelleno por etiqueta llega tambien a los campos de los demas.
+    cross: multi && file ? { bridge: multi.bridge, docId: docIdOf(file) } : undefined,
   });
   const {
     documentKey,
@@ -2859,6 +2879,8 @@ export function MultiFlow({
     onTextValueChange,
     textFieldsMissing,
     detectedFieldsCount,
+    tagging,
+    autoFillToast,
   } = session;
   const textEditConfig = useTextEditConfig(options.textEdits, setOptions, editStrings);
 
@@ -3488,7 +3510,9 @@ export function MultiFlow({
             pinchZoomEnabled={pinchZoomEnabled}
             sequence={sequence}
             textEdit={textEditConfig}
+            tagging={tagging}
           />
+          {autoFillToast}
 
           <PendingFieldsNotice
             missing={showPendingTextFieldsNotice ? textFieldsMissing : 0}
@@ -3633,6 +3657,8 @@ export type SoloSignatureSurfaceProps = {
   strings: SignStrings;
   editStrings?: EditInlineStrings;
   seen?: SeenStore<SignToolOptions>;
+  /** Varios documentos: puente de la sesion para el autorrelleno por etiqueta (ver `SoloFlowProps.cross`). */
+  cross?: CrossDocs;
   /** Baul de firmas encendido (ajuste `signatureVault`). */
   vaultEnabled: boolean;
   /** Hay alguna firma guardada que ofrecer. */
@@ -3720,6 +3746,7 @@ export function SoloSignatureSurface({
   strings,
   editStrings,
   seen,
+  cross,
   vaultEnabled,
   hasSaved,
   composerOpen,
@@ -3751,6 +3778,7 @@ export function SoloSignatureSurface({
         strings={strings}
         editStrings={editStrings}
         seen={seen}
+        cross={cross}
       />
       <SignatureComposer
         open={composerOpen}
@@ -3820,6 +3848,8 @@ export type SoloFlowProps = {
   editStrings?: EditInlineStrings;
   /** Ultimo archivo visto, compartido entre flujos (ver `useDocumentSession`). */
   seen?: SeenStore<SignToolOptions>;
+  /** Varios documentos: puente de la sesion para que el autorrelleno por etiqueta llegue a los demas (ver `useDocumentSession`). */
+  cross?: CrossDocs;
 };
 
 /**
@@ -3844,6 +3874,7 @@ export function SoloFlow({
   strings,
   editStrings,
   seen,
+  cross,
 }: SoloFlowProps) {
   const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
   const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
@@ -3866,12 +3897,15 @@ export function SoloFlow({
     onTextValueChange,
     textFieldsMissing,
     detectedFieldsCount,
+    tagging,
+    autoFillToast,
   } = useDocumentSession({
     file,
     options,
     setOptions,
     clearedState: CLEARED_DOCUMENT_STATE,
     seen,
+    cross,
   });
   const textEditConfig = useTextEditConfig(options.textEdits, setOptions, editStrings);
 
@@ -3931,7 +3965,9 @@ export function SoloFlow({
         pinchZoomEnabled={pinchZoomEnabled}
         sequence={sequence}
         textEdit={textEditConfig}
+        tagging={tagging}
       />
+      {autoFillToast}
 
       <PendingFieldsNotice
         missing={fieldsCompleteNoticeEnabled ? textFieldsMissing : 0}

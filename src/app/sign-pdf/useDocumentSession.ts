@@ -10,8 +10,10 @@ import {
   isSuggestionOnly,
   type DetectedField,
 } from "@/lib/pdf/detectFields";
-import { normalizeFieldLabel } from "@/lib/pdf/sign";
 import { bestMatchForKey } from "@/lib/valueHistory";
+import { pruneMarks, withoutMark, type AutoMark } from "@/lib/fieldPropagation";
+import { memoryKeyOf } from "@/app/sign-pdf/fieldMemory";
+import { useFieldTagging, type CrossDocs } from "@/app/sign-pdf/useFieldTagging";
 
 /*
  * Sesion de documento compartida por "Varios firmantes" (`MultiFlow`) y
@@ -32,6 +34,8 @@ export type SessionOptions = {
   textFieldsDetectedFor: string | null;
   selectedFieldId: string | null;
   selectedTextFieldId: string | null;
+  /** Campos que la propagacion por etiqueta relleno sola o que se sacaron de esa cola (ver `DocState.autoFilled`). Ausente = ninguno. */
+  autoFilled?: Record<string, AutoMark>;
 };
 
 /* ------------------------------------------------------------------ *
@@ -74,14 +78,18 @@ function markDeclinedReuse(documentKey: string): void {
   }
 }
 
-/** Campos cuya etiqueta coincide con un valor ya guardado de otro documento. */
+/**
+ * Campos cuya etiqueta (la suya o la que sugiere su rótulo) coincide con un valor ya guardado de otro documento. Es una
+ * PROPUESTA que la persona acepta o rechaza (`ReuseValuesPrompt`): la memoria de otros documentos nunca rellena sola.
+ */
 function matchingStoredValues(
   fields: readonly DetectedField[],
 ): Record<string, string> {
   const matches: Record<string, string> = {};
   for (const field of fields) {
-    if (!field.label) continue;
-    const value = bestMatchForKey(normalizeFieldLabel(field.label));
+    const key = memoryKeyOf(field);
+    if (!key) continue;
+    const value = bestMatchForKey(key);
     if (value) matches[field.id] = value;
   }
   return matches;
@@ -116,6 +124,11 @@ export type DocumentSessionParams<T extends SessionOptions> = {
    * (`SignToolClient`); sin el, cada flujo recuerda solo desde que se monta.
    */
   seen?: SeenStore<T>;
+  /**
+   * Varios documentos en la ronda: el puente de la sesion y el id de este documento, para que el autorrelleno por etiqueta
+   * llegue tambien a los campos de los demas documentos. Ausente = un solo documento.
+   */
+  cross?: CrossDocs;
 };
 
 export function useDocumentSession<T extends SessionOptions>({
@@ -125,6 +138,7 @@ export function useDocumentSession<T extends SessionOptions>({
   clearedState,
   onDocumentChange,
   seen,
+  cross,
 }: DocumentSessionParams<T>) {
   /** Huella del contenido del archivo; `null` mientras se calcula. */
   const documentKey = useDocumentKey(file);
@@ -346,21 +360,38 @@ export function useDocumentSession<T extends SessionOptions>({
     } as Partial<T>);
   };
 
-  /** Quita del mapa de valores lo que ya no describe ningun campo vivo. */
+  /** Quita del mapa de valores (y de las marcas de autorrelleno) lo que ya no describe ningun campo vivo. */
   const onTextFieldsChange = (fields: DetectedField[]) => {
     const alive = new Set(fields.map((field) => field.id));
     const values: Record<string, string> = {};
     for (const [id, value] of Object.entries(options.textValues)) {
       if (alive.has(id)) values[id] = value;
     }
-    setOptions({ textFields: fields, textValues: values } as Partial<T>);
-  };
-
-  const onTextValueChange = (id: string, value: string) => {
+    const marks = pruneMarks(options.autoFilled, alive);
     setOptions({
-      textValues: { ...options.textValues, [id]: value },
+      textFields: fields,
+      textValues: values,
+      ...(marks !== options.autoFilled ? { autoFilled: marks ?? {} } : {}),
     } as Partial<T>);
   };
+
+  /**
+   * Escribir en un campo es "tocarlo": si estaba autorrellenado deja de seguir al campo origen (pasa a ser un valor de la
+   * persona); si lo vacia, queda fuera de la cola (no se vuelve a rellenar solo) hasta que escriba algo.
+   */
+  const onTextValueChange = (id: string, value: string) => {
+    const marks = options.autoFilled;
+    const mark = marks?.[id];
+    let nextMarks: Record<string, AutoMark> | undefined;
+    if (marks && mark === "filled" && value.trim() === "") nextMarks = { ...marks, [id]: "declined" };
+    else if (marks && mark !== undefined && (mark === "filled" || value.trim() !== "")) nextMarks = (withoutMark(marks, id) ?? marks) as Record<string, AutoMark>;
+    setOptions({
+      textValues: { ...options.textValues, [id]: value },
+      ...(nextMarks ? { autoFilled: nextMarks } : {}),
+    } as Partial<T>);
+  };
+
+  const { tagging, autoFillToast } = useFieldTagging<T>({ options, setOptions, cross });
 
   const acceptReuse = () => {
     if (!reuseMatches) return;
@@ -408,5 +439,9 @@ export function useDocumentSession<T extends SessionOptions>({
     onTextValueChange,
     textFieldsMissing,
     detectedFieldsCount,
+    /** Etiquetas, memoria y autorrelleno: se pasa tal cual a `DocumentCanvas` (`tagging`). */
+    tagging,
+    /** El aviso «Rellenado en N campos · Deshacer»: hay que pintarlo junto al lienzo. */
+    autoFillToast,
   };
 }

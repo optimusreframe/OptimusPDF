@@ -4,6 +4,7 @@ import { sanitizeTextEdits } from "@/app/sign-pdf/textEdits";
 import { sanitizeTurnOrder } from "@/app/sign-pdf/turnOrder";
 import { BIDI_CONTROLS, hasValidPngShape } from "@/lib/backup/modules/draftsPng";
 import { normalizeCopies } from "@/lib/pdf/signCopies";
+import { sanitizeTag } from "@/lib/fieldTags";
 import type { SignatureDraft } from "@/app/sign-pdf/SignatureComposer";
 import type { DocState, SignerBlock } from "@/app/sign-pdf/docSet";
 import type { DetectedField, DetectedFieldType, FieldConfidence, FieldSource } from "@/lib/pdf/detectFields";
@@ -231,6 +232,8 @@ function parseTextFields(value: unknown): DetectedField[] | null {
     }
     seen.add(id);
     const rect = raw.rect;
+    // Etiqueta del campo (W3-A1): opcional; una que no tiene forma de clave se descarta sin tumbar el campo.
+    const tag = sanitizeTag(raw.tag);
     out.push({
       id,
       pageIndex,
@@ -239,6 +242,7 @@ function parseTextFields(value: unknown): DetectedField[] | null {
       confidence: raw.confidence as FieldConfidence,
       ...(label !== undefined ? { label } : {}),
       ...(type !== undefined ? { type } : {}),
+      ...(tag !== undefined ? { tag } : {}),
     });
   }
   return out;

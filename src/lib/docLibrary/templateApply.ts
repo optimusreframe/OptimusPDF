@@ -1,5 +1,6 @@
 import type { DetectedField } from "../pdf/detectFields";
 import type { SignatureField } from "../pdf/sign";
+import { DATA_KEY_PATTERN } from "./dataKeys";
 import {
   TEMPLATE_LIMITS,
   type DocTemplate,
@@ -201,6 +202,8 @@ export function applyTemplate(template: Pick<DocTemplate, "variants" | "roles">,
     };
     if (field.label !== "") detected.label = field.label;
     if (field.type !== "text") detected.type = field.type;
+    // El origen de dato de la plantilla es la ETIQUETA del campo (W3-A1): el campo nace etiquetado, listo para recordar y propagar.
+    if (field.dataKey !== undefined && DATA_KEY_PATTERN.test(field.dataKey)) detected.tag = field.dataKey;
     textFields.push(detected);
     const meta: ApplyResult["textMeta"][string] = { required: field.required };
     if (field.dataKey !== undefined) meta.dataKey = field.dataKey;

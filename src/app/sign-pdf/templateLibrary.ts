@@ -14,6 +14,7 @@ import {
 import { createTemplate, getTemplateForDocument, saveTemplateVersion } from "@/lib/docLibrary/templatesStore";
 import { buildContent } from "@/lib/docLibrary/templateSchema";
 import { suggestDataKey } from "@/lib/docLibrary/dataKeys";
+import { tagOf } from "@/lib/fieldTags";
 import { FingerprintError, LibraryError, type DocumentEntry, type Fingerprint } from "@/lib/docLibrary/types";
 import type { DocTemplate, TemplateDraft, TemplateSignField, TemplateTextField, Variant } from "@/lib/docLibrary/templateTypes";
 import { docStateOf, liveFields } from "@/app/sign-pdf/docSet";
@@ -240,7 +241,8 @@ export function seedContentFromSession(args: {
       const meta = args.textMeta?.[field.id];
       const type = field.type ?? "text";
       const label = field.label ?? "";
-      const dataKey = meta?.dataKey ?? (type === "date" ? "today" : suggestDataKey(label));
+      // La etiqueta que la persona le puso al campo (W3-A1) es su origen de dato; sin ella, el de la plantilla aplicada o el sugerido.
+      const dataKey = tagOf(field) ?? meta?.dataKey ?? (type === "date" ? "today" : suggestDataKey(label));
       const text: TemplateTextField = { id: field.id, pageIndex: field.pageIndex, rect: { ...field.rect }, type, label, required: meta?.required ?? false, source: "manual" };
       if (dataKey) text.dataKey = dataKey;
       if (meta?.rule ?? (type === "date" ? "today" : undefined)) text.rule = "today";

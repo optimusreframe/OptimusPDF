@@ -16,6 +16,7 @@ import {
 } from "@/app/sign-pdf/clearLocalSignData";
 import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
 import { BackupSection } from "@/app/settings/BackupSection";
+import { RememberedDataSettingsCard } from "@/app/sign-pdf/RememberedData";
 import { StripSavedSignatures } from "@/app/sign-pdf/StripSavedSignatures";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { clearAllEditDrafts } from "@/app/edit-pdf/editDrafts";
@@ -179,6 +180,8 @@ export function SettingsView() {
             ))}
           </div>
         </GlassCard>
+
+        <RememberedDataSettingsCard />
 
         <GlassCard className="p-6">
           <h2 className="text-headline text-foreground">

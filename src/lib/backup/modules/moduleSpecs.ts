@@ -13,8 +13,8 @@ import type { PackageModuleSpec } from "@/lib/backup/types";
 
 /** `settings.json` real ocupa < 2 KiB: 64 KiB sobran y un paquete hostil no hace trabajo de mas. */
 export const MAX_SETTINGS_JSON_BYTES = 64 * 1024;
-/** 200 etiquetas x 5 valores x ~500 caracteres cabe de sobra en 512 KiB. */
-export const MAX_VALUE_HISTORY_JSON_BYTES = 512 * 1024;
+/** 200 etiquetas x 30 valores (W3-A1; antes 5) x ~500 caracteres, en el peor caso, caben en 3 MiB; lo normal ocupa < 100 KiB. */
+export const MAX_VALUE_HISTORY_JSON_BYTES = 3 * 1024 * 1024;
 /** Indice + sesiones de Editar: acotado (los PDF y las imagenes tienen su propio tope). */
 export const MAX_DRAFTS_JSON_BYTES = 8 * 1024 * 1024;
 /** El tope de un PDF dentro de un borrador (el mismo de Firmar y de las herramientas). */

@@ -12,6 +12,8 @@ import {
   type ClearFailure,
 } from "@/app/sign-pdf/clearLocalSignData";
 import { StripSavedSignatures } from "@/app/sign-pdf/StripSavedSignatures";
+import { RememberedDataButton } from "@/app/sign-pdf/RememberedData";
+import { useTagStrings } from "@/app/sign-pdf/tagStrings";
 import { setSignPdfFeatureFlag, useSignPdfFeatureFlag } from "@/app/sign-pdf/signFeatureFlags";
 import { clearAllTemplates } from "@/app/sign-pdf/signTemplates";
 import type { SignStrings } from "@/app/sign-pdf/strings";
@@ -64,6 +66,7 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
   const vaultEnabled = useSignPdfFeatureFlag("signatureVault");
   const signaturesInDraft = useSignPdfFeatureFlag("signaturesInDraft");
   const privacy = strings.draftPrivacy;
+  const tagStrings = useTagStrings();
   const [cleared, setCleared] = useState(false);
   /** Almacenes que no se pudieron vaciar en el ultimo intento (vacio = bien). */
   const [failed, setFailed] = useState<ClearFailure[]>([]);
@@ -106,6 +109,8 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
         >
           {strings.privacyClearData}
         </Button>
+        {/* Datos recordados: ver, corregir y borrar lo que la memoria guarda por etiqueta. */}
+        <RememberedDataButton className="pointer-coarse:h-11 pointer-coarse:before:hidden" />
         {/* Region de estado siempre montada: solo cambia su contenido. */}
         <StatusRegion
           as="span"
@@ -168,6 +173,7 @@ export function PrivacyNotice({ strings }: PrivacyNoticeProps) {
               {signaturesInDraft ? privacy.noticeSignaturesOn : privacy.noticeSignaturesOff}
               {vaultEnabled ? ` ${strings.privacyNoticeVaultNote}` : ""}
             </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">{tagStrings.privacyMemoryNote}</p>
             {/* F0-fix2 (N2): apagar el interruptor no toca lo ya guardado; este boton lo quita ya. */}
             <StripSavedSignatures strings={strings} />
           </div>

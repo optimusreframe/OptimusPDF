@@ -8,8 +8,9 @@ import { useI18n, type Language } from "@/lib/i18n";
 import { toPdfError } from "@/lib/pdf/core";
 import type { DetectedField } from "@/lib/pdf/detectFields";
 import { readFillForm, writeFillForm, type FormFieldInfo } from "@/lib/pdf/fillForm";
-import { normalizeFieldLabel, signPdfMulti } from "@/lib/pdf/sign";
+import { signPdfMulti } from "@/lib/pdf/sign";
 import { recordValue } from "@/lib/valueHistory";
+import { memoryKeyOf } from "@/app/sign-pdf/fieldMemory";
 import { DocumentCanvas, type PlacementTool } from "@/app/sign-pdf/DocumentCanvas";
 import { useCanvasSequence } from "@/app/sign-pdf/DocumentSequence";
 import { DetectionStatus, PendingFieldsNotice, ReuseValuesPrompt } from "@/app/sign-pdf/DocumentSessionParts";
@@ -96,6 +97,7 @@ const CLEARED_STATE: Partial<FillOptions> = {
   selectedTextFieldId: null,
   editingTextFieldId: null,
   fieldPageIndex: 0,
+  autoFilled: {},
 };
 
 type FormState =
@@ -316,11 +318,14 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
       if (mountedRef.current) changePhase("editing");
       return fail(e.staleResult);
     }
+    // La memoria va por ETIQUETA (la del campo o la que sugiere el nombre del campo del formulario), no por el texto del rotulo.
     for (const field of options.textFields) {
-      const label = field.label;
+      const key = memoryKeyOf(field);
       const value = options.textValues[field.id]?.trim();
-      if (!label || !value || (field.type ?? "text") !== "text") continue;
-      recordValue(normalizeFieldLabel(label), value);
+      if (!key || !value || (field.type ?? "text") !== "text") continue;
+      // Lo que puso el autorrelleno ya esta en la memoria por su origen.
+      if (options.autoFilled?.[field.id] === "filled") continue;
+      recordValue(key, value);
     }
     const label = plan.fieldCount > 0 ? e.labelFilled(plan.fieldCount) : e.labelFlattened;
     try {
@@ -445,7 +450,9 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
               richFieldTypesEnabled={richFieldTypesEnabled}
               pinchZoomEnabled={pinchZoomEnabled}
               sequence={sequence}
+              tagging={session.tagging}
             />
+            {session.autoFillToast}
 
             <PendingFieldsNotice
               missing={fieldsCompleteNoticeEnabled ? session.textFieldsMissing : 0}

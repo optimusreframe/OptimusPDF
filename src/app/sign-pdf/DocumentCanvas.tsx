@@ -30,6 +30,7 @@ import {
   Move,
   PenLine,
   Signature,
+  Sparkles,
   SquareCheck,
   Trash2,
   Type,
@@ -55,7 +56,6 @@ import {
 } from "@/lib/pdf/core";
 import {
   SIGNER_COLORS,
-  normalizeFieldLabel,
   signerDisplayName,
   type SignatureField,
   type SignatureFieldType,
@@ -83,8 +83,15 @@ import { useIsDesktop } from "@/app/pdf-pro/shell/useIsDesktop";
 import { usePageImage } from "@/app/sign-pdf/usePageImage";
 import { useSignTextEditing, type SignTextEditConfig } from "@/app/sign-pdf/useSignTextEditing";
 import { ValueSuggestions } from "@/app/sign-pdf/ValueSuggestions";
+import { SuggestionBar } from "@/app/sign-pdf/SuggestionBar";
+import { FieldTagPicker, TagGlyph } from "@/app/sign-pdf/FieldTagPicker";
+import { CustomTagSheet } from "@/app/sign-pdf/CustomTagSheet";
+import { impliedTagOf, memoryKeyOf } from "@/app/sign-pdf/fieldMemory";
+import { useTagStrings } from "@/app/sign-pdf/tagStrings";
+import type { CanvasTagging } from "@/app/sign-pdf/useFieldTagging";
 import {
   BarButton,
+  BarChip,
   BarGroup,
   FloatingFieldBar,
 } from "@/app/sign-pdf/FloatingFieldBar";
@@ -107,6 +114,8 @@ import {
   toolFromShortcut,
   type PlacementTool,
 } from "@/app/sign-pdf/canvasTools";
+import { tagLabel, tagOf, type TaggableType } from "@/lib/fieldTags";
+import { useOptionalLanguage } from "@/lib/i18n";
 import {
   FINGER_HINT_MS,
   createPenGuard,
@@ -121,9 +130,11 @@ import {
 } from "@/app/sign-pdf/canvasGestures";
 import { useGestureStrings } from "@/app/sign-pdf/gestureStrings";
 import {
+  customTagNames,
   forgetValue,
+  rankedSuggestions,
   recordValue,
-  suggestValues,
+  setPinned,
   useValueHistoryVersion,
 } from "@/lib/valueHistory";
 import { createEdgeAutoScroller, type EdgeAutoScroller } from "@/lib/touch/edgeAutoScroll";
@@ -467,6 +478,11 @@ export type DocumentCanvasProps = {
    * original de ESTE documento y sus textos (W6-A, ver `useSignTextEditing`).
    */
   textEdit?: SignTextEditConfig;
+  /**
+   * Etiquetas de campo, memoria y autorrelleno (W3-A1): lo da `useDocumentSession` (`tagging`). Ausente = el lienzo se
+   * comporta como antes de las etiquetas (sin chips, sin autorrelleno; las sugerencias salen de la etiqueta del rotulo).
+   */
+  tagging?: CanvasTagging;
 };
 
 export type { SignTextEditConfig };
@@ -590,8 +606,11 @@ function DocumentCanvasInner({
   textEdit,
   apiRef,
   gestureMode,
+  tagging,
 }: DocumentCanvasProps) {
   const gestureStrings = useGestureStrings();
+  const tagStrings = useTagStrings();
+  const tagLanguage = useOptionalLanguage();
   const compact = useCanvasCompact();
   /** Dentro de PDF Pro el layout de tablet lo gobierna la suite (paleta en carril desde 768 px); fuera, desde 1 280 px. */
   const inPro = useInProSuite();
@@ -612,6 +631,12 @@ function DocumentCanvasInner({
   const coarse = useMediaQuery("(pointer: coarse)");
   /** Campo cuyo selector de tipo esta abierto en la barra (se cierra al cambiar de seleccion o al salir el foco de la barra). */
   const [typePickerFor, setTypePickerFor] = useState<string | null>(null);
+  /** Campo cuyos chips de etiqueta estan abiertos en la barra flotante (raton): se cierra igual que el selector de tipo. */
+  const [tagPickerFor, setTagPickerFor] = useState<string | null>(null);
+  /** Campo recien dibujado que aun espera su etiqueta: sus chips se abren solos (en la barra sobre el teclado, con el dedo). */
+  const [freshTagId, setFreshTagId] = useState<string | null>(null);
+  /** «Otra…»: campo al que se le pone una etiqueta propia desde la hoja de nombre. */
+  const [customTagFor, setCustomTagFor] = useState<string | null>(null);
   /** Lado preferido de la barra para el elemento seleccionado (se fija al seleccionar). */
   const [barPrefs, setBarPrefs] = useState<{ id: string | null; prefer: "top" | "bottom" }>({
     id: null,
@@ -784,6 +809,9 @@ function DocumentCanvasInner({
 
   /** Al cerrar el selector de tipo con el teclado, el foco vuelve al boton que lo abre. */
   const pendingTypeButtonFocusRef = useRef(false);
+  /** Los chips de etiqueta de la barra los abrio la persona (no el campo recien dibujado): el foco entra en ellos; al cerrar vuelve al boton. */
+  const pendingTagButtonFocusRef = useRef(false);
+  const focusTagPickerRef = useRef(false);
   /** Valor original de un campo cuyo texto se abrevio al pasar a "iniciales" (para devolverlo al volver a texto). */
   const initialsOriginalRef = useRef<Map<string, { original: string; formatted: string }>>(
     new Map(),
@@ -1183,9 +1211,14 @@ function DocumentCanvasInner({
         restoreFocusToRef.current = { kind: "text", id: field.id };
       } else {
         onEditingIdChange(field.id);
+        // Campo nuevo: se ofrecen los chips de etiqueta (con el dedo, en la barra sobre el teclado; con raton, en la barra flotante).
+        if (tagging && (type === "text" || type === "date")) {
+          setFreshTagId(field.id);
+          if (!coarse) setTagPickerFor(field.id);
+        }
       }
     },
-    [textFields, onTextFieldsChange, onSelectionChange, onEditingIdChange, pageIndex],
+    [textFields, onTextFieldsChange, onSelectionChange, onEditingIdChange, pageIndex, tagging, coarse],
   );
 
   const patchRect = useCallback(
@@ -1777,6 +1810,8 @@ function DocumentCanvasInner({
         source: "manual",
         confidence: "high",
         ...(source.type ? { type: source.type } : {}),
+        // La copia lleva el mismo dato (la misma etiqueta): si la sesion ya lo tiene, se rellena sola (`useFieldTagging`).
+        ...(tagOf(source) ? { tag: tagOf(source) } : {}),
       };
       onTextFieldsChange([...textFields, copy]);
       select({ kind: "text", id: copy.id });
@@ -1803,9 +1838,13 @@ function DocumentCanvasInner({
       initialsOriginalRef.current.set(field.id, { original: base, formatted: converted.value });
     }
     onTextFieldsChange(
-      textFields.map((candidate) =>
-        candidate.id === field.id ? { ...ownField(candidate), type } : candidate,
-      ),
+      textFields.map((candidate) => {
+        if (candidate.id !== field.id) return candidate;
+        const changed = { ...ownField(candidate), type };
+        // La etiqueta solo la llevan los campos de texto y de fecha: una casilla o unas iniciales no la conservan.
+        if (type === "checkbox" || type === "initials") delete changed.tag;
+        return changed;
+      }),
     );
     if (converted.value !== current) onValueChange(field.id, converted.value);
     const typeName = textTypeLabel(type);
@@ -2428,6 +2467,20 @@ function DocumentCanvasInner({
     }
   }, [typePickerFor, selection?.id]);
 
+  /* Chips de etiqueta de la barra: abiertos por la persona, el foco entra en ellos; al cerrar vuelve al boton de etiqueta. */
+  useEffect(() => {
+    const bar = stageRef.current?.querySelector<HTMLElement>("[data-floating-bar]");
+    if (!bar) return;
+    if (tagPickerFor !== null && tagPickerFor === selection?.id) {
+      if (!focusTagPickerRef.current) return;
+      focusTagPickerRef.current = false;
+      (bar.querySelector<HTMLElement>('[data-tag-picker] [aria-pressed="true"]') ?? bar.querySelector<HTMLElement>("[data-tag-picker] button"))?.focus();
+    } else if (pendingTagButtonFocusRef.current) {
+      pendingTagButtonFocusRef.current = false;
+      bar.querySelector<HTMLElement>('[data-bar-action="tag"]')?.focus();
+    }
+  }, [tagPickerFor, selection?.id]);
+
   /*
    * "Solo yo": coloca la firma recien creada en la pagina visible (el flujo
    * rapido: crear -> ya esta puesta) o, si ya habia una colocada, ajusta su
@@ -2820,12 +2873,23 @@ function DocumentCanvasInner({
             : strings.a11yPending
         }`
       : "";
+  /** Etiqueta del campo de texto seleccionado y su nombre visible (chip de la barra flotante). */
+  const selectedTag = selectedTextField ? (tagOf(selectedTextField) ?? null) : null;
+  const selectedTagName = selectedTag ? tagLabel(selectedTag, tagLanguage, customTagNames()) : null;
   // El selector de tipo pertenece al elemento que lo abrio: si la seleccion cambia o se va
   // (clic fuera, Escape, otra herramienta), se cierra, y no reaparece abierto al volver a elegirlo.
   if (typePickerFor !== null && typePickerFor !== (selection?.id ?? null)) {
     setTypePickerFor(null);
   }
   const typePickerOpen = typePickerFor !== null && typePickerFor === selection?.id;
+  // Igual con los chips de etiqueta de la barra, y los del campo recien dibujado solo duran mientras se edita ese campo.
+  if (tagPickerFor !== null && tagPickerFor !== (selection?.id ?? null)) {
+    setTagPickerFor(null);
+  }
+  const tagPickerOpen = tagPickerFor !== null && tagPickerFor === selection?.id;
+  if (freshTagId !== null && freshTagId !== editingId) {
+    setFreshTagId(null);
+  }
   /** La barra solo se ancla a un elemento de la pagina visible. */
   const barSelection =
     selectedElement && selectedElement.pageIndex === pageIndex ? selection : null;
@@ -2878,6 +2942,25 @@ function DocumentCanvasInner({
   const closeTypePicker = () => {
     setTypePickerFor(null);
     pendingTypeButtonFocusRef.current = true;
+  };
+
+  /** Pone, cambia o quita la etiqueta de un campo (lo hace `tagging`) y lo anuncia. */
+  const changeTag = (field: DetectedField, tag: string | null) => {
+    if (!tagging) return;
+    tagging.onTagChange(field.id, tag);
+    setFreshTagId(null);
+    setTagPickerFor(null);
+    setAnnouncement(
+      tag
+        ? tagStrings.tagSet(textLabel(field), tagLabel(tag, tagLanguage, customTagNames()))
+        : tagStrings.tagCleared(textLabel(field)),
+    );
+  };
+
+  /** Cierra los chips de la barra y devuelve el foco al boton que los abre (si se cierran con el teclado). */
+  const closeTagPicker = () => {
+    setTagPickerFor(null);
+    pendingTagButtonFocusRef.current = true;
   };
 
   /** Foco hacia la barra (Tab desde el elemento seleccionado). */
@@ -3537,12 +3620,15 @@ function DocumentCanvasInner({
                   label={textLabel(field)}
                   value={values[field.id] ?? ""}
                   onValueChange={(value) => onValueChange(field.id, value)}
-                  historyKey={
-                    field.label &&
-                    (fieldTypeOf(field) === "text" || fieldTypeOf(field) === "initials")
-                      ? normalizeFieldLabel(field.label)
-                      : null
-                  }
+                  memoryKey={memoryKeyOf(field)}
+                  tag={tagOf(field) ?? null}
+                  impliedTag={impliedTagOf(field)}
+                  taggable={tagging ? taggableTypeOf(field) : null}
+                  autoMark={tagging?.autoFilled[field.id]}
+                  freshTag={field.id === freshTagId}
+                  onCommitValue={tagging ? (committed) => tagging.onCommit(field.id, committed) : undefined}
+                  onTag={(next) => changeTag(field, next)}
+                  onOtherTag={() => setCustomTagFor(field.id)}
                   selected={selection?.kind === "text" && selection.id === field.id}
                   editing={field.id === editingId}
                   suggested={isSuggestionOnly(field, values[field.id])}
@@ -3666,6 +3752,22 @@ function DocumentCanvasInner({
                   <Trash2 aria-hidden="true" className="size-5" />
                 </BarButton>
               </>
+            ) : selectedTextField && tagging && tagPickerOpen && taggableTypeOf(selectedTextField) ? (
+              /* Chips de etiqueta en la propia barra: sustituyen a las acciones (como el selector de tipo). */
+              <>
+                <FieldTagPicker
+                  type={taggableTypeOf(selectedTextField) as TaggableType}
+                  current={selectedTag}
+                  suggested={impliedTagOf(selectedTextField)}
+                  onPick={(next) => changeTag(selectedTextField, next)}
+                  onNone={() => changeTag(selectedTextField, null)}
+                  onOther={() => setCustomTagFor(selectedTextField.id)}
+                  className="flex-wrap justify-center"
+                />
+                <BarButton label={tagStrings.chipClose} onClick={closeTagPicker}>
+                  <CornerUpLeft aria-hidden="true" className="size-5" />
+                </BarButton>
+              </>
             ) : selectedTextField && typePickerOpen ? (
               /* Selector de tipo en la propia barra: sustituye a las acciones (una sola fila a 375 px). */
               <>
@@ -3704,6 +3806,21 @@ function DocumentCanvasInner({
                       return <Icon aria-hidden="true" className="size-5" />;
                     })()}
                   </BarButton>
+                ) : null}
+                {tagging && taggableTypeOf(selectedTextField) ? (
+                  <BarChip
+                    label={tagStrings.barTag(selectedTagName)}
+                    dataAction="tag"
+                    active={selectedTag !== null}
+                    ariaExpanded={false}
+                    onClick={() => {
+                      focusTagPickerRef.current = true;
+                      setTagPickerFor(selectedTextField.id);
+                    }}
+                  >
+                    <TagGlyph />
+                    <span className="truncate">{selectedTagName ?? tagStrings.pillNoTag}</span>
+                  </BarChip>
                 ) : null}
                 <BarButton
                   label={strings.elementAction(strings.duplicateElement, selectedName)}
@@ -3849,8 +3966,26 @@ function DocumentCanvasInner({
         cancelLabel={strings.confirmCancel}
         closeLabel={strings.confirmClose}
       />
+
+      {tagging ? (
+        <CustomTagSheet
+          open={customTagFor !== null}
+          onClose={() => setCustomTagFor(null)}
+          closeLabel={strings.confirmClose}
+          onCreated={(tag) => {
+            const target = textFields.find((field) => field.id === customTagFor);
+            if (target) changeTag(target, tag);
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+/** El tipo de un campo de texto al que se le puede poner etiqueta (texto o fecha), o `null`. */
+function taggableTypeOf(field: DetectedField): TaggableType | null {
+  const type = fieldTypeOf(field);
+  return type === "text" || type === "date" ? type : null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -4142,8 +4277,23 @@ type TextFieldBoxProps = HitProps & {
   label: string;
   value: string;
   onValueChange: (value: string) => void;
-  /** Clave del historial de valores (etiqueta normalizada), o `null` sin etiqueta estable. */
-  historyKey: string | null;
+  /** Clave de la memoria de valores (la etiqueta del campo o, sin ella, la que sugiere su rotulo), o `null` si no recuerda. */
+  memoryKey: string | null;
+  /** Etiqueta del campo, o `null`. */
+  tag: string | null;
+  /** Etiqueta que sugiere el rotulo detectado cuando aun no tiene ninguna. */
+  impliedTag: string | null;
+  /** Tipo de campo al que se le pueden poner etiquetas con los chips, o `null` (sin `tagging`, iniciales...). */
+  taggable: TaggableType | null;
+  /** Marca de autorrelleno: `"filled"` = lo relleno la propagacion y nadie lo ha tocado. */
+  autoMark?: "filled" | "declined";
+  /** Campo recien dibujado: abre solos los chips de etiqueta. */
+  freshTag?: boolean;
+  /** La persona confirmo el valor (propagacion por etiqueta). Ausente = sin etiquetas. */
+  onCommitValue?: (value: string) => void;
+  onTag: (tag: string | null) => void;
+  /** «Otra…»: pide el nombre de una etiqueta propia. */
+  onOtherTag: () => void;
   selected: boolean;
   /** Input en linea abierto (distinto de `selected`). */
   editing: boolean;
@@ -4177,7 +4327,15 @@ function TextFieldBox({
   label,
   value,
   onValueChange,
-  historyKey,
+  memoryKey,
+  tag,
+  impliedTag,
+  taggable,
+  autoMark,
+  freshTag = false,
+  onCommitValue,
+  onTag,
+  onOtherTag,
   selected,
   editing,
   suggested = false,
@@ -4198,10 +4356,21 @@ function TextFieldBox({
   const color = dashed ? LOW_CONFIDENCE_COLOR : TEXT_FIELD_COLOR;
   const filled = isFieldFilled(field, value);
   const status = filled ? strings.a11yFilled : strings.a11yPending;
+  const language = useOptionalLanguage();
+  const tagName = tag ? tagLabel(tag, language, customTagNames()) : null;
+  const autoFilled = autoMark === "filled" && filled;
 
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const checkboxRef = useRef<HTMLSpanElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const coarse = useMediaQuery("(pointer: coarse)");
+  const tagStrings = useTagStrings();
+  /** Chips de etiqueta de la barra sobre el teclado: `null` = los decide el campo recien dibujado. */
+  const [pickerChoice, setPickerChoice] = useState<boolean | null>(null);
+  const pickerOpen = pickerChoice ?? (freshTag && tag === null);
+  /** Ultimo valor confirmado: confirmar dos veces lo mismo (blur y cierre del editor) cuenta una sola vez. */
+  const lastCommitRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (type === "checkbox" && editing) {
@@ -4210,12 +4379,32 @@ function TextFieldBox({
   }, [type, editing]);
 
   const suggestions =
-    editing && historyKey && !suggestionsDismissed
-      ? suggestValues(historyKey, value, 5)
+    editing && memoryKey && !suggestionsDismissed
+      ? rankedSuggestions(memoryKey, value, coarse ? 8 : 5)
       : [];
 
+  /**
+   * La persona da por bueno el valor: se recuerda bajo la clave del campo (salvo que lo haya puesto el autorrelleno y nadie lo
+   * haya tocado: ese dato ya esta en la memoria por su origen) y, si lleva etiqueta, se propaga a los campos que la comparten.
+   */
+  const commit = () => {
+    if (lastCommitRef.current === value) return;
+    lastCommitRef.current = value;
+    if (memoryKey && autoMark !== "filled") recordValue(memoryKey, value);
+    onCommitValue?.(value);
+  };
+  const commitRef = useRef(commit);
+  useEffect(() => {
+    commitRef.current = commit;
+  });
+  // Cerrar el editor por cualquier camino (Escape, otro campo, Tab) tambien confirma lo escrito.
+  useEffect(() => {
+    if (!editing) return;
+    return () => commitRef.current();
+  }, [editing]);
+
   const commitAndClose = () => {
-    if (historyKey) recordValue(historyKey, value);
+    commit();
     onEditEnd();
   };
 
@@ -4234,13 +4423,21 @@ function TextFieldBox({
   return (
     <div
       role="group"
-      aria-label={`${label}, ${status}`}
+      aria-label={[
+        `${label}, ${status}`,
+        tagName ? tagStrings.fieldTagged(tagName) : null,
+        autoFilled ? tagStrings.autoFilledMark : null,
+      ]
+        .filter(Boolean)
+        .join(", ")}
       tabIndex={0}
       data-drag-mode="move"
       data-element-kind="text"
       data-element-id={field.id}
       data-hit-zone={hit ? "" : undefined}
       data-suggested={suggested ? "" : undefined}
+      data-tag={tag ?? undefined}
+      data-auto-filled={autoFilled ? "" : undefined}
       onPointerDown={onPointerDownHandler}
       onFocus={(event) => {
         if (event.target === event.currentTarget) onFocusSelect();
@@ -4259,7 +4456,8 @@ function TextFieldBox({
           suggested && !selected && !editing
             ? `1.5px dashed ${color}99`
             : `2px ${dashed ? "dashed" : "solid"} ${color}`,
-        backgroundColor: value ? `${color}22` : "transparent",
+        // Lo autorrellenado se ve un poco mas tenue que lo escrito (y lleva su destello): se nota de un vistazo, sin gritar.
+        backgroundColor: value ? (autoFilled ? `${color}12` : `${color}22`) : "transparent",
         boxShadow: selected ? SELECTION_RING : undefined,
         // Por encima de los elementos siguientes (hermanos absolutos sin
         // z-index propio, apilados por orden del DOM): sin esto, el
@@ -4329,6 +4527,7 @@ function TextFieldBox({
       ) : editing ? (
         <>
           <input
+            ref={inputRef}
             type={type === "date" ? "date" : "text"}
             aria-label={label}
             value={value}
@@ -4369,7 +4568,7 @@ function TextFieldBox({
                 }
                 if (event.key === "Enter" && highlightedIndex >= 0) {
                   event.preventDefault();
-                  onValueChange(suggestions[highlightedIndex]);
+                  onValueChange(suggestions[highlightedIndex].value);
                   setSuggestionsDismissed(true);
                   return;
                 }
@@ -4391,7 +4590,7 @@ function TextFieldBox({
                 (event.key === "Enter" || event.key === "Tab")
               ) {
                 event.preventDefault();
-                if (historyKey) recordValue(historyKey, value);
+                commit();
                 setSuggestionsDismissed(true);
                 onAdvance(event.key === "Tab" && event.shiftKey ? -1 : 1);
               }
@@ -4402,29 +4601,74 @@ function TextFieldBox({
                75 % (`scale-75`, con 133,33 % de caja) para que el texto se vea a los 12 px de siempre y llene exactamente el hueco. */
             className="absolute top-0 left-0 h-[133.3333%] w-[133.3333%] origin-top-left scale-75 rounded-[3px] border-0 bg-[#fffffff2] px-2 text-base text-[#111827] outline-2 -outline-offset-2 outline-signal placeholder:text-[#6b7280]"
           />
-          {/* Fecha/inicial no tienen historial (`historyKey` llega null): la lista queda vacia y no se pinta nada. */}
-          <ValueSuggestions
-            id={`${field.id}-suggestions`}
-            suggestions={suggestions}
-            highlightedIndex={highlightedIndex}
-            placement={suggestionsPlacement}
-            onPick={(picked) => {
-              onValueChange(picked);
-              setSuggestionsDismissed(true);
-            }}
-            onForget={(forgotten) => {
-              if (historyKey) forgetValue(historyKey, forgotten);
-            }}
-            strings={strings}
-          />
+          {/* Fecha/casilla no tienen historial (`memoryKey` llega null): sin etiqueta y sin valores no se pinta nada. */}
+          {coarse ? (
+            /* Con el dedo: barra fija sobre el teclado (la lista del recuadro quedaba tapada por el). La fecha usa el selector nativo. */
+            type === "date" ? null : (
+              <SuggestionBar
+                taggable={taggable}
+                tag={tag}
+                impliedTag={impliedTag}
+                pickerOpen={pickerOpen}
+                onPickerOpenChange={setPickerChoice}
+                suggestions={suggestions}
+                highlightedIndex={highlightedIndex}
+                onPick={(picked) => {
+                  onValueChange(picked);
+                  setSuggestionsDismissed(true);
+                }}
+                onForget={(forgotten) => {
+                  if (memoryKey) forgetValue(memoryKey, forgotten);
+                }}
+                onPin={(pinnedValue, pinned) => {
+                  if (memoryKey) setPinned(memoryKey, pinnedValue, pinned);
+                }}
+                onTag={(next) => {
+                  setPickerChoice(false);
+                  // El texto que ya habia escrito pasa a ser el dato de la etiqueta (lo recuerda y propaga `onTag`): no se cuenta otra vez al salir.
+                  if (next && value.trim() !== "") lastCommitRef.current = value;
+                  onTag(next);
+                }}
+                onOther={onOtherTag}
+                anchorRef={inputRef}
+              />
+            )
+          ) : (
+            <ValueSuggestions
+              id={`${field.id}-suggestions`}
+              suggestions={suggestions}
+              highlightedIndex={highlightedIndex}
+              placement={suggestionsPlacement}
+              onPick={(picked) => {
+                onValueChange(picked);
+                setSuggestionsDismissed(true);
+              }}
+              onForget={(forgotten) => {
+                if (memoryKey) forgetValue(memoryKey, forgotten);
+              }}
+              onPin={(pinnedValue, pinned) => {
+                if (memoryKey) setPinned(memoryKey, pinnedValue, pinned);
+              }}
+              strings={strings}
+            />
+          )}
         </>
       ) : value ? (
-        <span
-          className="pointer-events-none absolute inset-0 flex items-center truncate px-1.5 text-xs"
-          style={{ color: INK_ON_PAGE }}
-        >
-          {value}
-        </span>
+        <>
+          <span
+            className="pointer-events-none absolute inset-0 flex items-center truncate px-1.5 text-xs"
+            style={{ color: INK_ON_PAGE }}
+          >
+            {value}
+          </span>
+          {autoFilled && !tiny ? (
+            <Sparkles
+              aria-hidden="true"
+              className="pointer-events-none absolute top-0.5 right-0.5 size-3 opacity-70"
+              style={{ color }}
+            />
+          ) : null}
+        </>
       ) : null}
     </div>
   );

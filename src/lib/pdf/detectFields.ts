@@ -81,6 +81,14 @@ export type DetectedField = {
    * texto libre sin ninguna migracion.
    */
   type?: DetectedFieldType;
+  /**
+   * Etiqueta («tag») del dato que lleva el campo (Dirección, Nombre, Teléfono...): una clave de `docLibrary/dataKeys.ts`
+   * o una propia de la persona (`custom.*`). Es lo que une los campos que repiten un mismo dato (se rellenan solos
+   * entre si) y lo que indexa la memoria de valores (`lib/valueHistory.ts`). Ausente = sin etiqueta (el campo funciona
+   * como siempre); borradores, configuraciones y plantillas anteriores no la traen. Se lee con `tagOf` (`lib/fieldTags.ts`),
+   * que descarta lo que no tenga forma de clave.
+   */
+  tag?: string;
 };
 
 /** Tipo efectivo de un campo, con el default de "ausente = texto libre" ya resuelto. */

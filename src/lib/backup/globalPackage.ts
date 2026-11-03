@@ -134,8 +134,8 @@ const PACKAGE_SLACK_BYTES = 8 * 1024 * 1024;
 const EXPORT_LIMIT_BYTES = PACKAGE_LIMITS.maxUncompressedBytes - PACKAGE_SLACK_BYTES;
 /** Estimación de `settings.json` (pocos KB). */
 const SETTINGS_ESTIMATE_BYTES = 4 * 1024;
-/** Estimación por etiqueta de historial de valores (≤ 5 valores de ≤ 500 caracteres: se queda corta a propósito). */
-const HISTORY_ESTIMATE_BYTES_PER_LABEL = 400;
+/** Estimación por etiqueta de historial de valores (hasta 30 valores, de ≈ 50 caracteres lo normal: se queda corta a propósito). */
+const HISTORY_ESTIMATE_BYTES_PER_LABEL = 1500;
 /** Estimación por perfil de cliente (≈ 11 valores de ≈ 60 caracteres en JSON): se queda corta a propósito. */
 const PROFILE_ESTIMATE_BYTES = 2 * 1024;
 

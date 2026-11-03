@@ -1,6 +1,7 @@
 import type { SignatureDraft } from "@/app/sign-pdf/SignatureComposer";
 import type { CaptureMap, SignerCapture } from "@/app/sign-pdf/captures";
 import type { DetectedField } from "@/lib/pdf/detectFields";
+import type { AutoMark } from "@/lib/fieldPropagation";
 import type { TextEdit } from "@/lib/pdf/editTypes";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
 import { DEFAULT_COPIES, normalizeCopies } from "@/lib/pdf/signCopies";
@@ -57,6 +58,12 @@ export type DocState = {
    * vale mas de 1 (`setDocCopies`), asi un documento sin copias tiene la misma forma de siempre. Se lee con `copiesOf`.
    */
   copies?: number;
+  /**
+   * Campos de texto que la propagacion por etiqueta relleno sola (`"filled"`: siguen al campo origen mientras nadie los toque)
+   * o que la persona saco de la cola con «Deshacer» (`"declined"`), por `id`. Ausente = ninguno (todo lo anterior). Es estado
+   * de la sesion de trabajo: no viaja en borradores ni configuraciones (al retomar, lo escrito cuenta como escrito).
+   */
+  autoFilled?: Record<string, AutoMark>;
 };
 
 export const EMPTY_DOC_STATE: DocState = {

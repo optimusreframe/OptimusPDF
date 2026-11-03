@@ -24,6 +24,7 @@ import {
 } from "@/app/sign-pdf/signLimits";
 import { blockGroups } from "@/app/sign-pdf/assignment";
 import { DEFAULT_COPIES, isValidCopies, normalizeCopies } from "@/lib/pdf/signCopies";
+import { isValidTag } from "@/lib/fieldTags";
 
 /**
  * Configuracion de firma exportable/importable: la disposicion de
@@ -155,6 +156,8 @@ function isValidDetectedField(value: unknown): value is DetectedField {
   ) {
     return false;
   }
+  // `tag` es opcional (W3-A1; una configuracion anterior no la trae): si esta, tiene que tener forma de clave de dato.
+  if (field.tag !== undefined && !isValidTag(field.tag)) return false;
   return field.label === undefined || typeof field.label === "string";
 }
 

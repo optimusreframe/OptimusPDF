@@ -707,3 +707,47 @@ export function BarButton({
     </button>
   );
 }
+
+/**
+ * Boton CON TEXTO de la barra (la etiqueta del campo, W3-A1): la barra es de iconos, pero el nombre de la etiqueta tiene que
+ * leerse, no adivinarse. Mide 36 px de alto con raton y 44 con el dedo, como el resto de la barra; el texto se recorta con
+ * puntos suspensivos si es largo y su nombre accesible (`label`) lo dice completo. `active` = el campo ya lleva etiqueta.
+ */
+export function BarChip({
+  label,
+  onClick,
+  active,
+  ariaExpanded,
+  dataAction,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  /** Abre un selector dentro de la barra. */
+  ariaExpanded?: boolean;
+  dataAction?: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-expanded={ariaExpanded}
+      aria-haspopup={ariaExpanded === undefined ? undefined : "true"}
+      data-bar-action={dataAction}
+      onClick={onClick}
+      className={cn(
+        "flex h-9 max-w-[10rem] shrink-0 items-center gap-1.5 rounded-ios-sm px-2.5 text-footnote font-semibold pointer-coarse:h-11",
+        "transition-[background-color,color,scale,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-spring)] active:scale-[0.96] active:duration-[80ms]",
+        "focus-visible:outline-2 focus-visible:outline-offset-[-2px] outline-signal forced-colors:border forced-colors:border-[ButtonText]",
+        active
+          ? "bg-signal/25 text-foreground shadow-[inset_0_0_0_1.5px_var(--color-signal)]"
+          : "bg-white/6 text-muted-foreground hover:bg-white/10 hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}

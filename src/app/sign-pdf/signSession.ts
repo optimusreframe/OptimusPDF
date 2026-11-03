@@ -22,6 +22,7 @@ import {
 import type { CaptureMap } from "@/app/sign-pdf/captures";
 import type { CeremonyState } from "@/app/sign-pdf/blockModel";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
+import { sanitizeFieldTags } from "@/lib/fieldTags";
 
 /*
  * Sesion de Sign PDF con varios documentos: el estado CANONICO que guarda
@@ -154,6 +155,7 @@ export function viewOf(
     editingTextFieldId: session.editingTextFieldId,
     textFieldsDetectedFor: doc.textFieldsDetectedFor,
     textEdits: doc.textEdits,
+    autoFilled: doc.autoFilled,
     ceremony: session.ceremony,
     turnOrder: session.turnOrder,
   };
@@ -219,6 +221,7 @@ export function applyViewPatch(
     docPatch.textFieldsDetectedFor = patch.textFieldsDetectedFor;
   }
   if (patch.textEdits !== undefined) docPatch.textEdits = patch.textEdits;
+  if (patch.autoFilled !== undefined) docPatch.autoFilled = patch.autoFilled;
   if (patch.fields !== undefined || signersChanged) {
     const base = patch.fields ?? doc.fields;
     if (signersChanged) {
@@ -297,7 +300,8 @@ export function sessionFromView(
   const doc: DocState = {
     ...EMPTY_DOC_STATE,
     fields: view.fields ?? [],
-    textFields: view.textFields ?? [],
+    // Una etiqueta de campo que no tenga forma de clave (borrador o configuracion manipulados) se descarta al cargar.
+    textFields: sanitizeFieldTags(view.textFields ?? []),
     textValues: view.textValues ?? {},
     textFieldsDetectedFor: view.textFieldsDetectedFor ?? null,
     rect: view.rect ?? EMPTY_DOC_STATE.rect,
