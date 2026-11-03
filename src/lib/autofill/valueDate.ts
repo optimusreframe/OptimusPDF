@@ -16,7 +16,14 @@ export type DateMatch = {
   end: number;
   /** Los dos primeros numeros caben como dia y como mes: no se sabe cual es cual. */
   ambiguous: boolean;
+  /**
+   * Fecha numerica cuyo orden se sabe por los propios numeros: «mdy» (el segundo > 12: 03/14/2026) o «dmy» (el primero > 12:
+   * 14/03/2026). Una ambigua (03/04/2026) no lo dice: se infiere del resto del documento (`inferDateOrder`).
+   */
+  order?: DateOrder;
 };
+
+export type DateOrder = "mdy" | "dmy";
 
 const MONTHS: Record<string, number> = {
   enero: 1, ene: 1, january: 1, jan: 1,
@@ -56,7 +63,7 @@ function valid(year: number, month: number, day: number): boolean {
   return year >= MIN_YEAR && year <= MAX_YEAR && month >= 1 && month <= 12 && day >= 1 && day <= daysIn(month, year);
 }
 
-type Draft = { year: number; month: number; day: number; index: number; end: number; ambiguous: boolean };
+type Draft = { year: number; month: number; day: number; index: number; end: number; ambiguous: boolean; order?: DateOrder };
 
 /**
  * Todas las fechas validas de un texto, en orden de aparicion. El texto se pliega internamente (sin tildes ni mayusculas) pero
@@ -95,19 +102,22 @@ export function findDates(text: string): DateMatch[] {
     let month: number;
     let day: number;
     let ambiguous = false;
+    let order: DateOrder | undefined;
     if (a > 12 && b <= 12) {
       day = a;
       month = b;
+      order = "dmy";
     } else if (b > 12 && a <= 12) {
       month = a;
       day = b;
+      order = "mdy";
     } else {
       // Ambos caben como mes: sin saber el orden del documento. Si son iguales no importa.
       month = a;
       day = b;
       ambiguous = a !== b;
     }
-    add({ year, month, day, index: m.index, end: m.index + m[0].length, ambiguous });
+    add({ year, month, day, index: m.index, end: m.index + m[0].length, ambiguous, order });
   }
 
   return drafts
@@ -124,6 +134,32 @@ export function parseLeadingDate(text: string): DateMatch | null {
   const before = text.slice(0, first.index).replace(/[\s:;,.\-–—()[\]]/g, "").toLowerCase();
   if (before !== "" && !/^(?:el|on|the|en|dia|day|date|fecha)$/.test(before)) return null;
   return first;
+}
+
+/**
+ * Orden de las fechas numericas de un documento a partir de las que NO son ambiguas (una con el segundo numero > 12 dice «mdy»; una
+ * con el primero > 12 dice «dmy»). Con votos de las dos clases (o ninguno) devuelve `null`: no se decide. `votes` dice cuantas fechas
+ * claras respaldan la decision (una sola es un indicio mas debil que dos).
+ */
+export function inferDateOrder(texts: readonly string[]): { order: DateOrder; votes: number } | null {
+  let mdy = 0;
+  let dmy = 0;
+  for (const text of texts) {
+    for (const match of findDates(text)) {
+      if (match.order === "mdy") mdy += 1;
+      else if (match.order === "dmy") dmy += 1;
+    }
+  }
+  if (mdy > 0 && dmy === 0) return { order: "mdy", votes: mdy };
+  if (dmy > 0 && mdy === 0) return { order: "dmy", votes: dmy };
+  return null;
+}
+
+/** Resuelve una fecha ambigua con el orden del documento (si se sabe); las demas pasan tal cual. */
+export function resolveWithOrder(match: DateMatch, order: DateOrder | undefined): DateMatch {
+  if (!match.ambiguous || !order) return match;
+  // Ambiguas se leyeron como «mdy» (mes primero): con «dmy» se intercambian.
+  return order === "mdy" ? { ...match, ambiguous: false, order } : { ...match, month: match.day, day: match.month, ambiguous: false, order };
 }
 
 const pad2 = (value: number): string => String(value).padStart(2, "0");

@@ -38,6 +38,8 @@ export type TextPage = {
   height: number;
   lines: TextLine[];
   origin: TextOrigin;
+  /** Solo con OCR: confianza media (0..100) de las palabras de TODA la pagina; una pagina de lectura pobre baja todos sus valores a revision. */
+  ocrMean?: number;
 };
 
 /** Hueco horizontal (en alturas de letra) a partir del cual dos tramos son celdas distintas. */

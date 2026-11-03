@@ -19,6 +19,7 @@ import {
   profilePayload,
   suggestProfileName,
   unmatchedKeys,
+  withSources,
   withUniqueIds,
   type Edits,
   type FillPatch,
@@ -294,7 +295,7 @@ export function useAutofillFlow(params: AutofillFlowParams) {
       setWarningNames(result.warnings.map((warning) => (warning.sourceIndex !== undefined ? (sent[warning.sourceIndex]?.name ?? "") : "")));
       setUsedOcr(result.usedOcr);
       setOfferModel(result.warnings.some((warning) => warning.code === "ocr-unavailable"));
-      openReview(result.values, null);
+      openReview(withSources(result.values, sent), null);
       onAnnounce?.(result.values.length === 0 ? strings.nothingFound : strings.foundCount(result.values.length, new Set(result.values.map((value) => value.key)).size));
     } catch {
       if (runRef.current !== run) return;

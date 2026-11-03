@@ -11,8 +11,25 @@ import { fieldTypeOf, isSuggestedField, type DetectedField } from "@/lib/pdf/det
  * confianza alta), y un campo que ya tiene texto NUNCA viene marcado para sustituirlo.
  */
 
+/** De que fuente salio el valor (para decir «Foto «IMG_01.jpg» · página 1»). `scanned` = un PDF de solo imagen (leido por OCR). */
+export type ReviewSource = { name: string; kind: "pdf" | "image" | "text"; scanned: boolean };
+
 /** Un dato para revisar: lo que dijo el motor, o un valor de un perfil guardado (`fromProfile`). */
-export type ReviewItem = ExtractedValue & { fromProfile?: { id: string; name: string } };
+export type ReviewItem = ExtractedValue & { fromProfile?: { id: string; name: string }; source?: ReviewSource };
+
+/**
+ * Pone a cada valor la fuente de la que salio. `sources[i]` es la fuente `i` que recibio el motor; con `origin === "ocr"` un PDF cuenta como
+ * escaneado (la pagina se leyo de la imagen, no de su texto).
+ */
+export function withSources(values: readonly ExtractedValue[], sources: ReadonlyArray<{ name: string; kind: "pdf" | "image" | "text" }>): ReviewItem[] {
+  return values.map((value) => {
+    const found = sources[value.evidence.sourceIndex];
+    return found ? { ...value, source: { name: found.name, kind: found.kind, scanned: found.kind === "pdf" && value.evidence.origin === "ocr" } } : value;
+  });
+}
+
+/** Orden en que se muestran los grupos: lo que mas se usa en un contrato de reclamo primero; la propiedad antes que la direccion postal. */
+const REVIEW_ORDER = ["insuredName1", "insuredName2", "address", "mailingAddress", "phone", "email", "insurer", "policyNumber", "policyStart", "policyEnd", "claimNumber", "claimType", "lossDate", "mortgagee", "deductible", "windDeductible"];
 
 export type ReviewGroup = {
   key: string;
@@ -77,7 +94,8 @@ export function groupItems(items: readonly ReviewItem[], locale: "es" | "en"): R
     byKey.set(item.key, list);
   }
   const known = getDataKeys().map((definition) => definition.key);
-  const order = [...known.filter((key) => byKey.has(key)), ...[...byKey.keys()].filter((key) => !known.includes(key))];
+  const first = REVIEW_ORDER.filter((key) => byKey.has(key));
+  const order = [...first, ...known.filter((key) => byKey.has(key) && !first.includes(key)), ...[...byKey.keys()].filter((key) => !known.includes(key))];
   return order.map((key) => {
     const unique: ReviewItem[] = [];
     for (const item of [...(byKey.get(key) as ReviewItem[])].sort(betterFirst)) {
@@ -305,7 +323,7 @@ export function profilePayload(accepted: readonly ReviewItem[], items: readonly 
   const sources: Record<string, ClientProfileValue["source"]> = {};
   for (const item of accepted) {
     // La fecha del perfil se guarda en ISO: el perfil no recuerda el idioma y «05/03/2026» cambia de dia segun el orden de lectura.
-    values[item.key] = item.key === "lossDate" ? (toFieldDate(item.value, locale) ?? item.value) : item.value;
+    values[item.key] = getDataKey(item.key)?.fieldType === "date" ? (toFieldDate(item.value, locale) ?? item.value) : item.value;
     const original = items.find((candidate) => candidate.id === item.id);
     const corrected = original !== undefined && Object.prototype.hasOwnProperty.call(edits, item.id) && comparable(edits[item.id]) !== comparable(original.value);
     sources[item.key] = corrected ? "typed" : "extracted";

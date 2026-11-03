@@ -99,7 +99,8 @@ function cleanOne(part: string): { text: string; tokens: number; lower: boolean 
       if (!/^\p{Lu}/u.test(token)) return null;
     }
   }
-  const tokens = normalizeCase(rawTokens, lower || upper);
+  // El sufijo «Jr»/«Sr» sale siempre con su punto (el OCR lo pierde y un sistema de polizas lo imprime sin el).
+  const tokens = normalizeCase(rawTokens, lower || upper).map((token, index) => (index > 0 && /^(?:jr|sr)$/i.test(token) ? suffixForm(token) : token));
   return { text: tokens.join(" "), tokens: tokens.length, lower };
 }
 

@@ -62,12 +62,20 @@ export function buildHeldOutCorpus(): CorpusDoc[] {
       const high: Record<string, string> = {};
       for (const pair of pairs) high[pair.key] = pair.expected;
       if (c.p2) high.insuredName2 = caps ? titleCaseSimple(c.p2.full) : c.p2.full;
+      // «Mailing Address» es la direccion POSTAL: sale como `mailingAddress`; como `address` (la propiedad) solo se ofrece a revision.
+      const mailingOnly = /mailing|postal/i.test(pairs.find((pair) => pair.key === "address")?.label ?? "");
+      const review: Record<string, string> = {};
+      if (mailingOnly) {
+        high.mailingAddress = high.address;
+        review.address = high.address;
+        delete high.address;
+      }
       docs.push({
         id: `heldout-${layoutName}-${lang}-${n}`,
         locale: lang,
         layout: `heldout-${layoutName}`,
         source: async (): Promise<ReturnType<typeof pdfSource> extends Promise<infer S> ? S : never> => pdfSource((await LAYOUTS[layoutName](pairs, c, rng)) as PageSpec[]),
-        truth: { high },
+        truth: mailingOnly ? { high, review, noHigh: ["address"] } : { high },
       });
     }
   }

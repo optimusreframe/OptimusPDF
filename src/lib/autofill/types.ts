@@ -41,6 +41,22 @@ export type ExtractedValue = {
     /** Fragmento de texto leido que contiene el dato (para que la persona lo compruebe); maximo 120 caracteres. */
     snippet: string;
     origin: "text-layer" | "ocr" | "pasted";
+    /**
+     * OPCIONAL (solo en lecturas de OCR: foto o pagina escaneada). Zona de la pagina donde se leyo el dato, en fracciones 0..1 del ancho y
+     * del alto de la IMAGEN LEIDA (la ya preparada: enderezada y escalada).
+     */
+    box?: { x0: number; y0: number; x1: number; y1: number };
+    /** OPCIONAL (solo en lecturas de OCR). Como `box`, pero solo la zona del VALOR (sin su etiqueta): es la que se vuelve a leer para confirmarlo. */
+    valueBox?: { x0: number; y0: number; x1: number; y1: number };
+    /** OPCIONAL (solo en lecturas de OCR). La menor confianza (0..100) de las palabras leidas del dato. */
+    ocrConfidence?: number;
+    /** OPCIONAL (solo en lecturas de OCR). `true` si una segunda lectura independiente de la zona reprodujo el valor; `false` si no. */
+    verified?: boolean;
+    /**
+     * OPCIONAL (solo en lecturas de OCR). Recorte de esa zona como imagen JPEG en una URL `data:`: la persona comprueba de un vistazo lo
+     * que se leyo. Nunca se guarda (ni en perfiles ni en borradores): vive solo en el resultado de la lectura.
+     */
+    crop?: string;
   };
 };
 

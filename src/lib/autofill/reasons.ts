@@ -26,6 +26,11 @@ const FLAG_ES: Record<ReasonFlag, string> = {
   "generic-mailbox": "buzón genérico",
   "multi-name": "más de dos nombres",
   unlabeled: "sin etiqueta",
+  "from-mailing": "solo se encontró la dirección postal: confirma que es la de la propiedad",
+  "owner-unknown": "no se sabe si es del asegurado o de otra parte (agente, aseguradora)",
+  "date-inferred": "día y mes deducidos de otra fecha del documento",
+  "period-odd": "la vigencia parece rara",
+  "same-as-mailing": "igual que la dirección postal",
   conflict: "hay otro valor distinto en los documentos",
 };
 
@@ -39,6 +44,11 @@ const FLAG_EN: Record<ReasonFlag, string> = {
   "generic-mailbox": "generic mailbox",
   "multi-name": "more than two names",
   unlabeled: "no label",
+  "from-mailing": "only the mailing address was found: confirm it is the property's",
+  "owner-unknown": "cannot tell if it belongs to the insured or to someone else (agent, carrier)",
+  "date-inferred": "day and month inferred from another date in the document",
+  "period-odd": "the policy period looks odd",
+  "same-as-mailing": "same as the mailing address",
   conflict: "another different value in the documents",
 };
 
@@ -47,7 +57,7 @@ export function reasonFor(candidate: Candidate, locale: Locale, flags: readonly 
   const label = clip((candidate.labelText ?? "").replace(/[:：]\s*$/, ""), 28);
   const page = where(candidate, locale);
   let text: string;
-  if (candidate.labeled) {
+  if (candidate.labeled && candidate.freeKind !== "letterhead") {
     if (locale === "es") {
       const lead = candidate.layout === "right" ? "A la derecha de" : candidate.layout === "below" ? "Debajo de" : "Junto a";
       text = `${lead} «${label}» (${page})`;
@@ -93,4 +103,9 @@ export function warningMessage(code: ExtractWarningCode, locale: Locale, detail?
     "unreadable-source": "This file could not be read.",
   };
   return (locale === "es" ? es : en)[code];
+}
+
+/** Nota que se anade a la razon de un valor leido con OCR que una segunda lectura no confirmo. */
+export function unverifiedNote(locale: Locale): string {
+  return locale === "es" ? "una segunda lectura no lo confirmó" : "a second reading did not confirm it";
 }

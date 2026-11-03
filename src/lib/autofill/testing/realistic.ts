@@ -142,10 +142,11 @@ async function moldAgreement(c: Case, locale: Lang): Promise<{ pages: PageSpec[]
   await overlay(ops, 40, 306, "Date of Loss:", typedDate(c, 0), 16);
   const insurer = c.insurer.length > 24 ? "Mapfre" : c.insurer;
   const truth: Truth = {
-    high: { insuredName1: c.p1.full, phone: c.phoneNorm, email: c.email, insurer, policyNumber: c.policy, lossDate: expectedDate(c, locale) },
-    // Dos direcciones distintas (postal y de la perdida): conflicto -> las dos quedan en revision. «Kitchen» no es una causa conocida.
-    review: { address: [c.addressNorm, mailing.replace(" Apt 4", " Apt 4")], claimType: "Kitchen" },
-    noHigh: ["address", "claimType"],
+    // Dos direcciones distintas: la de la perdida es `address` y la postal es `mailingAddress` (antes eran un conflicto de la misma clave).
+    // «Kitchen» no es una causa conocida.
+    high: { insuredName1: c.p1.full, address: c.addressNorm, mailingAddress: mailing, phone: c.phoneNorm, email: c.email, insurer, policyNumber: c.policy, lossDate: expectedDate(c, locale) },
+    review: { claimType: "Kitchen" },
+    noHigh: ["claimType"],
     forbidden: DECOYS,
   };
   if (c.p2) truth.high!.insuredName2 = c.p2.full;

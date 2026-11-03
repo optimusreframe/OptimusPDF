@@ -47,14 +47,19 @@ export function planFill(targets: readonly FillTarget[], values: readonly Extrac
     if (!key || key === TODAY_DATA_KEY) continue;
     const via: FillProposal["via"] = fixed ? "dataKey" : "label";
     if (!chosen.has(key)) chosen.set(key, chooseValue(byKey.get(key) ?? []));
-    const value = chosen.get(key);
+    let value = chosen.get(key);
+    // La direccion postal de un campo («Mailing address») que la hoja no distingue de la propiedad: sirve la unica direccion que haya.
+    if (!value && key === "mailingAddress") {
+      if (!chosen.has("address")) chosen.set("address", chooseValue(byKey.get("address") ?? []));
+      value = chosen.get("address");
+    }
     if (!value) continue;
     // Un campo de fecha solo recibe claves de fecha (un nombre en un campo de fecha seria un error).
     const definition = getDataKey(key);
     if (target.type === "date" && definition && definition.fieldType !== "date") continue;
     const current = target.currentValue ?? "";
     if (plain(current) === plain(value.value)) continue;
-    proposals.push({ fieldId: target.fieldId, key, value: value.value, via, overwrites: current.trim() !== "" });
+    proposals.push({ fieldId: target.fieldId, key: value.key === "address" && key === "mailingAddress" ? "address" : key, value: value.value, via, overwrites: current.trim() !== "" });
   }
   // `options` queda en la firma para que la interfaz pueda pasar el idioma sin romper el contrato; el motor no lo necesita hoy.
   void options;

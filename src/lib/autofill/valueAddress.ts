@@ -88,6 +88,8 @@ export type AddressParse = {
   strength: number;
   hasStreet: boolean;
   hasCsz: boolean;
+  /** La calle no termina en un sufijo conocido (St, Ave, Pl…): solo vale por tener ciudad-estado-CP al lado. Un OCR que lee «PI» por «Pl» entra aqui. */
+  looseStreet: boolean;
 };
 
 const PROSE_WORDS = /\b(?:shall|will|hereby|agrees?|authorize[sd]?|pursuant|herein|insured|policy|the|and|that|which|este|esta|que|para|por|con)\b/i;
@@ -129,7 +131,11 @@ export function parseAddress(lines: readonly string[], loose = false): AddressPa
   const first = parts[0];
   let street = looksLikeStreet(first);
   const csz = findCsz(joined);
-  if (!street && loose && csz && (US_STREET_LOOSE.test(first) || LATAM_STREET.test(first))) street = "us";
+  let looseStreet = false;
+  if (!street && loose && csz && (US_STREET_LOOSE.test(first) || LATAM_STREET.test(first))) {
+    street = "us";
+    looseStreet = true;
+  }
   // Sin calle (solo ciudad y codigo postal) es demasiado poco para un campo de direccion.
   if (!street) return null;
   const hasCsz = csz !== null;
@@ -137,5 +143,5 @@ export function parseAddress(lines: readonly string[], loose = false): AddressPa
   if (!hasCsz && parts.length === 1 && street === "latam") strength = 0.78;
 
   if (isAllUpper(joined) || isAllLower(joined)) joined = titleAddress(joined);
-  return { value: joined, strength, hasStreet: true, hasCsz };
+  return { value: joined, strength, hasStreet: true, hasCsz, looseStreet };
 }

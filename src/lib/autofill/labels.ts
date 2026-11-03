@@ -16,11 +16,24 @@ export type LabelKind =
   | "phone"
   | "email"
   | "address"
+  /** Direccion POSTAL (mailing/postal/billing): distinta de la de la propiedad en una hoja de declaraciones. */
+  | "mailingAddress"
+  /** «Named Insured and Mailing Address»: un bloque con el nombre (o dos) y la direccion postal debajo. */
+  | "insuredBlock"
   | "insurer"
   | "policyNumber"
   | "claimNumber"
   | "claimType"
   | "lossDate"
+  /** «Policy Period: 03/14/2026 to 03/14/2027»: las dos fechas de la vigencia. */
+  | "policyPeriod"
+  | "policyStart"
+  | "policyEnd"
+  /** Acreedor hipotecario: la etiqueta da el valor Y abre un contexto «de otra parte» (su direccion y telefono no son del asegurado). */
+  | "mortgagee"
+  /** Deducible general (AOP / todos los demas riesgos) y de viento/huracan/granizo. */
+  | "deductible"
+  | "windDeductible"
   /** «City, State, Zip»: la parte de ciudad-estado-CP de una direccion. */
   | "csz"
   /** Otra parte (ajustador, contratista, abogado…): fija el contexto pero no produce un valor. */
@@ -96,12 +109,29 @@ const DEFS: LabelDef[] = [
   { kind: "address", re: "(?:loss|property|risk|damaged\\s+property|insured\\s+property|incident)\\s+(?:address|location)", weight: 1, party: "insured" },
   { kind: "address", re: "location\\s+of\\s+(?:the\\s+)?(?:loss|damage|property|risk)", weight: 1, party: "insured" },
   { kind: "address", re: "(?:damaged|insured|affected)\\s+property", weight: 0.9, party: "insured" },
-  { kind: "address", re: "(?:mailing|home|residential|insured(?:'s)?|physical|street|billing|service|current|permanent|postal|site|client(?:'s)?)\\s+address", weight: 0.9 },
+  { kind: "address", re: "(?:home|residential|insured(?:'s)?|physical|street|service|current|permanent|site|client(?:'s)?)\\s+address", weight: 0.9 },
   { kind: "address", re: "(?:street\\s+)?address(?:\\s*(?:line)?\\s*1)?", weight: 0.9 },
   { kind: "address", re: "residence", weight: 0.8 },
-  { kind: "address", re: "direccion\\s+de(?:l|\\s+la)?\\s+(?:propiedad|perdida|siniestro|inmueble|riesgo|residencia|vivienda|asegurado|correspondencia)", weight: 1, party: "insured" },
+  { kind: "address", re: "direccion\\s+de(?:l|\\s+la)?\\s+(?:propiedad|perdida|siniestro|inmueble|riesgo|residencia|vivienda|asegurado)", weight: 1, party: "insured" },
   { kind: "address", re: "ubicacion\\s+de(?:l|\\s+la)?\\s+(?:perdida|propiedad|siniestro|inmueble|riesgo)", weight: 1, party: "insured" },
-  { kind: "address", re: "(?:direccion|domicilio)(?:\\s+(?:postal|fisica|completa|actual|fiscal|del\\s+asegurado))?", weight: 0.9 },
+  { kind: "address", re: "(?:direccion|domicilio)(?:\\s+(?:fisica|completa|actual|fiscal|del\\s+asegurado))?", weight: 0.9 },
+  /* Hojas de declaraciones: la direccion de la PROPIEDAD (no la postal). */
+  { kind: "address", re: "(?:residence|insured|dwelling|covered|described)\\s+(?:premises|location)", weight: 1, party: "insured" },
+  { kind: "address", re: "(?:location|address)\\s+of\\s+(?:the\\s+)?(?:residence\\s+premises|insured\\s+(?:property|premises|location|dwelling|home)|dwelling|covered\\s+property)", weight: 1, party: "insured" },
+  { kind: "address", re: "(?:residence\\s+)?premises(?:\\s+(?:address|location))?", weight: 0.95, party: "insured" },
+  { kind: "address", re: "insured\\s+(?:home|dwelling)(?:\\s+(?:address|location))?", weight: 0.95, party: "insured" },
+  { kind: "address", re: "(?:ubicacion|direccion|localizacion)\\s+(?:del\\s+riesgo|de\\s+la\\s+(?:propiedad|residencia|vivienda|casa)(?:\\s+asegurada)?|del\\s+inmueble(?:\\s+asegurado)?)", weight: 1, party: "insured" },
+  { kind: "address", re: "(?:residencia|propiedad|vivienda|inmueble)\\s+asegurad[ao]", weight: 1, party: "insured" },
+
+  /* --- direccion postal --- */
+  { kind: "mailingAddress", re: "(?:mailing|postal|billing|correspondence)\\s+address(?:es)?", weight: 0.95 },
+  { kind: "mailingAddress", re: "direccion\\s+(?:postal|de\\s+correspondencia|de\\s+envio|de\\s+facturacion)", weight: 0.95 },
+  /* --- bloque: asegurado(s) + direccion postal --- */
+  { kind: "insuredBlock", re: `(?:named\\s+)?insured${P}(?:'s)?(?:\\s+name${P})?\\s*(?:and|&|/)\\s*(?:mailing\\s+|postal\\s+)?address(?:es)?`, weight: 1, party: "insured" },
+  { kind: "insuredBlock", re: `(?:policy\\s*holder|owner|applicant)${P}(?:'s)?(?:\\s+name${P})?\\s*(?:and|&|/)\\s*(?:mailing\\s+|postal\\s+)?address`, weight: 1, party: "insured" },
+  { kind: "insuredBlock", re: `name${P}\\s*(?:and|&)\\s*(?:mailing\\s+)?address`, weight: 0.9, party: "insured" },
+  { kind: "insuredBlock", re: `asegurad[oa]${P}(?:\\s+nombrad[oa]${P})?\\s*(?:y|/)\\s*(?:direccion|domicilio)(?:\\s+postal)?`, weight: 1, party: "insured" },
+  { kind: "insuredBlock", re: `nombre${P}(?:\\s+del\\s+asegurado)?\\s*y\\s*(?:direccion|domicilio)(?:\\s+postal)?`, weight: 0.9, party: "insured" },
 
   /* --- aseguradora --- */
   { kind: "insurer", re: "name\\s+of\\s+(?:the\\s+)?(?:insurance\\s+(?:company|carrier|co\\.?)|insurer|carrier)", weight: 1 },
@@ -109,6 +139,8 @@ const DEFS: LabelDef[] = [
   { kind: "insurer", re: "(?:insurer|underwriter|carrier)(?:'s)?(?:\\s+name)?", weight: 1 },
   { kind: "insurer", re: "(?:nombre\\s+de\\s+(?:la\\s+)?)?aseguradora", weight: 1 },
   { kind: "insurer", re: "(?:compania|empresa)\\s+(?:de\\s+seguros?|aseguradora)", weight: 1 },
+  { kind: "insurer", re: "(?:issuing|writing|underwriting)\\s+(?:company|carrier|insurer)|issued\\s+by|underwritten\\s+by", weight: 1 },
+  { kind: "insurer", re: "compania\\s+emisora|aseguradora\\s+emisora|emitida\\s+por", weight: 1 },
   { kind: "insurer", re: "insurance", weight: 0.8 },
 
   /* --- numero de poliza --- */
@@ -144,6 +176,28 @@ const DEFS: LabelDef[] = [
   { kind: "lossDate", re: "fecha\\s+(?:de(?:l)?\\s+)?(?:la\\s+)?(?:perdida|siniestro|dano|incidente|ocurrencia|evento|accidente)", weight: 1, free: true },
   { kind: "lossDate", re: "fecha\\s+de\\s+ocurrencia", weight: 1, free: true },
 
+  /* --- vigencia de la poliza --- */
+  { kind: "policyPeriod", re: "policy\\s+(?:period|term)|(?:coverage|insurance)\\s+period|period\\s+of\\s+(?:insurance|coverage)|term\\s+of\\s+(?:the\\s+)?policy", weight: 1, free: true },
+  { kind: "policyPeriod", re: "(?:periodo\\s+de\\s+(?:la\\s+)?(?:poliza|cobertura|vigencia)|vigencia(?:\\s+de\\s+la\\s+poliza)?|periodo\\s+de\\s+seguro)", weight: 1, free: true },
+  { kind: "policyStart", re: "(?:policy\\s+)?(?:effective|inception)(?:\\s+date)?|effective\\s+from|eff\\.?\\s+date|(?:policy\\s+)?start(?:s)?(?:\\s+date)?|(?:policy\\s+)?begins?", weight: 1, free: true },
+  { kind: "policyStart", re: "inicio\\s+de\\s+(?:la\\s+)?vigencia|vigente\\s+desde|fecha\\s+(?:de\\s+)?(?:efectividad|inicio|efectiva)|efectiv[ao]\\s+desde|fecha\\s+de\\s+entrada\\s+en\\s+vigor", weight: 1, free: true },
+  { kind: "policyEnd", re: "(?:policy\\s+)?(?:expiration|expiry)(?:\\s+date)?|(?:policy\\s+)?expires|effective\\s+to|(?:policy\\s+)?end(?:s)?(?:\\s+date)?", weight: 1, free: true },
+  { kind: "policyEnd", re: "vencimiento(?:\\s+de\\s+la\\s+poliza)?|vence|fecha\\s+de\\s+(?:vencimiento|expiracion|terminacion|fin)|fin\\s+de\\s+(?:la\\s+)?vigencia|vigente\\s+hasta", weight: 1, free: true },
+
+  /* --- acreedor hipotecario (da valor y abre contexto «de otra parte») --- */
+  { kind: "mortgagee", re: "(?:(?:first|second|1st|2nd|primary)\\s+)?mortgagee(?:s)?(?:\\s*(?:/|&|and)\\s*(?:lienholder|lender|loss\\s+payee|additional\\s+interest))?(?:\\s+(?:name|information|company))?", weight: 1, party: "other" },
+  { kind: "mortgagee", re: "mortgage\\s+(?:company|holder|lender|servicer)(?:\\s+name)?|lienholder|loss\\s+payee", weight: 0.9, party: "other" },
+  { kind: "mortgagee", re: "(?:(?:primer|1er)\\s+)?(?:acreedor|banco|prestamista|institucion\\s+financiera)\\s+hipotecari[oa]|hipotecari[oa]|acreedor", weight: 1, party: "other" },
+
+  /* --- deducibles --- */
+  { kind: "windDeductible", re: "(?:wind|windstorm|hurricane|named\\s+storm|tropical\\s+storm|hail)(?:\\s*(?:/|-|and|&|or)\\s*(?:hail|hurricane|wind|windstorm|named\\s+storm))?\\s+(?:peril\\s+)?deductible", weight: 1 },
+  { kind: "windDeductible", re: "deductible\\s*[-–:]?\\s*(?:wind|windstorm|hurricane|named\\s+storm)(?:\\s*(?:/|and|&|or)\\s*hail)?", weight: 0.95 },
+  { kind: "windDeductible", re: "deducible\\s+(?:de\\s+|por\\s+)?(?:viento|huracan|tormenta(?:\\s+nombrada)?|vendaval|granizo)(?:\\s*(?:/|y)\\s*granizo)?", weight: 1 },
+  { kind: "deductible", re: "(?:all\\s+other\\s+perils|aop|all\\s+perils|other\\s+perils|section\\s+i|standard|basic|general|annual|policy)\\s+deductible", weight: 1 },
+  { kind: "deductible", re: "deductible\\s*[-–:]?\\s*(?:all\\s+other\\s+perils|aop|all\\s+perils|section\\s+i)", weight: 1 },
+  { kind: "deductible", re: "deducible\\s*[-–]?\\s*(?:todo\\s+otro\\s+riesgo|general|seccion\\s+i|todos\\s+los\\s+demas\\s+riesgos|todo\\s+riesgo|estandar|basico|anual)", weight: 1 },
+  { kind: "deductible", re: "deductible|deducible", weight: 0.85 },
+
   /* --- ciudad, estado, CP --- */
   { kind: "csz", re: "city\\s*[,/]?\\s*(?:state|st\\.?)\\s*[,/]?\\s*(?:and\\s*)?(?:zip|postal)(?:\\s*code)?", weight: 1 },
   { kind: "csz", re: "ciudad\\s*[,/]?\\s*(?:estado|edo\\.?)\\s*[,/]?\\s*(?:y\\s*)?(?:c\\.?\\s?p\\.?|codigo\\s+postal)", weight: 1 },
@@ -151,8 +205,8 @@ const DEFS: LabelDef[] = [
 
   /* --- otras partes (contexto) --- */
   { kind: "party", re: "(?:public\\s+)?adjuster(?:'s)?(?:\\s+name)?", weight: 1, party: "other" },
-  { kind: "party", re: "(?:contractor|vendor|provider|agent|agency|attorney|lawyer|law\\s+firm|representative|witness|lender|mortgagee|mortgage\\s+company|restoration\\s+company|mitigation\\s+company|company|firm|(?:authorized|third)\\s+party|payee)(?:'s)?(?:\\s+name)?", weight: 1, party: "other" },
-  { kind: "party", re: "(?:ajustador(?:\\s+publico)?|contratista|proveedor|agente|agencia|abogado|representante|testigo|prestamista|hipotecaria|empresa|compania|firma)(?:\\s+de\\s+\\w+)?", weight: 1, party: "other" },
+  { kind: "party", re: "(?:your\\s+|our\\s+)?(?:agent\\s+of\\s+record|writing\\s+agent|producing\\s+agent|contractor|vendor|provider|agent|agency|attorney|lawyer|law\\s+firm|representative|witness|restoration\\s+company|mitigation\\s+company|producer|broker|servicing\\s+agent|insurance\\s+agency|prepared\\s+by|company|firm|(?:authorized|third)\\s+party|payee)(?:'s)?(?:\\s+name)?", weight: 1, party: "other" },
+  { kind: "party", re: "(?:su\\s+)?(?:ajustador(?:\\s+publico)?|contratista|proveedor|agente|agencia|productor|corredor|abogado|representante|testigo|empresa|compania|firma)(?:\\s+de\\s+\\w+)?", weight: 1, party: "other" },
 
   /* --- cortes --- */
   { kind: "stop", re: `(?:fax|facsimile)(?:\\s*${NO})?`, weight: 1 },
@@ -163,7 +217,11 @@ const DEFS: LabelDef[] = [
   { kind: "stop", re: "(?:date|fecha)(?:\\s+of\\s+(?:birth|signing))?", weight: 1 },
   { kind: "stop", re: `(?:dob|date\\s+of\\s+birth|fecha\\s+de\\s+nacimiento|ssn|social\\s+security(?:\\s*${NO})?|seguro\\s+social)`, weight: 1 },
   { kind: "stop", re: "(?:city|state|zip(?:\\s*code)?|county|country|ciudad|estado|codigo\\s+postal|condado|pais|c\\.?p\\.)", weight: 1 },
-  { kind: "stop", re: "(?:relationship|parentesco|occupation|ocupacion|employer|empleador|mortgage|loan\\s*(?:no|number|#)?|prestamo|amount|monto|deductible|deducible|coverage|cobertura|total|account\\s*(?:no|number|#)?|effective|expiration|expira|vigencia|period|periodo)", weight: 1 },
+  { kind: "stop", re: "(?:relationship|parentesco|occupation|ocupacion|employer|empleador|mortgage|loan\\s*(?:no|number|#)?|prestamo|amount|monto|coverage|cobertura|total|premium|prima|account\\s*(?:no|number|#)?)", weight: 1 },
+  /* Poliza anterior o renovada («Renewal of Policy: …») y fechas de emision: no son el numero ni la vigencia de ESTA poliza. */
+  { kind: "stop", re: `(?:renewal\\s+of|renews|replaces|supersedes|prior|previous|former|expiring)\\s+(?:policy|pol\\.?)(?:\\s*${NO})?`, weight: 1 },
+  { kind: "stop", re: `(?:poliza\\s+(?:anterior|previa)|renovacion\\s+de\\s+(?:la\\s+)?poliza|sustituye\\s+(?:a\\s+)?(?:la\\s+)?poliza)(?:\\s*${NO})?`, weight: 1 },
+  { kind: "stop", re: "(?:date\\s+issued|issue\\s+date|issued|prepared|printed|fecha\\s+de\\s+emision|emitida|preparada|impresa)", weight: 1 },
   { kind: "stop", re: "(?:email|e-mail|phone|tel|telefono|address|direccion)\\s+(?:of|de)\\s+(?:the\\s+)?(?:company|adjuster|agent|firm|contractor|compania|ajustador|agente|empresa|contratista)", weight: 1 },
 ];
 
@@ -247,7 +305,8 @@ export function scanLabels(line: TextLine): LabelHit[] {
     let valueStart = end;
     // Una indicacion entre parentesis antes de los dos puntos («Insured (please print):», «Policy Number (if known):»).
     const hint = /^[ ]*\([^()]{1,40}\)/.exec(after);
-    const colon = /^[ ]*[:：]/.exec(hint ? after.slice(hint[0].length) : after);
+    // Puntos guia de un listado en ancho fijo («POLICY NUMBER.......: HO3-123») valen como los dos puntos.
+    const colon = /^[ ]*(?:\.{2,}[ ]*)?[:：]/.exec(hint ? after.slice(hint[0].length) : after);
     if (colon) {
       sep = "colon";
       valueStart = end + (hint ? hint[0].length : 0) + colon[0].length;
@@ -265,7 +324,7 @@ export function scanLabels(line: TextLine): LabelHit[] {
     // Calificador previo: «Insured Email», «Adjuster Phone».
     let party = def.party;
     let qualStart: number | undefined;
-    if (def.kind === "phone" || def.kind === "email" || def.kind === "address" || def.kind === "insuredName1") {
+    if (def.kind === "phone" || def.kind === "email" || def.kind === "address" || def.kind === "mailingAddress" || def.kind === "insuredName1") {
       const prefix = folded.slice(line.starts[cell], start);
       const other = OTHER_QUALIFIER.exec(prefix);
       const insured = INSURED_QUALIFIER.exec(prefix);

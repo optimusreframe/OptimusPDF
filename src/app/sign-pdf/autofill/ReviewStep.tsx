@@ -1,13 +1,14 @@
 "use client";
 
 import { forwardRef, useId } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ScanSearch } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { cn } from "@/lib/cn";
 import type { AutofillFlow } from "@/app/sign-pdf/autofill/useAutofillFlow";
 import { dataKeyLabel, effectiveValue, overwritesText, type PlannedRow, type ReviewGroup, type ReviewItem } from "@/app/sign-pdf/autofill/model";
+import { readingStrings } from "@/app/sign-pdf/autofill/readingStrings";
 import { AUTOFILL_INPUT_CLASS, RadioRow } from "@/app/sign-pdf/autofill/ui";
 
 /**
@@ -16,7 +17,7 @@ import { AUTOFILL_INPUT_CLASS, RadioRow } from "@/app/sign-pdf/autofill/ui";
  * Nada viene marcado salvo lo de confianza alta sin contradiccion; los campos con texto escrito vienen SIN marcar.
  */
 
-function Evidence({ item, strings, id }: { item: ReviewItem; strings: AutofillFlow["strings"]; id: string }) {
+function Evidence({ item, strings, id, locale, label }: { item: ReviewItem; strings: AutofillFlow["strings"]; id: string; locale: "es" | "en"; label: string }) {
   if (item.fromProfile) {
     return (
       <p id={id} className="text-caption text-muted-foreground [overflow-wrap:anywhere]">
@@ -24,11 +25,32 @@ function Evidence({ item, strings, id }: { item: ReviewItem; strings: AutofillFl
       </p>
     );
   }
+  const reading = readingStrings(locale);
+  const fromImage = item.evidence.origin === "ocr";
   return (
-    <div id={id} className="space-y-0.5">
+    <div id={id} className="space-y-1">
+      {item.source ? (
+        <p className="text-caption text-muted-foreground [overflow-wrap:anywhere]" data-autofill-source="">
+          {reading.from(item.source.name, item.source.kind, item.source.scanned, item.evidence.pageIndex + 1)}
+        </p>
+      ) : null}
+      {item.evidence.crop ? (
+        <figure className="m-0 space-y-1" data-autofill-crop="">
+          {/* La imagen es un recorte JPEG hecho en este dispositivo (URL `data:`); nunca sale de el. Se ve entera sin desbordar a 320 px. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={item.evidence.crop} alt={reading.cropAlt(label)} className="block h-auto max-h-28 w-auto max-w-full rounded-ios-sm border border-white/14 bg-white object-contain" />
+          <figcaption className="text-caption text-muted-foreground">{reading.cropLabel}</figcaption>
+        </figure>
+      ) : null}
       {item.evidence.snippet ? (
         <p className="text-caption text-muted-foreground [overflow-wrap:anywhere]" data-autofill-evidence="">
           {strings.evidence(item.evidence.pageIndex + 1, item.evidence.snippet)}
+        </p>
+      ) : null}
+      {fromImage ? (
+        <p className="flex items-start gap-1.5 text-caption text-muted-foreground" data-autofill-ocr-note={item.evidence.verified === false ? "unconfirmed" : item.evidence.verified === true ? "confirmed" : "read"}>
+          <ScanSearch aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+          <span>{item.evidence.verified === false ? reading.notConfirmed : item.evidence.verified === true ? `${reading.ocrCheck} ${reading.confirmed}` : reading.ocrCheck}</span>
         </p>
       ) : null}
       {item.reason ? (
@@ -95,7 +117,7 @@ function SingleGroup({ group, flow }: { group: ReviewGroup; flow: AutofillFlow }
           <ConfidenceBadge item={item} strings={flow.strings} />
           {edited ? <Badge variant="signal">{flow.strings.edited}</Badge> : null}
         </div>
-        <Evidence item={item} strings={flow.strings} id={evId} />
+        <Evidence item={item} strings={flow.strings} id={evId} locale={flow.locale} label={group.label} />
       </div>
     </fieldset>
   );
@@ -124,7 +146,7 @@ function ChoiceGroup({ group, flow }: { group: ReviewGroup; flow: AutofillFlow }
                 <ConfidenceBadge item={item} strings={flow.strings} />
                 {edited ? <Badge variant="signal">{flow.strings.edited}</Badge> : null}
               </div>
-              <Evidence item={item} strings={flow.strings} id={evId} />
+              <Evidence item={item} strings={flow.strings} id={evId} locale={flow.locale} label={group.label} />
             </div>
           </RadioRow>
         );

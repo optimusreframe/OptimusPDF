@@ -445,9 +445,12 @@ async function declarations(c: Case, rng: Rng, locale: Lang): Promise<{ pages: P
     { t: "text", x: LEFT, y: 252, s: `${es ? "Deducible" : "Deductible"}: $2,500   ${es ? "Cobertura A" : "Coverage A"}: $${rng.int(150, 450)},000` },
     { t: "text", x: LEFT, y: 274, s: `${es ? "Agente" : "Agent"}: Pat Lindgren   ${es ? "Teléfono del agente" : "Agent Phone"}: (407) 555-0166` },
   ];
+  // «Mailing Address» es la direccion POSTAL: sale como `mailingAddress`; como `address` (la propiedad) solo se ofrece a revision, porque
+  // la postal puede ser otra. La vigencia y el deducible ya son datos (`policyStart`, `policyEnd`, `deductible`), ya no senuelos.
   const truth: Truth = {
-    high: { insuredName1: c.p1.full, address: c.addressNorm, policyNumber: c.policy, insurer: c.insurer },
-    noHigh: ["lossDate", "phone", "claimNumber"],
+    high: { insuredName1: c.p1.full, mailingAddress: c.addressNorm, policyNumber: c.policy, insurer: c.insurer, policyStart: `01/01/${c.y}`, policyEnd: `01/01/${c.y + 1}`, deductible: "$2,500" },
+    review: { address: c.addressNorm },
+    noHigh: ["lossDate", "phone", "claimNumber", "address"],
     forbidden: ["(407) 555-0166"],
   };
   if (c.p2) truth.high!.insuredName2 = c.p2.full;
@@ -596,9 +599,12 @@ function lettersTruth(c: Case, lang: Lang): Truth {
 }
 
 function declarationsTruth(c: Case): Truth {
+  // «Mailing Address» es la direccion POSTAL: sale como `mailingAddress`; como `address` (la propiedad) solo se ofrece a revision, porque
+  // la postal puede ser otra. La vigencia y el deducible ya son datos (`policyStart`, `policyEnd`, `deductible`), ya no senuelos.
   const truth: Truth = {
-    high: { insuredName1: c.p1.full, address: c.addressNorm, policyNumber: c.policy, insurer: c.insurer },
-    noHigh: ["lossDate", "phone", "claimNumber"],
+    high: { insuredName1: c.p1.full, mailingAddress: c.addressNorm, policyNumber: c.policy, insurer: c.insurer, policyStart: `01/01/${c.y}`, policyEnd: `01/01/${c.y + 1}`, deductible: "$2,500" },
+    review: { address: c.addressNorm },
+    noHigh: ["lossDate", "phone", "claimNumber", "address"],
     forbidden: ["(407) 555-0166"],
   };
   if (c.p2) truth.high!.insuredName2 = c.p2.full;

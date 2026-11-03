@@ -18,8 +18,15 @@ export type OcrResult = {
   height: number;
 };
 
+/**
+ * `pageSegMode` (3 = automatico, 6 = bloque uniforme, 11 = texto disperso) y `dpi` (resolucion de la imagen, para que tesseract no la adivine)
+ * son opcionales; sin ellos se usa el modo automatico y la resolucion estimada, como siempre. El worker es COMPARTIDO: cada lectura fija
+ * los dos valores (los de quien pregunta o los de siempre), asi una lectura no hereda el modo de la anterior.
+ */
+export type OcrRecognizeOptions = { signal?: AbortSignal; onProgress?: (fraction: number) => void; pageSegMode?: number; dpi?: number };
+
 export interface OcrRecognizer {
-  recognize(image: Rgba, options?: { signal?: AbortSignal; onProgress?: (fraction: number) => void }): Promise<OcrResult>;
+  recognize(image: Rgba, options?: OcrRecognizeOptions): Promise<OcrResult>;
   dispose(): Promise<void>;
 }
 
@@ -189,6 +196,7 @@ export async function createTesseractRecognizer(signal?: AbortSignal): Promise<O
       progress = options?.onProgress;
       const canvas = toCanvas(image);
       try {
+        await worker.setParameters({ tessedit_pageseg_mode: String(options?.pageSegMode ?? 3) as never, user_defined_dpi: String(options?.dpi ?? 0) } as never);
         const result = await worker.recognize(canvas as HTMLCanvasElement, {}, { text: true, blocks: true });
         const lines: OcrLine[] = [];
         for (const block of (result.data.blocks as TesseractBlocks) ?? []) {

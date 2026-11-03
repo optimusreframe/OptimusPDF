@@ -37,8 +37,19 @@ const BUILT_IN: readonly DataKeyDefinition[] = [
   { key: "claimNumber", label: { es: "N.º de reclamo", en: "Claim number" }, fieldType: "text", hints: [/\bclaim ?(no|number|#)/, /\b(reclamo|siniestro)\b.*\b(no|numero|n)\b/, /\bn(\.?\s?[º°o]\.?|umero)? de (reclamo|siniestro)\b/] },
   { key: "claimType", label: { es: "Tipo de reclamo", en: "Claim type" }, fieldType: "text", hints: [/\b(type of (loss|claim)|claim type|cause of loss)\b/, /\b(tipo de (reclamo|perdida|siniestro))\b/] },
   { key: "lossDate", label: { es: "Fecha de pérdida", en: "Date of loss" }, fieldType: "date", hints: [/\b(date of loss|loss date|d\.?o\.?l\.?)\b/, /\bfecha de (la )?(perdida|siniestro)\b/] },
+  /* Datos de una hoja de declaraciones de seguro de hogar (extraccion precisa, W3-B3). Van ANTES de `today` y se sugieren antes que las claves
+     generales (ver `SPECIFIC_FIRST`): «Policy period», «Mortgagee», «Deductible» o «Mailing address» no deben caer en `address` ni en `today`. */
+  { key: "mailingAddress", label: { es: "Dirección postal", en: "Mailing address" }, fieldType: "text", hints: [/\b(mailing|postal|billing|correspondence) address\b/, /\bdireccion (postal|de correspondencia|de envio)\b/] },
+  { key: "policyStart", label: { es: "Inicio de la póliza", en: "Policy start date" }, fieldType: "date", hints: [/\bpolicy (effective|inception|start|begin)/, /\b(effective|inception) date of (the )?policy\b/, /\b(inicio de (la )?vigencia|vigente desde|inicio de (la )?poliza)\b/] },
+  { key: "policyEnd", label: { es: "Fin de la póliza", en: "Policy end date" }, fieldType: "date", hints: [/\b(policy )?(expiration|expiry)( date)?\b/, /\bpolicy (expires|end)/, /\b(fin de (la )?vigencia|vence|vencimiento|vigente hasta|fin de (la )?poliza)\b/] },
+  { key: "mortgagee", label: { es: "Acreedor hipotecario", en: "Mortgagee" }, fieldType: "text", hints: [/\b(mortgagee|mortgage (company|holder|lender)|lienholder|loss payee)\b/, /\b(acreedor hipotecario|banco hipotecario|hipotecari[oa]|prestamista)\b/] },
+  { key: "deductible", label: { es: "Deducible", en: "Deductible" }, fieldType: "text", hints: [/\bdeductible\b/, /\bdeducible\b/] },
+  { key: "windDeductible", label: { es: "Deducible de viento/huracán", en: "Wind/hurricane deductible" }, fieldType: "text", hints: [/\b(wind|hurricane|named storm|windstorm|hail)\b.*\bdeductible\b/, /\bdeducible\b.*\b(viento|huracan|tormenta|granizo|vendaval)\b/] },
   { key: TODAY_DATA_KEY, label: { es: "Fecha de hoy", en: "Today's date" }, fieldType: "date", hints: [/\b(date|dated|date signed)\b/, /\bfecha\b/] },
 ];
+
+/** Las claves nuevas y especificas se prueban ANTES que las generales: «Wind deductible» es `windDeductible`, no `deductible`; «Mailing address», no `address`. */
+const SPECIFIC_FIRST = ["windDeductible", "deductible", "mailingAddress", "policyStart", "policyEnd", "mortgagee"] as const;
 
 const registry = new Map<string, DataKeyDefinition>(BUILT_IN.map((definition) => [definition.key, definition]));
 
@@ -87,7 +98,7 @@ export function suggestDataKey(label: string | undefined): string | undefined {
   if (!label) return undefined;
   const text = plain(label).trim();
   if (text === "") return undefined;
-  const order = ["insuredName2", "lossDate", "claimNumber", "policyNumber", "claimType", "email", "phone", "insurer", "address", "insuredName1", TODAY_DATA_KEY];
+  const order = [...SPECIFIC_FIRST, "insuredName2", "lossDate", "claimNumber", "policyNumber", "claimType", "email", "phone", "insurer", "address", "insuredName1", TODAY_DATA_KEY];
   const ordered = [...order.map((key) => registry.get(key)), ...registry.values()].filter((definition): definition is DataKeyDefinition => Boolean(definition));
   const seen = new Set<string>();
   for (const definition of ordered) {

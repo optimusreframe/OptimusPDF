@@ -27,8 +27,8 @@ export type PdfPageText = {
 export interface PdfSession {
   numPages: number;
   readPage(index: number): Promise<PdfPageText>;
-  /** Pagina a pixeles para el OCR, o `null` si no se puede. */
-  rasterize(index: number): Promise<Rgba | null>;
+  /** Pagina a pixeles para el OCR, o `null` si no se puede. `side` = lado mayor deseado en px (por defecto, el de lectura completa). */
+  rasterize(index: number, side?: number): Promise<Rgba | null>;
   /** Libera lo que pdf.js guarda de la pagina (memoria acotada en documentos largos). */
   release(index: number): Promise<void>;
   close(): Promise<void>;
@@ -36,7 +36,7 @@ export interface PdfSession {
 
 export type WrapOptions = {
   ops: CoverageOps;
-  rasterize?: (page: PDFPageProxy) => Promise<Rgba | null>;
+  rasterize?: (page: PDFPageProxy, side?: number) => Promise<Rgba | null>;
   close?: () => Promise<void>;
 };
 
@@ -95,11 +95,11 @@ export function wrapPdfJs(pdf: PDFDocumentProxy, options: WrapOptions): PdfSessi
         // La pagina ya no esta: nada que liberar.
       }
     },
-    async rasterize(index) {
+    async rasterize(index, side) {
       if (!options.rasterize) return null;
       const page = await pdf.getPage(index + 1);
       try {
-        return await options.rasterize(page);
+        return await options.rasterize(page, side);
       } finally {
         page.cleanup();
       }

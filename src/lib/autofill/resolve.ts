@@ -20,15 +20,32 @@ const HIGH_MAX = 0.98;
 export const MAX_VALUES_PER_KEY = 4;
 
 /** Banderas que nunca dejan pasar un valor como `high`. */
-const BLOCKING: ReadonlySet<Flag> = new Set<Flag>(["ambiguous-date", "single-word", "lowercase", "margin", "ocr-low", "generic-mailbox", "multi-name", "unlabeled"]);
+const BLOCKING: ReadonlySet<Flag> = new Set<Flag>(["ambiguous-date", "single-word", "lowercase", "margin", "ocr-low", "generic-mailbox", "multi-name", "unlabeled", "from-mailing", "owner-unknown", "date-inferred", "period-odd"]);
 
 /** Techo de confianza por clave: lo que se lee de un nombre o una direccion se equivoca mas que un correo con formato valido. */
-const KEY_CEILING: Record<string, number> = { insuredName1: 0.95, insuredName2: 0.95, address: 0.95, insurer: 0.95, claimType: 0.93, lossDate: 0.96, policyNumber: 0.97, claimNumber: 0.97, phone: 0.98, email: 0.98 };
+const KEY_CEILING: Record<string, number> = {
+  insuredName1: 0.95,
+  insuredName2: 0.95,
+  address: 0.95,
+  mailingAddress: 0.95,
+  insurer: 0.95,
+  claimType: 0.93,
+  lossDate: 0.96,
+  policyStart: 0.96,
+  policyEnd: 0.96,
+  policyNumber: 0.97,
+  claimNumber: 0.97,
+  phone: 0.98,
+  email: 0.98,
+  mortgagee: 0.93,
+  deductible: 0.95,
+  windDeductible: 0.95,
+};
 
 const LAYOUT_FACTOR: Record<Candidate["layout"], number> = { inline: 1, right: 0.98, below: 0.95, free: 1 };
 
 /** Orden estable de las claves en la salida. */
-const KEY_ORDER = ["insuredName1", "insuredName2", "address", "phone", "email", "insurer", "policyNumber", "claimNumber", "claimType", "lossDate"];
+const KEY_ORDER = ["insuredName1", "insuredName2", "address", "mailingAddress", "phone", "email", "insurer", "policyNumber", "policyStart", "policyEnd", "claimNumber", "claimType", "lossDate", "mortgagee", "deductible", "windDeductible"];
 
 type Scored = {
   candidate: Candidate;
@@ -37,9 +54,18 @@ type Scored = {
   flags: ReasonFlag[];
 };
 
+/**
+ * Descuento de un dato leido por OCR segun la confianza de su palabra menos fiable: 0,98 con 94 o mas, 0,92 con 85, 0,84 con 75 (por debajo,
+ * ademas, la bandera `ocr-low`). Sin dato de confianza (un OCR que no la da), el 0,92 de siempre.
+ */
+export function ocrFactor(confidence: number | undefined): number {
+  if (confidence === undefined) return 0.92;
+  return Math.max(0.8, Math.min(0.98, 0.84 + (confidence - 75) * 0.0075));
+}
+
 function score(candidate: Candidate): { confidence: number; flags: ReasonFlag[] } {
   let confidence = candidate.labelWeight * candidate.valueStrength * LAYOUT_FACTOR[candidate.layout];
-  if (candidate.origin === "ocr") confidence *= 0.92;
+  if (candidate.origin === "ocr") confidence *= ocrFactor(candidate.ocrConfidence);
   if (candidate.flags.includes("ocr-low")) confidence *= 0.85;
   if (candidate.flags.includes("margin")) confidence *= 0.8;
   if (candidate.flags.includes("generic-mailbox")) confidence *= 0.8;
@@ -58,12 +84,12 @@ const tokensOf = (value: string): string[] => fold(value).split(/[^a-z0-9]+/).fi
 /** ¿`short` esta contenido en `long` (mismas palabras, el mas corto es parte del mas largo)? Solo para nombres, direcciones y similares. */
 function contained(short: string, long: string, key: string): boolean {
   if (normal(short) === normal(long)) return true;
-  if (key === "address") {
+  if (key === "address" || key === "mailingAddress") {
     const a = normal(short);
     const b = normal(long);
     return a.length >= 6 && b.includes(a);
   }
-  if (key === "insuredName1" || key === "insuredName2" || key === "insurer" || key === "claimType") {
+  if (key === "insuredName1" || key === "insuredName2" || key === "insurer" || key === "claimType" || key === "mortgagee") {
     const a = tokensOf(short);
     const b = tokensOf(long);
     if (a.length < (key === "claimType" ? 1 : 2) || a.length >= b.length) return false;
@@ -123,8 +149,25 @@ function resolveKey(key: string, candidates: Candidate[]): Array<{ scored: Score
     .map((scored) => ({ scored, conflict }));
 }
 
+const PO_BOX = /^(?:p\.?\s*o\.?\s*box|apartado)/i;
+
+/**
+ * Si el documento solo da la direccion POSTAL (y no la de la propiedad), se ofrece tambien como direccion de la propiedad, pero SIEMPRE
+ * a revision: la postal puede ser otra (un apartado, la casa de al lado de un alquiler). Un apartado postal nunca se ofrece como propiedad.
+ */
+function withDerivedAddress(candidates: readonly Candidate[]): Candidate[] {
+  if (candidates.some((candidate) => candidate.key === "address" && candidate.labeled)) return [...candidates];
+  const derived: Candidate[] = [];
+  for (const candidate of candidates) {
+    if (candidate.key !== "mailingAddress" || !candidate.labeled || PO_BOX.test(candidate.value)) continue;
+    derived.push({ ...candidate, key: "address", flags: [...candidate.flags, "from-mailing"] });
+  }
+  return [...candidates, ...derived];
+}
+
 /** Candidatos de todas las fuentes -> valores finales ordenados por clave y confianza. */
-export function resolveCandidates(candidates: readonly Candidate[], locale: "es" | "en"): ExtractedValue[] {
+export function resolveCandidates(input: readonly Candidate[], locale: "es" | "en"): ExtractedValue[] {
+  const candidates = withDerivedAddress(input);
   const byKey = new Map<string, Candidate[]>();
   for (const candidate of candidates) {
     const list = byKey.get(candidate.key);
@@ -159,6 +202,9 @@ export function resolveCandidates(candidates: readonly Candidate[], locale: "es"
           pageIndex: candidate.pageIndex,
           snippet: clip(candidate.snippet, 120),
           origin: candidate.origin,
+          ...(candidate.origin === "ocr" && candidate.box ? { box: candidate.box } : {}),
+          ...(candidate.origin === "ocr" && candidate.valueBox ? { valueBox: candidate.valueBox } : {}),
+          ...(candidate.origin === "ocr" && candidate.ocrConfidence !== undefined ? { ocrConfidence: candidate.ocrConfidence } : {}),
         },
       });
     }
