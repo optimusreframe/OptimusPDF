@@ -23,6 +23,7 @@ import type { CaptureMap } from "@/app/sign-pdf/captures";
 import type { CeremonyState } from "@/app/sign-pdf/blockModel";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
 import { sanitizeFieldTags } from "@/lib/fieldTags";
+import { initialStepFor } from "@/app/sign-pdf/signSteps";
 
 /*
  * Sesion de Sign PDF con varios documentos: el estado CANONICO que guarda
@@ -270,7 +271,8 @@ export function syncSession(
   const fresh =
     !session.docOrder.some((id) => docOrder.includes(id)) &&
     docOrder.every((id) => !(id in session.docs));
-  if (fresh) Object.assign(out, FRESH_ROUND);
+  // Con firmantes ya decididos (ronda nueva con los mismos) se arranca en «Documento»; ver `initialStepFor`.
+  if (fresh) Object.assign(out, FRESH_ROUND, { step: initialStepFor(session) });
 
   const active = activeDocOf(session, docOrder);
   if (active !== session.activeDocId) out.activeDocId = active;

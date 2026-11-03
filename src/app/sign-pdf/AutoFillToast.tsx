@@ -46,7 +46,8 @@ export function AutoFillToast({ notice, onUndo, onDismiss }: Props) {
         <div
           className={cn(
             "pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4",
-            "bottom-[calc(env(safe-area-inset-bottom,0px)+6rem)] max-md:bottom-[calc(env(safe-area-inset-bottom,0px)+13.5rem)]",
+            // Con el asistente «Rellenar» abierto (W3-B2) su panel publica su altura en `--fill-dock-h`: el aviso se coloca sobre el.
+            "bottom-[calc(env(safe-area-inset-bottom,0px)+var(--fill-dock-h,6rem))] max-md:bottom-[calc(env(safe-area-inset-bottom,0px)+var(--fill-dock-h,13.5rem))]",
           )}
         >
           <div

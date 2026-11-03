@@ -14,6 +14,7 @@ import type { Signer } from "@/lib/pdf/sign";
 import type { DocId } from "@/app/sign-pdf/docSet";
 import { useOptionalLanguage } from "@/lib/i18n";
 import { libraryTemplateStrings } from "@/app/sign-pdf/libraryTemplateStrings";
+import { useFillStrings } from "@/app/sign-pdf/fillMode/fillStrings";
 
 /*
  * Los avisos de la aplicacion automatica (Fase 2 · U2.4), encima del flujo de Firmar:
@@ -40,6 +41,9 @@ export type TemplateNoticesProps = {
   onReview: (docId: DocId) => void;
   onGoToPage: (docId: DocId, pageIndex: number) => void;
   onGoSign: (docId: DocId) => void;
+  /** Modo «Rellenar» (W3-B2): cuantos campos tiene ese documento para rellenar, y abrir el asistente en el. Ausentes = el boton no existe. */
+  fillCount?: (docId: DocId) => number;
+  onFill?: (docId: DocId) => void;
   /** Abre la hoja «Plantillas» sobre ese documento. Sin ella no se pintan los avisos «Hay N plantillas…» (no tendrian a donde llevar). */
   onChooseTemplate?: (docId: DocId) => void;
 };
@@ -168,8 +172,10 @@ function CapPanel({ notice, strings, onGoToPage }: { notice: DocNotice; strings:
   );
 }
 
-function NoticeCard({ notice, controller, strings, signers, session, multi, onReview, onGoToPage, onGoSign }: { notice: DocNotice } & Omit<TemplateNoticesProps, "controller"> & { controller: TemplateController }) {
+function NoticeCard({ notice, controller, strings, signers, session, multi, onReview, onGoToPage, onGoSign, fillCount, onFill }: { notice: DocNotice } & Omit<TemplateNoticesProps, "controller"> & { controller: TemplateController }) {
   const t = strings.template.notices;
+  const fillStrings = useFillStrings();
+  const fillable = onFill && fillCount ? fillCount(notice.docId) : 0;
   const docName = multi ? notice.name : null;
   if (notice.phase === "automapping") {
     return <AutomapProgress label={docName ? `${docName}: ${t.detecting}` : t.detecting} />;
@@ -223,7 +229,13 @@ function NoticeCard({ notice, controller, strings, signers, session, multi, onRe
         </div>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button size="md" wrap disabled={notice.busy} onClick={() => onGoSign(notice.docId)}>
+        {/* Con campos por rellenar, lo primero es rellenarlos: «Rellenar (N campos)» pasa a ser el boton destacado. */}
+        {fillable > 0 ? (
+          <Button size="md" wrap disabled={notice.busy} onClick={() => onFill?.(notice.docId)} data-template-fill="">
+            {fillStrings.entryButton(fillable)}
+          </Button>
+        ) : null}
+        <Button variant={fillable > 0 ? "secondary" : "primary"} size="md" wrap disabled={notice.busy} onClick={() => onGoSign(notice.docId)}>
           {t.goSign}
         </Button>
         <Button variant="secondary" size="md" wrap disabled={notice.busy} onClick={() => onReview(notice.docId)}>
@@ -311,7 +323,7 @@ function AutomapProgress({ label }: { label: string }) {
   );
 }
 
-export function TemplateNotices({ controller, strings, signers, session, multi, onReview, onGoToPage, onGoSign, onChooseTemplate }: TemplateNoticesProps) {
+export function TemplateNotices({ controller, strings, signers, session, multi, onReview, onGoToPage, onGoSign, onChooseTemplate, fillCount, onFill }: TemplateNoticesProps) {
   const visible = controller.notices.filter((notice) => notice.phase !== "applied" || notice.record !== null || notice.confirm !== null);
   // `contents`: el contenedor no genera caja. Sin avisos NO ocupa nada en el apilado de la herramienta (un contenedor vacio le
   // sumaba su separacion y movia lo de debajo); cada aviso lleva su propio margen y el de progreso ni existe hasta que hace falta.
@@ -321,7 +333,7 @@ export function TemplateNotices({ controller, strings, signers, session, multi, 
         {controller.announcement}
       </p>
       {visible.map((notice) => (
-        <NoticeCard key={notice.docId} notice={notice} controller={controller} strings={strings} signers={signers} session={session} multi={multi} onReview={onReview} onGoToPage={onGoToPage} onGoSign={onGoSign} />
+        <NoticeCard key={notice.docId} notice={notice} controller={controller} strings={strings} signers={signers} session={session} multi={multi} onReview={onReview} onGoToPage={onGoToPage} onGoSign={onGoSign} fillCount={fillCount} onFill={onFill} />
       ))}
       {visible.map((notice) => (
         <ChangeConfirm key={`${notice.docId}-confirm`} notice={notice} controller={controller} strings={strings} />

@@ -40,6 +40,7 @@ import {
   nextTextFieldId,
   reserveFieldIds,
   reserveTextFieldIds,
+  type DocumentCanvasApi,
   type PlacementTool,
 } from "@/app/sign-pdf/DocumentCanvas";
 import { useCanvasSequence } from "@/app/sign-pdf/DocumentSequence";
@@ -127,6 +128,13 @@ import {
 import type { CrossDocs } from "@/app/sign-pdf/useFieldTagging";
 import { memoryKeyOf } from "@/app/sign-pdf/fieldMemory";
 import { RememberedDataButton } from "@/app/sign-pdf/RememberedData";
+import { FillAssistant } from "@/app/sign-pdf/fillMode/FillAssistant";
+import { FillEntry, FILL_ENTRY_SELECTOR } from "@/app/sign-pdf/fillMode/FillEntry";
+import { useFillControl, type FillControl } from "@/app/sign-pdf/fillMode/fillControl";
+import { buildFillSteps, firstStep, summarize, type FillDocInput, type FillFieldMeta } from "@/app/sign-pdf/fillMode/fillSteps";
+import { QUICK_SIGN_STRINGS } from "@/app/sign-pdf/fillMode/fillStrings";
+import { filledFieldCount } from "@/app/sign-pdf/quickSign/quickSignModel";
+import { SignersRecap } from "@/app/sign-pdf/quickSign/SignersRecap";
 import {
   DocumentSessionHost,
 } from "@/app/sign-pdf/DocumentSessionHost";
@@ -913,6 +921,9 @@ export function SignToolClient() {
    * cargar otro archivo nunca hereda lo del anterior.
    */
   const bridge = useSessionBridge();
+  /** Modo «Rellenar» (W3-B2): su estado vive aqui para sobrevivir a que el flujo se monte de nuevo al cambiar de documento. */
+  const fill = useFillControl();
+  const setFillState = fill.setState;
   /** Lo rellena `ToolShell`: remata la ronda con el mismo procesado de siempre. */
   const runRef = useRef<(() => void) | null>(null);
   /** Lo rellena `ToolShell`: reinicia el flujo con un patch parcial de opciones. */
@@ -1029,6 +1040,14 @@ export function SignToolClient() {
     offerEnabled: reusableTemplatesEnabled,
     onStaleSkipped,
   });
+  /** Modo «Rellenar» (W3-B2): lo que la plantilla sabe de cada campo de texto (obligatorio, regla «hoy»), por documento. */
+  const fillMeta = useMemo(() => {
+    const out: Record<string, Record<string, FillFieldMeta>> = {};
+    for (const notice of templates.notices) {
+      if (notice.record?.textMeta) out[notice.docId] = notice.record.textMeta;
+    }
+    return out;
+  }, [templates.notices]);
   const entryNoticeText = [templateEntryNotice, ...staleSkippedNames.map((name) => strings.template.entry.staleSkipped(name))].filter(Boolean).join(" ");
   /** Editor «Configurar plantilla» abierto (sustituye a la herramienta mientras dura; `ToolShell` sigue montado, oculto). */
   const [editor, setEditor] = useState<EditorSeed | null>(null);
@@ -1148,6 +1167,11 @@ export function SignToolClient() {
    */
   const signerPrefixRef = useRef(false);
   const [prefixPromptOpen, setPrefixPromptOpen] = useState(false);
+  /**
+   * «Firmar y descargar» de la ceremonia (W3-B2): el archivo se descarga solo al terminar (`ToolShell.autoDownload`), asi la
+   * revision y la descarga son un solo toque. Va en un ref porque lo lee `ToolShell` al llegar al resultado, no al pintar.
+   */
+  const autoDownloadRef = useRef(false);
 
   /**
    * Se llama al pulsar "Firmar y descargar"/"Aplicar y descargar" en modo
@@ -1429,6 +1453,8 @@ export function SignToolClient() {
         singleDraftRef.current = null;
         setWriteFailed(false);
         setTabNotice(null);
+        // Sin documentos no hay asistente «Rellenar» que seguir (W3-B2).
+        setFillState({ open: false, cursor: null, finished: false });
       }
       if (next.length > previous.length) {
         setRemoved(null);
@@ -1444,7 +1470,7 @@ export function SignToolClient() {
         names: previous.filter((file) => !kept.has(file)).map((file) => file.name),
       });
     },
-    [bridge],
+    [bridge, setFillState],
   );
   const undoRemoval = useCallback(() => {
     if (!removed) return;
@@ -1808,6 +1834,27 @@ export function SignToolClient() {
       return processDocument(docId, file, session, onProgress);
     },
     [processBatch, processDocument],
+  );
+
+  /** Con la descarga automatica, la pantalla de resultado lo dice y deja «Descargar» por si el navegador no la dejo hacer sola. */
+  const processAndNote = useCallback(
+    async (
+      files: File[],
+      session: SignSession,
+      onProgress: ProgressCallback,
+      signal: AbortSignal,
+    ): Promise<ProcessResult> => {
+      try {
+        const result = await process(files, session, onProgress, signal);
+        return autoDownloadRef.current
+          ? { ...result, subtitle: QUICK_SIGN_STRINGS[language].downloadedSubtitle(result.filename) }
+          : result;
+      } catch (error) {
+        autoDownloadRef.current = false;
+        throw error;
+      }
+    },
+    [process, language],
   );
 
   /** Tablet (iPad vertical y horizontal): sin columna «Opciones» fija; ver `renderOptionsPanel`. */
@@ -2201,7 +2248,7 @@ export function SignToolClient() {
     <ToolShell<SignSession>
       tool={tool}
       defaultOptions={DEFAULT_SESSION}
-      process={process}
+      process={processAndNote}
       progressMessage={strings.progressMessage}
       runRef={runRef}
       resetRef={resetRef}
@@ -2237,7 +2284,11 @@ export function SignToolClient() {
           </div>
         </>
       )}
-      onDownloaded={() => downloadedRef.current?.()}
+      autoDownload={() => autoDownloadRef.current}
+      onDownloaded={() => {
+        autoDownloadRef.current = false;
+        downloadedRef.current?.();
+      }}
       renderDownloadExtras={({ result }) => (
         <>
           {/* Casilla marcada por defecto: al descargar, la ronda entregada deja de ofrecerse como «sin terminar» (U0.4). */}
@@ -2368,6 +2419,19 @@ export function SignToolClient() {
             multi={files.length > 1}
             onReview={(id) => bridge.commit(() => ({ activeDocId: id, step: "document" }))}
             onGoSign={(id) => bridge.commit(() => ({ activeDocId: id, step: "sign" }))}
+            fillCount={(id) => {
+              const state = docStateOf(hostSession.docs, id);
+              return buildFillSteps([{ id, name: "", textFields: state.textFields, textValues: state.textValues, autoFilled: state.autoFilled, meta: fillMeta[id] }]).length;
+            }}
+            onFill={(id) => {
+              // «Rellenar (N campos)» del aviso de la plantilla: abre el asistente en el primer campo de ESE documento.
+              const state = docStateOf(hostSession.docs, id);
+              const steps = buildFillSteps([{ id, name: "", textFields: state.textFields, textValues: state.textValues, autoFilled: state.autoFilled, meta: fillMeta[id] }]);
+              const first = firstStep(steps, true);
+              if (!first) return;
+              bridge.commit(() => ({ activeDocId: id, step: "document" }));
+              fill.setState({ open: true, finished: false, cursor: { docId: id, fieldId: first.field.id } });
+            }}
             onGoToPage={(id, page) =>
               bridge.commit((current) => ({
                 activeDocId: id,
@@ -2510,10 +2574,14 @@ export function SignToolClient() {
               onDetectFields={() => templates.detect(docId)}
               detectingFields={templates.notices.some((notice) => notice.docId === docId && notice.phase === "automapping")}
               fieldDataKeys={dataKeysOfNotice(templates.notices.find((notice) => notice.docId === docId))}
+              fill={fill}
+              fillMeta={fillMeta}
               // Varios documentos: sin pregunta de prefijo (el nombre es automatico).
-              onFinish={() =>
-                files.length > 1 ? runRef.current?.() : requestFinish(options.signers)
-              }
+              onFinish={() => {
+                autoDownloadRef.current = true;
+                if (files.length > 1) runRef.current?.();
+                else requestFinish(options.signers);
+              }}
               strings={strings}
               editStrings={EDIT_STRINGS[language].inline}
               multi={
@@ -2739,6 +2807,13 @@ export type MultiFlowProps = {
   detectingFields?: boolean;
   /** Autorrelleno (F3): `dataKey` que la plantilla fijo para cada campo de texto (id -> clave); gana sobre la etiqueta. */
   fieldDataKeys?: Readonly<Record<string, string>>;
+  /**
+   * Modo «Rellenar» (W3-B2): estado del asistente. Con varios documentos pasar de un campo al del siguiente cambia el documento
+   * activo y este flujo se monta de nuevo, asi que el estado vive en quien lo monta. Ausente = lo lleva el propio flujo.
+   */
+  fill?: FillControl;
+  /** Lo que la plantilla sabe de cada campo (obligatorio, regla «hoy»), por documento y campo (`DocId` -> `id` del campo). */
+  fillMeta?: Readonly<Record<string, Readonly<Record<string, FillFieldMeta>>>>;
 };
 
 export function MultiFlow({
@@ -2756,6 +2831,8 @@ export function MultiFlow({
   onDetectFields,
   detectingFields = false,
   fieldDataKeys,
+  fill,
+  fillMeta,
 }: MultiFlowProps) {
   const keyboardNavEnabled = useSignPdfFeatureFlag("keyboardNav");
   const fieldsCompleteNoticeEnabled = useSignPdfFeatureFlag(
@@ -2883,6 +2960,71 @@ export function MultiFlow({
     autoFillToast,
   } = session;
   const textEditConfig = useTextEditConfig(options.textEdits, setOptions, editStrings);
+
+  /* --- Modo «Rellenar» (W3-B2): el asistente recorre los campos de TODOS los documentos de la ronda --- */
+  const ownFill = useFillControl();
+  const fillControl = fill ?? ownFill;
+  const [canvasApi, setCanvasApi] = useState<DocumentCanvasApi | null>(null);
+  const activeDocId: string = file ? docIdOf(file) : "doc";
+  const fillDocs: FillDocInput[] = multi
+    ? multi.files.map((item) => {
+        const id = docIdOf(item);
+        // El documento activo se lee de las opciones del flujo (lo mas reciente); los demas, de la sesion.
+        const state = id === activeDocId ? null : docStateOf(multi.session.docs, id);
+        return {
+          id,
+          name: item.name,
+          textFields: state ? state.textFields : options.textFields,
+          textValues: state ? state.textValues : options.textValues,
+          autoFilled: state ? state.autoFilled : options.autoFilled,
+          meta: fillMeta?.[id],
+        };
+      })
+    : [
+        {
+          id: activeDocId,
+          name: file?.name ?? "",
+          textFields: options.textFields,
+          textValues: options.textValues,
+          autoFilled: options.autoFilled,
+          meta: fillMeta?.[activeDocId],
+        },
+      ];
+  const fillSteps = buildFillSteps(fillDocs);
+  const fillSummary = summarize(fillSteps);
+  const startFill = () => {
+    const first = firstStep(fillSteps, fillControl.state.reviewAuto);
+    fillControl.setState({
+      open: true,
+      finished: false,
+      cursor: first ? { docId: first.docId, fieldId: first.field.id } : null,
+    });
+  };
+  /** Lleva el lienzo al documento y la pagina del campo (otro documento = otro flujo montado). */
+  const goToFillDoc = (docId: string, pageIndex: number) => {
+    if (multi) {
+      multi.bridge.commit((current) => ({
+        activeDocId: docId,
+        step: "document",
+        docs: { ...current.docs, [docId]: { ...docStateOf(current.docs, docId), fieldPageIndex: pageIndex } },
+      }));
+    } else {
+      setOptions({ fieldPageIndex: pageIndex });
+    }
+  };
+  const patchFillDoc = (docId: string, patch: { textValues?: Record<string, string>; autoFilled?: Record<string, AutoMark> }) => {
+    if (multi) multi.bridge.setView(docId, patch);
+    else setOptions(patch);
+  };
+  // El asistente solo existe en el paso «Documento»: al pasar a otro paso se cierra (lo escrito ya esta en la sesion).
+  const fillOpen = fillControl.state.open;
+  const closeFill = fillControl.setState;
+  useEffect(() => {
+    if (!fillOpen || options.step === "document") return;
+    queueMicrotask(() => closeFill({ open: false, finished: false }));
+  }, [fillOpen, options.step, closeFill]);
+  const fillFocusId =
+    fillOpen && !fillControl.state.finished && fillControl.state.cursor?.docId === activeDocId ? fillControl.state.cursor.fieldId : null;
 
   /**
    * Cachea los bytes leidos del `File` actual: se necesitan en cada
@@ -3447,6 +3589,10 @@ export function MultiFlow({
 
       {options.step === "document" ? (
         <section className="flex flex-col gap-4">
+          {/* Quien firma ya estaba decidido (los mismos de antes): se dice y se puede cambiar con un toque. */}
+          {inProSuite ? null : (
+            <SignersRecap signers={options.signers} defaultName={strings.defaultSignerName} onChange={() => setOptions({ step: "signers" })} />
+          )}
           <DetectionStatus
             detecting={detecting}
             failed={detectionFailed}
@@ -3480,6 +3626,8 @@ export function MultiFlow({
             fieldDataKeys={fieldDataKeys}
           />
 
+          {fillOpen ? null : <FillEntry count={fillSummary.total} filled={fillSummary.filled} onStart={startFill} />}
+
           <DocumentCanvas
             file={file}
             signers={options.signers}
@@ -3511,6 +3659,8 @@ export function MultiFlow({
             sequence={sequence}
             textEdit={textEditConfig}
             tagging={tagging}
+            apiRef={setCanvasApi}
+            fillFocusId={fillFocusId}
           />
           {autoFillToast}
 
@@ -3561,6 +3711,8 @@ export function MultiFlow({
             strings={strings}
             ceremony={options.ceremony}
             onCeremonyChange={(ceremony) => setOptions({ ceremony })}
+            filledFields={filledFieldCount([{ textFields: options.textFields, textValues: options.textValues }])}
+            onEdit={() => setOptions({ step: "document" })}
           />
         )
       ) : null}
@@ -3643,6 +3795,24 @@ export function MultiFlow({
         >
           <span className="pointer-events-auto material-thick shadow-elevation-2 rounded-ios-sm">{nextButton}</span>
         </div>
+      ) : null}
+      {options.step === "document" ? (
+        <FillAssistant
+          control={fillControl}
+          docs={fillDocs}
+          activeDocId={activeDocId}
+          api={canvasApi}
+          hidden={options.editingTextFieldId !== null}
+          selectedFieldId={options.selectedTextFieldId}
+          onValue={onTextValueChange}
+          onCommit={tagging.onCommit}
+          onTag={tagging.onTagChange}
+          onGoToDoc={goToFillDoc}
+          onPatchDoc={patchFillDoc}
+          onContinue={nextStep ? () => setOptions({ step: nextStep }) : undefined}
+          continueBlocked={nextStep ? !reachable(nextStep) : false}
+          returnFocusSelector={FILL_ENTRY_SELECTOR}
+        />
       ) : null}
     </div>
   );

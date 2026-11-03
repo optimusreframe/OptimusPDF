@@ -214,6 +214,12 @@ export type ToolShellProps<TOptions> = {
     options: TOptions;
   }) => void;
   /**
+   * Opt-in (W3-B2, «Firmar y descargar» en un toque): se pregunta al llegar a `phase === "done"` y, si devuelve `true`, el resultado
+   * se descarga solo UNA vez, igual que el boton primario «Descargar» (que sigue ahi por si el navegador no deja descargar sin un
+   * toque: iOS). Ausente = nunca (todas las demas herramientas siguen igual). Tambien llama a `onDownloaded`.
+   */
+  autoDownload?: () => boolean;
+  /**
    * Se rellena con una version de `reset()` que acepta un patch parcial de
    * opciones en vez de volver siempre a `defaultOptions`. Lo necesita quien
    * quiere reiniciar el flujo (archivo fuera, vuelta a `"idle"`) pero
@@ -322,6 +328,7 @@ export function ToolShell<TOptions>({
   renderDone,
   renderDownloadExtras,
   onDownloaded,
+  autoDownload,
   resetRef,
   removeFilesRef,
   loadRef,
@@ -702,6 +709,15 @@ export function ToolShell<TOptions>({
     requestFocus,
     tool.slug,
   ]);
+
+  /** Resultado ya descargado solo (una vez por resultado). */
+  const autoDownloadedRef = useRef<ProcessResult | null>(null);
+  useEffect(() => {
+    if (phase !== "done" || !result || autoDownloadedRef.current === result || !autoDownload?.()) return;
+    autoDownloadedRef.current = result;
+    downloadBlob(result.blob, result.filename);
+    onDownloaded?.({ result, options });
+  }, [phase, result, autoDownload, onDownloaded, options]);
 
   useEffect(() => {
     if (!runRef) return;

@@ -16,3 +16,13 @@ export function migrateStep(
   if (step === "fields" || step === "text") return "document";
   return "signers";
 }
+
+/**
+ * Paso con el que arranca una ronda de documentos NUEVA (W3-B2). Los firmantes sobreviven a una ronda nueva (`FRESH_ROUND`): si la
+ * persona ya tiene firmantes en «Varios firmantes», quienes firman ya esta decidido y no hace falta pasar otra vez por «Firmantes»;
+ * se empieza en «Documento». El paso «Firmantes» sigue a un toque (la barra de pasos y «Cambiar» en el resumen de firmantes del
+ * paso Documento), asi que nada queda escondido. Sin firmantes, o en «Solo yo», todo empieza como siempre.
+ */
+export function initialStepFor(session: { mode: string; signers: readonly unknown[] }): MultiStep {
+  return session.mode === "multi" && session.signers.length > 0 ? "document" : "signers";
+}

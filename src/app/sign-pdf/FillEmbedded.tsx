@@ -11,7 +11,11 @@ import { readFillForm, writeFillForm, type FormFieldInfo } from "@/lib/pdf/fillF
 import { signPdfMulti } from "@/lib/pdf/sign";
 import { recordValue } from "@/lib/valueHistory";
 import { memoryKeyOf } from "@/app/sign-pdf/fieldMemory";
-import { DocumentCanvas, type PlacementTool } from "@/app/sign-pdf/DocumentCanvas";
+import { DocumentCanvas, type DocumentCanvasApi, type PlacementTool } from "@/app/sign-pdf/DocumentCanvas";
+import { FillAssistant } from "@/app/sign-pdf/fillMode/FillAssistant";
+import { FillEntry, FILL_ENTRY_SELECTOR } from "@/app/sign-pdf/fillMode/FillEntry";
+import { useFillControl } from "@/app/sign-pdf/fillMode/fillControl";
+import { buildFillSteps, firstStep, summarize } from "@/app/sign-pdf/fillMode/fillSteps";
 import { useCanvasSequence } from "@/app/sign-pdf/DocumentSequence";
 import { DetectionStatus, PendingFieldsNotice, ReuseValuesPrompt } from "@/app/sign-pdf/DocumentSessionParts";
 import { useDocumentSession, type SessionOptions } from "@/app/sign-pdf/useDocumentSession";
@@ -222,6 +226,26 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
   );
   const onCanvasFieldsChange = (next: DetectedField[]) => session.onTextFieldsChange([...hiddenTextFields, ...next]);
 
+  /* ---- Asistente «Rellenar» de campo en campo (W3-B2): un solo documento; los campos de solo lectura no se ofrecen ---- */
+  const fillControl = useFillControl();
+  const [canvasApi, setCanvasApi] = useState<DocumentCanvasApi | null>(null);
+  const fillDocs = [
+    {
+      id: "doc",
+      name: file.name,
+      textFields: visibleTextFields,
+      textValues: options.textValues,
+      autoFilled: options.autoFilled,
+    },
+  ];
+  const fillSummary = summarize(buildFillSteps(fillDocs));
+  const fillOpen = fillControl.state.open;
+  const fillFocusId = fillOpen && !fillControl.state.finished ? (fillControl.state.cursor?.fieldId ?? null) : null;
+  const startFill = () => {
+    const first = firstStep(buildFillSteps(fillDocs), fillControl.state.reviewAuto);
+    fillControl.setState({ open: true, finished: false, cursor: first ? { docId: "doc", fieldId: first.field.id } : null });
+  };
+
   const plan = useMemo(
     () =>
       buildFillPlan({
@@ -425,6 +449,8 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
               />
             ) : null}
 
+            {fillOpen ? null : <FillEntry count={fillSummary.total} filled={fillSummary.filled} onStart={startFill} />}
+
             <DocumentCanvas
               file={file}
               signers={[]}
@@ -451,6 +477,8 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
               pinchZoomEnabled={pinchZoomEnabled}
               sequence={sequence}
               tagging={session.tagging}
+              apiRef={setCanvasApi}
+              fillFocusId={fillFocusId}
             />
             {session.autoFillToast}
 
@@ -518,6 +546,20 @@ function FillEmbeddedSession({ initialFile, lang, onApply, onCancel, facts }: Se
           </StatusRegion>
         ) : null}
       </EmbeddedBar>
+      <FillAssistant
+        control={fillControl}
+        docs={fillDocs}
+        activeDocId="doc"
+        api={canvasApi}
+        hidden={options.editingTextFieldId !== null}
+        selectedFieldId={options.selectedTextFieldId}
+        onValue={session.onTextValueChange}
+        onCommit={session.tagging.onCommit}
+        onTag={session.tagging.onTagChange}
+        onGoToDoc={(_docId, pageIndex) => setOptions({ fieldPageIndex: pageIndex })}
+        onPatchDoc={(_docId, patch) => setOptions(patch)}
+        returnFocusSelector={FILL_ENTRY_SELECTOR}
+      />
     </section>
     </CanvasCompactContext.Provider>
   );

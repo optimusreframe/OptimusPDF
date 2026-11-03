@@ -67,6 +67,10 @@ import type { SignStrings } from "@/app/sign-pdf/strings";
 import { rememberDrafts, type VaultNotice } from "@/app/sign-pdf/vaultMessages";
 import { useCeremonyFocus } from "@/app/sign-pdf/useCeremonyFocus";
 import { useCeremonyTurn } from "@/app/sign-pdf/useCeremonyTurn";
+import { CeremonySummary, QuickSignCard } from "@/app/sign-pdf/quickSign/QuickSignCard";
+import { filledFieldCount, savedDraftsOf, signerSlotCounts } from "@/app/sign-pdf/quickSign/quickSignModel";
+import { useQuickSign } from "@/app/sign-pdf/quickSign/useQuickSign";
+import { useQuickSignStrings } from "@/app/sign-pdf/fillMode/fillStrings";
 import type { SignatureFieldType, Signer } from "@/lib/pdf/sign";
 
 type Stage = CeremonyState["stage"];
@@ -194,6 +198,26 @@ export function BlockCeremony({
 
   const current = queue[position] ?? null;
   const headingRef = useCeremonyFocus(stage, position);
+  const quick = useQuickSignStrings();
+  /**
+   * Con UNA sola persona que firma no hay a quien pasarle el dispositivo: el traspaso se salta y se dice por que (W3-B2).
+   * Con varias se mantiene, como siempre. Es solo lo que se PINTA: el turno guardado en la sesion sigue siendo el de siempre.
+   */
+  const soleSigner = queue.length === 1;
+  const shownStage: Stage = stage === "handoff" && soleSigner ? "capture" : stage;
+  /** Firma guardada que se propone al firmante del turno (un toque coloca firma e iniciales en TODOS sus huecos). */
+  const [usedEntries, setUsedEntries] = useState<Record<string, string>>({});
+  /** Lo que habia antes de «Firmar todo con mi firma guardada», para «Deshacer». */
+  const [quickUndo, setQuickUndo] = useState<{ signerId: string; blocks: SignerBlock[] } | null>(null);
+  const needTypes: SignatureFieldType[] = current
+    ? [...new Set(turnProgress(blocks, current.id, ctx).filter((item) => !item.done).map((item) => item.type))]
+    : [];
+  const proposal = useQuickSign({
+    enabled: vaultEnabled && current !== null && shownStage !== "review",
+    signerName: current?.name ?? "",
+    need: needTypes,
+    excludeIds: new Set(Object.entries(usedEntries).filter(([signerId]) => signerId !== current?.id).map(([, entryId]) => entryId)),
+  });
 
   const keysReady = docIds.every((id) => Boolean(keys[id]));
   if (!keysReady) {
@@ -252,6 +276,15 @@ export function BlockCeremony({
   }));
   const hasBlockingIssue = issueViews.some((found) => found.severity === "blocking");
   const reviewVisible = queue.length > 0 && pending.length === 0;
+  /**
+   * Ultimo firmante y nada pendiente ni bloqueante: «Revisar» y «Descargar» son UNA sola pantalla (la tarjeta de abajo ya trae la
+   * revision completa y el boton «Firmar y descargar»); la tarjeta de revision del turno solo duplicaria el toque (W3-B2).
+   */
+  const merged = current !== null && shownStage === "review" && !othersPending && pending.length === 0 && !blocked && !hasBlockingIssue;
+  /** Lo que se va a firmar y rellenar, para el resumen del turno. */
+  const turnCounts = current ? signerSlotCounts(docIds.map((docId) => fieldsOfDoc(ctx, docId)), current.id) : { signatures: 0, initials: 0 };
+  const filledFields = filledFieldCount(docIds.map((docId) => ({ textFields: docStates[docId]?.textFields ?? [], textValues: docStates[docId]?.textValues ?? {} })));
+  const editTurn = onFix && docs[0] ? () => onFix({ step: "document", docId: docs[0].id }) : undefined;
   const finishReasonId = `${composeIdBase}-finish-reason`;
   // Los bloques con algo que firmar, en el orden en que se muestran.
   const currentBlocks = current
@@ -350,6 +383,52 @@ export function BlockCeremony({
     });
   };
 
+  /**
+   * «Firmar todo con mi firma guardada»: con UN toque, firma e iniciales del baul van a TODOS los grupos del firmante (todos sus
+   * huecos de todos los documentos). Solo se rellena lo que falta (lo ya vigente no se pisa) y lo que la entrada no trae se pide
+   * aparte. Si no falta nada, la persona pasa a la revision: ve como queda antes de seguir. Nada se descarga aqui.
+   */
+  const applyQuick = (entry: VaultEntry) => {
+    if (!current) return;
+    const target = signerBlocks(blocks, current.id)
+      .filter((block) => blockRequiredTypes(block, ctx).length > 0)
+      .find((block) => !isBlockComplete(block, ctx));
+    if (!target) return;
+    const all = savedDraftsOf(entry);
+    const saved = {
+      signature: visibleDraft(target, "signature", ctx) ? null : all.signature,
+      initials: visibleDraft(target, "initials", ctx) ? null : all.initials,
+    };
+    const result = applySavedToBlocks(blocks, target.id, saved, true, ctx);
+    setQuickUndo({ signerId: current.id, blocks: [...blocks] });
+    setUsedEntries((previous) => ({ ...previous, [current.id]: entry.id }));
+    onBlocksChange(result.blocks);
+    announceProgress(result.blocks);
+    void touchVaultEntry(entry.id);
+    const left = turnProgress(result.blocks, current.id, ctx).filter((item) => !item.done);
+    const labels = [...new Set(left.map((item) => captureTypeLabel(item.type, strings)))];
+    const nextStage: Stage = left.length === 0 ? "review" : "capture";
+    showVaultNotice(current.id, nextStage, {
+      text: left.length === 0 ? quick.applied(entry.signerName) : quick.appliedMissing(entry.signerName, labels),
+      tone: left.length === 0 ? "success" : "info",
+    });
+    setStage(nextStage);
+  };
+
+  /** «Deshacer»: devuelve los trazos del firmante a como estaban antes del toque y vuelve a la captura. */
+  const undoQuickSign = () => {
+    if (!quickUndo || !current || quickUndo.signerId !== current.id) return;
+    onBlocksChange(quickUndo.blocks);
+    setUsedEntries((previous) => {
+      const { [current.id]: removed, ...rest } = previous;
+      void removed;
+      return rest;
+    });
+    setQuickUndo(null);
+    setLiveMessage(quick.undone);
+    setStage("capture");
+  };
+
   const editScope = (blockId: string, scope: DocId[]) => {
     const edit = changeBlockScope(blocks, blockId, scope, docs, strings);
     if (edit.blocks === blocks) return;
@@ -412,6 +491,30 @@ export function BlockCeremony({
   const reviewSlots = currentBlocks.reduce((sum, block) => sum + slotCountFor(block), 0);
   const reviewDocs = new Set(currentBlocks.flatMap((block) => blockSlotDocs(block, ctx))).size;
 
+  const quickCard =
+    proposal && current && shownStage !== "review" ? (
+      <QuickSignCard
+        proposal={proposal}
+        signerName={currentName}
+        counts={turnCounts}
+        onApply={applyQuick}
+        onChooseOther={
+          vaultEnabled
+            ? () => {
+                const target = currentBlocks.find((block) => !isBlockComplete(block, ctx)) ?? currentBlocks[0];
+                if (!target) return;
+                const missingType = needTypes[0] ?? "signature";
+                setVaultNoticeState(null);
+                setVaultFor({ blockId: target.id, type: missingType });
+                setVaultShown(true);
+              }
+            : undefined
+        }
+        signStrings={strings}
+        disabled={busy}
+      />
+    ) : null;
+
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -435,7 +538,7 @@ export function BlockCeremony({
 
       <StaleSignatureNotice items={staleNotes} />
 
-      {current && stage === "handoff" ? (
+      {current && shownStage === "handoff" ? (
         <div className="surface-card rounded-ios p-6 text-center">
           <span
             className="mx-auto flex size-12 items-center justify-center rounded-full"
@@ -463,10 +566,12 @@ export function BlockCeremony({
               {strings.handoffReady}
             </Button>
           </div>
+          {/* La firma guardada en el propio traspaso: quien tiene el dispositivo firma con UN toque y pasa a ver como queda. */}
+          {quickCard ? <div className="mx-auto mt-5 max-w-md text-left">{quickCard}</div> : null}
         </div>
       ) : null}
 
-      {current && stage === "capture" ? (
+      {current && shownStage === "capture" ? (
         <div className="surface-card rounded-ios p-5">
           <h4
             ref={headingRef}
@@ -475,9 +580,18 @@ export function BlockCeremony({
           >
             {strings.captureTitle(currentName)}
           </h4>
+          {/* Lo primero: firmar con la firma guardada es el camino corto; crear una firma nueva queda debajo. */}
+          {quickCard ? <div className="mt-3">{quickCard}</div> : null}
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {strings.blockCaptureBody}
           </p>
+          {/* Con una sola persona no hay traspaso: se dice por que, y el resumen del turno deja corregir lo decidido. */}
+          {soleSigner && stage === "handoff" ? (
+            <p className="mt-2 text-footnote text-muted-foreground" data-sole-signer="">
+              {quick.singleSigner}
+            </p>
+          ) : null}
+          <CeremonySummary counts={turnCounts} fields={filledFields} onEdit={editTurn} className="mt-2" />
 
           {progress.length > 1 ? (
             <TurnProgressList
@@ -557,7 +671,7 @@ export function BlockCeremony({
         </div>
       ) : null}
 
-      {current && stage === "review" ? (
+      {current && shownStage === "review" && !merged ? (
         <div className="surface-card rounded-ios p-5">
           <h4
             ref={headingRef}
@@ -593,9 +707,15 @@ export function BlockCeremony({
             <Button size="md" wrap onClick={advance}>
               {othersPending ? strings.reviewNext : strings.reviewFinish}
             </Button>
-            <Button variant="secondary" size="md" wrap onClick={() => setStage("capture")}>
-              {strings.reviewRedo}
-            </Button>
+            {quickUndo && quickUndo.signerId === current.id ? (
+              <Button variant="secondary" size="md" wrap onClick={undoQuickSign} data-quick-sign-undo="">
+                {quick.undo}
+              </Button>
+            ) : (
+              <Button variant="secondary" size="md" wrap onClick={() => setStage("capture")}>
+                {strings.reviewRedo}
+              </Button>
+            )}
           </div>
         </div>
       ) : null}
@@ -690,19 +810,41 @@ export function BlockCeremony({
         <h4
           // Sin turno a la vista (todos pasaron), el foco va al balance de la ronda.
           id={balanceId}
-          ref={current ? undefined : headingRef}
+          ref={current && !merged ? undefined : headingRef}
           tabIndex={-1}
           className={cn("text-headline text-foreground", CEREMONY_HEADING_CLASS)}
         >
-          {pending.length === 0 && !blocked ? strings.allSignedTitle : strings.ceremonyTitle}
+          {merged ? quick.finalTitle : pending.length === 0 && !blocked ? strings.allSignedTitle : strings.ceremonyTitle}
         </h4>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          {pending.length === 0 && !blocked
-            ? strings.batchReadyBody(docs.length)
-            : pending.length > 0
-              ? strings.pendingBody(pending.length)
-              : strings.deliveryBlockedTitle}
+          {merged
+            ? quick.finalBody(docs.length)
+            : pending.length === 0 && !blocked
+              ? strings.batchReadyBody(docs.length)
+              : pending.length > 0
+                ? strings.pendingBody(pending.length)
+                : strings.deliveryBlockedTitle}
         </p>
+        {/* Pantalla unica «Revisar y descargar»: lo que firmo la persona del turno, a la vista junto al boton. */}
+        {merged ? (
+          <div className="mt-3 space-y-3" data-merged-review="">
+            {currentBlocks.map((block) => (
+              <div key={block.id} className="space-y-2">
+                {showHeadings ? (
+                  <p className="text-footnote font-semibold text-foreground [overflow-wrap:anywhere]">
+                    {strings.assignment.groupFor(blockTitle(block), groupDocsText(block, docs))}
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap gap-3">
+                  {blockRequiredTypes(block, ctx).map((type) => {
+                    const draft = visibleDraft(block, type, ctx);
+                    return draft ? <ReviewFigure key={type} type={type} draft={draft} strings={strings} /> : null;
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {/* Todo lo que hace falta ya esta recogido (quiza antes de poner los campos): se dice claro y no se pide nada. */}
         {pending.length === 0 && queue.length > 0 && !blocked ? (
           <p data-all-covered="" className="mt-2 text-footnote font-medium leading-relaxed text-foreground">
@@ -745,6 +887,15 @@ export function BlockCeremony({
           >
             {strings.applyAndDownload}
           </Button>
+          {merged && quickUndo && current && quickUndo.signerId === current.id ? (
+            <Button variant="secondary" size="lg" wrap onClick={undoQuickSign} data-quick-sign-undo="">
+              {quick.undo}
+            </Button>
+          ) : merged ? (
+            <Button variant="secondary" size="lg" wrap onClick={() => setStage("capture")}>
+              {quick.finalRedo}
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="lg"

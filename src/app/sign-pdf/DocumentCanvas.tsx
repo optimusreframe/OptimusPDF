@@ -483,6 +483,11 @@ export type DocumentCanvasProps = {
    * comporta como antes de las etiquetas (sin chips, sin autorrelleno; las sugerencias salen de la etiqueta del rotulo).
    */
   tagging?: CanvasTagging;
+  /**
+   * Modo «Rellenar» (W3-B2): `id` del campo de texto que el asistente tiene ahora. Se pinta con un anillo propio (`data-fill-current`),
+   * sin seleccionarlo ni abrir su editor. Ausente/`null` = ningun campo destacado.
+   */
+  fillFocusId?: string | null;
 };
 
 export type { SignTextEditConfig };
@@ -607,6 +612,7 @@ function DocumentCanvasInner({
   apiRef,
   gestureMode,
   tagging,
+  fillFocusId = null,
 }: DocumentCanvasProps) {
   const gestureStrings = useGestureStrings();
   const tagStrings = useTagStrings();
@@ -3630,6 +3636,7 @@ function DocumentCanvasInner({
                   onTag={(next) => changeTag(field, next)}
                   onOtherTag={() => setCustomTagFor(field.id)}
                   selected={selection?.kind === "text" && selection.id === field.id}
+                  fillCurrent={field.id === fillFocusId}
                   editing={field.id === editingId}
                   suggested={isSuggestionOnly(field, values[field.id])}
                   strings={strings}
@@ -3996,6 +4003,10 @@ function taggableTypeOf(field: DetectedField): TaggableType | null {
 const SELECTION_RING =
   "0 0 0 2px var(--color-background), 0 0 0 4px var(--color-signal)";
 
+/** Anillo del campo que tiene el asistente «Rellenar»: mas ancho que el de seleccion, para verlo de un vistazo en la pagina. */
+const FILL_RING =
+  "0 0 0 3px var(--color-background), 0 0 0 6px var(--color-signal)";
+
 /**
  * Las clases de foco van en el elemento (no inline): Tailwind v4 + `outline-none`
  * dejaria el anillo invisible, asi que aqui no hay `outline-none` y la
@@ -4295,6 +4306,8 @@ type TextFieldBoxProps = HitProps & {
   /** «Otra…»: pide el nombre de una etiqueta propia. */
   onOtherTag: () => void;
   selected: boolean;
+  /** Campo que el asistente «Rellenar» tiene ahora (anillo propio; no abre el editor). */
+  fillCurrent?: boolean;
   /** Input en linea abierto (distinto de `selected`). */
   editing: boolean;
   /** Sugerencia de la heuristica que nadie ha tocado: contorno discreto, etiqueta solo al apuntarla. */
@@ -4337,6 +4350,7 @@ function TextFieldBox({
   onTag,
   onOtherTag,
   selected,
+  fillCurrent = false,
   editing,
   suggested = false,
   strings,
@@ -4438,6 +4452,7 @@ function TextFieldBox({
       data-suggested={suggested ? "" : undefined}
       data-tag={tag ?? undefined}
       data-auto-filled={autoFilled ? "" : undefined}
+      data-fill-current={fillCurrent ? "" : undefined}
       onPointerDown={onPointerDownHandler}
       onFocus={(event) => {
         if (event.target === event.currentTarget) onFocusSelect();
@@ -4458,12 +4473,12 @@ function TextFieldBox({
             : `2px ${dashed ? "dashed" : "solid"} ${color}`,
         // Lo autorrellenado se ve un poco mas tenue que lo escrito (y lleva su destello): se nota de un vistazo, sin gritar.
         backgroundColor: value ? (autoFilled ? `${color}12` : `${color}22`) : "transparent",
-        boxShadow: selected ? SELECTION_RING : undefined,
+        boxShadow: selected ? SELECTION_RING : fillCurrent ? FILL_RING : undefined,
         // Por encima de los elementos siguientes (hermanos absolutos sin
         // z-index propio, apilados por orden del DOM): sin esto, el
         // desplegable de sugerencias puede quedar tapado por un campo
         // posterior en la misma pagina.
-        zIndex: editing ? 30 : selected ? 20 : undefined,
+        zIndex: editing ? 30 : selected || fillCurrent ? 20 : undefined,
       }}
     >
       {/* Solo la etiqueta REAL del documento ("Nombre:"), nunca un «Campo N» generico. */}
