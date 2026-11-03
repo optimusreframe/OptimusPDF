@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
-import { motion } from "motion/react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SearchX } from "lucide-react";
 import { ToolCard } from "@/components/tool/ToolCard";
 import { ToolIconTile } from "@/components/tool/ToolIconTile";
@@ -15,7 +14,7 @@ import {
 import { getDocumentHeight, useScrollEdge } from "@/components/layout/useScrollEdge";
 import { useT, type Dictionary } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { springs } from "@/lib/motion";
+import { REDUCED_MOTION_QUERY } from "@/lib/motion";
 import {
   CATEGORY_ORDER,
   GROUP_ORDER,
@@ -379,25 +378,73 @@ function sectionLabel(section: SectionId, t: Dictionary): string {
 /**
  * Barra de categorias (anclas) por debajo de 1024px, donde no hay
  * Sidebar: se pega bajo la cabecera y resalta la seccion visible con un
- * pulgar que se desliza con spring. Cada ancla mide 44 px de alto
- * aunque el chip visible sea de 32.
+ * pulgar que se desliza. Cada ancla mide 44 px de alto aunque el chip
+ * visible sea de 32.
+ *
+ * El pulgar vive DENTRO de la lista que se desplaza y se coloca con
+ * `offsetLeft`/`offsetWidth` (coordenadas del contenido de la lista): ni el
+ * scroll de la pagina ni el de la propia barra lo descolocan. Antes era un
+ * `layoutId` de motion, que anima por coordenadas de pantalla: con la pagina
+ * en plena inercia (iOS) el pulgar cruzaba fuera de la barra, sobre la cabecera
+ * y el contenido. Y el chip activo se acerca con `scrollTo` SOLO en horizontal
+ * sobre la lista, no con `scrollIntoView`, que recorre tambien la ventana y en
+ * Safari de iOS corta o sacude la inercia del scroll.
  */
 function CategoryChips() {
   const t = useT();
   const active = useActiveSection();
   const scrolled = useScrollEdge("top");
   const listRef = useRef<HTMLUListElement>(null);
+  const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  // La primera colocacion es sin transicion (no debe "volar" desde 0).
+  const [animate, setAnimate] = useState(false);
 
-  // El chip activo se mantiene a la vista dentro del carrusel.
-  useEffect(() => {
-    if (!active || !listRef.current) return;
-    const chip = listRef.current.querySelector<HTMLElement>(
-      `[data-category="${active}"]`,
-    );
-    // jsdom no implementa scrollIntoView: en tests simplemente no desplaza.
-    if (typeof chip?.scrollIntoView === "function") {
-      chip.scrollIntoView({ block: "nearest", inline: "nearest" });
+  // Coloca el pulgar sobre el chip activo y lo recoloca si cambia el ancho (fuentes, giro, idioma).
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!active || !list) {
+      setPill(null);
+      return;
     }
+    const place = () => {
+      const label = list.querySelector<HTMLElement>(`[data-category="${active}"] > span`);
+      if (!label) return;
+      const next = { left: label.offsetLeft, top: label.offsetTop, width: label.offsetWidth, height: label.offsetHeight };
+      setPill((prev) =>
+        prev && prev.left === next.left && prev.top === next.top && prev.width === next.width && prev.height === next.height
+          ? prev
+          : next,
+      );
+    };
+    place();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(place);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [active]);
+
+  useEffect(() => {
+    if (!pill || animate) return;
+    const frame = window.requestAnimationFrame(() => setAnimate(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [pill, animate]);
+
+  // El chip activo se mantiene a la vista dentro del carrusel: solo se mueve la lista, nunca la pagina.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!active || !list) return;
+    const chip = list.querySelector<HTMLElement>(`[data-category="${active}"]`);
+    if (!chip) return;
+    const margin = 16;
+    const left = chip.offsetLeft;
+    const right = left + chip.offsetWidth;
+    const hidden = left < list.scrollLeft + margin || right > list.scrollLeft + list.clientWidth - margin;
+    if (!hidden || typeof list.scrollTo !== "function") return;
+    const reduced = typeof window.matchMedia === "function" && window.matchMedia(REDUCED_MOTION_QUERY).matches;
+    list.scrollTo({
+      left: Math.max(0, left - (list.clientWidth - chip.offsetWidth) / 2),
+      behavior: reduced ? "auto" : "smooth",
+    });
   }, [active]);
 
   return (
@@ -412,8 +459,20 @@ function CategoryChips() {
     >
       <ul
         ref={listRef}
-        className="scrollbar-none flex items-center gap-2 overflow-x-auto px-4 py-0.5 md:px-6"
+        className="scrollbar-none relative flex items-center gap-2 overflow-x-auto overscroll-x-contain px-4 py-0.5 md:px-6"
       >
+        {pill ? (
+          <span
+            aria-hidden="true"
+            data-category-pill=""
+            className={cn(
+              "pointer-events-none absolute top-0 left-0 rounded-full bg-white/10 forced-colors:border-2 forced-colors:border-[Highlight]",
+              animate &&
+                "transition-[transform,width] duration-[var(--duration-base,250ms)] ease-[var(--ease-spring)] motion-reduce:transition-none",
+            )}
+            style={{ width: pill.width, height: pill.height, transform: `translate(${pill.left}px, ${pill.top}px)` }}
+          />
+        ) : null}
         {SECTION_ORDER.map((section) => {
           const isActive = active === section;
           return (
@@ -427,20 +486,12 @@ function CategoryChips() {
               >
                 <span
                   className={cn(
-                    "relative isolate flex h-8 items-center rounded-full px-3.5 text-footnote font-semibold whitespace-nowrap",
+                    "relative flex h-8 items-center rounded-full px-3.5 text-footnote font-semibold whitespace-nowrap",
                     "transition-[color,scale] duration-[var(--duration-fast)] ease-[var(--ease-spring)]",
                     "group-active:scale-[0.96] group-active:duration-[80ms]",
                     isActive ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
-                  {isActive ? (
-                    <motion.span
-                      aria-hidden="true"
-                      layoutId="category-chip-pill"
-                      transition={springs.snappy}
-                      className="absolute inset-0 -z-10 rounded-full bg-white/10 forced-colors:border-2 forced-colors:border-[Highlight]"
-                    />
-                  ) : null}
                   {sectionLabel(section, t)}
                 </span>
               </Link>

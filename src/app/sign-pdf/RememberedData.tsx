@@ -413,7 +413,7 @@ export function RememberedDataSettingsCard() {
       <h2 className="text-headline text-foreground">{strings.settingsTitle}</h2>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{strings.settingsBody}</p>
       <div className="mt-5">
-        <RememberedDataButton variant="secondary" size="md" />
+        <RememberedDataButton variant="secondary" size="md" className="h-auto min-h-11 max-w-full py-2 text-center whitespace-normal" />
       </div>
     </GlassCard>
   );
