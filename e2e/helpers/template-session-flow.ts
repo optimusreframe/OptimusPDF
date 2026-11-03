@@ -3,7 +3,8 @@
  * firmantes con el editor, subir el MISMO contrato reexportado, y los turnos de la ceremonia. Textos en espanol.
  */
 import { expect, type Page } from "@playwright/test";
-import { drawInOpenComposer, fileInput } from "./sign-flow";
+import { downloadBytes } from "./downloads";
+import { drawInOpenComposer, fileInput, mergedReviewHeading, roundCompleteHeading } from "./sign-flow";
 import { LINE, Taps, chooseForEditor, dragOnSheet, pickTool, placeSignatureBlock, sheet, storedTemplates, type StoredTemplate } from "./template-flow";
 
 export const PAGES = 6;
@@ -70,7 +71,35 @@ export async function signTurn(page: Page, seed: number, last: boolean): Promise
   await taps.click(page.getByRole("button", { name: "Crear mis iniciales", exact: true }), "Crear mis iniciales");
   await drawInOpenComposer(page, seed + 7);
   await taps.click(page.getByRole("button", { name: "Ver cómo queda" }), "Ver cómo queda");
-  await taps.click(page.getByRole("button", { name: last ? "He terminado" : "Pasar al siguiente firmante" }), "terminar turno");
+  await finishTurn(page, last, taps);
+}
+
+/**
+ * Cierra el turno tras «Ver cómo queda». Ola 3: con el ULTIMO firmante, nada pendiente y sin bloqueos, la revision y el
+ * boton final son UNA sola pantalla («Revisa y descarga»): ya no hay «He terminado» y no cuesta ningun toque mas. Si aun
+ * se pintara (un aviso bloqueante impide la pantalla unica) se pulsa, como siempre. Con otros firmantes pendientes sigue
+ * siendo «Pasar al siguiente firmante».
+ */
+export async function finishTurn(page: Page, last: boolean, taps: Taps = new Taps(page)): Promise<void> {
+  if (!last) {
+    await taps.click(page.getByRole("button", { name: "Pasar al siguiente firmante" }), "terminar turno");
+    return;
+  }
+  const finish = page.getByRole("button", { name: "He terminado" });
+  await expect(finish.or(mergedReviewHeading(page))).toBeVisible();
+  if (await finish.isVisible()) await taps.click(finish, "terminar turno");
+}
+
+/**
+ * «Firmar y descargar» de la pantalla final: desde la Ola 3 el archivo se descarga SOLO al llegar al resultado (la unica
+ * tecla es la de esta pulsacion) y «Descargar» queda de respaldo. Devuelve los bytes de esa descarga automatica, sin
+ * pulsar «Descargar». `before` corre antes de la pulsacion (p. ej. para contar el toque).
+ */
+export async function signAndDownload(page: Page, before?: () => void): Promise<Buffer> {
+  return downloadBytes(page, async () => {
+    before?.();
+    await page.getByRole("button", { name: "Firmar y descargar" }).click();
+  });
 }
 
 /** Plantilla aplicada al contrato reexportado, los dos firmantes han firmado y la pantalla dice «Ya han firmado todos». */
@@ -83,5 +112,6 @@ export async function appliedAndBothSigned(page: Page, original: Buffer, reexpor
   await signTurn(page, seeds[0], false);
   await expect(page.getByRole("heading", { name: `Pásale el dispositivo a ${SIGNER_2_ROLE}` })).toBeVisible();
   await signTurn(page, seeds[1], true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  // Ola 3: con el ultimo firmante la revision y el boton final son una sola pantalla («Revisa y descarga»).
+  await expect(roundCompleteHeading(page)).toBeVisible();
 }

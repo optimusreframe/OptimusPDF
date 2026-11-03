@@ -4850,7 +4850,7 @@ function DocumentCanvasInner({
                     }}
                   >
                     <TagGlyph />
-                    <span className="truncate">{selectedTagName ?? tagStrings.pillNoTag}</span>
+                    <span className={cn("truncate", selectedTagName === null && "max-[26rem]:sr-only")}>{selectedTagName ?? tagStrings.pillNoTag}</span>
                   </BarChip>
                 ) : null}
                 <BarButton

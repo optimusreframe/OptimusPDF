@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { drawInOpenComposer, fileInput } from "../helpers/sign-flow";
+import { drawInOpenComposer, fileInput, mergedReviewHeading } from "../helpers/sign-flow";
+import { finishTurn } from "../helpers/template-session-flow";
 import { makeContract } from "../helpers/template-pdfs";
 import { openEditorWithFile, placeInitialsLine, placeSignatureBlock } from "../helpers/template-flow";
 import { downloadBytes } from "../helpers/downloads";
@@ -236,11 +237,14 @@ for (const cell of CELLS) {
         await page.getByRole("button", { name: "Crear mis iniciales", exact: true }).click();
         await drawInOpenComposer(page, seed + 7);
         await page.getByRole("button", { name: "Ver cómo queda" }).click();
-        await page.getByRole("button", { name: last ? "He terminado" : "Pasar al siguiente firmante" }).click();
+        await finishTurn(page, last);
       }
+      // Ola 3: con el ultimo firmante la revision y el boton final son UNA pantalla («Revisa y descarga»); tambien cabe.
+      await expect(mergedReviewHeading(page)).toBeVisible();
+      await fitsEverywhere(page, "pantalla unica «Revisa y descarga»");
+      // Y el archivo se descarga SOLO al terminar (sin pulsar «Descargar»).
       await downloadBytes(page, async () => {
         await page.getByRole("button", { name: "Firmar y descargar" }).click();
-        await page.getByRole("button", { name: /^Descargar/ }).click();
       });
       await expect(page.locator("[data-template-offer]")).toBeVisible();
       await fitsEverywhere(page, "oferta «¿Guardar como plantilla?»");

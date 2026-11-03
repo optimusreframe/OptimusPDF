@@ -680,6 +680,13 @@ for (const viewport of VIEWPORTS) {
       await expectNoAxeViolations(page, "el modo Rellenar");
 
       const tap = async (label: RegExp) => {
+        // Escape cierra el editor pero deja el campo SELECCIONADO, y su barra de acciones (con «Etiquetar») ocupa dos filas a
+        // 375 px y tapa los campos de debajo: antes de tocar el siguiente, una persona suelta la seleccion tocando la hoja vacia.
+        const bar = page.locator("[data-floating-bar]");
+        if ((await bar.count()) > 0) {
+          await page.locator('img[alt]:not([alt=""])').first().click({ position: { x: 6, y: 6 } });
+          await expect(bar).toHaveCount(0);
+        }
         const group = page.getByRole("group", { name: label });
         await group.scrollIntoViewIfNeeded();
         await group.click();

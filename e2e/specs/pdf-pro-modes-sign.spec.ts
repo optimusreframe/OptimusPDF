@@ -9,7 +9,8 @@ import { downloadFile } from "../helpers/downloads";
 import { getPageCount, getPageOperatorCounts, getPageText } from "../helpers/pdf-inspection";
 import { PRO_STRINGS } from "../../src/app/pdf-pro/proStrings";
 import { SIGN_STRINGS } from "../../src/app/sign-pdf/strings";
-import { SIGN_EMBEDDED_STRINGS } from "../../src/app/sign-pdf/signEmbeddedStrings";
+import { SIGN_EMBEDDED_STRINGS, withEmbeddedWording } from "../../src/app/sign-pdf/signEmbeddedStrings";
+import { QUICK_SIGN_STRINGS } from "../../src/app/sign-pdf/fillMode/fillStrings";
 import { FILL_EMBEDDED_STRINGS } from "../../src/app/sign-pdf/fillEmbeddedStrings";
 import { getModeStrings } from "../../src/app/pdf-pro/modes/modeStrings";
 import { clickUntil, stillBox } from "../helpers/engine";
@@ -45,6 +46,9 @@ async function pickPaletteTool(page: Page, paletteLabel: string, tool: string): 
   await page.getByRole("toolbar", { name: paletteLabel }).getByRole("button", { name: tool, exact: true }).click();
 }
 const SE = SIGN_EMBEDDED_STRINGS.es;
+/** Dentro de PDF Pro lo firmado se APLICA (no se descarga): textos de la pantalla final unica del ultimo turno (Ola 3). */
+const SGE = withEmbeddedWording("es");
+const QS = QUICK_SIGN_STRINGS.es;
 const FE = FILL_EMBEDDED_STRINGS.es;
 const HOST = getModeStrings("es").host;
 const AXE_PATH = require.resolve("axe-core/axe.min.js");
@@ -146,12 +150,35 @@ async function expectFocusNotBody(page: Page, where: string): Promise<void> {
     .toBe(true);
 }
 
+/** Suelta la seleccion tocando una esquina vacia de la hoja: la barra flotante del campo seleccionado desaparece. */
+async function releaseSelection(page: Page): Promise<void> {
+  const bar = page.locator("[data-floating-bar]");
+  if ((await bar.count()) === 0) return;
+  await page.locator('img[alt]:not([alt=""])').first().click({ position: { x: 6, y: 6 } });
+  await expect(bar).toHaveCount(0);
+}
+
 async function noHorizontalOverflow(page: Page, where: string): Promise<void> {
   const [scrollWidth, clientWidth] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
   expect(scrollWidth, `sin desborde horizontal (${where})`).toBeLessThanOrEqual(clientWidth);
 }
 
+/**
+ * Espera a que terminen las animaciones y transiciones FINITAS de la pagina (las barras y avisos entran con un muelle): axe mide
+ * el contraste con lo que se pinta en ese instante, y con un fundido a medias un texto sobre la hoja da un falso suspenso.
+ */
+async function settleAnimations(page: Page): Promise<void> {
+  await page
+    .waitForFunction(
+      () => document.getAnimations().every((animation) => animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity),
+      undefined,
+      { timeout: 5000 },
+    )
+    .catch(() => undefined);
+}
+
 async function runAxe(page: Page): Promise<string[]> {
+  await settleAnimations(page);
   if (!(await page.evaluate(() => "axe" in window))) await page.addScriptTag({ path: AXE_PATH });
   return page.evaluate(async (rules) => {
     const axe = (window as unknown as { axe: { run: (ctx: unknown, opts: unknown) => Promise<{ violations: Array<{ id: string; help: string; nodes: Array<{ target: string[] }> }> }> } }).axe;
@@ -324,7 +351,7 @@ for (const viewport of AXE_VIEWPORTS) {
      * El recorrido entero con dos firmantes dentro de PDF Pro hasta el PDF descargado. `registroDeFirmas` siembra el
      * ajuste «Registro de firmas (página final)» (apagado por defecto desde U0.5); sin el, se usan los ajustes por defecto.
      */
-    async function signWithTwoSigners(page: Page, options: { registroDeFirmas: boolean }) {
+    async function signWithTwoSigners(page: Page, options: { registroDeFirmas: boolean; finishWith: "ceremony" | "host" }) {
       if (options.registroDeFirmas) {
         await page.addInitScript(
           ([flagsKey, versionKey]) => {
@@ -360,17 +387,22 @@ for (const viewport of AXE_VIEWPORTS) {
         await dialog.getByLabel(SG.typeLabel, { exact: true }).fill(signer);
         await dialog.getByRole("button", { name: SG.save }).click();
         await page.getByRole("button", { name: SG.captureContinue }).click();
-        await page.getByRole("button", { name: signer === "Ana" ? SG.reviewNext : SG.reviewFinish }).click();
+        // Ola 3: con el ULTIMO firmante la revision y el boton final son UNA pantalla; ya no hay «He terminado».
+        if (signer === "Ana") await page.getByRole("button", { name: SG.reviewNext }).click();
       }
+      await expect(page.getByRole("heading", { name: QS.finalTitleApply })).toBeVisible();
+      await expect(page.getByRole("button", { name: SG.reviewFinish })).toHaveCount(0);
       await expectFocusNotBody(page, "tras la ceremonia");
       expect(await runAxe(page), "axe en la ceremonia dentro de PDF Pro").toEqual([]);
-      await hostApply(page).click();
+      // Se aplica por los dos caminos: el boton de la propia pantalla final («Finalizar y aplicar») o el «Aplicar» del anfitrion.
+      if (options.finishWith === "ceremony") await page.getByRole("button", { name: SGE.applyAndDownload, exact: true }).click();
+      else await hostApply(page).click();
       await expect(page.locator("[data-pro-mode-result]")).toContainText(HOST.appliedTitle("Firmado por Ana y Luis"));
       return download(page);
     }
 
     test("Firmar con dos firmantes (ajustes por defecto): «Firmado por Ana y Luis», dos imagenes y EXACTAMENTE las 3 paginas del original", async ({ page }) => {
-      const signed = await signWithTwoSigners(page, { registroDeFirmas: false });
+      const signed = await signWithTwoSigners(page, { registroDeFirmas: false, finishWith: "ceremony" });
       // Sin hoja «Registro de firmas»: las 3 paginas del contrato y solo metadatos.
       expect(await getPageCount(signed.bytes)).toBe(3);
       expect((await getPageOperatorCounts(signed.bytes, 1)).imagePaintOps).toBeGreaterThanOrEqual(2);
@@ -380,7 +412,7 @@ for (const viewport of AXE_VIEWPORTS) {
     });
 
     test("Firmar con dos firmantes y «Registro de firmas» ACTIVADO: dos imagenes y una pagina final «Registro de firmas»", async ({ page }) => {
-      const signed = await signWithTwoSigners(page, { registroDeFirmas: true });
+      const signed = await signWithTwoSigners(page, { registroDeFirmas: true, finishWith: "host" });
       // 3 paginas + la del registro de firmas (ajuste activado en Ajustes de Firmar).
       expect(await getPageCount(signed.bytes)).toBe(4);
       expect((await getPageOperatorCounts(signed.bytes, 1)).imagePaintOps).toBeGreaterThanOrEqual(2);
@@ -399,6 +431,9 @@ for (const viewport of AXE_VIEWPORTS) {
       expect(await runAxe(page), "axe en el modo Rellenar").toEqual([]);
 
       const tap = async (label: RegExp) => {
+        // Escape cierra el editor pero deja el campo SELECCIONADO, y su barra de acciones (con «Etiquetar») ocupa dos filas a
+        // 375 px y tapa los campos de debajo: antes de tocar el siguiente, una persona suelta la seleccion tocando la hoja vacia.
+        await releaseSelection(page);
         const group = page.getByRole("group", { name: label });
         await group.scrollIntoViewIfNeeded();
         await group.click();

@@ -10,6 +10,7 @@ import {
   openSignAndUpload,
   placeSlot,
   placeSlotsInSingleDocument,
+  roundCompleteHeading,
   signWholeTurn,
   turnCounter,
 } from "../helpers/sign-flow";
@@ -104,7 +105,7 @@ test.describe("D7 · una firma que dejo de valer", () => {
     await expect(page.locator("[data-stale-signatures]")).toHaveCount(0);
     await expect(handoffHeading(page, "Luis")).toBeVisible();
     await signWholeTurn(page, 1, 25, true);
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    await expect(roundCompleteHeading(page)).toBeVisible();
   });
 
   test("(d7-huecos) VARIOS documentos: mover y añadir huecos DESPUES de que Ana firmo NO le quita la firma ni las iniciales; el turno sigue con Luis", async ({ page }) => {

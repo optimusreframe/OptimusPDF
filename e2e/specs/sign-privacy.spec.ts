@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Download, type Locator, type Page } from "@playwright/test";
 import {
   SIGNER_1,
   SIGNER_2,
@@ -12,6 +12,7 @@ import {
   makeTwoDocs,
   openSignAndUpload,
   placeSlotsInSingleDocument,
+  roundCompleteHeading,
   sessionDraftCount,
   sessionParam,
   signWholeTurn,
@@ -22,7 +23,7 @@ import {
   waitForDraftSettled,
   type SyntheticDoc,
 } from "../helpers/sign-flow";
-import { downloadBytes } from "../helpers/downloads";
+import { bytesOfDownload, downloadBytes } from "../helpers/downloads";
 
 /**
  * Firmar PDF · privacidad del borrador con firmas (Fase 0 «Firma agil», U0.4) y opcion «E-sign» deshabilitada (U0.7).
@@ -58,9 +59,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Siembra `localStorage` ANTES de que cargue la pagina y UNA sola vez por pestana (una recarga no vuelve a pisarlo). */
 async function seedLocalStorage(page: Page, entries: Record<string, string>): Promise<void> {
   await page.addInitScript((data) => {
-    if (window.sessionStorage.getItem("__seeded")) return;
-    for (const [key, value] of Object.entries(data)) window.localStorage.setItem(key, value);
-    window.sessionStorage.setItem("__seeded", "1");
+    // El guion corre tambien en los marcos `about:blank` / sin origen (iframes ocultos), donde LEER `sessionStorage`
+    // lanza `SecurityError`: ahi no hay nada que sembrar y el error no debe llegar a la consola.
+    try {
+      if (window.sessionStorage.getItem("__seeded")) return;
+      for (const [key, value] of Object.entries(data)) window.localStorage.setItem(key, value);
+      window.sessionStorage.setItem("__seeded", "1");
+    } catch {
+      /* marco sin almacenamiento */
+    }
   }, entries);
 }
 
@@ -176,13 +183,25 @@ const DELETE_LABEL = {
   en: "Delete the draft of this signing (includes the signatures saved in it)",
 } as const;
 
-/** Recoge todas las firmas, deja el borrador asentado y llega a la pantalla de resultado (ZIP de 2 documentos). */
-async function reachResultScreen(page: Page, docs: readonly SyntheticDoc[]): Promise<void> {
+/**
+ * Recoge todas las firmas, deja el borrador asentado y llega a la pantalla de resultado (ZIP de 2 documentos).
+ *
+ * Ola 3 (W3-B2): «Firmar y descargar» de la ceremonia DESCARGA SOLO al llegar al resultado (`ToolShell.autoDownload`) y esa
+ * descarga cuenta como «descargar» para la casilla de borrado: la espera de 8 s con «Deshacer» empieza al llegar y el
+ * boton «Descargar» queda de respaldo. Por defecto (`auto`) se sigue ese camino y se devuelve la descarga automatica.
+ * Con `auto: false` se llega por «Procesar» (panel Opciones), que NO descarga solo: nada empieza hasta pulsar «Descargar».
+ */
+async function reachResultScreen(page: Page, docs: readonly SyntheticDoc[], options: { auto?: boolean } = {}): Promise<Download | null> {
   await collectAllSignatures(page, docs);
   await waitForDraftSettled(page);
-  await page.getByRole("button", { name: "Firmar y descargar" }).click();
-  await expect(page.getByText(ZIP_NAME)).toBeVisible({ timeout: 60_000 });
+  const auto = options.auto !== false;
+  const trigger = auto
+    ? page.getByRole("button", { name: "Firmar y descargar" })
+    : page.getByRole("button", { name: "Procesar" }).first();
+  const [download] = await Promise.all([auto ? page.waitForEvent("download") : Promise.resolve(null), trigger.click()]);
+  await expect(page.getByText(ZIP_NAME, { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible();
+  return download;
 }
 
 /**
@@ -285,7 +304,7 @@ test.describe("con el interruptor APAGADO el borrador guarda todo menos las firm
     await page.getByRole("button", { name: "2. Documento" }).click();
     await expect(page.getByText("En este documento: 2 huecos").first()).toBeVisible();
     await page.getByRole("button", { name: "3. Firmar" }).click();
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toHaveCount(0);
+    await expect(roundCompleteHeading(page)).toHaveCount(0);
     await expect(turnCounter(page)).toHaveText("Turno 1 de 2");
     await expect(handoffHeading(page, SIGNER_1)).toBeVisible();
     // Sin firmas no se puede entregar: el boton existe pero esta apagado.
@@ -306,7 +325,7 @@ test.describe("con el interruptor APAGADO el borrador guarda todo menos las firm
     await card.getByRole("button", { name: "Retomar" }).click();
     await page.getByRole("button", { name: "3. Firmar" }).click();
     await expect(turnCounter(page)).toHaveText("Turno 1 de 2");
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toHaveCount(0);
+    await expect(roundCompleteHeading(page)).toHaveCount(0);
   });
 
   test("(p2c) apagarlo con las firmas ya guardadas las quita de IndexedDB al instante", async ({ page }) => {
@@ -416,23 +435,26 @@ test.describe("caducidad a los 7 dias", () => {
  * ------------------------------------------------------------------ */
 
 test.describe("«Borrar el borrador de esta firma» al descargar", () => {
-  test("(p5) ZIP de 2 documentos: la casilla sale MARCADA; al descargar se borra la sesion y la tarjeta ya no ofrece la ronda entregada", async ({ page }) => {
-    await reachResultScreen(page, await makeTwoDocs());
+  test("(p5) ZIP de 2 documentos: la casilla sale MARCADA; al descargar (ahora solo, al llegar al resultado) se borra la sesion y la tarjeta ya no ofrece la ronda entregada", async ({ page }) => {
+    const automatic = await reachResultScreen(page, await makeTwoDocs());
+    // Ola 3: la descarga automatica ES la descarga: trae el ZIP entero y con el nombre de siempre.
+    expect(automatic).not.toBeNull();
+    expect(automatic!.suggestedFilename().normalize("NFC")).toBe(ZIP_NAME);
+    expect((await bytesOfDownload(automatic!)).byteLength).toBeGreaterThan(1000);
     const box = page.getByRole("checkbox", { name: DELETE_LABEL.es });
     await expect(box).toBeVisible();
     await expect(box).toBeChecked();
-    // Aun no se descargo: el borrador sigue ahi (no se borra al aparecer la pantalla).
+    // F0-fix (D5): el borrado NO es instantaneo (la pagina no puede saber si el archivo llego, sobre todo en iPad): se avisa con
+    // «Deshacer» y el borrador sigue ahi unos segundos. La espera la arranca la descarga automatica, al llegar.
+    await expect(page.getByText(/El borrador se borrará en unos segundos/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Deshacer" })).toBeVisible();
     expect(await sessionDraftCount(page)).toBe(1);
 
+    // «Descargar» queda de respaldo: baja el mismo ZIP (dos descargas) y NO reinicia el borrado en marcha.
     const bytes = await downloadBytes(page, async () => {
       await page.getByRole("button", { name: "Descargar", exact: true }).click();
     });
     expect(bytes.byteLength).toBeGreaterThan(1000);
-    // F0-fix (D5): el borrado NO es instantaneo (la pagina no puede saber si el archivo llego, sobre todo en iPad): se avisa con
-    // «Deshacer» y el borrador sigue ahi unos segundos.
-    await expect(page.getByText(/El borrador se borrará en unos segundos/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Deshacer" })).toBeVisible();
-    expect(await sessionDraftCount(page)).toBe(1);
     await expect(page.getByText("Borrador borrado de este dispositivo.")).toBeVisible({ timeout: 20_000 });
     await expect.poll(() => sessionDraftCount(page), { timeout: 10_000 }).toBe(0);
     const raw = await readDrafts(page);
@@ -449,11 +471,32 @@ test.describe("«Borrar el borrador de esta firma» al descargar", () => {
     await expect(page.locator("[data-recent-unfinished]")).toHaveCount(0);
   });
 
-  test("(p5b) «Deshacer» tras descargar (F0-fix D5): el borrador se conserva aunque pase el plazo, y una descarga posterior ya no lo borra", async ({ page }) => {
-    await reachResultScreen(page, await makeTwoDocs());
-    await downloadBytes(page, async () => {
+  test("(p5e) por «Procesar» (sin descarga automatica): no se borra nada al aparecer la pantalla; solo al pulsar «Descargar», tras la espera con «Deshacer»", async ({ page }) => {
+    const none = await reachResultScreen(page, await makeTwoDocs(), { auto: false });
+    expect(none, "«Procesar» no descarga solo").toBeNull();
+    const box = page.getByRole("checkbox", { name: DELETE_LABEL.es });
+    await expect(box).toBeVisible();
+    await expect(box).toBeChecked();
+    // Aun no se descargo: el borrador sigue ahi y no hay cuenta atras (no se borra al aparecer la pantalla).
+    await page.waitForTimeout(1500);
+    expect(await sessionDraftCount(page)).toBe(1);
+    await expect(page.getByText(/El borrador se borrará en unos segundos/)).toHaveCount(0);
+
+    const bytes = await downloadBytes(page, async () => {
       await page.getByRole("button", { name: "Descargar", exact: true }).click();
     });
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+    await expect(page.getByText(/El borrador se borrará en unos segundos/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Deshacer" })).toBeVisible();
+    expect(await sessionDraftCount(page)).toBe(1);
+    await expect(page.getByText("Borrador borrado de este dispositivo.")).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => sessionDraftCount(page), { timeout: 10_000 }).toBe(0);
+    expect((await readDrafts(page)).files, "ni los PDF del borrador quedan").toEqual([]);
+  });
+
+  test("(p5b) «Deshacer» tras descargar (F0-fix D5): el borrador se conserva aunque pase el plazo, y una descarga posterior ya no lo borra", async ({ page }) => {
+    // La descarga automatica al llegar arranca la espera: «Deshacer» ya esta a la vista.
+    await reachResultScreen(page, await makeTwoDocs());
     const undo = page.getByRole("button", { name: "Deshacer" });
     await expect(undo).toBeVisible();
     const box = await undo.boundingBox();
@@ -474,9 +517,6 @@ test.describe("«Borrar el borrador de esta firma» al descargar", () => {
 
   test("(p5c) F0-fix2 N1: DESMARCAR la casilla durante la espera cancela el borrado (sin pulsar «Deshacer»); volver a marcarla empieza la espera de nuevo", async ({ page }) => {
     await reachResultScreen(page, await makeTwoDocs());
-    await downloadBytes(page, async () => {
-      await page.getByRole("button", { name: "Descargar", exact: true }).click();
-    });
     await expect(page.getByText(/El borrador se borrará en unos segundos/)).toBeVisible();
     const box = page.getByRole("checkbox", { name: DELETE_LABEL.es });
     // Durante la espera se desmarca la casilla: se anuncia por la region viva y ya no hay nada que deshacer.
@@ -509,9 +549,7 @@ test.describe("«Borrar el borrador de esta firma» al descargar", () => {
 
   test("(p5d) F0-fix2 N1: tras desmarcar durante la espera, descargar otra vez NO borra; «Deshacer» sigue funcionando y deja la casilla desmarcada", async ({ page }) => {
     await reachResultScreen(page, await makeTwoDocs());
-    await downloadBytes(page, async () => {
-      await page.getByRole("button", { name: "Descargar", exact: true }).click();
-    });
+    await expect(page.getByText(/El borrador se borrará en unos segundos/)).toBeVisible();
     await page.getByText(DELETE_LABEL.es, { exact: true }).click();
     await expect(page.getByRole("checkbox", { name: DELETE_LABEL.es })).not.toBeChecked();
     await downloadBytes(page, async () => {
@@ -531,7 +569,8 @@ test.describe("«Borrar el borrador de esta firma» al descargar", () => {
   });
 
   test("(p6) con la casilla DESMARCADA, descargar conserva el borrador (con su caducidad) y la tarjeta lo sigue ofreciendo", async ({ page }) => {
-    await reachResultScreen(page, await makeTwoDocs());
+    // Por «Procesar» (sin descarga automatica) la casilla se puede desmarcar ANTES de descargar, como siempre.
+    await reachResultScreen(page, await makeTwoDocs(), { auto: false });
     await page.getByText(DELETE_LABEL.es, { exact: true }).click();
     await expect(page.getByRole("checkbox", { name: DELETE_LABEL.es })).not.toBeChecked();
     await downloadBytes(page, async () => {
@@ -547,8 +586,26 @@ test.describe("«Borrar el borrador de esta firma» al descargar", () => {
     await expect(page.locator("[data-resume-card]")).toBeVisible({ timeout: 10_000 });
   });
 
-  test("(p6b) irse SIN descargar (Empezar de nuevo) no borra nada: la ronda no se entrego", async ({ page }) => {
+  test("(p6c) camino por defecto: desmarcar la casilla durante la espera de la descarga automatica y descargar otra vez conserva el borrador (con su caducidad)", async ({ page }) => {
     await reachResultScreen(page, await makeTwoDocs());
+    await page.getByText(DELETE_LABEL.es, { exact: true }).click();
+    await expect(page.getByRole("checkbox", { name: DELETE_LABEL.es })).not.toBeChecked();
+    await downloadBytes(page, async () => {
+      await page.getByRole("button", { name: "Descargar", exact: true }).click();
+    });
+    await page.waitForTimeout(9500);
+    expect(await sessionDraftCount(page)).toBe(1);
+    await expect(page.getByText("Borrador borrado de este dispositivo.")).toHaveCount(0);
+    const [session] = (await readDrafts(page)).sessions;
+    expect(typeof session.expiresAt).toBe("string");
+    await leaveWithBrowserBack(page);
+    await page.goto("/sign-pdf");
+    await expect(page.locator("[data-resume-card]")).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("(p6b) irse SIN descargar (Empezar de nuevo) no borra nada: la ronda no se entrego", async ({ page }) => {
+    // «Procesar» no descarga solo: la ronda esta procesada pero NO entregada.
+    await reachResultScreen(page, await makeTwoDocs(), { auto: false });
     await page.getByRole("button", { name: "Empezar de nuevo" }).click();
     await page.waitForTimeout(1500);
     expect(await sessionDraftCount(page)).toBe(1);
@@ -565,11 +622,16 @@ test.describe("«Borrar el borrador de esta firma» al descargar", () => {
     await expect.poll(() => singleDraftCount(page), { timeout: 15_000 }).toBe(1);
     await expect.poll(async () => Object.keys((await readDrafts(page)).documents[0]?.captures ?? {}).length, { timeout: 15_000 }).toBe(2);
     await page.getByRole("button", { name: "Firmar y descargar" }).click();
+    // Ola 3: tras la pregunta del nombre el archivo se descarga SOLO al llegar al resultado (y eso arranca el borrado).
+    const automatic = page.waitForEvent("download");
     await page.getByRole("button", { name: "No, dejar el nombre como está" }).click();
+    expect((await bytesOfDownload(await automatic)).byteLength).toBeGreaterThan(1000);
     await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole("checkbox", { name: DELETE_LABEL.es })).toBeChecked();
+    await expect(page.getByText(/El borrador se borrará en unos segundos/)).toBeVisible();
     expect(await singleDraftCount(page)).toBe(1);
 
+    // «Descargar» queda de respaldo y no reinicia el borrado.
     await downloadBytes(page, async () => {
       await page.getByRole("button", { name: "Descargar", exact: true }).click();
     });
@@ -898,7 +960,8 @@ test.describe("«E-sign» deshabilitada y sin accion", () => {
   });
 
   test("(e3) en la pantalla de resultado: dentro de la tarjeta, junto a «Descargar» y la casilla, y sin desbordar", async ({ page }) => {
-    await reachResultScreen(page, await makeTwoDocs());
+    // Por «Procesar» (sin descarga automatica): se mira la tarjeta, sin la cuenta atras de borrado que arranca la descarga sola.
+    await reachResultScreen(page, await makeTwoDocs(), { auto: false });
     const teaser = teaserIn(page, "[data-download-extras]");
     await expect(teaser).toBeVisible();
     await expect(teaser).toHaveAttribute("aria-disabled", "true");
@@ -973,10 +1036,15 @@ async function newContext(browser: Browser, opts: { width: number; theme: Theme;
   // UNA sola vez por pestana: una recarga no pisa el idioma que la prueba cambie despues.
   await context.addInitScript(
     ([theme, language]) => {
-      if (window.sessionStorage.getItem("__seeded")) return;
-      window.localStorage.setItem("optimuspdf.theme", theme);
-      window.localStorage.setItem("optimuspdf.language", language);
-      window.sessionStorage.setItem("__seeded", "1");
+      // Ver `seedLocalStorage`: en los marcos sin origen `sessionStorage` lanza `SecurityError`.
+      try {
+        if (window.sessionStorage.getItem("__seeded")) return;
+        window.localStorage.setItem("optimuspdf.theme", theme);
+        window.localStorage.setItem("optimuspdf.language", language);
+        window.sessionStorage.setItem("__seeded", "1");
+      } catch {
+        /* marco sin almacenamiento */
+      }
     },
     [opts.theme, opts.language],
   );
@@ -1075,14 +1143,17 @@ test.describe("axe: el aviso, el interruptor y la opcion «E-sign»", () => {
       try {
         await collectAllSignatures(page, await makeTwoDocs());
         await waitForDraftSettled(page);
+        // Por «Procesar» (sin descarga automatica): axe y las medidas necesitan mas de los 8 s de la cuenta atras de borrado
+        // que arranca la descarga sola de «Firmar y descargar»; aqui el borrado empieza al pulsar «Descargar», como se mide mas abajo.
         if (combo.language === "en") {
           await page.evaluate(() => window.localStorage.setItem("optimuspdf.language", "en"));
           await page.reload();
           await page.getByRole("button", { name: "3. Sign" }).click();
-          await expect(page.getByRole("heading", { name: "Everyone has signed" })).toBeVisible({ timeout: 20_000 });
-          await page.getByRole("button", { name: "Sign and download" }).click();
+          // Ola 3: con todo firmado la ceremonia restaurada muestra la pantalla unica «Review and download» o «Everyone has signed».
+          await expect(page.getByRole("heading", { name: /^(Everyone has signed|Review and download|Review and apply)$/ })).toBeVisible({ timeout: 20_000 });
+          await page.getByRole("button", { name: "Process", exact: true }).first().click();
         } else {
-          await page.getByRole("button", { name: "Firmar y descargar" }).click();
+          await page.getByRole("button", { name: "Procesar" }).first().click();
         }
         await page.setViewportSize({ width: combo.width, height: combo.width < 600 ? 812 : 900 });
         const download = page.getByRole("button", { name: combo.language === "es" ? "Descargar" : "Download", exact: true });

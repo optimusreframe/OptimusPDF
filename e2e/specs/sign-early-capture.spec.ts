@@ -9,8 +9,10 @@ import {
   draftRows,
   handoffHeading,
   makeOtherDoc,
+  mergedReviewHeading,
   openSignAndUpload,
   placeSlot,
+  roundCompleteHeading,
   singleDraftCount,
   startTurn,
   turnCounter,
@@ -65,18 +67,25 @@ async function start(page: Page, signers: 1 | 2 = 2): Promise<void> {
   await expect(card(page, ANA).getByRole("button", { name: "Recoger firma e iniciales de Ana" })).toBeEnabled({ timeout: 20_000 });
 }
 
+/**
+ * «Firmar y descargar» de la pantalla final. Ola 3: el archivo se descarga SOLO al llegar al resultado, asi que la descarga se
+ * espera ANTES de contestar la pregunta del nombre (lo que arranca el procesado); «Descargar» queda de respaldo en pantalla.
+ */
 async function download(page: Page): Promise<Buffer> {
   await page.getByRole("button", { name: "Firmar y descargar" }).click();
-  await page.getByRole("button", { name: "No, dejar el nombre como está" }).click();
-  await expect(page.getByRole("button", { name: "Descargar" })).toBeVisible({ timeout: 60_000 });
-  return downloadBytes(page, async () => {
-    await page.getByRole("button", { name: "Descargar" }).click();
+  const bytes = await downloadBytes(page, async () => {
+    await page.getByRole("button", { name: "No, dejar el nombre como está" }).click();
   });
+  await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible({ timeout: 60_000 });
+  return bytes;
 }
 
 /** Turno de un firmante en la ceremonia creando solo lo que FALTA (`parts`), hasta la revision y el traspaso. */
 async function ceremonyTurn(page: Page, seed: number, parts: { signature?: boolean; initials?: boolean }, last: boolean): Promise<void> {
-  await startTurn(page);
+  // Con UNA sola persona no hay traspaso (la captura se ve ya): solo se pulsa «Listo, es mi turno» si se pinta el traspaso.
+  const handoff = page.getByRole("heading", { name: /^Pásale el dispositivo a / });
+  await expect(handoff.or(page.getByRole("heading", { name: /^Firma de / }))).toBeVisible();
+  if (await handoff.isVisible()) await startTurn(page);
   if (parts.signature) {
     await page.getByRole("button", { name: "Crear mi firma", exact: true }).click();
     await drawInOpenComposer(page, seed);
@@ -86,7 +95,20 @@ async function ceremonyTurn(page: Page, seed: number, parts: { signature?: boole
     await drawInOpenComposer(page, seed + 1);
   }
   await page.getByRole("button", { name: "Ver cómo queda" }).click();
-  await page.getByRole("button", { name: last ? "He terminado" : "Pasar al siguiente firmante" }).click();
+  if (last) {
+    // Ola 3: con el ULTIMO firmante, nada pendiente y sin bloqueos, la revision y el boton final son UNA pantalla («Revisa y descarga»).
+    await expect(mergedReviewHeading(page)).toBeVisible();
+    await expect(page.getByRole("button", { name: "He terminado" })).toHaveCount(0);
+    return;
+  }
+  await page.getByRole("button", { name: "Pasar al siguiente firmante" }).click();
+}
+
+/** Con UNA sola persona en la ronda no hay traspaso: se ve ya la captura de esa persona y se dice por que. */
+async function expectSoleSignerCapture(page: Page, name: string): Promise<void> {
+  await expect(handoffHeading(page, name)).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: `Firma de ${name}` })).toBeVisible();
+  await expect(page.getByText("Firma una sola persona: no hace falta pasar el dispositivo.")).toBeVisible();
 }
 
 test.describe("un documento · las dos maneras", () => {
@@ -125,7 +147,6 @@ test.describe("un documento · las dos maneras", () => {
     await expect(turnCounter(page)).toHaveText("Turno 2 de 2");
     await expect(page.locator('[data-stale-signer="sg-1"]')).toHaveCount(0);
     await ceremonyTurn(page, 30, { signature: true, initials: false }, true);
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
 
     // El PDF lleva cada firma en el hueco de su dueño, donde quedo (3 imagenes: la firma y las iniciales de Ana y la de Luis).
     const pdf = await download(page);
@@ -174,8 +195,8 @@ test.describe("un documento · las dos maneras", () => {
     const centers = await slotCenters(page);
     await continueToSign(page);
 
-    await expect(handoffHeading(page, "Ana")).toBeVisible();
-    await startTurn(page);
+    // Ana es la unica persona de la ronda: sin traspaso, la captura se ve ya.
+    await expectSoleSignerCapture(page, "Ana");
     // La firma ya esta (no se vuelve a pedir "Crear mi firma"); falta solo las iniciales.
     await expect(page.getByRole("button", { name: "Crear mi firma", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Crear mis iniciales", exact: true })).toBeVisible();
@@ -183,8 +204,8 @@ test.describe("un documento · las dos maneras", () => {
     await page.getByRole("button", { name: "Crear mis iniciales", exact: true }).click();
     await drawInOpenComposer(page, 40);
     await page.getByRole("button", { name: "Ver cómo queda" }).click();
-    await page.getByRole("button", { name: "He terminado" }).click();
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    // Ola 3: pantalla unica «Revisa y descarga» (sin «He terminado»).
+    await expect(mergedReviewHeading(page)).toBeVisible();
 
     // Y en Firmantes ahora esta completa, sin que hiciera falta tocarla.
     await page.getByRole("button", { name: "1. Firmantes" }).click();
@@ -203,7 +224,6 @@ test.describe("un documento · las dos maneras", () => {
     await continueToSign(page);
     await expect(handoffHeading(page, "Luis")).toBeVisible();
     await ceremonyTurn(page, 30, { signature: true }, true);
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
 
     // Despues de firmar todos: se reorganiza el campo de Ana y se vuelve a la ronda: nada que repetir.
     await page.getByRole("button", { name: "Atrás" }).click();
@@ -212,7 +232,8 @@ test.describe("un documento · las dos maneras", () => {
     // Con todos ya cubiertos la ceremonia no tiene turno que mostrar (sin «Turno N de M»): se pasa al paso 3 directo.
     await page.getByRole("button", { name: "Continuar" }).click();
     await expect(page.locator("[data-stale-signatures]")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    // Todo recogido: la pantalla unica del ultimo turno («Revisa y descarga») o, si ya se paso de ella, «Ya han firmado todos».
+    await expect(roundCompleteHeading(page)).toBeVisible();
     const pdf = await download(page);
     expectPlacementsAt(await imagePlacements(pdf), centers);
   });
@@ -233,9 +254,9 @@ test.describe("un documento · sin campos", () => {
     await continueToSign(page);
     // La ronda solo tiene a Luis: Ana no tiene campos y no cuenta como pendiente ni como turno.
     await expect(turnCounter(page)).toHaveText("Turno 1 de 1");
-    await expect(handoffHeading(page, "Luis")).toBeVisible();
+    // Luis es la unica persona con turno: sin traspaso, su captura se ve ya.
+    await expectSoleSignerCapture(page, "Luis");
     await ceremonyTurn(page, 30, { signature: true }, true);
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
     const pdf = await download(page);
     // UNA sola imagen: la de Luis, en su hueco.
     expectPlacementsAt(await imagePlacements(pdf), centers);
@@ -289,6 +310,10 @@ test.describe("un documento · estado, invalidacion y borrado", () => {
     // Se quita el recibo y se sube OTRO documento: Ana firmo sobre el primero, asi que en el nuevo no tiene nada recogido.
     await page.getByRole("button", { name: "Quitar", exact: true }).first().click();
     await uploadDocs(page, [await makeOtherDoc("Otro.pdf", "Z")]);
+    // Ola 3: una ronda con los mismos firmantes arranca en el paso Documento («Firman: Ana · Cambiar»): se vuelve a Firmantes
+    // para ver lo recogido.
+    await expect(page.getByText("Firman: Ana").first()).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "1. Firmantes" }).click();
     await expect(card(page, ANA)).toBeVisible({ timeout: 30_000 });
     await expect(status(page, ANA)).toHaveText(STATUS.none);
 
@@ -296,7 +321,7 @@ test.describe("un documento · estado, invalidacion y borrado", () => {
     await page.getByRole("button", { name: "2. Documento" }).click();
     await placeSlot(page, "Ana", 100);
     await continueToSign(page);
-    await expect(handoffHeading(page, "Ana")).toBeVisible();
+    await expectSoleSignerCapture(page, "Ana");
     await expect(page.getByRole("button", { name: "Firmar y descargar" })).toBeDisabled();
   });
 
@@ -367,5 +392,46 @@ test.describe("un documento · estado, invalidacion y borrado", () => {
     const vault = page.getByRole("dialog");
     await vault.getByRole("button", { name: /^Usar/ }).first().click();
     await expect(status(page, ANA)).toHaveText(STATUS.signature);
+  });
+
+  test("(j) firma rapida (Ola 3): con una firma guardada, «Firmar todo con mi firma guardada» firma en un toque, deja ver como queda y el PDF baja solo", async ({ page }) => {
+    await start(page, 1);
+    // Se recuerda una firma en el baul al recogerla y se quita lo recogido: solo queda la guardada en el dispositivo.
+    const panel = await openPanel(page, ANA, "Ana");
+    await panel.getByRole("button", { name: "Crear mi firma", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await stillBox(dialog.locator("canvas"));
+    await dialog.getByText("Recordar en este dispositivo", { exact: true }).click();
+    await expect(dialog.getByRole("checkbox", { name: /Recordar en este dispositivo/ })).toBeChecked();
+    await drawInOpenComposer(page, 10);
+    await panel.getByRole("button", { name: "Listo", exact: true }).click();
+    await card(page, ANA).getByRole("button", { name: "Quitar lo recogido de Ana" }).click();
+    await expect(status(page, ANA)).toHaveText(STATUS.none);
+
+    await page.getByRole("button", { name: "2. Documento" }).click();
+    await placeSlot(page, "Ana", 100);
+    const centers = await slotCenters(page);
+    expect(centers).toHaveLength(1);
+    await continueToSign(page);
+
+    // Una sola persona: sin traspaso. La tarjeta de la firma guardada va arriba y el resumen dice lo que se va a firmar.
+    await expectSoleSignerCapture(page, "Ana");
+    await expect(page.locator("[data-ceremony-summary]")).toContainText(/Firmas: 1 · Iniciales: 0/);
+    await page.getByRole("button", { name: "Firmar todo con mi firma guardada" }).click();
+
+    // Pantalla unica «Revisa y descarga»: lo firmado a la vista, «Deshacer» y el boton final, sin «He terminado».
+    await expect(mergedReviewHeading(page)).toBeVisible();
+    await expect(page.locator("[data-quick-sign-undo]")).toBeVisible();
+    await expect(page.getByRole("button", { name: "He terminado" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Firmar y descargar" })).toBeEnabled();
+
+    // «Deshacer» devuelve la captura (el boton final se apaga) y volver a firmar con la guardada lo deja como estaba.
+    await page.locator("[data-quick-sign-undo]").click();
+    await expect(page.getByRole("button", { name: "Firmar y descargar" })).toBeDisabled();
+    await page.getByRole("button", { name: "Firmar todo con mi firma guardada" }).click();
+    await expect(mergedReviewHeading(page)).toBeVisible();
+
+    const pdf = await download(page);
+    expectPlacementsAt(await imagePlacements(pdf), centers);
   });
 });

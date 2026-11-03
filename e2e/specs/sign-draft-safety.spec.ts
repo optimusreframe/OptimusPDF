@@ -16,6 +16,7 @@ import {
   openSignAndUpload,
   placeSlotsInSingleDocument,
   prepareTwoDocsTwoSigners,
+  roundCompleteHeading,
   sessionDraftCount,
   sessionParam,
   setIndexedDbFailure,
@@ -268,7 +269,7 @@ test.describe("D1 · dos pestañas con la misma sesion", () => {
     await fresh.goto(sessionUrl);
     await expect(turnCounter(fresh)).toHaveText("Turno 2 de 2", { timeout: 20_000 });
     await signWholeTurn(fresh, 2, 40, true);
-    await expect(fresh.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    await expect(roundCompleteHeading(fresh)).toBeVisible();
     await expect.poll(() => draftedStrokeCount(fresh), { timeout: 20_000 }).toBe(4);
 
     // La pestaña vieja (que sigue en «Turno 2 de 2» con solo las firmas de Ana) hace un cambio trivial: pulsa «Listo, es mi

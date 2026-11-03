@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts, rgb } from "@cantoo/pdf-lib";
 import JSZip from "jszip";
 import { build } from "vite";
-import { downloadFile } from "../helpers/downloads";
+import { bytesOfDownload, downloadFile } from "../helpers/downloads";
 import { hostileDraftPackages, hostileSettingsPackage } from "../helpers/drafts-packages";
 import { embeddedImages, pngPixels, sameShape } from "../helpers/pdf-images";
 import { S as PRO, openProPdf } from "../helpers/pro-flow";
@@ -339,11 +339,15 @@ test("Firmar, Editar y PDF Pro: exportar con contraseña, borrar todo, importar 
   // Firmar: la ronda entera vuelve y el PDF final lleva las firmas capturadas.
   await continueFrom(page, "Contrato A.pdf");
   await expectCollectedWorkRestored(page, docs);
-  await page.getByRole("button", { name: "Firmar y descargar" }).click();
-  await expect(page.getByText("Firmados - 2 documentos.zip")).toBeVisible({ timeout: 60_000 });
-  const { bytes } = await downloadFile(page, async () => {
+  // Ola 3 (W3-B2): «Firmar y descargar» baja el ZIP SOLO al llegar al resultado; el PDF que se mira es el que recibe la persona.
+  const [automatic] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Firmar y descargar" }).click()]);
+  await expect(page.getByText("Firmados - 2 documentos.zip", { exact: true })).toBeVisible({ timeout: 60_000 });
+  const bytes = await bytesOfDownload(automatic);
+  // «Descargar» queda de respaldo y baja el mismo ZIP.
+  const manual = await downloadFile(page, async () => {
     await page.getByRole("button", { name: "Descargar", exact: true }).click();
   });
+  expect(manual.bytes.byteLength).toBe(bytes.byteLength);
   const zip = await JSZip.loadAsync(bytes);
   const names = Object.keys(zip.files).filter((entry) => entry.endsWith(".pdf")).sort();
   expect(names).toHaveLength(2);

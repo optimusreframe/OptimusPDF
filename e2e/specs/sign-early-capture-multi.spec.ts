@@ -11,6 +11,7 @@ import {
   handoffHeading,
   makeOtherDoc,
   makeTwoDocs,
+  mergedReviewHeading,
   openSignAndUpload,
   placeSlotsInBothDocuments,
   selectSignMode,
@@ -33,13 +34,17 @@ test.setTimeout(240_000);
 const ANA = "sg-1";
 const LUIS = "sg-2";
 
-/** «Firmar y descargar» procesa la ronda y deja la pantalla «Listo»: de ahi se descarga el .zip con un PDF por documento. */
+/**
+ * «Firmar y descargar» procesa la ronda y, al llegar a la pantalla «Listo», el .zip con un PDF por documento se descarga SOLO
+ * (Ola 3): la descarga se espera ANTES de pulsar. El nombre del ZIP sale dos veces en pantalla (el archivo y «Se ha descargado
+ * «…»»): se toma el texto entero. «Descargar» queda de respaldo.
+ */
 async function downloadZip(page: import("@playwright/test").Page): Promise<Record<string, Buffer>> {
-  await page.getByRole("button", { name: "Firmar y descargar" }).click();
-  await expect(page.getByText("Firmados - 2 documentos.zip")).toBeVisible({ timeout: 60_000 });
   const bytes = await downloadBytes(page, async () => {
-    await page.getByRole("button", { name: /^Descargar/ }).click();
+    await page.getByRole("button", { name: "Firmar y descargar" }).click();
   });
+  await expect(page.getByText("Firmados - 2 documentos.zip", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible();
   const zip = await JSZip.loadAsync(bytes);
   const out: Record<string, Buffer> = {};
   for (const name of Object.keys(zip.files).sort()) out[name] = Buffer.from(await zip.file(name)!.async("uint8array"));
@@ -72,7 +77,8 @@ test.describe("varios documentos · las dos maneras", () => {
     await expect(handoffHeading(page, "Luis")).toBeVisible();
     await expect(turnCounter(page)).toHaveText("Turno 2 de 2");
     await signWholeTurn(page, 1, 30, true);
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    // Ola 3: con el ultimo firmante la revision y el boton final son UNA pantalla («Revisa y descarga»).
+    await expect(mergedReviewHeading(page)).toBeVisible();
 
     // Cada PDF lleva 2 imagenes (la firma de Ana y la de Luis), en SU hueco.
     const files = await downloadZip(page);
@@ -138,8 +144,10 @@ test.describe("varios documentos · las dos maneras", () => {
     await expect(page.getByRole("button", { name: `2. ${DOC_B}` })).toHaveAttribute("aria-current", "true");
     await placeInitialsSlot(page, "Ana", 150);
     await continueToSign(page);
-    await expect(handoffHeading(page, "Ana")).toBeVisible();
-    await page.getByRole("button", { name: "Listo, es mi turno" }).first().click();
+    // Luis no tiene campos: Ana es la unica persona con turno y no hay traspaso, su captura se ve ya.
+    await expect(handoffHeading(page, "Ana")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Firma de Ana" })).toBeVisible();
+    await expect(page.getByText("Firma una sola persona: no hace falta pasar el dispositivo.")).toBeVisible();
     // La firma ya esta (no se vuelve a pedir); falta solo las iniciales.
     await expect(page.getByRole("button", { name: "Crear mi firma", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Crear mis iniciales", exact: true })).toBeVisible();
@@ -147,8 +155,9 @@ test.describe("varios documentos · las dos maneras", () => {
     await page.getByRole("button", { name: "Crear mis iniciales", exact: true }).click();
     await drawInOpenComposer(page, 44);
     await page.getByRole("button", { name: "Ver cómo queda" }).click();
-    await page.getByRole("button", { name: "He terminado" }).click();
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    // Ola 3: pantalla unica «Revisa y descarga» (sin «He terminado»).
+    await expect(mergedReviewHeading(page)).toBeVisible();
+    await expect(page.getByRole("button", { name: "He terminado" })).toHaveCount(0);
   });
 });
 

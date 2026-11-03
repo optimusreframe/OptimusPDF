@@ -164,27 +164,43 @@ export function handoffHeading(page: Page, name: string): Locator {
 export async function drawInOpenComposer(page: Page, seed: number, options: { waitClosed?: boolean } = {}): Promise<void> {
   const dialog = page.getByRole("dialog");
   const canvas = dialog.locator("canvas");
-  // La hoja entra con un muelle: se espera a que el recuadro deje de moverse.
-  let box = await canvas.boundingBox();
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    await page.waitForTimeout(100);
-    const next = await canvas.boundingBox();
-    if (box && next && next.x === box.x && next.y === box.y) break;
-    box = next;
-  }
-  if (!box) throw new Error("no se encontro el lienzo de firma");
   const amplitude = 10 + (seed % 5) * 12;
-  await page.mouse.move(box.x + 20, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 - amplitude, { steps: 8 });
-  await page.mouse.move(box.x + (2 * box.width) / 3, box.y + box.height / 2 + amplitude, { steps: 8 });
-  await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2 - amplitude / 2, { steps: 8 });
-  await page.mouse.up();
+  // Con la maquina muy cargada (varios navegadores a la vez) el muelle de la hoja puede dar dos medidas iguales ANTES de
+  // asentarse y el trazo cae fuera del lienzo: se comprueba que quedo tinta y, si no, se vuelve a trazar (hasta 4 veces).
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    // La hoja entra con un muelle: se espera a que el recuadro deje de moverse.
+    let box = await canvas.boundingBox();
+    for (let wait = 0; wait < 40; wait += 1) {
+      await page.waitForTimeout(100);
+      const next = await canvas.boundingBox();
+      if (box && next && next.x === box.x && next.y === box.y) break;
+      box = next;
+    }
+    if (!box) throw new Error("no se encontro el lienzo de firma");
+    await page.mouse.move(box.x + 20, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 - amplitude, { steps: 8 });
+    await page.mouse.move(box.x + (2 * box.width) / 3, box.y + box.height / 2 + amplitude, { steps: 8 });
+    await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2 - amplitude / 2, { steps: 8 });
+    await page.mouse.up();
+    const inked = await canvas.first().evaluate((node) => {
+      const context = (node as HTMLCanvasElement).getContext("2d");
+      if (!context) return true; // sin acceso al lienzo no se puede comprobar: se sigue como siempre
+      const { data } = context.getImageData(0, 0, (node as HTMLCanvasElement).width, (node as HTMLCanvasElement).height);
+      for (let index = 3; index < data.length; index += 4) if (data[index] !== 0) return true;
+      return false;
+    });
+    if (inked) break;
+  }
   await dialog.getByRole("button", { name: "Usar esta firma" }).click();
   if (options.waitClosed !== false) await expect(dialog).toBeHidden();
 }
 
-/** «Listo, es mi turno» del traspaso (el primero de la pagina es el del turno en curso). */
+/**
+ * «Listo, es mi turno» del traspaso (el primero de la pagina es el del turno en curso). Ola 3: con UNA sola persona que firma no
+ * hay traspaso (la captura se ve ya); el unico «Listo, es mi turno» es entonces el de la lista de turnos, que tambien lleva al
+ * turno de esa persona y sigue valiendo. Quien quiera recorrer ese caso como lo haria la persona (sin pulsarlo) no llama a esto.
+ */
 export async function startTurn(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Listo, es mi turno" }).first().click();
 }
@@ -219,10 +235,31 @@ export async function captureAndReview(page: Page, blocks: number, seedBase: num
   await review.click();
 }
 
-/** Turno completo de un firmante (recoger + revisar + pasar). `last` = el boton final es «He terminado». */
+/**
+ * Turno completo de un firmante (recoger + revisar + pasar). `last` = es el ULTIMO turno de la ronda.
+ * Ola 3: con el ultimo firmante, nada pendiente y sin bloqueos, la revision del turno y el boton final son UNA sola
+ * pantalla («Revisa y descarga», en PDF Pro «Revisa y aplica»): ya no hay «He terminado». Si aun se pintara (un aviso
+ * bloqueante impide la pantalla unica) se pulsa, como siempre. Despues de este paso la ronda esta completa.
+ */
 export async function signWholeTurn(page: Page, blocks: number, seedBase: number, last: boolean): Promise<void> {
   await captureAndReview(page, blocks, seedBase);
-  await page.getByRole("button", { name: last ? "He terminado" : "Pasar al siguiente firmante" }).click();
+  if (!last) {
+    await page.getByRole("button", { name: "Pasar al siguiente firmante" }).click();
+    return;
+  }
+  const finish = page.getByRole("button", { name: "He terminado" });
+  await expect(finish.or(mergedReviewHeading(page))).toBeVisible();
+  if (await finish.isVisible()) await finish.click();
+}
+
+/** Titulo de la pantalla unica del ultimo turno («Revisa y descarga» / «Revisa y aplica» en PDF Pro). */
+export function mergedReviewHeading(page: Page): Locator {
+  return page.getByRole("heading", { name: /^Revisa y (descarga|aplica)$/ });
+}
+
+/** La ronda completa: «Ya han firmado todos» (estado en reposo) o la pantalla unica del ultimo turno. */
+export function roundCompleteHeading(page: Page): Locator {
+  return page.getByRole("heading", { name: /^(Ya han firmado todos|Revisa y descarga|Revisa y aplica)$/ });
 }
 
 /**
@@ -246,7 +283,7 @@ export async function collectAllSignatures(
     return;
   }
   await signWholeTurn(page, 2, 20, true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 }
 
 /* ------------------------------------------------------------------ *
@@ -355,7 +392,9 @@ export async function expectCollectedWorkRestored(page: Page, docs: readonly Syn
   await expect(page.getByLabel("Nombre del firmante 1")).toHaveValue(SIGNER_1);
   await expect(page.getByLabel("Nombre del firmante 2")).toHaveValue(SIGNER_2);
   await page.getByRole("button", { name: "3. Firmar" }).click();
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible({ timeout: 20_000 });
+  // Ola 3: con la ronda entera firmada la ceremonia restaurada muestra la pantalla unica («Revisa y descarga») o,
+  // si ya se paso de ella, «Ya han firmado todos»: es el mismo estado («todo recogido, listo para descargar»).
+  await expect(roundCompleteHeading(page)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Firmar y descargar" })).toBeEnabled();
 }
 

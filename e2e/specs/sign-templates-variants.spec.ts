@@ -1,11 +1,12 @@
 import { openOptions, optionsText } from "../helpers/sign-options";
 import { expect, test, type Page } from "@playwright/test";
 import { downloadBytes } from "../helpers/downloads";
+import { roundCompleteHeading } from "../helpers/sign-flow";
 import { embeddedImages, shapeHash } from "../helpers/pdf-images";
 import { imagePlacements, type Placement } from "../helpers/pdf-placements";
 import { makeContract, reexport } from "../helpers/template-pdfs";
 import { storedTemplates, type StoredField, type StoredTemplate } from "../helpers/template-flow";
-import { PAGES, SIGNER_2_ROLE, appliedAndBothSigned, configureBothVariants, notices, signTurn, upload } from "../helpers/template-session-flow";
+import { PAGES, SIGNER_1_ROLE, SIGNER_2_ROLE, appliedAndBothSigned, configureBothVariants, notices, signTurn, upload } from "../helpers/template-session-flow";
 
 /**
  * Firma agil · Fase 2 · F2-fix2 (residuales de la 2ª verificacion independiente), navegador real, headless, con plantillas
@@ -43,9 +44,9 @@ const inside = (p: Placement, f: StoredField, slack = 0.004) => {
 };
 
 async function downloadSigned(page: Page): Promise<Buffer> {
+  // Ola 3: el archivo se descarga SOLO al llegar al resultado; «Descargar» es el respaldo.
   return downloadBytes(page, async () => {
     await page.getByRole("button", { name: "Firmar y descargar" }).click();
-    await page.getByRole("button", { name: /^Descargar/ }).click();
   });
 }
 
@@ -97,7 +98,7 @@ test("(F1-a) 2 → 1 con las iniciales a ancho completo y los dos firmados: la h
   await signTurn(page, SEEDS[0], false);
   await expect(page.getByRole("heading", { name: `Pásale el dispositivo a ${SIGNER_2_ROLE}` })).toBeVisible();
   await signTurn(page, SEEDS[1], true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 
   await goTo(page, "1. Firmantes");
   await notices(page).getByRole("tab", { name: "1 firmante" }).click();
@@ -108,7 +109,7 @@ test("(F1-a) 2 → 1 con las iniciales a ancho completo y los dos firmados: la h
   await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
   await expect(dialog).toBeHidden();
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 
   await goTo(page, "1. Firmantes");
   await notices(page).getByRole("tab", { name: "1 firmante" }).click();
@@ -119,7 +120,7 @@ test("(F1-a) 2 → 1 con las iniciales a ancho completo y los dos firmados: la h
   await expect(page.getByLabel("Nombre del firmante 2")).toHaveCount(0);
   await goTo(page, "3. Firmar");
   // La firma y las iniciales del firmante 1 SIGUEN valiendo sobre los huecos nuevos (mas anchos): nadie tiene que volver a firmar.
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await expect(page.getByText(/Debe volver a firmar|cambiaron los huecos/)).toHaveCount(0);
   await expectOneSignerPdf(await downloadSigned(page), template, 2);
 });
@@ -130,7 +131,7 @@ test("(F1-b) 1 → 2 con la firma del firmante 1 ya recogida: sigue valiendo sin
   await expect(notices(page)).toContainText(`1 firmante · ${PAGES + 1} campos`, { timeout: 15_000 });
   await page.getByRole("button", { name: "Ir a firmar" }).click();
   await signTurn(page, SEEDS[0], true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 
   await goTo(page, "1. Firmantes");
   await notices(page).getByRole("tab", { name: "2 firmantes" }).click();
@@ -138,10 +139,15 @@ test("(F1-b) 1 → 2 con la firma del firmante 1 ya recogida: sigue valiendo sin
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await goTo(page, "3. Firmar");
   // El 2 es el que falta; al 1 no se le pide nada ni se habla de huecos cambiados.
-  await expect(page.getByRole("heading", { name: `Pásale el dispositivo a ${SIGNER_2_ROLE}` })).toBeVisible();
+  // Ola 3: el ultimo turno ya no se cierra con «He terminado» (la revision y el boton final son una pantalla), asi que el turno
+  // guardado sigue siendo la revision del 1 («Así queda la firma de Asegurado», sin pedirle nada); un toque en «Pasar al siguiente
+  // firmante» lleva al traspaso del 2.
+  await expect(page.getByRole("heading", { name: `Así queda la firma de ${SIGNER_1_ROLE}` })).toBeVisible();
   await expect(page.getByText(/Debe volver a firmar|cambiaron los huecos/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Pasar al siguiente firmante" }).click();
+  await expect(page.getByRole("heading", { name: `Pásale el dispositivo a ${SIGNER_2_ROLE}` })).toBeVisible();
   await signTurn(page, SEEDS[1], true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await expectTwoSignersPdf(await downloadSigned(page), template);
 });
 
@@ -154,7 +160,7 @@ test("(F1-c) automapeo: con los dos firmados «1 firmante» pide confirmar solo 
   await page.getByRole("button", { name: "Ir a firmar" }).click();
   await signTurn(page, 3, false);
   await signTurn(page, 17, true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 
   await goTo(page, "1. Firmantes");
   const tab = notices(page).getByRole("tab", { name: "1 firmante" });
@@ -165,7 +171,7 @@ test("(F1-c) automapeo: con los dos firmados «1 firmante» pide confirmar solo 
   await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
   await expect(page.getByLabel("Nombre del firmante 2")).toHaveValue(SIGNER_2_ROLE);
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 
   await goTo(page, "1. Firmantes");
   await tab.click();
@@ -174,7 +180,7 @@ test("(F1-c) automapeo: con los dos firmados «1 firmante» pide confirmar solo 
   await expect(page.getByLabel("Nombre del firmante 2")).toHaveCount(0);
   const slots = await huecos(page);
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await expect(page.getByText(/Debe volver a firmar|cambiaron los huecos/)).toHaveCount(0);
   const bytes = await downloadSigned(page);
   // Los trazos del firmante 1 (firma + iniciales) una vez en cada hueco que la pantalla cuenta: ni de mas ni de menos.
@@ -205,7 +211,7 @@ test("(F2-a) borrador restaurado SIN aviso → Crear plantilla de este documento
   const before = await huecos(page);
   expect(before).toBe(PAGES * 2 + 2);
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await goTo(page, "1. Firmantes");
 
   await saveFromEditorAndSign(page, /Crear plantilla de este documento|Configurar plantilla de este documento/);
@@ -213,7 +219,7 @@ test("(F2-a) borrador restaurado SIN aviso → Crear plantilla de este documento
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(await huecos(page), "los campos no se duplican (14, no 28)").toBe(before);
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await expect(page.getByText(/Debe volver a firmar|cambiaron los huecos/)).toHaveCount(0);
   await expectTwoSignersPdf(await downloadSigned(page), template);
 });
@@ -229,7 +235,7 @@ test("(F2-b) con el aviso presente y las firmas hechas, Configurar plantilla de 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(await huecos(page)).toBe(before);
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await expect(page.getByText(/Debe volver a firmar|cambiaron los huecos/)).toHaveCount(0);
   await expectTwoSignersPdf(await downloadSigned(page), template);
 });
@@ -239,7 +245,7 @@ test("(OBS) la hoja de confirmación aísla el fondo: todo lo demás queda inert
   await page.getByRole("button", { name: "Ir a firmar" }).click();
   await signTurn(page, SEEDS[0], false);
   await signTurn(page, SEEDS[1], true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await goTo(page, "1. Firmantes");
   const tab = notices(page).getByRole("tab", { name: "1 firmante" });
   await tab.click();
@@ -280,5 +286,5 @@ test("(OBS) la hoja de confirmación aísla el fondo: todo lo demás queda inert
   await expect(dialog).toBeHidden();
   await expect(page.locator("[inert]")).toHaveCount(0);
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 });

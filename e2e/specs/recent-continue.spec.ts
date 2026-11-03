@@ -170,7 +170,7 @@ const TOOLS: ToolCase[] = [
     },
     finish: async (page) => {
       await page.getByRole("button", { name: "Firmar y descargar" }).click();
-      await expect(page.getByText("Firmados - 2 documentos.zip")).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByText("Firmados - 2 documentos.zip", { exact: true })).toBeVisible({ timeout: 60_000 });
     },
     manualResume: async (page) => {
       await page.goto("/sign-pdf");

@@ -261,23 +261,30 @@ test.describe("la ronda entera con tipografia ancha: ninguna pantalla desborda a
         await fitsEverywhere(page, "traspaso al segundo firmante (cabecera con «Ver borradores»)");
 
         await signWholeTurn(page, 2, 20, true);
-        await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+        // Ola 3: con el ultimo firmante la revision y el boton final son UNA pantalla («Revisa y descarga»: las figuras de lo
+        // firmado, la revision por documento y «Firmar y descargar»).
+        await expect(page.getByRole("heading", { name: "Revisa y descarga" })).toBeVisible();
         await waitForDraftSettled(page);
         // Las miniaturas de «Revisar antes de descargar» llegan de una en una.
         await expect(page.getByRole("heading", { name: "Revisar antes de descargar" })).toBeVisible();
         await expect(page.locator("[data-review-page] img")).toHaveCount(2, { timeout: 30_000 });
-        await fitsEverywhere(page, "«Ya han firmado todos» con «Revisar antes de descargar»");
+        await fitsEverywhere(page, "«Revisa y descarga» con las figuras y «Revisar antes de descargar»");
 
+        // Ola 3: «Firmar y descargar» procesa y, al llegar al resultado, el archivo se descarga SOLO; «Descargar» queda de respaldo.
+        const autoDownload = page.waitForEvent("download", { timeout: 60_000 });
         await page.getByRole("button", { name: "Firmar y descargar" }).click();
+        await autoDownload;
         const download = page.getByRole("button", { name: "Descargar", exact: true });
         await expect(download).toBeVisible({ timeout: 60_000 });
-        // Deja que se asiente la animacion de entrada de la tarjeta.
-        await page.waitForTimeout(900);
-        await fitsEverywhere(page, "pantalla de resultado (casilla de borrado, E-sign y «firmar otro»)");
-
-        await download.click();
+        // Con la descarga ya hecha sale el aviso de borrado con «Deshacer» (8 s) junto a la frase «Se ha descargado «…»».
         await expect(page.getByRole("button", { name: "Deshacer" })).toBeVisible();
-        await fitsEverywhere(page, "resultado: aviso de borrado con «Deshacer»");
+        await page.waitForTimeout(400);
+        await fitsEverywhere(page, "pantalla de resultado tras la descarga automatica (frase, casilla de borrado con «Deshacer», E-sign y «firmar otro»)");
+
+        // «Descargar» de respaldo: otra descarga (no reinicia el borrado en marcha).
+        const again = page.waitForEvent("download", { timeout: 30_000 });
+        await download.click();
+        await again;
         await page.getByText("Borrar el borrador de esta firma (incluye las firmas guardadas en él)", { exact: true }).click();
         await expect(page.locator("[data-delete-draft-status]")).toBeVisible();
         await fitsEverywhere(page, "resultado: borrador conservado");

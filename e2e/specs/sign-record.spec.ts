@@ -68,22 +68,30 @@ async function seedLocalStorage(page: Page, entries: Record<string, string>): Pr
 
 const sha256 = (bytes: Uint8Array | Buffer): string => createHash("sha256").update(bytes).digest("hex");
 
-/** Dos documentos, dos firmantes con «Mismas firmas» (un bloque por firmante): la ronda entera hasta el ZIP descargado. */
+/**
+ * Dos documentos, dos firmantes con «Mismas firmas» (un bloque por firmante): la ronda entera hasta el ZIP descargado.
+ * Ola 3: con el ultimo firmante la revision y el boton final son UNA pantalla y el ZIP se descarga SOLO al llegar al
+ * resultado (la descarga se espera ANTES de pulsar «Firmar y descargar»); «Descargar» queda de respaldo.
+ */
 async function signTwoDocumentsAndDownloadZip(page: Page): Promise<Buffer> {
   await prepareTwoDocsTwoSigners(page, await makeTwoDocs(), "same");
   await continueToSign(page);
   await signWholeTurn(page, 1, 10, false);
   await signWholeTurn(page, 1, 20, true);
-  await page.getByRole("button", { name: "Firmar y descargar" }).click();
-  await expect(page.getByText(ZIP_NAME)).toBeVisible({ timeout: 60_000 });
   const { bytes } = await downloadFile(page, async () => {
-    await page.getByRole("button", { name: "Descargar", exact: true }).click();
+    await page.getByRole("button", { name: "Firmar y descargar" }).click();
   });
+  // El nombre del ZIP sale dos veces (el archivo y la frase «Se ha descargado «…»»): se toma el texto entero.
+  await expect(page.getByText(ZIP_NAME, { exact: true })).toBeVisible({ timeout: 60_000 });
   return bytes;
 }
 
-/** UN documento de 2 paginas con dos firmantes (un bloque cada uno) hasta la pantalla «Listo». */
-async function signOneDocumentWithTwoSigners(page: Page): Promise<void> {
+/**
+ * UN documento de 2 paginas con dos firmantes (un bloque cada uno) hasta la pantalla «Listo». Devuelve el archivo que se
+ * descargo SOLO al llegar al resultado (la descarga se espera ANTES de contestar la pregunta del nombre, que arranca el
+ * procesado); «Descargar» queda de respaldo en pantalla.
+ */
+async function signOneDocumentWithTwoSigners(page: Page): Promise<{ bytes: Buffer; filename: string }> {
   await openSignAndUpload(page, [
     { name: "Contrato.pdf", mimeType: "application/pdf", buffer: await makeSyntheticPdf("C", PAGES_PER_DOC) },
   ]);
@@ -93,8 +101,11 @@ async function signOneDocumentWithTwoSigners(page: Page): Promise<void> {
   await signWholeTurn(page, 1, 10, false);
   await signWholeTurn(page, 1, 20, true);
   await page.getByRole("button", { name: "Firmar y descargar" }).click();
-  await page.getByRole("button", { name: "No, dejar el nombre como está" }).click();
+  const auto = await downloadFile(page, async () => {
+    await page.getByRole("button", { name: "No, dejar el nombre como está" }).click();
+  });
   await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible({ timeout: 60_000 });
+  return auto;
 }
 
 async function pdfsIn(zip: JSZip): Promise<{ name: string; bytes: Buffer }[]> {
@@ -159,13 +170,16 @@ test.describe("Firmar PDF · registro de firmas · ajustes por defecto", () => {
   }
 
   test("un documento con dos firmantes: el PDF descargado tiene las paginas del original y NO hay boton de registro", async ({ page }) => {
-    await signOneDocumentWithTwoSigners(page);
+    const { bytes, filename } = await signOneDocumentWithTwoSigners(page);
     await expect(page.getByRole("button", { name: /Descargar registro/ })).toHaveCount(0);
-    const { bytes, filename } = await downloadFile(page, async () => {
-      await page.getByRole("button", { name: "Descargar", exact: true }).click();
-    });
     expect(filename).toMatch(/\.pdf$/);
     expect(await getPageCount(bytes)).toBe(PAGES_PER_DOC);
+    // Respaldo: «Descargar» baja el MISMO archivo otra vez.
+    const again = await downloadFile(page, async () => {
+      await page.getByRole("button", { name: "Descargar", exact: true }).click();
+    });
+    expect(again.filename).toBe(filename);
+    expect(await getPageCount(again.bytes)).toBe(PAGES_PER_DOC);
   });
 
   test("«Solo yo» con un documento de 3 paginas: el PDF descargado tiene 3 paginas", async ({ page }) => {
@@ -242,11 +256,8 @@ test.describe("Firmar PDF · «Incluir registro .json aparte»", () => {
 
   test("un documento: «Descargar registro (.json)» entrega un .json cuyo hash es el del PDF descargado", async ({ page }) => {
     await seedLocalStorage(page, currentFlags({ signingRecordFile: true }));
-    await signOneDocumentWithTwoSigners(page);
-
-    const pdf = await downloadFile(page, async () => {
-      await page.getByRole("button", { name: "Descargar", exact: true }).click();
-    });
+    // El PDF es el que se descargo solo al llegar al resultado; el registro (.json) sale aparte, de su boton.
+    const pdf = await signOneDocumentWithTwoSigners(page);
     const recordButton = page.getByRole("button", { name: "Descargar registro (.json)" });
     await expect(recordButton).toBeVisible();
     const record = await downloadFile(page, async () => {

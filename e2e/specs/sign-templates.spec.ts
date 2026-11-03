@@ -5,7 +5,8 @@ import { embeddedImages, shapeHash } from "../helpers/pdf-images";
 import { imagePlacements, type Placement } from "../helpers/pdf-placements";
 import { downloadBytes, downloadFile } from "../helpers/downloads";
 import { getPageCount } from "../helpers/pdf-inspection";
-import { drawInOpenComposer, fileInput } from "../helpers/sign-flow";
+import { drawInOpenComposer, fileInput, roundCompleteHeading } from "../helpers/sign-flow";
+import { finishTurn } from "../helpers/template-session-flow";
 import {
   LINE,
   Taps,
@@ -93,7 +94,8 @@ async function signTurn(page: Page, seed: number, last: boolean, taps: Taps): Pr
   taps.count += 1;
   taps.steps.push("Usar estas iniciales");
   await taps.click(page.getByRole("button", { name: "Ver cómo queda" }), "Ver cómo queda");
-  await taps.click(page.getByRole("button", { name: last ? "He terminado" : "Pasar al siguiente firmante" }), last ? "He terminado" : "Pasar al siguiente firmante");
+  // Ola 3: con el ultimo firmante la revision y «Firmar y descargar» son UNA pantalla; no hay «He terminado».
+  await finishTurn(page, last, taps);
 }
 
 const near = (a: number, b: number, tolerance = 0.004) => Math.abs(a - b) <= tolerance;
@@ -150,12 +152,16 @@ test("(i) configurar la plantilla de 2 firmantes UNA vez; el mismo PDF reexporta
   await signTurn(page, 10, false, withTemplate);
   await expect(page.getByRole("heading", { name: `Pásale el dispositivo a ${SIGNER_2_ROLE}` })).toBeVisible();
   await signTurn(page, 21, true, withTemplate);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Revisa y descarga" })).toBeVisible();
   const download = page.getByRole("button", { name: "Firmar y descargar" });
+  // Ola 3: el PDF se descarga SOLO al llegar al resultado; «Descargar» queda de respaldo (otra descarga, mismos bytes).
   const signedBytes = await downloadBytes(page, async () => {
     await withTemplate.click(download, "Firmar y descargar");
-    await withTemplate.click(page.getByRole("button", { name: /^Descargar/ }), "Descargar");
   });
+  const backupBytes = await downloadBytes(page, async () => {
+    await page.getByRole("button", { name: /^Descargar/ }).click();
+  });
+  expect(backupBytes.equals(signedBytes), "«Descargar» de respaldo baja el mismo archivo").toBe(true);
 
   // El PDF firmado: mismas paginas que el original (sin hoja de certificado) y las imagenes donde dice la plantilla.
   expect(await getPageCount(signedBytes)).toBe(PAGES);
@@ -191,7 +197,7 @@ test("(i) configurar la plantilla de 2 firmantes UNA vez; el mismo PDF reexporta
   // Toques.
   testInfo.annotations.push({ type: "toques", description: `configurar una vez (con el editor): ${configure.count}` });
   testInfo.annotations.push({ type: "toques", description: `con plantilla, de la carga a la ceremonia: ${ceremonyStart} (${withTemplate.steps.slice(0, ceremonyStart).join(" > ")})` });
-  testInfo.annotations.push({ type: "toques", description: `con plantilla, de la carga a descargar (2 firmantes, ceremonia incluida): ${withTemplate.count}` });
+  testInfo.annotations.push({ type: "toques", description: `con plantilla, de la carga a descargar (2 firmantes, ceremonia incluida; la descarga es automatica): ${withTemplate.count}` });
   expect(ceremonyStart, "de la carga a la ceremonia con plantilla").toBeLessThanOrEqual(2);
 });
 
@@ -276,10 +282,9 @@ test("(ii) documento desconocido: el automapeo coloca los de confianza alta, dej
   const taps = new Taps(page);
   await signTurn(page, 3, false, taps);
   await signTurn(page, 17, true, taps);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   const bytes = await downloadBytes(page, async () => {
     await page.getByRole("button", { name: "Firmar y descargar" }).click();
-    await page.getByRole("button", { name: /^Descargar/ }).click();
   });
   expect(await getPageCount(bytes)).toBe(5);
   expect((await imagePlacements(bytes)).length).toBe(slotCount);
@@ -332,10 +337,9 @@ test("(iii) cambiar de 2 a 1 firmante re-aplica la variante y el trazo que sigue
   await expect(page.getByLabel("Nombre del firmante 2")).toHaveCount(0);
   await page.getByRole("button", { name: "3. Firmar" }).click();
   // El trazo del firmante 1 sigue valiendo (sus huecos no se movieron): no hay nadie mas que firmar.
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   const bytes = await downloadBytes(page, async () => {
     await page.getByRole("button", { name: "Firmar y descargar" }).click();
-    await page.getByRole("button", { name: /^Descargar/ }).click();
   });
   const placements = await imagePlacements(bytes);
   expect(placements).toHaveLength(PAGES + 1);
@@ -484,15 +488,17 @@ test("(vii) varios documentos: cada uno con SU plantilla, un solo juego de firma
     await page.getByRole("button", { name: "Crear mis iniciales", exact: true }).click();
     await drawInOpenComposer(page, seed + 7);
     await page.getByRole("button", { name: "Ver cómo queda" }).click();
-    await page.getByRole("button", { name: last ? "He terminado" : "Pasar al siguiente firmante" }).click();
+    await finishTurn(page, last);
   }
   void taps;
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
-  await page.getByRole("button", { name: "Firmar y descargar" }).click();
-  await expect(page.getByText("Firmados - 2 documentos.zip")).toBeVisible({ timeout: 60_000 });
+  await expect(roundCompleteHeading(page)).toBeVisible();
+  // Ola 3: el ZIP se descarga SOLO al terminar; «Descargar» queda de respaldo en la pantalla de resultado.
   const { bytes } = await downloadFile(page, async () => {
-    await page.getByRole("button", { name: "Descargar", exact: true }).click();
+    await page.getByRole("button", { name: "Firmar y descargar" }).click();
   });
+  await expect(page.getByText("Firmados - 2 documentos.zip", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText("Se ha descargado «Firmados - 2 documentos.zip»")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible();
   const zip = await JSZip.loadAsync(bytes);
   const entries = Object.keys(zip.files).filter((entry) => entry.endsWith(".pdf")).sort();
   expect(entries).toHaveLength(2);

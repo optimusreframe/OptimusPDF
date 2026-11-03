@@ -200,15 +200,16 @@ test.describe("usar la firma subida", () => {
       await page.getByRole("button", { name: /Usar una guardada/ }).first().click();
       await page.getByRole("dialog", { name: VAULT_TITLE }).getByRole("button", { name: `Usar la firma de ${name}` }).click();
       await page.getByRole("button", { name: "Ver cómo queda" }).click();
-      await page.getByRole("button", { name: index === 0 ? "Pasar al siguiente firmante" : "He terminado" }).click();
+      // Ola 3: con el ultimo firmante la revision y «Firmar y descargar» son UNA pantalla; no hay «He terminado».
+      if (index === 0) await page.getByRole("button", { name: "Pasar al siguiente firmante" }).click();
     }
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
-    await page.getByRole("button", { name: /Firmar y descargar/ }).click();
-    await page.getByRole("button", { name: "No, dejar el nombre como está" }).click();
-    await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("heading", { name: "Revisa y descarga" })).toBeVisible();
+    // Ola 3: tras «No, dejar el nombre como está» el archivo se descarga SOLO; «Descargar» queda de respaldo.
     const signed = await downloadBytes(page, async () => {
-      await page.getByRole("button", { name: "Descargar", exact: true }).click();
+      await page.getByRole("button", { name: /Firmar y descargar/ }).click();
+      await page.getByRole("button", { name: "No, dejar el nombre como está" }).click();
     });
+    await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeVisible({ timeout: 60_000 });
     await expectStampedWithoutBox(base, signed);
     expect(errors).toEqual([]);
   });

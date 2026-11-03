@@ -152,6 +152,14 @@ export function SigningCeremony({
   /** Con UNA sola persona que firma no hay a quien pasarle el dispositivo: el traspaso se salta y se dice por que (W3-B2). */
   const soleSigner = queue.length === 1;
   const shownStage: Stage = stage === "handoff" && soleSigner ? "capture" : stage;
+  /**
+   * Con una sola persona el traspaso no se pinta, pero el turno guardado sigue en «traspaso» hasta que alguien actua: la primera
+   * accion de captura lo guarda en «captura». Sin eso, al recoger lo ultimo el turno derivado salta a «Ya han firmado todos» y
+   * la persona no llega a «Ver como queda» ni a la pantalla unica «Revisa y descarga».
+   */
+  const keepCapture = () => {
+    if (soleSigner && stage === "handoff") setStage("capture");
+  };
   /** Lo que habia antes de «Firmar todo con mi firma guardada», para «Deshacer». */
   const [quickUndo, setQuickUndo] = useState<{ signerId: string; captures: CaptureMap } | null>(null);
   const turnSigner = queue[position] ?? null;
@@ -261,6 +269,7 @@ export function SigningCeremony({
     };
     onCapturesChange({ ...captures, [current.id]: next });
     announceProgress(next);
+    keepCapture();
   };
 
   /**
@@ -290,7 +299,8 @@ export function SigningCeremony({
     announceProgress(next);
     void touchVaultEntry(entry.id);
     setVaultShown(false);
-    showVaultNotice(current.id, stage, {
+    keepCapture();
+    showVaultNotice(current.id, soleSigner && stage === "handoff" ? "capture" : stage, {
       text:
         missing.length > 0
           ? strings.vaultAppliedPartial(entry.signerName, missing)

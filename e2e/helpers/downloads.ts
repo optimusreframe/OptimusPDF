@@ -16,6 +16,11 @@ export async function downloadBytes(
   return readDownload(download);
 }
 
+/** Los bytes de una descarga YA capturada (p. ej. la automatica de la ceremonia de Firmar, Ola 3). */
+export async function bytesOfDownload(download: Download): Promise<Buffer> {
+  return readDownload(download);
+}
+
 async function readDownload(download: Download): Promise<Buffer> {
   const path = await download.path();
   if (!path) {

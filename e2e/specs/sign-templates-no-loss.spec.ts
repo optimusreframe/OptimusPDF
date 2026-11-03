@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { roundCompleteHeading } from "../helpers/sign-flow";
 import { makeContract, reexport } from "../helpers/template-pdfs";
 import { PAGES, SIGNER_1_ROLE, SIGNER_2_ROLE, appliedAndBothSigned, configureTwoSigners, notices, signTurn, upload } from "../helpers/template-session-flow";
 
@@ -49,7 +50,7 @@ test("(A1) con la firma y el nombre real del firmante 2, «1 firmante» pide con
   await expect(page.getByLabel("Nombre del firmante 2")).toHaveValue("Marta Ruiz");
   await expect(notices(page)).toContainText(`2 firmantes · ${PAGES * 2 + 2} campos`);
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await expect(page.getByText(/Falta/)).toHaveCount(0);
 
   // Confirmar: se quita al firmante 2 (y su firma), no al 1.
@@ -63,7 +64,7 @@ test("(A1) con la firma y el nombre real del firmante 2, «1 firmante» pide con
   await expect(page.getByLabel("Nombre del firmante 1")).toHaveValue(SIGNER_1_ROLE);
   await goTo(page, "3. Firmar");
   // La firma y las iniciales del firmante 1 siguen valiendo: no hay nadie mas que firmar.
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 
   // Volver a 2 firmantes no pregunta (no hay nada que perder) y trae un firmante nuevo, sin firmar.
   await goTo(page, "1. Firmantes");
@@ -88,7 +89,7 @@ test("(A1-b) sin nada que perder el cambio de firmantes es inmediato y sin diál
   await expect(notices(page)).toContainText(`1 firmante · ${PAGES + 1} campos`);
   await expect(dialogOf(page)).toHaveCount(0);
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 });
 
 test("(A2) «Deshacer» solo mientras no haya trabajo tuyo: con un nombre escrito o con firmas el aviso queda informativo y nada se borra", async ({ page }) => {
@@ -111,7 +112,7 @@ test("(A2) «Deshacer» solo mientras no haya trabajo tuyo: con un nombre escrit
   await page.getByRole("button", { name: "Ir a firmar" }).click();
   await signTurn(page, 5, false);
   await signTurn(page, 17, true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
   await goTo(page, "1. Firmantes");
   await expect(notices(page)).toContainText("Plantilla «Mold Test Agreement» aplicada");
   await expect(undo).toHaveCount(0);
@@ -119,7 +120,7 @@ test("(A2) «Deshacer» solo mientras no haya trabajo tuyo: con un nombre escrit
   await expect(page.getByLabel("Nombre del firmante 2")).toHaveValue(SIGNER_2_ROLE);
   await expect(page.getByRole("tab", { name: "Varios firmantes" })).toHaveAttribute("aria-selected", "true");
   await goTo(page, "3. Firmar");
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 });
 
 test("(A2-b) sin trabajo hecho «Deshacer» sigue quitando lo que puso la plantilla (campos, firmantes y modo)", async ({ page }) => {

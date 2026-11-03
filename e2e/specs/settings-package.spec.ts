@@ -3,7 +3,7 @@ import path from "node:path";
 import { chromium, devices, expect, test, webkit, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import JSZip from "jszip";
 import { build } from "vite";
-import { downloadFile } from "../helpers/downloads";
+import { bytesOfDownload, downloadFile } from "../helpers/downloads";
 import { isBenignEngineNoise, isExternalNetworkUrl } from "../helpers/engine";
 import { syntheticContract, type SyntheticContract } from "../helpers/library-packages";
 import { embeddedImages, pngPixels, sameShape } from "../helpers/pdf-images";
@@ -421,11 +421,15 @@ test("firmas + 2 contratos con plantilla + borrador con trazos + ajustes: export
     await expect(row).toBeVisible();
     await row.getByRole("link", { name: "Continuar" }).or(row.getByRole("button", { name: "Continuar" })).click();
     await expectCollectedWorkRestored(page, docs);
-    await page.getByRole("button", { name: "Firmar y descargar" }).click();
-    await expect(page.getByText("Firmados - 2 documentos.zip")).toBeVisible({ timeout: 60_000 });
-    const { bytes } = await downloadFile(page, async () => {
+    // Ola 3 (W3-B2): «Firmar y descargar» baja el ZIP SOLO al llegar al resultado; el PDF que se mira es el que recibe la persona.
+    const [automatic] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Firmar y descargar" }).click()]);
+    await expect(page.getByText("Firmados - 2 documentos.zip", { exact: true })).toBeVisible({ timeout: 60_000 });
+    const bytes = await bytesOfDownload(automatic);
+    // «Descargar» queda de respaldo y baja el mismo ZIP.
+    const manual = await downloadFile(page, async () => {
       await page.getByRole("button", { name: "Descargar", exact: true }).click();
     });
+    expect(manual.bytes.byteLength).toBe(bytes.byteLength);
     const zip = await JSZip.loadAsync(bytes);
     const names = Object.keys(zip.files).filter((entry) => entry.endsWith(".pdf")).sort();
     expect(names).toHaveLength(2);

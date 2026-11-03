@@ -242,7 +242,9 @@ for (const theme of ["light", "dark"] as const) {
         await expectTouchTargets(page, "button[aria-label^='Subir a'], button[aria-label^='Bajar a']", "ceremonia (flechas de turno)");
 
         await signWholeTurn(page, 1, 10, false);
+        // Ola 3: con el ultimo firmante la revision y el boton final son UNA pantalla («Revisa y descarga»): axe mide esa.
         await signWholeTurn(page, 1, 20, true);
+        await expect(page.getByRole("heading", { name: "Revisa y descarga" })).toBeVisible();
         await expect(page.getByRole("heading", { name: "Revisar antes de descargar" })).toBeVisible();
         await waitForDraftSettled(page);
         // Las miniaturas llegan de una en una: todas listas antes de medir.

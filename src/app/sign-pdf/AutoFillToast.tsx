@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { LiveSinkProvider, StatusRegion } from "@/components/tool/liveRouting";
+import { LiveSinkProvider, StatusRegion, useLiveSink } from "@/components/tool/liveRouting";
 import { cn } from "@/lib/cn";
 import { useFieldEditMode } from "@/app/sign-pdf/editMode/FieldEditModeProvider";
 import { useTagStrings } from "@/app/sign-pdf/tagStrings";
@@ -33,6 +33,12 @@ type Props = {
 export function AutoFillToast({ notice, onUndo, onDismiss }: Props) {
   const strings = useTagStrings();
   const editContainer = useFieldEditMode()?.container ?? null;
+  /**
+   * Dentro de PDF Pro el anuncio va a la region viva unica de la suite: `StatusRegion` deja entonces el contenedor SIN rol, y
+   * un `aria-label` en un `div` sin rol esta prohibido (axe `aria-prohibited-attr`). El nombre solo va cuando la region es viva
+   * por si misma: fuera de la suite, o en el portal del modo «Editar campos» (que corta el encaminamiento).
+   */
+  const routed = useLiveSink() !== null && editContainer === null;
   /** Aviso que la persona esta apuntando o tiene enfocado: no se va solo (el estado es del aviso, no se arrastra al siguiente). */
   const [heldId, setHeldId] = useState<number | null>(null);
   const noticeId = notice?.id ?? null;
@@ -45,7 +51,7 @@ export function AutoFillToast({ notice, onUndo, onDismiss }: Props) {
   }, [noticeId, held, onDismiss]);
 
   const region = (
-    <StatusRegion text={notice?.message ?? ""} data-autofill-region="" aria-label={strings.autoFillRegion}>
+    <StatusRegion text={notice?.message ?? ""} data-autofill-region="" aria-label={routed ? undefined : strings.autoFillRegion}>
       {notice ? (
         <div
           className={cn(

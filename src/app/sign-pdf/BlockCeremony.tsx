@@ -205,6 +205,14 @@ export function BlockCeremony({
    */
   const soleSigner = queue.length === 1;
   const shownStage: Stage = stage === "handoff" && soleSigner ? "capture" : stage;
+  /**
+   * Con una sola persona el traspaso no se pinta, pero el turno guardado sigue en «traspaso» hasta que alguien actua: la primera
+   * accion de captura lo guarda en «captura». Sin eso, al recoger lo ultimo el turno derivado salta a «Ya han firmado todos» y
+   * la persona no llega a «Ver como queda» ni a la pantalla unica «Revisa y descarga».
+   */
+  const keepCapture = () => {
+    if (soleSigner && stage === "handoff") setStage("capture");
+  };
   /** Firma guardada que se propone al firmante del turno (un toque coloca firma e iniciales en TODOS sus huecos). */
   const [usedEntries, setUsedEntries] = useState<Record<string, string>>({});
   /** Lo que habia antes de «Firmar todo con mi firma guardada», para «Deshacer». */
@@ -349,6 +357,7 @@ export function BlockCeremony({
     const next = captureForBlock(blocks, blockId, { [type]: draft }, ctx);
     onBlocksChange(next);
     announceProgress(next);
+    keepCapture();
   };
 
   /**
@@ -372,7 +381,8 @@ export function BlockCeremony({
     announceProgress(result.blocks);
     void touchVaultEntry(entry.id);
     setVaultShown(false);
-    showVaultNotice(current.id, stage, {
+    keepCapture();
+    showVaultNotice(current.id, soleSigner && stage === "handoff" ? "capture" : stage, {
       text:
         result.missing.length > 0
           ? strings.vaultAppliedPartial(entry.signerName, result.missing)

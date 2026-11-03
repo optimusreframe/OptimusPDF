@@ -392,9 +392,14 @@ test.describe("editar el texto original y firmar", () => {
 
     test("los controles nuevos miden al menos 44 px y la hoja es nitida a DPR 3", async ({ page }) => {
       await upload(page, "formulario.pdf", (await makeFormPdf()).bytes);
-      const toggle = page.getByRole("switch");
+      // Ola 3 (B1): con puntero tactil el lienzo trae TAMBIEN el interruptor «Abrir asi siempre en este dispositivo» (modo
+      // «Editar campos»): se elige el de «Campos sugeridos» por su marca y el nuevo se mide aparte.
+      const toggle = page.locator("[data-suggestions-toggle]");
       await expect(toggle).toBeVisible({ timeout: 15_000 });
       expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
+      const openAlways = page.getByRole("switch", { name: "Abrir así siempre en este dispositivo" });
+      await expect(openAlways).toBeVisible();
+      expect((await openAlways.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
       await unfoldPalette(page); // movil: la paleta llega plegada en un boton
       const tool = page.getByRole("button", { name: "Editar texto" });
       expect((await tool.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);

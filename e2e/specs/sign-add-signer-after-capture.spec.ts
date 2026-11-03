@@ -1,8 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
-import { downloadBytes } from "../helpers/downloads";
+import { bytesOfDownload, downloadBytes } from "../helpers/downloads";
 import { imagePlacements } from "../helpers/pdf-placements";
 import { makeReceiptPdf } from "../../src/lib/pdf/testing/signSyntheticPdfs";
-import { continueToSign, drawInOpenComposer, handoffHeading, openSignAndUpload, placeSlot, startTurn, turnCounter } from "../helpers/sign-flow";
+import {
+  continueToSign,
+  drawInOpenComposer,
+  handoffHeading,
+  mergedReviewHeading,
+  openSignAndUpload,
+  placeSlot,
+  roundCompleteHeading,
+  startTurn,
+  turnCounter,
+} from "../helpers/sign-flow";
 
 /**
  * Firmar PDF · Ana firma, DESPUES se suma otro firmante y se reorganizan los huecos de Ana: lo recogido sigue atado a Ana.
@@ -50,7 +60,14 @@ async function signAndInitial(page: Page, seed: number, last: boolean): Promise<
   await page.getByRole("button", { name: "Crear mis iniciales", exact: true }).click();
   await drawInOpenComposer(page, seed + 1);
   await page.getByRole("button", { name: "Ver cómo queda" }).click();
-  await page.getByRole("button", { name: last ? "He terminado" : "Pasar al siguiente firmante" }).click();
+  if (!last) {
+    await page.getByRole("button", { name: "Pasar al siguiente firmante" }).click();
+    return;
+  }
+  // Ola 3: con el ultimo firmante la revision y el boton final son UNA pantalla («Revisa y descarga»): no hay «He terminado».
+  const finish = page.getByRole("button", { name: "He terminado" });
+  await expect(finish.or(mergedReviewHeading(page))).toBeVisible();
+  if (await finish.isVisible()) await finish.click();
 }
 
 test("un documento: Ana firma, se añade a Luis y se mueven los huecos de Ana: Ana no vuelve a firmar", async ({ page }) => {
@@ -66,7 +83,7 @@ test("un documento: Ana firma, se añade a Luis y se mueven los huecos de Ana: A
   await placeInitials(page, "Ana", 220);
   await continueToSign(page);
   await signAndInitial(page, 10, true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 
   // Vuelve, añade a Luis y reorganiza: mueve la firma y las iniciales de Ana y pone los huecos de Luis.
   await page.getByRole("button", { name: "Atrás" }).click();
@@ -97,22 +114,34 @@ test("un documento: Ana firma, se añade a Luis y se mueven los huecos de Ana: A
   // Lo recogido de Ana sigue atado a Ana: sin aviso de «volver a firmar» y el turno es de Luis.
   await expect(page.locator("[data-stale-signatures]")).toHaveCount(0);
   await expect(page.locator('[data-stale-signer="sg-1"]')).toHaveCount(0);
+  // Ola 3 (W3-B2): Ana cerro su turno en la pantalla UNICA de revision (sin «He terminado» ni traspaso). Al sumar a Luis, la
+  // ceremonia vuelve a esa revision de Ana (lo que firmo, sin volver a pedirselo) con «Pasar al siguiente firmante»: un toque
+  // que antes hacia «He terminado». Ana NO vuelve a firmar: sus dos trazos siguen a la vista.
+  await expect(page.getByRole("button", { name: "Pasar al siguiente firmante" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Crear mi firma", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Pasar al siguiente firmante" }).click();
   await expect(handoffHeading(page, "Luis")).toBeVisible();
   await expect(turnCounter(page)).toHaveText("Turno 2 de 2");
   await signAndInitial(page, 30, true);
-  await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+  await expect(roundCompleteHeading(page)).toBeVisible();
 
   // El PDF final lleva las 4 imagenes (firma e iniciales de cada uno) en los huecos DONDE QUEDARON, incluidos los de Ana ya movidos.
   await page.getByRole("button", { name: "Firmar y descargar" }).click();
+  // Ola 3: al terminar el procesado el archivo se descarga SOLO (es el que recibe la persona); «Descargar» queda de respaldo.
+  const automatic = page.waitForEvent("download");
   await page.getByRole("button", { name: "No, dejar el nombre como está" }).click();
+  const pdf = await bytesOfDownload(await automatic);
   await expect(page.getByRole("button", { name: "Descargar" })).toBeVisible({ timeout: 60_000 });
-  const pdf = await downloadBytes(page, async () => {
-    await page.getByRole("button", { name: "Descargar" }).click();
-  });
   const placements = await imagePlacements(pdf);
   expect(placements).toHaveLength(4);
   for (const center of centers) {
     const near = placements.some((p) => Math.abs(p.x + p.width / 2 - center.x) < 0.05 && Math.abs(p.y + p.height / 2 - center.y) < 0.05);
     expect(near, `ninguna firma cerca de ${center.x.toFixed(2)},${center.y.toFixed(2)}`).toBe(true);
   }
+
+  // El respaldo «Descargar» baja el mismo PDF (la segunda descarga): tambien con las 4 imagenes.
+  const again = await downloadBytes(page, async () => {
+    await page.getByRole("button", { name: "Descargar" }).click();
+  });
+  expect(await imagePlacements(again)).toHaveLength(4);
 });

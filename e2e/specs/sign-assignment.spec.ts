@@ -17,9 +17,9 @@ import {
   readCopies,
   readStoredGroups,
   rewriteSessionMeta,
+  roundCompleteHeading,
   sessionParam,
   signWholeTurn,
-  startTurn,
   createBlockSignature,
   storedTurnOrder,
   turnCounter,
@@ -136,8 +136,10 @@ test.describe("Firma ágil · el caso del adjuster: 4 documentos, A,A,B,B, 2 cop
     await continueToSign(page);
 
     // UN solo turno (Ana), con DOS firmas: «Firma A — para: Contrato, Anexo» y «Firma B — para: Carta, Autorización».
+    // Ola 3: con una sola persona NO hay traspaso («Pásale el dispositivo»): la captura se ve ya y se dice por que.
     await expect(turnCounter(page)).toHaveText("Turno 1 de 1");
-    await startTurn(page);
+    await expect(handoffHeading(page, SIGNER_1)).toHaveCount(0);
+    await expect(page.getByText("Firma una sola persona: no hace falta pasar el dispositivo.")).toBeVisible();
     await expect(page.getByText("Firma A — para: Contrato, Anexo")).toBeVisible();
     await expect(page.getByText("Firma B — para: Carta, Autorización")).toBeVisible();
     await createBlockSignature(page, 1, 2, 11);
@@ -147,10 +149,11 @@ test.describe("Firma ágil · el caso del adjuster: 4 documentos, A,A,B,B, 2 cop
     await expect(progress.nth(0)).toHaveText(/^Firma A\s*hecho$/);
     await expect(progress.nth(1)).toHaveText(/^Firma B\s*hecho$/);
     await page.getByRole("button", { name: "Ver cómo queda" }).click();
-    await page.getByRole("button", { name: "He terminado" }).click();
 
-    // Revisar antes de descargar: una miniatura por pagina con marca y contadores por documento.
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible({ timeout: 20_000 });
+    // Ola 3: con el ULTIMO (aqui el unico) firmante la revision y el boton final son UNA pantalla («Revisa y descarga»,
+    // sin «He terminado»). Revisar antes de descargar: una miniatura por pagina con marca y contadores por documento.
+    await expect(page.getByRole("heading", { name: "Revisa y descarga" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "He terminado" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Revisar antes de descargar" })).toBeVisible();
     for (const name of NAMES) {
       const section = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: new RegExp(`^${name}`) }) });
@@ -165,13 +168,20 @@ test.describe("Firma ágil · el caso del adjuster: 4 documentos, A,A,B,B, 2 cop
       ["Carta.pdf", "Autorización.pdf"],
     ]);
 
-    await page.getByRole("button", { name: "Firmar y descargar" }).click();
-    await expect(page.getByText("8 archivos: 4 documentos con 2 copias cada uno.")).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByText("Firmados - 4 documentos.zip")).toBeVisible();
+    // La descarga es AUTOMATICA al llegar al resultado: se espera ANTES de pulsar «Firmar y descargar».
     const { bytes, filename } = await downloadFile(page, async () => {
-      await page.getByRole("button", { name: "Descargar", exact: true }).click();
+      await page.getByRole("button", { name: "Firmar y descargar" }).click();
     });
     expect(filename).toBe("Firmados - 4 documentos.zip");
+    await expect(page.getByText("8 archivos: 4 documentos con 2 copias cada uno.")).toBeVisible({ timeout: 60_000 });
+    // El nombre del ZIP sale dos veces en la pantalla (el archivo y la frase «Se ha descargado «…»»): el texto entero.
+    await expect(page.getByText("Firmados - 4 documentos.zip", { exact: true })).toBeVisible();
+    // «Descargar» queda de respaldo: bajar otra vez es una descarga mas, del mismo archivo.
+    const again = await downloadFile(page, async () => {
+      await page.getByRole("button", { name: "Descargar", exact: true }).click();
+    });
+    expect(again.filename).toBe(filename);
+    expect(again.bytes.equals(bytes)).toBe(true);
 
     const zip = await JSZip.loadAsync(bytes);
     const names = Object.keys(zip.files).filter((entry) => entry.endsWith(".pdf")).sort();
@@ -244,12 +254,12 @@ test.describe("Firma ágil · el caso del adjuster: 4 documentos, A,A,B,B, 2 cop
     await configureUserCase(page);
     await placeSlotInEveryDocument(page, 4);
     await continueToSign(page);
-    await startTurn(page);
+    // Una sola persona: sin traspaso, la captura se ve ya (no hay «Listo, es mi turno» que pulsar).
     await createBlockSignature(page, 1, 2, 11);
     await createBlockSignature(page, 2, 2, 22);
     await page.getByRole("button", { name: "Ver cómo queda" }).click();
-    await page.getByRole("button", { name: "He terminado" }).click();
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    // Ola 3: con el ultimo firmante la revision y el boton final son UNA pantalla («Revisa y descarga», sin «He terminado»).
+    await expect(page.getByRole("heading", { name: "Revisa y descarga" })).toBeVisible();
     await expect.poll(() => draftedStrokeCount(page), { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
 
     await page.getByRole("button", { name: "1. Firmantes" }).click();
@@ -270,7 +280,8 @@ test.describe("Firma ágil · el caso del adjuster: 4 documentos, A,A,B,B, 2 cop
     await page.getByRole("button", { name: "Deshacer cambio" }).click();
     expect(await cellsOf(page)).toEqual(["A", "A", "B", "B"]);
     await page.getByRole("button", { name: "3. Firmar" }).click();
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    // Con todo recogido la ceremonia vuelve a la pantalla unica («Revisa y descarga») o, si ya se paso de ella, a «Ya han firmado todos».
+    await expect(roundCompleteHeading(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Firmar y descargar" })).toBeEnabled();
 
     // Y si de verdad se queda en «una firma para todos», Ana tendrá que volver a firmar lo que no vio.
@@ -278,7 +289,7 @@ test.describe("Firma ágil · el caso del adjuster: 4 documentos, A,A,B,B, 2 cop
     await page.getByRole("button", { name: "Una firma para todos" }).click();
     await page.getByRole("dialog", { name: "¿Cambiar la asignación?" }).getByRole("button", { name: "Continuar" }).click();
     await page.getByRole("button", { name: "3. Firmar" }).click();
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toHaveCount(0);
+    await expect(roundCompleteHeading(page)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Firmar y descargar" })).toBeDisabled();
   });
 });
@@ -289,17 +300,17 @@ test.describe("Firma ágil · dos documentos y dos firmantes con firmas distinta
     await continueToSign(page);
     await signWholeTurn(page, 2, 10, false);
     await signWholeTurn(page, 2, 13, true);
-    await expect(page.getByRole("heading", { name: "Ya han firmado todos" })).toBeVisible();
+    await expect(roundCompleteHeading(page)).toBeVisible();
     await expect.poll(() => draftedStrokeCount(page), { timeout: 20_000 }).toBe(4);
     const groups = await readStoredGroups(page);
     expect(groups).toHaveLength(4);
     const shapes = await Promise.all(groups.map((group) => pngPixels(group.signature as string)));
 
-    await page.getByRole("button", { name: "Firmar y descargar" }).click();
-    await expect(page.getByText("Firmados - 2 documentos.zip")).toBeVisible({ timeout: 60_000 });
+    // La descarga es AUTOMATICA al llegar al resultado: se espera ANTES de pulsar «Firmar y descargar».
     const { bytes } = await downloadFile(page, async () => {
-      await page.getByRole("button", { name: "Descargar", exact: true }).click();
+      await page.getByRole("button", { name: "Firmar y descargar" }).click();
     });
+    await expect(page.getByText("Firmados - 2 documentos.zip", { exact: true })).toBeVisible({ timeout: 60_000 });
     const zip = await JSZip.loadAsync(bytes);
     const names = Object.keys(zip.files).filter((entry) => entry.endsWith(".pdf")).sort();
     expect(names).toHaveLength(2);

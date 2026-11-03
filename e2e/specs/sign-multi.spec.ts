@@ -97,24 +97,34 @@ async function drawSignature(page: Page) {
   await expect(page.getByRole("button", { name: "Ver cómo queda" })).toBeEnabled();
 }
 
-/** El turno de un firmante: pasa el dispositivo, crea la firma del bloque y la confirma. */
+/**
+ * El turno de un firmante: pasa el dispositivo, crea la firma del bloque y la confirma. Con el ULTIMO firmante, nada
+ * pendiente y sin bloqueos, la revision y el boton final son UNA pantalla («Revisa y descarga», sin «He terminado»).
+ */
 async function signTurn(page: Page, last: boolean) {
   await page.getByRole("button", { name: "Listo, es mi turno" }).first().click();
   await page.getByRole("button", { name: "Crear mi firma" }).click();
   await drawSignature(page);
   await page.getByRole("button", { name: "Ver cómo queda" }).click();
-  await page
-    .getByRole("button", { name: last ? "He terminado" : "Pasar al siguiente firmante" })
-    .click();
+  if (last) {
+    await expect(page.getByRole("heading", { name: "Revisa y descarga" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "He terminado" })).toHaveCount(0);
+    return;
+  }
+  await page.getByRole("button", { name: "Pasar al siguiente firmante" }).click();
 }
 
-/** «Firmar y descargar» procesa la ronda y deja la pantalla «Listo»: de ahi se descarga el .zip. */
+/**
+ * «Firmar y descargar» procesa la ronda y, al llegar a la pantalla «Listo», el .zip se descarga SOLO (una vez): la
+ * descarga se espera ANTES de pulsar. «Descargar» queda de respaldo en la pantalla de resultado.
+ */
 async function signAndDownload(page: Page): Promise<Buffer> {
-  await page.getByRole("button", { name: "Firmar y descargar" }).click();
-  await expect(page.getByText("Firmados - 2 documentos.zip")).toBeVisible({ timeout: 60_000 });
-  return downloadBytes(page, async () => {
-    await page.getByRole("button", { name: "Descargar" }).click();
+  const bytes = await downloadBytes(page, async () => {
+    await page.getByRole("button", { name: "Firmar y descargar" }).click();
   });
+  // El nombre del ZIP sale dos veces (el archivo y la frase «Se ha descargado «…»»): se toma el texto entero.
+  await expect(page.getByText("Firmados - 2 documentos.zip", { exact: true })).toBeVisible({ timeout: 60_000 });
+  return bytes;
 }
 
 /** Cuantos borradores de SESION hay ahora mismo en IndexedDB (lo que ve el navegador). */
@@ -156,6 +166,12 @@ test.describe("sign-pdf con varios documentos", () => {
     await signTurn(page, true);
 
     const bytes = await signAndDownload(page);
+
+    // Respaldo: «Descargar» sigue en la pantalla de resultado y bajar otra vez es una descarga mas, del MISMO archivo.
+    const again = await downloadBytes(page, async () => {
+      await page.getByRole("button", { name: "Descargar", exact: true }).click();
+    });
+    expect(again.equals(bytes)).toBe(true);
 
     // El resultado de varios documentos es UN zip con cada PDF por separado.
     const zip = await JSZip.loadAsync(bytes);
