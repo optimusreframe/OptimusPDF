@@ -148,6 +148,19 @@ export function estimateJaccard(a: readonly number[], b: readonly number[]): num
   return equal / MINHASH_SIZE;
 }
 
+/**
+ * Nº de trigramas distintos de una página, ESTIMADO con sus 128 mínimos: cada uno es el mínimo de n valores uniformes en
+ * [0, 2^32), de media 1/(n+1) (error típico ≈ 9 %). Sirve para saber si un conjunto es mucho mayor que otro sin guardar
+ * nada más en la huella (la comparación puede mejorar sin subir `FINGERPRINT_VERSION`). `NaN` si no son 128 valores.
+ */
+export function estimateSetSize(minhash: readonly number[]): number {
+  if (minhash.length !== MINHASH_SIZE) return Number.NaN;
+  let sum = 0;
+  for (const value of minhash) sum += value / 4_294_967_296;
+  const mean = sum / MINHASH_SIZE;
+  return mean > 0 ? 1 / mean - 1 : Number.POSITIVE_INFINITY;
+}
+
 /* ------------------------------------------------------------------ *
  * dHash de 64 bits
  * ------------------------------------------------------------------ */

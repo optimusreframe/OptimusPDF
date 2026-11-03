@@ -67,6 +67,11 @@ export type AppliedRecord = {
   /** Paginas (1-based en pantalla, 0-based aqui) que hay que revisar y no se aplicaron solas. */
   reviewPages: number[];
   skippedPages: number[];
+  /**
+   * Paginas del DOCUMENTO (0-based) con campos que se colocaron POR POSICION aunque la comparacion no las avala (la persona eligio
+   * la plantilla a mano y pidio «todas las paginas»): se avisan para revisarlas. Ausente = ninguna.
+   */
+  flaggedPages?: number[];
   warnings: ApplyWarning[];
   /** `dataKey` / regla de cada campo de texto aplicado (por su id nuevo). */
   textMeta: Record<string, { dataKey?: string; rule?: "today"; required: boolean }>;
@@ -408,6 +413,8 @@ export type TemplatePlanInput = {
   /** Lo aplicado antes a este documento (re-aplicar lo sustituye). */
   previous?: AppliedRecord;
   documentId?: string | null;
+  /** Paginas del documento (0-based) colocadas por posicion que hay que revisar (aplicacion a mano; ver `templateManual.ts`). */
+  flaggedPages?: readonly number[];
   /**
    * La plantilla sale de este mismo documento (el editor se abrio con sus campos): todos sus huecos y campos de texto a
    * mano se reconocen como «de la plantilla» y se reemplazan (mismo id si no cambian) en vez de duplicarse. Sin esto, un
@@ -462,6 +469,9 @@ export function planTemplateApplication(input: TemplatePlanInput): Plan {
   const docs = { ...session.docs, [docId]: nextDoc };
   const docOrder = session.docOrder.length > 0 ? session.docOrder : [docId];
   const pending = result.reviewFields.map((review, index) => pendingFromReview(review, count, index)).filter((item): item is PendingField => item !== null);
+  // Solo se avisan las paginas marcadas en las que de verdad quedo algun campo (una sin campos no hay nada que revisar).
+  const placedPages = new Set([...fields.map((field) => field.pageIndex), ...textFields.map((field) => field.pageIndex)]);
+  const flaggedPages = (input.flaggedPages ?? []).filter((page) => placedPages.has(page));
 
   const record: AppliedRecord = {
     source: "template",
@@ -476,6 +486,7 @@ export function planTemplateApplication(input: TemplatePlanInput): Plan {
     pages: distinctPages(fields, textFields),
     reviewPages: result.reviewPages,
     skippedPages: result.skippedPages,
+    ...(flaggedPages.length > 0 ? { flaggedPages } : {}),
     warnings: result.warnings,
     textMeta,
     spots: spotsOf(fields, textFields),

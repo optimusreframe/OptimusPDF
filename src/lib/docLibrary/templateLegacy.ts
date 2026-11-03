@@ -227,10 +227,12 @@ export type MarkMigratedResult = { status: "ok" | "unavailable" | "none" | "corr
 
 /**
  * Borra de `localStorage` las plantillas antiguas que YA están migradas (se comprueba en la biblioteca, una por una); deja
- * las demás. Llamar SOLO cuando la persona lo confirma. Después, la interfaz debe refrescar `signTemplates.ts`
- * (`refreshSignTemplates()`), porque este módulo escribe `localStorage` directamente.
+ * las demás. Con `onlyLossless`, además deja las que se migraron PERDIENDO algún campo (fuera de página, tamaño nulo, tercer
+ * firmante…): la copia nueva está en la biblioteca, pero la original no se toca. Llamar SOLO cuando la persona lo confirma.
+ * Después, la interfaz debe refrescar `signTemplates.ts` (`refreshSignTemplates()`), porque este módulo escribe `localStorage`
+ * directamente.
  */
-export async function markMigrated(options: { storage?: StorageLike | null } = {}): Promise<MarkMigratedResult> {
+export async function markMigrated(options: { storage?: StorageLike | null; onlyLossless?: boolean } = {}): Promise<MarkMigratedResult> {
   const storage = options.storage === undefined ? defaultStorage() : options.storage;
   const read = readLegacy(storage);
   if (read.status !== "ok" || !storage) return { status: read.status === "ok" ? "unavailable" : read.status, removed: 0, kept: 0 };
@@ -241,7 +243,7 @@ export async function markMigrated(options: { storage?: StorageLike | null } = {
 
   const remaining = read.items.filter((item) => {
     const legacy = parseLegacy(item);
-    return !(legacy && migrated.has(legacy.legacyId));
+    return !(legacy && migrated.has(legacy.legacyId) && (!options.onlyLossless || legacy.droppedFields === 0));
   });
   const removed = read.items.length - remaining.length;
   if (removed === 0) return { status: "ok", removed: 0, kept: remaining.length };

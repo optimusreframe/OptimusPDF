@@ -49,6 +49,12 @@ export type PageMatch = {
   identical: boolean;
   /** Los campos de esta página NO deben aplicarse solos: hay que revisarla. */
   review: boolean;
+  /**
+   * El texto de la plantilla está COMPLETO en la página del documento y esta trae más (datos rellenados): la similitud no
+   * es el Jaccard (que cae al añadir texto) sino `MATCH_THRESHOLDS.containedSimilarity`, siempre «se parece» y a revisar
+   * (nunca «coincide»). Ver `comparePages`. Campo ADITIVO: ausente = comparación normal.
+   */
+  contained?: true;
 };
 
 export type MatchResult = {
@@ -151,6 +157,18 @@ export const MATCH_THRESHOLDS = {
   dhashMatchBits: 10,
   /** dHash: distancia de Hamming máxima para «se parece». */
   dhashSimilarBits: 20,
+  // Página «con datos rellenados»: el texto de la plantilla está contenido en la del documento, que además trae texto añadido.
+  // Rescata una página que el Jaccard deja por debajo de `similar` solo porque se escribieron nombres, direcciones o notas
+  // encima (medido con contratos sintéticos: ver la sección de la unidad W3-A2 en `docs/`). El rescate nunca llega a
+  // «coincide»: la página queda en `containedSimilarity` (< `match`) y marcada para revisar.
+  /** Jaccard mínimo para considerar el rescate (por debajo, ni siquiera comparten la mitad del texto). */
+  containedMinJaccard: 0.45,
+  /** El documento debe tener, al menos, esta proporción de trigramas más que la plantilla (si no, es una sustitución, no un añadido). */
+  containedMinGrowth: 1.12,
+  /** Fracción de los trigramas de la plantilla que debe estar en el documento. */
+  containedMinCoverage: 0.9,
+  /** Similitud que se le asigna a una página rescatada. */
+  containedSimilarity: 0.85,
 } as const;
 
 export type LibraryErrorCode =

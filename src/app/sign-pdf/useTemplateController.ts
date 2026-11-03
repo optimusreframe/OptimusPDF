@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { autoMapFile } from "@/lib/pdf/autoMapFile";
-import { computeFingerprint } from "@/lib/docLibrary/fingerprint";
 import { getDocument } from "@/lib/docLibrary/store";
-import { findBestMatch } from "@/lib/docLibrary/match";
+import { compareFingerprints, findBestMatch } from "@/lib/docLibrary/match";
 import { findTemplateForFingerprint, getTemplateForDocument } from "@/lib/docLibrary/templatesStore";
 import type { DocTemplate } from "@/lib/docLibrary/templateTypes";
 import type { MatchLevel, MatchResult } from "@/lib/docLibrary/types";
@@ -18,6 +17,10 @@ import { isRestored, libraryIdOf } from "@/app/sign-pdf/templateFileRegistry";
 import { readRememberedCount, rememberCount } from "@/app/sign-pdf/templatePrefs";
 import { defaultRoles, emptyContent, type EditorContent } from "@/app/sign-pdf/templateEditorModel";
 import { saveTemplateToLibrary, seedContentFromSession, type SaveFailure } from "@/app/sign-pdf/templateLibrary";
+import { basisOf, countUsableTemplates, fingerprintOfFile, pageCountOfFile } from "@/app/sign-pdf/templateCandidates";
+import { planManualMatch, type PageScope } from "@/app/sign-pdf/templateManual";
+import { libraryTemplateStrings } from "@/app/sign-pdf/libraryTemplateStrings";
+import { rememberTemplateUse } from "@/app/sign-pdf/templateUse";
 import {
   autoMapSignerCount,
   chooseCount,
@@ -49,6 +52,11 @@ import type { SignStrings } from "@/app/sign-pdf/strings";
  *      resto como sugerencias.
  * Nada se aplica sobre un trabajo ya hecho: los archivos restaurados (borrador, configuracion) y los documentos que ya no
  * estan limpios se saltan. Todo es deshacible. Nada sale del dispositivo.
+ *
+ * W3-A2: ademas de lo automatico, la persona puede ELEGIR a mano una plantilla de «Mis documentos» desde la hoja «Plantillas»
+ * (`applyChosen`: mismo camino, mismo aviso «Plantilla aplicada · Deshacer», misma politica de confirmacion si quitaria trabajo
+ * suyo), y si al cargar un PDF no se aplico ninguna plantilla pero la biblioteca tiene, se ofrece elegir (`offers`, no bloqueante).
+ * La huella del archivo se comparte con la hoja (`fingerprintOfFile`): se calcula una sola vez por archivo.
  */
 
 export type NoticePhase = "asking" | "applied" | "automapping" | "automapped";
@@ -58,11 +66,32 @@ export type TemplateLookup = {
   documentId: string | null;
   level: MatchLevel;
   percent: number;
-  /** `null` = el mismo documento (traspaso desde «Mis documentos»): mapa identidad. */
-  match: MatchResult | null;
+  /** `null` = el mismo documento (traspaso desde «Mis documentos»): mapa identidad. Lo que usa la aplicacion: el mapa de paginas y el nivel. */
+  match: Pick<MatchResult, "mappedPages" | "reviewPages" | "level" | "percent"> | null;
   /** Paginas del documento cargado. */
   pageCount: number;
+  /** Aplicacion a mano «todas por posicion»: paginas del documento (0-based) colocadas sin que la comparacion las avale. */
+  flaggedPages?: number[];
 };
+
+/** «Hay N plantillas en Mis documentos»: aviso no bloqueante al cargar un PDF al que no se aplico ninguna. */
+export type LibraryOffer = { docId: DocId; name: string; count: number };
+
+/** Una plantilla de «Mis documentos» elegida a mano en la hoja «Plantillas». */
+export type ManualRequest = {
+  /** Documentos de la ronda a los que se aplica (el activo, o todos). */
+  docIds: DocId[];
+  template: DocTemplate;
+  /** Documento de la biblioteca sobre el que se configuro la plantilla (`null` = sin documento: se coloca por posicion). */
+  documentId: string | null;
+  scope: PageScope;
+  /** Nº de firmantes; ausente = el de siempre (los que ya hay, los recordados o 2). */
+  count?: 1 | 2;
+  /** La persona ya confirmo que se reemplace lo que hay (aplicar a todos): no se vuelve a preguntar. */
+  allowLoss?: boolean;
+};
+
+export type ManualOutcome = { applied: number; blocked: number; skipped: number };
 
 /**
  * Un cambio de nº de firmantes (o una re-aplicacion) que quitaria trabajo de la persona y espera su confirmacion. `lookup`
@@ -96,7 +125,16 @@ export type DocNotice = {
   cap: { placed: number; pages: number[] } | null;
 };
 
-export type TemplateController = {
+/** Lo que añade W3-A2 al controlador: elegir a mano plantillas de «Mis documentos». Opcional para quien solo pinta los avisos. */
+export type LibraryControls = {
+  /** Avisos «Hay N plantillas en Mis documentos · Elegir» (uno por documento sin plantilla automatica). */
+  offers: LibraryOffer[];
+  dismissLibraryOffer: (docId: DocId) => void;
+  /** Aplica a mano una plantilla de «Mis documentos»; si quitaria trabajo de la persona, deja el aviso esperando su confirmacion. */
+  applyChosen: (request: ManualRequest) => Promise<ManualOutcome>;
+};
+
+export type TemplateController = Partial<LibraryControls> & {
   notices: DocNotice[];
   /** Region viva UNICA de este bloque. */
   announcement: string;
@@ -134,18 +172,21 @@ export type ControllerParams = {
   strings: SignStrings;
   applyEnabled: boolean;
   detectEnabled: boolean;
+  /** Ofrecer elegir una plantilla a mano cuando al cargar un PDF no se aplico ninguna y la biblioteca tiene (la hoja «Plantillas» tiene que estar disponible). */
+  offerEnabled?: boolean;
   /** Un documento de «Mis documentos» con la plantilla desactualizada NO coincide con ella: se avisa (nombre del archivo). */
   onStaleSkipped?: (fileName: string) => void;
 };
 
-export function useTemplateController({ bridge, language, strings, applyEnabled, detectEnabled, onStaleSkipped }: ControllerParams): TemplateController {
+export function useTemplateController({ bridge, language, strings, applyEnabled, detectEnabled, offerEnabled = false, onStaleSkipped }: ControllerParams): TemplateController & LibraryControls {
   const [notices, setNotices] = useState<Record<DocId, DocNotice>>({});
   const noticesRef = useRef<Record<DocId, DocNotice>>({});
+  const [offerMap, setOfferMap] = useState<Record<DocId, LibraryOffer>>({});
   const [announcement, setAnnouncement] = useState("");
 
-  const latest = useRef({ language, strings, applyEnabled, detectEnabled, onStaleSkipped });
+  const latest = useRef({ language, strings, applyEnabled, detectEnabled, offerEnabled, onStaleSkipped });
   useEffect(() => {
-    latest.current = { language, strings, applyEnabled, detectEnabled, onStaleSkipped };
+    latest.current = { language, strings, applyEnabled, detectEnabled, offerEnabled, onStaleSkipped };
   });
 
   const started = useRef(new WeakSet<File>());
@@ -206,6 +247,20 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
     if (alive.current) setAnnouncement(text);
   }, []);
 
+  const putOffer = useCallback((offer: LibraryOffer) => {
+    if (alive.current) setOfferMap((current) => ({ ...current, [offer.docId]: offer }));
+  }, []);
+
+  const removeOffer = useCallback((docId: DocId) => {
+    if (!alive.current) return;
+    setOfferMap((current) => {
+      if (!(docId in current)) return current;
+      const { [docId]: removed, ...rest } = current;
+      void removed;
+      return rest;
+    });
+  }, []);
+
   /* --- Utilidades --- */
 
   const fileOf = useCallback((docId: DocId): File | null => bridge.read().files.find((file) => docIdOf(file) === docId) ?? null, [bridge]);
@@ -253,6 +308,7 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
           previous,
           documentId: lookup.documentId,
           replaceDocument,
+          ...(lookup.flaggedPages ? { flaggedPages: lookup.flaggedPages } : {}),
         });
         if (!allowLoss && hasLoss(plan.loss)) {
           blocked = plan.loss;
@@ -269,6 +325,8 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
       const result = applied as { record: AppliedRecord; pending: PendingField[]; signerCount: number } | null;
       if (!result) return "skipped";
       rememberCount(result.record.count);
+      rememberTemplateUse(lookup.template.id);
+      removeOffer(docId);
       patchNotice(docId, {
         name: file.name,
         phase: "applied",
@@ -288,7 +346,7 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
       say(kept && kept.length > 0 ? `${t.appliedAnnounce(lookup.template.name, result.record.count, result.record.pages)} ${t.notices.keptSigners(kept)}` : t.appliedAnnounce(lookup.template.name, result.record.count, result.record.pages));
       return "applied";
     },
-    [bridge, patchNotice, say, settled],
+    [bridge, patchNotice, removeOffer, say, settled],
   );
 
   /* --- Automapeo --- */
@@ -384,38 +442,49 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
     async (file: File) => {
       const docId = docIdOf(file);
       const options = latest.current;
-      if (!options.applyEnabled && !options.detectEnabled) return;
+      if (!options.applyEnabled && !options.detectEnabled && !options.offerEnabled) return;
       const controller = new AbortController();
       aborts.current.set(docId, controller);
       const stale = () => controller.signal.aborted || !fileOf(docId);
       try {
         let lookup: TemplateLookup | null = null;
+        let lookupFailed = false;
         if (options.applyEnabled) {
-          const libraryId = libraryIdOf(file);
-          if (libraryId) {
-            const [entry, template] = await Promise.all([getDocument(libraryId), getTemplateForDocument(libraryId)]);
-            if (entry && template && !entry.templateStale) {
-              lookup = { template, documentId: entry.id, level: "exact", percent: 100, match: null, pageCount: entry.pageCount };
-            } else if (entry && template && entry.templateStale) {
-              // Se reemplazó el PDF de «Mis documentos» y la plantilla ya no coincide con él: NO se asume el mismo documento.
-              // Se compara el PDF REAL con el sobre el que se configuró la plantilla: si coincide se aplica con su mapa de
-              // páginas, si «Parece» se pregunta y si no, sigue el automapeo.
-              const fingerprint = await computeFingerprint(file, { signal: controller.signal });
-              if (stale()) return;
-              const match = findBestMatch(fingerprint, [{ id: template.id, fingerprint: entry.templateStale.base, updatedAt: template.updatedAt }]);
-              if (match && match.level !== "none") {
-                lookup = { template, documentId: entry.id, level: match.level, percent: match.percent, match, pageCount: fingerprint.pageCount };
-              } else {
-                options.onStaleSkipped?.(file.name);
+          try {
+            let staleSkipped = false;
+            const libraryId = libraryIdOf(file);
+            if (libraryId) {
+              const [entry, template] = await Promise.all([getDocument(libraryId), getTemplateForDocument(libraryId)]);
+              if (entry && template && !entry.templateStale) {
+                lookup = { template, documentId: entry.id, level: "exact", percent: 100, match: null, pageCount: entry.pageCount };
+              } else if (entry && template && entry.templateStale) {
+                // Se reemplazó el PDF de «Mis documentos» y la plantilla ya no coincide con él: NO se asume el mismo documento.
+                // Se compara el PDF REAL con el sobre el que se configuró la plantilla: si coincide se aplica con su mapa de
+                // páginas, si «Parece» se pregunta y si no, sigue el automapeo.
+                const fingerprint = await fingerprintOfFile(file, controller.signal);
+                if (stale()) return;
+                const match = findBestMatch(fingerprint, [{ id: template.id, fingerprint: entry.templateStale.base, updatedAt: template.updatedAt }]);
+                if (match && match.level !== "none") {
+                  lookup = { template, documentId: entry.id, level: match.level, percent: match.percent, match, pageCount: fingerprint.pageCount };
+                } else {
+                  staleSkipped = true;
+                }
               }
             }
-          } else {
-            const fingerprint = await computeFingerprint(file, { signal: controller.signal });
-            if (stale()) return;
-            const found = await findTemplateForFingerprint(fingerprint);
-            if (found && found.match.level !== "none") {
-              lookup = { template: found.template, documentId: found.document.id, level: found.match.level, percent: found.match.percent, match: found.match, pageCount: fingerprint.pageCount };
+            if (!lookup) {
+              // Cargar el PDF directamente y abrirlo desde «Mis documentos» dan el MISMO resultado: un documento de la biblioteca sin
+              // plantilla propia (o con la suya desactualizada) tambien se reconoce por su huella, como cualquier otro PDF.
+              const fingerprint = await fingerprintOfFile(file, controller.signal);
+              if (stale()) return;
+              const found = await findTemplateForFingerprint(fingerprint);
+              if (found && found.match.level !== "none") {
+                lookup = { template: found.template, documentId: found.document.id, level: found.match.level, percent: found.match.percent, match: found.match, pageCount: fingerprint.pageCount };
+              }
             }
+            if (!lookup && staleSkipped) options.onStaleSkipped?.(file.name);
+          } catch {
+            // Sin huella o sin biblioteca no hay plantilla que aplicar: la herramienta sigue como siempre.
+            lookupFailed = true;
           }
         }
         if (stale()) return;
@@ -428,6 +497,16 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
           say(options.strings.template.similarAnnounce(lookup.template.name, lookup.percent));
           return;
         }
+        // Ninguna plantilla se aplico sola: si la biblioteca tiene, se ofrece elegir una a mano (sin quitar nada de lo demas).
+        if (!lookup && options.offerEnabled && isPristine(bridge.read().session, docId)) {
+          const count = await countUsableTemplates();
+          if (stale()) return;
+          if (count > 0) {
+            putOffer({ docId, name: file.name, count });
+            say(libraryTemplateStrings(options.language).offerTitle(count));
+          }
+        }
+        if (lookupFailed) return;
         if (!options.detectEnabled) return;
         if (bridge.read().session.mode !== "multi") {
           // Con «Solo yo» no se cambia de modo por un documento desconocido: se espera a que la persona elija varios firmantes.
@@ -441,7 +520,7 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
         if (aborts.current.get(docId) === controller) aborts.current.delete(docId);
       }
     },
-    [applyTemplateNow, bridge, fileOf, patchNotice, runAutoMap, say],
+    [applyTemplateNow, bridge, fileOf, patchNotice, putOffer, runAutoMap, say],
   );
 
   /* --- Cambio de nº de firmantes --- */
@@ -471,6 +550,9 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
   const notify = useCallback(
     (files: File[]) => {
       const live = new Set(docIdsOf(files));
+      if (alive.current) {
+        setOfferMap((current) => (Object.keys(current).every((id) => live.has(id)) ? current : Object.fromEntries(Object.entries(current).filter(([id]) => live.has(id)))));
+      }
       for (const docId of Object.keys(noticesRef.current)) {
         if (live.has(docId)) continue;
         aborts.current.get(docId)?.abort();
@@ -582,12 +664,18 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
     (docId: DocId) => {
       const file = fileOf(docId);
       removeNotice(docId);
+      // «No» a «Parece la plantilla X» no cierra la puerta a las demas: se ofrece elegir otra a mano.
+      if (file && latest.current.offerEnabled) {
+        void countUsableTemplates().then((count) => {
+          if (count > 0 && fileOf(docId)) putOffer({ docId, name: file.name, count });
+        });
+      }
       if (file && latest.current.detectEnabled) {
         if (bridge.read().session.mode !== "multi") waitingForMulti.current.add(docId);
         else queue.current = queue.current.then(() => runAutoMap(file).then(() => undefined)).catch(() => undefined);
       }
     },
-    [bridge, fileOf, removeNotice, runAutoMap],
+    [bridge, fileOf, putOffer, removeNotice, runAutoMap],
   );
 
   const takePending = useCallback(
@@ -679,10 +767,74 @@ export function useTemplateController({ bridge, language, strings, applyEnabled,
     [applyTemplateNow, fileOf],
   );
 
+  /* --- Elegir una plantilla de «Mis documentos» a mano (hoja «Plantillas») --- */
+
+  /**
+   * Aplica `request.template` a cada documento pedido por el MISMO camino que la aplicacion automatica (`applyTemplateNow`:
+   * deshacible, con aviso, con confirmacion si quitaria firmas, un nombre escrito o valores). Se aplica siempre, sea cual sea el
+   * parecido: con `scope: "matching"` solo las paginas que coinciden (el resto queda en «Revisar»); con `"all"` todas por posicion,
+   * y las paginas que la comparacion no avala quedan marcadas para revisar (`flaggedPages`). El documento de origen se compara
+   * aqui con la huella de CADA documento pedido, asi que «todos los documentos» tambien se coloca pagina a pagina.
+   */
+  const applyChosen = useCallback(
+    async (request: ManualRequest): Promise<ManualOutcome> => {
+      const outcome: ManualOutcome = { applied: 0, blocked: 0, skipped: 0 };
+      let basis: Awaited<ReturnType<typeof getDocument>> | null = null;
+      try {
+        basis = request.documentId ? await getDocument(request.documentId) : null;
+      } catch {
+        basis = null;
+      }
+      for (const docId of request.docIds) {
+        const file = fileOf(docId);
+        if (!file) {
+          outcome.skipped += 1;
+          continue;
+        }
+        try {
+          let fingerprint = null;
+          try {
+            fingerprint = await fingerprintOfFile(file);
+          } catch {
+            // Un PDF que no se puede huellar (cifrado, dañado a medias) tambien se puede rellenar: se coloca por numero de pagina.
+            fingerprint = null;
+          }
+          const pageCount = fingerprint ? fingerprint.pageCount : await pageCountOfFile(file);
+          const raw = fingerprint && basis ? compareFingerprints(fingerprint, basisOf(basis)) : null;
+          const planned = planManualMatch({ match: raw, scope: request.scope, docPageCount: pageCount });
+          const lookup: TemplateLookup = {
+            template: request.template,
+            documentId: request.documentId,
+            level: raw ? raw.level : "none",
+            percent: raw ? raw.percent : 0,
+            match: planned.match ? { ...planned.match } : null,
+            pageCount,
+            ...(planned.flaggedPages.length > 0 ? { flaggedPages: planned.flaggedPages } : {}),
+          };
+          patchNotice(docId, { busy: true });
+          const result = await applyTemplateNow(file, lookup, request.count, true, request.allowLoss === true, true);
+          patchNotice(docId, (current) => (current ? { busy: false } : null));
+          if (result === "applied") outcome.applied += 1;
+          else if (result === "blocked") outcome.blocked += 1;
+          else outcome.skipped += 1;
+        } catch {
+          // Un documento que falla no impide aplicar al resto; la herramienta sigue como siempre.
+          patchNotice(docId, (current) => (current ? { busy: false } : null));
+          outcome.skipped += 1;
+        }
+      }
+      return outcome;
+    },
+    [applyTemplateNow, fileOf, patchNotice],
+  );
+
+  const dismissLibraryOffer = useCallback((docId: DocId) => removeOffer(docId), [removeOffer]);
+
   const list = useMemo(() => Object.values(notices), [notices]);
+  const offers = useMemo(() => Object.values(offerMap), [offerMap]);
 
   return useMemo(
-    () => ({ notices: list, announcement, notify, undo, dismiss, setCount, confirmChange, cancelChange, acceptSimilar, declineSimilar, accept, acceptAll, detect, saveAsTemplate, dismissOffer, applySaved }),
-    [list, announcement, notify, undo, dismiss, setCount, confirmChange, cancelChange, acceptSimilar, declineSimilar, accept, acceptAll, detect, saveAsTemplate, dismissOffer, applySaved],
+    () => ({ notices: list, offers, dismissLibraryOffer, applyChosen, announcement, notify, undo, dismiss, setCount, confirmChange, cancelChange, acceptSimilar, declineSimilar, accept, acceptAll, detect, saveAsTemplate, dismissOffer, applySaved }),
+    [list, offers, dismissLibraryOffer, applyChosen, announcement, notify, undo, dismiss, setCount, confirmChange, cancelChange, acceptSimilar, declineSimilar, accept, acceptAll, detect, saveAsTemplate, dismissOffer, applySaved],
   );
 }

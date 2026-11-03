@@ -1,4 +1,4 @@
-import { estimateJaccard, hammingDistance } from "./fingerprintCore";
+import { MAX_WORDS_PER_PAGE, estimateJaccard, estimateSetSize, hammingDistance } from "./fingerprintCore";
 import {
   MATCH_THRESHOLDS,
   type Fingerprint,
@@ -26,6 +26,10 @@ import {
  *  - Una página comparada por IMAGEN (escaneado) impide `match`: como mucho `similar` (la imagen de 64 bits no distingue
  *    páginas de texto parecidas).
  *  - `none`: la media < 0,75, o no se puede comparar (huella parcial, sin páginas, versión de algoritmo distinta).
+ *  - Páginas «con datos rellenados» (`PageMatch.contained`): si el texto de la plantilla está COMPLETO en la página del
+ *    documento y esta trae bastante más (nombres, direcciones, notas escritas encima), el Jaccard cae por debajo de 0,70
+ *    aunque sea el mismo formulario. Se rescata esa página a 0,85 («se parece», a revisar), nunca a «coincide»: un texto
+ *    añadido también puede ser una cláusula nueva que recoloca la página, y eso no debe aplicarse solo. Ver `rescuedByContainment`.
  *  - Por página: una página con similitud < 0,70, sin página correspondiente o de otro tamaño NO se aplica sola
  *    (`review`, `documentPage: null`, `similarity: 0`). Con el mismo número de páginas se emparejan por posición; con
  *    distinto número, por un alineamiento que conserva el orden (una página añadida o quitada no desplaza el resto).
@@ -54,7 +58,7 @@ export function dhashSimilarity(bits: number): number {
   return Math.max(0, 0.7 - (bits - MATCH_THRESHOLDS.dhashSimilarBits) * 0.0175);
 }
 
-export type PageScore = { similarity: number; level: MatchLevel; kind: PageMatch["kind"]; identical: boolean };
+export type PageScore = { similarity: number; level: MatchLevel; kind: PageMatch["kind"]; identical: boolean; contained?: true };
 
 const NO_SCORE: PageScore = { similarity: 0, level: "none", kind: "none", identical: false };
 
@@ -62,6 +66,30 @@ function levelOf(similarity: number): MatchLevel {
   if (similarity >= MATCH_THRESHOLDS.match) return "match";
   if (similarity >= MATCH_THRESHOLDS.similar) return "similar";
   return "none";
+}
+
+/** Un número de trigramas estimado que una página real puede tener (tope de palabras por página + margen del estimador). */
+function plausibleSetSize(size: number): boolean {
+  return Number.isFinite(size) && size >= 1 && size <= MAX_WORDS_PER_PAGE * 1.5;
+}
+
+/**
+ * ¿El texto de la plantilla está contenido en el del documento, que trae mucho más (datos rellenados)? Se estima con los
+ * MinHash: |T∩D| = J·(|T|+|D|)/(1+J), con |T| y |D| sacados de los propios mínimos (`estimateSetSize`). Exige un Jaccard
+ * mínimo (si no, el estimador es ruido), que el documento sea al menos `containedMinGrowth` veces mayor (si tienen el
+ * mismo tamaño y comparten el 90 %, es una sustitución de texto, no un añadido: se queda con su Jaccard) y que el 90 % de
+ * la plantilla esté en él. Medido: plantilla contenida → cobertura estimada 0,90-1,00 (mediana 0,97); contratos distintos
+ * con cláusulas comunes → máx. 0,63.
+ */
+export function rescuedByContainment(doc: readonly number[], template: readonly number[], jaccard: number): boolean {
+  if (jaccard < MATCH_THRESHOLDS.containedMinJaccard || jaccard >= MATCH_THRESHOLDS.containedSimilarity) return false;
+  const docSize = estimateSetSize(doc);
+  const templateSize = estimateSetSize(template);
+  // Una firma que no parece de una página real (valores de prueba, datos dañados) no sirve para estimar tamaños.
+  if (!plausibleSetSize(docSize) || !plausibleSetSize(templateSize)) return false;
+  if (docSize < templateSize * MATCH_THRESHOLDS.containedMinGrowth) return false;
+  const shared = (jaccard * (templateSize + docSize)) / (1 + jaccard);
+  return shared / templateSize >= MATCH_THRESHOLDS.containedMinCoverage;
 }
 
 /** Similitud de dos páginas (sin mirar tamaños). Texto con texto, imagen con imagen; lo demás no se compara. */
@@ -72,6 +100,10 @@ export function comparePages(doc: PageFingerprint | undefined, template: PageFin
   if (docText && templateText) {
     if (doc.textHash === template.textHash) return { similarity: 1, level: "exact", kind: "text", identical: true };
     const similarity = estimateJaccard(doc.minhash, template.minhash);
+    if (rescuedByContainment(doc.minhash, template.minhash, similarity)) {
+      const lifted = MATCH_THRESHOLDS.containedSimilarity;
+      return { similarity: lifted, level: levelOf(lifted), kind: "text", identical: false, contained: true };
+    }
     return { similarity, level: levelOf(similarity), kind: "text", identical: false };
   }
   if (!docText && !templateText && doc.dhash !== undefined && template.dhash !== undefined) {
@@ -192,6 +224,7 @@ export function compareFingerprints(doc: Fingerprint, template: Fingerprint): Ma
       kind: result.kind,
       identical: result.identical,
       review: result.level === "similar" || result.level === "none",
+      ...(result.contained ? { contained: true as const } : {}),
     };
   });
 

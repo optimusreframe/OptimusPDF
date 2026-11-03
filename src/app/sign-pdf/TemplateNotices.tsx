@@ -1,23 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Spinner } from "@/components/ui/Spinner";
 import { hasLoss, undoWork, variantSupport, type PendingField } from "@/app/sign-pdf/templateSession";
 import type { SignSession } from "@/app/sign-pdf/signSession";
-import type { DocNotice, PendingChange, TemplateController } from "@/app/sign-pdf/useTemplateController";
+import type { DocNotice, LibraryOffer, PendingChange, TemplateController } from "@/app/sign-pdf/useTemplateController";
 import type { SignStrings } from "@/app/sign-pdf/strings";
 import type { Signer } from "@/lib/pdf/sign";
 import type { DocId } from "@/app/sign-pdf/docSet";
+import { useOptionalLanguage } from "@/lib/i18n";
+import { libraryTemplateStrings } from "@/app/sign-pdf/libraryTemplateStrings";
 
 /*
  * Los avisos de la aplicacion automatica (Fase 2 · U2.4), encima del flujo de Firmar:
  *   - «Plantilla «X» aplicada · Deshacer» (con el cambio de 1 a 2 firmantes y las paginas a revisar);
  *   - «Parece la plantilla X (85 %) · Usar / No»;
  *   - «Detectamos N campos automaticamente · Revisar / Deshacer» y el panel «Sugerencias (M)»;
- *   - la oferta «¿Guardar como plantilla para la proxima vez?» (en la pantalla final, `SaveTemplateOffer`).
+ *   - la oferta «¿Guardar como plantilla para la proxima vez?» (en la pantalla final, `SaveTemplateOffer`);
+ *   - (W3-A2) «Hay N plantillas en Mis documentos · Elegir» cuando al cargar un PDF no se aplico ninguna, y la lista de paginas que
+ *     una plantilla elegida a mano coloco por posicion sin que la comparacion las avale (`FlaggedPanel`).
  * Nada de lo que la persona aporto se pierde en silencio: cambiar el nº de firmantes cuando se quitarian firmas, un nombre
  * escrito o valores pide confirmacion (`ChangeConfirm`), y «Deshacer» solo se ofrece mientras no haya trabajo suyo que
  * pudiera arrastrar (el aviso queda informativo).
@@ -35,6 +40,8 @@ export type TemplateNoticesProps = {
   onReview: (docId: DocId) => void;
   onGoToPage: (docId: DocId, pageIndex: number) => void;
   onGoSign: (docId: DocId) => void;
+  /** Abre la hoja «Plantillas» sobre ese documento. Sin ella no se pintan los avisos «Hay N plantillas…» (no tendrian a donde llevar). */
+  onChooseTemplate?: (docId: DocId) => void;
 };
 
 function kindLabel(item: PendingField, t: SignStrings["template"]["notices"], signers: readonly Signer[]): string {
@@ -96,6 +103,35 @@ function PendingPanel({ notice, controller, strings, signers, onGoToPage }: { no
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Una plantilla elegida a mano con «todas las paginas, por posicion»: lista las paginas donde quedaron campos que la comparacion no
+ * avala, para ir a mirarlas. Siempre visible (no plegado): son campos de firma puestos sin que el PDF los confirme.
+ */
+function FlaggedPanel({ pages, onGoToPage }: { pages: readonly number[]; onGoToPage: (page: number) => void }) {
+  const t = libraryTemplateStrings(useOptionalLanguage());
+  if (pages.length === 0) return null;
+  return (
+    <div className="mt-3 border-t border-white/10 pt-3" data-template-flagged="">
+      <p className="flex items-start gap-2 text-footnote leading-relaxed text-foreground">
+        <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-signal-text" />
+        <span className="min-w-0 [overflow-wrap:anywhere]">
+          <span className="block font-semibold">{t.flaggedTitle(pages)}</span>
+          <span className="block text-muted-foreground">{t.flaggedBody}</span>
+        </span>
+      </p>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {pages.map((page) => (
+          <li key={page}>
+            <Button variant="ghost" size="md" onClick={() => onGoToPage(page)}>
+              {t.goToPage(page + 1)}
+            </Button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -199,6 +235,7 @@ function NoticeCard({ notice, controller, strings, signers, session, multi, onRe
           </Button>
         ) : null}
       </div>
+      <FlaggedPanel pages={record.flaggedPages ?? []} onGoToPage={(page) => onGoToPage(notice.docId, page)} />
       <CapPanel notice={notice} strings={strings} onGoToPage={(page) => onGoToPage(notice.docId, page)} />
       <PendingPanel notice={notice} controller={controller} strings={strings} signers={signers} onGoToPage={(page) => onGoToPage(notice.docId, page)} />
     </div>
@@ -233,6 +270,28 @@ function ChangeConfirm({ notice, controller, strings }: { notice: DocNotice; con
   );
 }
 
+/** «Hay N plantillas en Mis documentos · Elegir»: no bloquea nada ni toca el documento; «Elegir» abre la hoja «Plantillas». */
+function LibraryOfferCard({ offer, controller, multi, onChoose }: { offer: LibraryOffer; controller: TemplateController; multi: boolean; onChoose: (docId: DocId) => void }) {
+  const t = libraryTemplateStrings(useOptionalLanguage());
+  return (
+    <div className="mb-6 rounded-ios-sm border border-white/14 bg-elevated px-3.5 py-3" data-template-library-offer={offer.docId}>
+      <p className="text-subheadline font-semibold text-foreground [overflow-wrap:anywhere]">
+        {multi ? `${offer.name}: ` : ""}
+        {t.offerTitle(offer.count)}
+      </p>
+      <p className="mt-1 text-footnote text-muted-foreground">{t.offerBody}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button size="md" wrap onClick={() => onChoose(offer.docId)}>
+          {t.offerChoose}
+        </Button>
+        <Button variant="secondary" size="md" wrap onClick={() => controller.dismissLibraryOffer?.(offer.docId)}>
+          {t.offerDismiss}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Cuanto tarda en aparecer «Buscando campos…»: casi todos los PDF se mapean antes y no deben mover nada bajo el dedo. */
 export const PROGRESS_DELAY_MS = 800;
 
@@ -252,7 +311,7 @@ function AutomapProgress({ label }: { label: string }) {
   );
 }
 
-export function TemplateNotices({ controller, strings, signers, session, multi, onReview, onGoToPage, onGoSign }: TemplateNoticesProps) {
+export function TemplateNotices({ controller, strings, signers, session, multi, onReview, onGoToPage, onGoSign, onChooseTemplate }: TemplateNoticesProps) {
   const visible = controller.notices.filter((notice) => notice.phase !== "applied" || notice.record !== null || notice.confirm !== null);
   // `contents`: el contenedor no genera caja. Sin avisos NO ocupa nada en el apilado de la herramienta (un contenedor vacio le
   // sumaba su separacion y movia lo de debajo); cada aviso lleva su propio margen y el de progreso ni existe hasta que hace falta.
@@ -267,6 +326,9 @@ export function TemplateNotices({ controller, strings, signers, session, multi, 
       {visible.map((notice) => (
         <ChangeConfirm key={`${notice.docId}-confirm`} notice={notice} controller={controller} strings={strings} />
       ))}
+      {onChooseTemplate
+        ? (controller.offers ?? []).map((offer) => <LibraryOfferCard key={`${offer.docId}-library-offer`} offer={offer} controller={controller} multi={multi} onChoose={onChooseTemplate} />)
+        : null}
     </div>
   );
 }

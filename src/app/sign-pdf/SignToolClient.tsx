@@ -994,6 +994,7 @@ export function SignToolClient() {
   /* --- Plantillas de documento (Fase 2 · U2.3 y U2.4) --- */
   const autoApplyTemplates = useSignPdfFeatureFlag("autoApplyTemplates");
   const autoDetectFields = useSignPdfFeatureFlag("autoDetectFields");
+  const reusableTemplatesEnabled = useSignPdfFeatureFlag("reusableTemplates");
   const [templateEntryNotice, setTemplateEntryNotice] = useState<string | null>(null);
   /** Archivos cuya plantilla de «Mis documentos» esta desactualizada y no se aplico: se acumulan TODOS (no gana el ultimo). */
   const [staleSkippedNames, setStaleSkippedNames] = useState<string[]>([]);
@@ -1010,6 +1011,8 @@ export function SignToolClient() {
     strings,
     applyEnabled: autoApplyTemplates,
     detectEnabled: autoDetectFields,
+    // «Hay N plantillas en Mis documentos · Elegir» solo tiene sentido si la hoja «Plantillas» esta disponible.
+    offerEnabled: reusableTemplatesEnabled,
     onStaleSkipped,
   });
   const entryNoticeText = [templateEntryNotice, ...staleSkippedNames.map((name) => strings.template.entry.staleSkipped(name))].filter(Boolean).join(" ");
@@ -1108,7 +1111,6 @@ export function SignToolClient() {
   }, []);
 
   const importInputRef = useRef<HTMLInputElement>(null);
-  const reusableTemplatesEnabled = useSignPdfFeatureFlag("reusableTemplates");
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [templateName, setTemplateName] = useState("");
@@ -1582,6 +1584,8 @@ export function SignToolClient() {
         const signers = keepReusedNames(instantiated.signers, reuse, collectedSignerIds(held.blocks));
         const kept = projectCaptures(held.blocks, docIdOf(file));
         setOptions({
+          // La hoja tambien se abre desde el aviso «Hay N plantillas…» (en «Solo yo»): aplicar una plantilla es trabajar con firmantes.
+          mode: "multi",
           signers,
           fields: instantiated.fields,
           textFields: instantiated.textFields,
@@ -1668,6 +1672,7 @@ export function SignToolClient() {
           const signers = keepReusedNames(instantiated.signers, reuse, collectedSignerIds(current.blocks));
           const alive = new Set(signers.map((signer) => signer.id));
           return {
+            mode: "multi" as const,
             signers,
             docs: nextDocs,
             // Los firmantes que ya recogieron algo se quedan con sus bloques; los nuevos empiezan vacios.
@@ -1983,82 +1988,11 @@ export function SignToolClient() {
                   </Button>
                 ) : null}
 
-                <TemplatesSheet
-                  open={templatesOpen}
-                  onClose={() => setTemplatesOpen(false)}
-                  onApply={(template) => {
-                    const hasExisting =
-                      options.signers.length > 0 ||
-                      options.fields.length > 0 ||
-                      options.textFields.length > 0;
-                    if (!activeFile) return;
-                    if (hasExisting) {
-                      setPendingApplyTemplate(template);
-                    } else {
-                      void performApplyTemplate(template, activeFile, (patch) =>
-                        bridge.setView(active.docId, patch),
-                      );
-                    }
-                  }}
-                  onApplyAll={
-                    files.length > 1
-                      ? (template) => {
-                          const hasExisting =
-                            session.signers.length > 0 ||
-                            files.some((item) => {
-                              const state = docStateOf(session.docs, docIdOf(item));
-                              return (
-                                liveFields(state, session.signers).length > 0 ||
-                                state.textFields.length > 0
-                              );
-                            });
-                          if (hasExisting) setPendingApplyAll(template);
-                          else void performApplyTemplateToAll(template, files);
-                        }
-                      : undefined
-                  }
-                  strings={strings}
-                />
-
-                <ConfirmSheet
-                  open={pendingApplyAll !== null}
-                  onClose={() => setPendingApplyAll(null)}
-                  onConfirm={() => {
-                    if (pendingApplyAll) {
-                      void performApplyTemplateToAll(pendingApplyAll, files);
-                    }
-                  }}
-                  title={strings.applyTemplateConfirmTitle}
-                  body={strings.applyTemplateAllConfirmBody}
-                  confirmLabel={strings.templatesApplyAll}
-                  cancelLabel={strings.confirmCancel}
-                  closeLabel={strings.confirmClose}
-                />
-
                 {templateFeedback && !saveTemplateOpen ? (
                   <p role="status" className="text-footnote leading-relaxed text-muted-foreground">
                     {templateFeedback}
                   </p>
                 ) : null}
-
-                <ConfirmSheet
-                  open={pendingApplyTemplate !== null}
-                  onClose={() => setPendingApplyTemplate(null)}
-                  onConfirm={() => {
-                    if (pendingApplyTemplate && activeFile) {
-                      void performApplyTemplate(
-                        pendingApplyTemplate,
-                        activeFile,
-                        (patch) => bridge.setView(active.docId, patch),
-                      );
-                    }
-                  }}
-                  title={strings.applyTemplateConfirmTitle}
-                  body={strings.applyTemplateConfirmBody}
-                  confirmLabel={strings.applyTemplateConfirm}
-                  cancelLabel={strings.confirmCancel}
-                  closeLabel={strings.confirmClose}
-                />
 
                 <Sheet
                   open={saveTemplateOpen}
@@ -2424,7 +2358,85 @@ export function SignToolClient() {
                 docs: { ...current.docs, [id]: { ...docStateOf(current.docs, id), fieldPageIndex: page } },
               }))
             }
+            onChooseTemplate={
+              reusableTemplatesEnabled
+                ? (id) => {
+                    // «Hay N plantillas en Mis documentos · Elegir»: la hoja trabaja sobre el documento activo, asi que se activa ese.
+                    setTemplateFeedback(null);
+                    bridge.commit(() => ({ activeDocId: id }));
+                    setTemplatesOpen(true);
+                  }
+                : undefined
+            }
           />
+          {reusableTemplatesEnabled ? (
+            <>
+              <TemplatesSheet
+                open={templatesOpen}
+                onClose={() => setTemplatesOpen(false)}
+                onApply={(template) => {
+                  const hasExisting = options.signers.length > 0 || options.fields.length > 0 || options.textFields.length > 0;
+                  if (hasExisting) {
+                    setPendingApplyTemplate(template);
+                  } else {
+                    void performApplyTemplate(template, file, setOptions);
+                  }
+                }}
+                onApplyAll={
+                  files.length > 1
+                    ? (template) => {
+                        const hasExisting =
+                          hostSession.signers.length > 0 ||
+                          files.some((item) => {
+                            const state = docStateOf(hostSession.docs, docIdOf(item));
+                            return liveFields(state, hostSession.signers).length > 0 || state.textFields.length > 0;
+                          });
+                        if (hasExisting) setPendingApplyAll(template);
+                        else void performApplyTemplateToAll(template, files);
+                      }
+                    : undefined
+                }
+                strings={strings}
+                library={{
+                  file,
+                  docId,
+                  docIds: docIdsOf(files),
+                  // Lo que una plantilla reemplazaria: huecos de firma y campos de texto puestos a mano (no los de la deteccion automatica).
+                  existingFields: options.fields.length + options.textFields.filter((field) => field.source === "manual").length,
+                  signerCount: hostSession.signers.length,
+                  apply: templates.applyChosen,
+                }}
+              />
+              <ConfirmSheet
+                open={pendingApplyAll !== null}
+                onClose={() => setPendingApplyAll(null)}
+                onConfirm={() => {
+                  if (pendingApplyAll) {
+                    void performApplyTemplateToAll(pendingApplyAll, files);
+                  }
+                }}
+                title={strings.applyTemplateConfirmTitle}
+                body={strings.applyTemplateAllConfirmBody}
+                confirmLabel={strings.templatesApplyAll}
+                cancelLabel={strings.confirmCancel}
+                closeLabel={strings.confirmClose}
+              />
+              <ConfirmSheet
+                open={pendingApplyTemplate !== null}
+                onClose={() => setPendingApplyTemplate(null)}
+                onConfirm={() => {
+                  if (pendingApplyTemplate) {
+                    void performApplyTemplate(pendingApplyTemplate, file, setOptions);
+                  }
+                }}
+                title={strings.applyTemplateConfirmTitle}
+                body={strings.applyTemplateConfirmBody}
+                confirmLabel={strings.applyTemplateConfirm}
+                cancelLabel={strings.confirmCancel}
+                closeLabel={strings.confirmClose}
+              />
+            </>
+          ) : null}
 
           {nav}
 
