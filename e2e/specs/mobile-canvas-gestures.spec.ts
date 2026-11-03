@@ -21,8 +21,12 @@ import {
  * M3 · Lienzo compartido en el telefono y el iPad (GE-01, GE-06 de `docs/AUDITORIA-MOVIL-IPAD.md`).
  *
  * Gestos de dedo REALES (`Input.dispatchTouchEvent`, solo Chromium con perfil iOS; en WebKit no hay canal de tacto):
- *  - GE-01: con una herramienta armada, o con zoom, el dedo sobre la hoja NO debe quedarse sin desplazar la pagina
- *    (`touch-action: none` en todo el lienzo era una trampa de scroll). Un toque sigue colocando el elemento.
+ *  - GE-01: con una herramienta armada el dedo no debe quedarse sin poder mover la pagina (`touch-action: none` en todo el
+ *    lienzo era una trampa de scroll). W3-A3 lo resuelve en DOS modos (`docs/PLAN-FIRMA-AGIL.md`, «W3-A3», y `src/lib/touch/README.md`):
+ *      · por defecto («Un dedo dibuja» encendido, preferencia `optimuspdf.sign.fingerDraw`): UN dedo dibuja de inmediato (la hoja es
+ *        `touch-none`), un arrastre largo y vertical de un dedo no crea nada y recuerda la pista, y DOS dedos mueven la pagina;
+ *      · con «Un dedo dibuja» apagado (`"0"` en localStorage o el interruptor): un dedo que desliza desplaza la pagina y no crea nada
+ *        (toque = colocar, mantener ~260 ms y arrastrar = dibujar).
  *  - Pellizco propio: acerca la hoja alrededor del punto central de los dedos, sin zoom de pagina.
  *  - GE-06: arrastrar un elemento hacia el borde desplaza (por TIEMPO, no por fotograma) y el pan con zoom llega a
  *    toda la hoja (no a +-400 px).
@@ -34,13 +38,42 @@ test.setTimeout(180_000);
 
 type Session = { page: Page; cdp: CDPSession; close: () => Promise<void> };
 
+/** Preferencia «Un dedo dibuja» (W3-A3): ausente o distinta de `"0"` = encendida; `"0"` = apagada. */
+const FINGER_DRAW_KEY = "optimuspdf.sign.fingerDraw";
+/** La pista de la primera vez («Un dedo dibuja · dos dedos mueven la pagina») ya se vio: no sale al armar la herramienta. */
+const FINGER_HINT_KEY = "optimuspdf.sign.fingerDrawHint";
+
+type PrefOptions = {
+  /** `false` deja «Un dedo dibuja» apagado desde el principio (como si la persona lo hubiera apagado antes). */
+  fingerDraw?: boolean;
+  /** `true` da por vista la pista de la primera vez (para poder comprobar que un arrastre vertical la recuerda). */
+  hintSeen?: boolean;
+};
+
+/** Escribe las preferencias en localStorage antes de que cargue la pagina (con try/catch: sin almacenamiento no pasa nada). */
+async function applyPrefs(context: Awaited<ReturnType<typeof newTouchContext>>, prefs: PrefOptions): Promise<void> {
+  await context.addInitScript(
+    ([drawKey, hintKey, fingerDraw, hintSeen]) => {
+      try {
+        if (fingerDraw === false) window.localStorage.setItem(drawKey as string, "0");
+        if (hintSeen === true) window.localStorage.setItem(hintKey as string, "1");
+      } catch {
+        /* sin almacenamiento */
+      }
+    },
+    [FINGER_DRAW_KEY, FINGER_HINT_KEY, prefs.fingerDraw, prefs.hintSeen] as const,
+  );
+}
+
 async function openSession(
   browser: Parameters<typeof newTouchContext>[0],
   device: DeviceName,
   pages = 2,
   size?: readonly [number, number],
+  prefs: PrefOptions = {},
 ): Promise<Session> {
   const context = await newTouchContext(browser, device);
+  await applyPrefs(context, prefs);
   const page = await context.newPage();
   const cdp = await cdpOf(page);
   await openSoloCanvasWithSignature(page, cdp, pages, size);
@@ -66,13 +99,26 @@ async function hostTransform(page: Page): Promise<{ x: number; y: number; scale:
 
 const zoomIn = (page: Page) => page.getByRole("button", { name: /^Acercar$|^Zoom in$/ }).click();
 
-test.describe("GE-01 · el dedo desplaza la pagina aunque haya herramienta o zoom", () => {
+/** Campos de texto colocados (el contenedor movible de cada uno). */
+const TEXT_FIELDS = '[data-element-kind="text"][data-drag-mode="move"]';
+const FINGER_SWITCH = "[data-finger-draw-toggle]";
+const FINGER_HINT = "[data-finger-hint]";
+
+/** Lleva la hoja al centro de la pantalla: asi un arrastre vertical corto queda lejos de las zonas de borde (auto-desplazamiento). */
+async function centerSheet(page: Page): Promise<void> {
+  await host(page).evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await page.waitForTimeout(350);
+}
+
+test.describe("GE-01 · gestos de un dedo y de dos con una herramienta armada (por defecto un dedo dibuja; apagado, desplaza)", () => {
   test.skip(({ browserName }) => browserName !== "chromium", "El tacto por CDP solo existe en Chromium");
 
-  test("con «Texto» armada, deslizar sobre la hoja desplaza la pagina y no crea nada", async ({ browser }) => {
-    const { page, cdp, close } = await openSession(browser, "iphone15");
+  test("con «Un dedo dibuja» apagado y «Texto» armada, deslizar sobre la hoja desplaza la pagina y no crea nada", async ({ browser }) => {
+    const { page, cdp, close } = await openSession(browser, "iphone15", 2, undefined, { fingerDraw: false });
     try {
       await pickTool(page, /^Texto$|^Text$/);
+      // La preferencia apagada se leyo: el interruptor lo dice y la hoja deja pasar el desplazamiento del dedo.
+      await expect(page.locator(FINGER_SWITCH)).toHaveAttribute("aria-checked", "false");
       const sheet = await boxOf(host(page));
       const before = await scrollY(page);
       const x = sheet.x + sheet.width * 0.5;
@@ -82,35 +128,141 @@ test.describe("GE-01 · el dedo desplaza la pagina aunque haya herramienta o zoo
       await page.waitForTimeout(500);
       expect((await scrollY(page)) - before).toBeGreaterThan(120);
       // Deslizar no es colocar: no hay campos nuevos y la herramienta sigue armada.
-      await expect(page.locator('[data-element-kind="text"][data-drag-mode="move"]')).toHaveCount(0);
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(0);
       await expect(host(page)).toHaveAttribute("data-tool", "text");
     } finally {
       await close();
     }
   });
 
-  test("con «Texto» armada, un toque sigue colocando el campo", async ({ browser }) => {
+  test("por defecto, con «Texto» armada, un dedo que arrastra sobre la hoja crea el campo y la pagina no se desplaza", async ({ browser }) => {
     const { page, cdp, close } = await openSession(browser, "iphone15");
     try {
       await pickTool(page, /^Texto$|^Text$/);
-      await touchTap(cdp, await sheetPoint(page, 0.4, 0.3));
-      await expect(page.locator('[data-element-kind="text"][data-drag-mode="move"]')).toHaveCount(1);
+      // Por defecto «Un dedo dibuja» esta encendido y la hoja no cede el gesto al navegador.
+      await expect(page.locator(FINGER_SWITCH)).toHaveAttribute("aria-checked", "true");
+      await expect(host(page)).toHaveCSS("touch-action", "none");
+      await centerSheet(page);
+      const from = await sheetPoint(page, 0.2, 0.4);
+      const before = await scrollY(page);
+      // Sin esperar quieto: el dedo dibuja de inmediato (a diferencia del modo apagado). El dedo sigue apoyado 600 ms para medir
+      // la pagina MIENTRAS dibuja (al soltar, el campo nuevo se abre para escribir y el navegador puede acercarlo a la vista).
+      const drag = touchDrag(cdp, from, { x: from.x + 150, y: from.y + 50 }, { steps: 10, stepMs: 14, endHoldMs: 600 });
+      await page.waitForTimeout(10 * 14 + 300);
+      const during = await scrollY(page);
+      await drag;
+      const field = page.locator(TEXT_FIELDS).first();
+      await expect(field).toBeVisible();
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(1);
+      const box = await boxOf(field);
+      expect(box.width).toBeGreaterThan(110);
+      expect(box.width).toBeLessThan(190);
+      // La pagina no se movio con el dedo y la herramienta sigue armada para el siguiente campo.
+      expect(Math.abs(during - before), "la pagina no se desplazo mientras el dedo dibujaba").toBeLessThan(10);
+      await expect(host(page)).toHaveAttribute("data-tool", "text");
     } finally {
       await close();
     }
   });
 
-  test("con la herramienta armada, mantener y arrastrar dibuja un campo del tamano elegido", async ({ browser }) => {
+  test("por defecto, un arrastre largo y vertical de un dedo no crea nada, no desplaza y recuerda la pista", async ({ browser }) => {
+    // La pista de la primera vez ya se vio: al armar «Texto» no hay pista y el arrastre vertical es lo que la devuelve.
+    const { page, cdp, close } = await openSession(browser, "iphone15", 2, undefined, { hintSeen: true });
+    try {
+      await pickTool(page, /^Texto$|^Text$/);
+      await expect(page.locator(FINGER_HINT)).toHaveCount(0);
+      await centerSheet(page);
+      // Al margen derecho de la hoja: la firma colocada (centro-abajo) captura su propio dedo y no es la hoja.
+      const from = await sheetPoint(page, 0.85, 0.7);
+      const before = await scrollY(page);
+      await touchDrag(cdp, from, { x: from.x, y: from.y - 140 }, { steps: 10, stepMs: 12 });
+      await page.waitForTimeout(400);
+      // Desplazar con un dedo es el habito, no un campo estrecho y alto: nada creado, la pagina donde estaba y la pista de vuelta.
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(0);
+      expect(Math.abs((await scrollY(page)) - before)).toBeLessThan(10);
+      await expect(page.locator(FINGER_HINT)).toBeVisible();
+      await expect(host(page)).toHaveAttribute("data-tool", "text");
+    } finally {
+      await close();
+    }
+  });
+
+  test("por defecto, con «Texto» armada, dos dedos arrastrando desplazan la pagina y no crean nada ni cambian el zoom", async ({ browser }) => {
     const { page, cdp, close } = await openSession(browser, "iphone15");
     try {
       await pickTool(page, /^Texto$|^Text$/);
-      const from = await sheetPoint(page, 0.2, 0.25);
-      await touchDrag(cdp, from, { x: from.x + 150, y: from.y + 50 }, { holdMs: 450, steps: 10, stepMs: 14 });
-      const field = page.locator('[data-element-kind="text"][data-drag-mode="move"]').first();
-      await expect(field).toBeVisible();
-      const box = await boxOf(field);
-      expect(box.width).toBeGreaterThan(110);
-      expect(box.width).toBeLessThan(190);
+      await centerSheet(page);
+      // Sobre el texto de la hoja, por encima de la firma colocada.
+      const center = await sheetPoint(page, 0.5, 0.4);
+      const before = await scrollY(page);
+      // Misma separacion de dedos todo el gesto (sin pellizco): los dos suben 200 px.
+      await touchPinch(cdp, center, 120, 120, { steps: 12, stepMs: 14, drift: { x: 0, y: -200 } });
+      await page.waitForTimeout(500);
+      expect((await scrollY(page)) - before).toBeGreaterThan(100);
+      expect(await zoomPercent(page)).toBe(100);
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(0);
+      await expect(host(page)).toHaveAttribute("data-tool", "text");
+    } finally {
+      await close();
+    }
+  });
+
+  for (const fingerDraw of [true, false]) {
+    test(`con «Texto» armada y «Un dedo dibuja» ${fingerDraw ? "encendido" : "apagado"}, un toque sigue colocando el campo`, async ({ browser }) => {
+      const { page, cdp, close } = await openSession(browser, "iphone15", 2, undefined, { fingerDraw });
+      try {
+        await pickTool(page, /^Texto$|^Text$/);
+        await touchTap(cdp, await sheetPoint(page, 0.4, 0.3));
+        await expect(page.locator(TEXT_FIELDS)).toHaveCount(1);
+      } finally {
+        await close();
+      }
+    });
+  }
+
+  for (const fingerDraw of [true, false]) {
+    test(`con la herramienta armada y «Un dedo dibuja» ${fingerDraw ? "encendido" : "apagado"}, mantener y arrastrar dibuja un campo del tamano elegido`, async ({
+      browser,
+    }) => {
+      const { page, cdp, close } = await openSession(browser, "iphone15", 2, undefined, { fingerDraw });
+      try {
+        await pickTool(page, /^Texto$|^Text$/);
+        const from = await sheetPoint(page, 0.2, 0.25);
+        await touchDrag(cdp, from, { x: from.x + 150, y: from.y + 50 }, { holdMs: 450, steps: 10, stepMs: 14 });
+        const field = page.locator(TEXT_FIELDS).first();
+        await expect(field).toBeVisible();
+        const box = await boxOf(field);
+        expect(box.width).toBeGreaterThan(110);
+        expect(box.width).toBeLessThan(190);
+      } finally {
+        await close();
+      }
+    });
+  }
+
+  test("el interruptor «Un dedo dibuja» cambia entre los dos modos y se recuerda", async ({ browser }) => {
+    const { page, cdp, close } = await openSession(browser, "iphone15");
+    try {
+      await pickTool(page, /^Texto$|^Text$/);
+      const toggle = page.locator(FINGER_SWITCH);
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
+      await toggle.scrollIntoViewIfNeeded();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(await page.evaluate((key) => window.localStorage.getItem(key), FINGER_DRAW_KEY)).toBe("0");
+      // Apagado, un dedo que desliza desplaza la pagina (el modo de siempre).
+      await centerSheet(page);
+      const from = await sheetPoint(page, 0.85, 0.7);
+      const before = await scrollY(page);
+      await touchDrag(cdp, from, { x: from.x, y: from.y - 160 }, { steps: 10, stepMs: 12 });
+      await page.waitForTimeout(500);
+      expect((await scrollY(page)) - before).toBeGreaterThan(80);
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(0);
+      // Encendido otra vez: queda guardado y el dedo vuelve a dibujar.
+      await toggle.scrollIntoViewIfNeeded();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
+      expect(await page.evaluate((key) => window.localStorage.getItem(key), FINGER_DRAW_KEY)).toBe("1");
     } finally {
       await close();
     }
@@ -337,34 +489,77 @@ test.describe("API del lienzo: «ver este hueco» (scrollIntoViewRect)", () => {
 test.describe("PDF Pro · Firmar usa el mismo lienzo", () => {
   test.skip(({ browserName }) => browserName !== "chromium", "El tacto por CDP solo existe en Chromium");
 
-  test("con «Texto» armada, un dedo sobre la hoja desplaza la region de la hoja y no crea nada", async ({ browser }) => {
+  /** Abre PDF Pro con un PDF alto, entra en Firmar y arma «Texto». La region que se desplaza es la de la hoja (no la pagina). */
+  async function openProSign(browser: Parameters<typeof newTouchContext>[0], prefs: PrefOptions = {}) {
     const context = await newTouchContext(browser, "iphone15");
+    await applyPrefs(context, prefs);
     const page = await context.newPage();
+    const cdp = await cdpOf(page);
+    await page.goto("/pdf-pro");
+    await page
+      .locator('input[type="file"]')
+      .first()
+      .setInputFiles({ name: "informe.pdf", mimeType: "application/pdf", buffer: await makeA4Pdf("PRO", 3, [595, 1700]) });
+    await page.locator('[data-dock="sign"]').click();
+    await host(page).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    const region = () =>
+      page.evaluate(() => {
+        for (let node: Element | null = document.querySelector('[data-canvas="host"]'); node; node = node.parentElement) {
+          if (getComputedStyle(node).overflowY === "auto" && node.scrollHeight > node.clientHeight) return Math.round(node.scrollTop);
+        }
+        return -1;
+      });
+    await pickTool(page, /^Texto$|^Text$/);
+    return { context, page, cdp, region };
+  }
+
+  test("con «Un dedo dibuja» apagado y «Texto» armada, un dedo sobre la hoja desplaza la region de la hoja y no crea nada", async ({ browser }) => {
+    const { context, page, cdp, region } = await openProSign(browser, { fingerDraw: false });
     try {
-      const cdp = await cdpOf(page);
-      await page.goto("/pdf-pro");
-      await page
-        .locator('input[type="file"]')
-        .first()
-        .setInputFiles({ name: "informe.pdf", mimeType: "application/pdf", buffer: await makeA4Pdf("PRO", 3, [595, 1700]) });
-      await page.locator('[data-dock="sign"]').click();
-      await host(page).scrollIntoViewIfNeeded();
-      await page.waitForTimeout(500);
-      const region = () =>
-        page.evaluate(() => {
-          for (let node: Element | null = document.querySelector('[data-canvas="host"]'); node; node = node.parentElement) {
-            if (getComputedStyle(node).overflowY === "auto" && node.scrollHeight > node.clientHeight) return Math.round(node.scrollTop);
-          }
-          return -1;
-        });
-      await pickTool(page, /^Texto$|^Text$/);
+      await expect(page.locator(FINGER_SWITCH)).toHaveAttribute("aria-checked", "false");
       // Un punto de la hoja que SI se ve: la cabecera de Firmar (conmutadores y avisos) no se desplaza y ocupa la franja de arriba.
       const { x, y } = await sheetPoint(page, 0.5, 0.5);
       const before = await region();
       await touchDrag(cdp, { x, y }, { x, y: y - 220 }, { steps: 10, stepMs: 12 });
       await page.waitForTimeout(500);
       expect((await region()) - before).toBeGreaterThan(120);
-      await expect(page.locator('[data-element-kind="text"][data-drag-mode="move"]')).toHaveCount(0);
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("por defecto, con «Texto» armada, un dedo que arrastra sobre la hoja crea el campo y la region no se desplaza", async ({ browser }) => {
+    const { context, page, cdp, region } = await openProSign(browser);
+    try {
+      await expect(page.locator(FINGER_SWITCH)).toHaveAttribute("aria-checked", "true");
+      await expect(host(page)).toHaveCSS("touch-action", "none");
+      const from = await sheetPoint(page, 0.2, 0.5);
+      const before = await region();
+      // El dedo sigue apoyado 600 ms para medir la region MIENTRAS dibuja (al soltar el campo se abre para escribir).
+      const drag = touchDrag(cdp, from, { x: from.x + 150, y: from.y + 50 }, { steps: 10, stepMs: 14, endHoldMs: 600 });
+      await page.waitForTimeout(10 * 14 + 300);
+      const during = await region();
+      await drag;
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(1);
+      expect(Math.abs(during - before), "la region no se desplazo mientras el dedo dibujaba").toBeLessThan(10);
+      await expect(host(page)).toHaveAttribute("data-tool", "text");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("por defecto, con «Texto» armada, dos dedos arrastrando desplazan la region de la hoja y no crean nada", async ({ browser }) => {
+    const { context, page, cdp, region } = await openProSign(browser);
+    try {
+      const center = await sheetPoint(page, 0.5, 0.6);
+      const before = await region();
+      await touchPinch(cdp, center, 120, 120, { steps: 12, stepMs: 14, drift: { x: 0, y: -220 } });
+      await page.waitForTimeout(500);
+      expect((await region()) - before).toBeGreaterThan(100);
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(0);
+      await expect(host(page)).toHaveAttribute("data-tool", "text");
     } finally {
       await context.close();
     }

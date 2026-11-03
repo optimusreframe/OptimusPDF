@@ -97,7 +97,21 @@ async function runAxe(page: Page): Promise<Violation[]> {
     // «Continuar» queda pegado abajo (ER-02, auditoria movil/iPad) y flota sobre el contenido que se desplaza por debajo:
     // `target-size` lo cuenta como tapa de cualquier control que quede justo detras en el desplazamiento del momento. Se
     // oculta SOLO durante la medida (la propia pantalla, con el boton, la mide `mobile-sign-a11y.spec.ts`).
-    const floating = [...document.querySelectorAll<HTMLElement>("[data-step-actions]")];
+    // Lo mismo vale para las capas fijas o pegajosas FUERA de <main> (cabecera global, barra de pestañas, «Opciones/Procesar»):
+    // axe solo audita <main>, asi que ocultarlas no quita nada de lo medido, pero a 375 px, segun hasta donde haya quedado
+    // desplazada la pagina (320 px la deja con la primera fila de turnos a medias bajo la cabecera), «partially obscured» daba
+    // una violacion de `target-size` de «Bajar»/«Quitar» que dependia solo del scroll (reproducido barriendo el scroll de 40 en 40 px).
+    const main = document.querySelector("main");
+    const floating = [
+      ...document.querySelectorAll<HTMLElement>("[data-step-actions]"),
+      ...[...document.querySelectorAll<HTMLElement>("body *")].filter(
+        (element) =>
+          main !== null &&
+          !main.contains(element) &&
+          !element.contains(main) &&
+          ["fixed", "sticky"].includes(getComputedStyle(element).position),
+      ),
+    ];
     for (const element of floating) element.style.visibility = "hidden";
     let result: Awaited<ReturnType<typeof axe.run>>;
     try {

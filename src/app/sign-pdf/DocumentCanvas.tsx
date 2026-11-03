@@ -4050,8 +4050,14 @@ function DocumentCanvasInner({
     if (toolRef.current === "editText") onToolChange("select");
     editHost?.open(event.currentTarget);
   };
+  /*
+   * Dentro de PDF Pro (`compact`) la tarjeta destacada se come ~220 px antes de la hoja (en 393x852 la hoja visible pasaba de
+   * 320 a 96 px): ahi la entrada es un boton pequeno en la barra de zoom y paginas (como en escritorio), solo con icono en
+   * pantallas estrechas; la frase de ayuda y «Abrir asi siempre» siguen en la Ayuda del propio modo.
+   */
+  const entryInBar = compact && !merged && !sequence?.hidePager;
   const entry = editHost ? (
-    coarse && !merged ? (
+    coarse && !merged && !compact ? (
       <div className="space-y-2.5 rounded-ios-sm bg-signal/10 p-3" data-edit-entry-card="">
         <Button variant="primary" size="md" fullWidth wrap data-edit-entry="" onClick={openEditMode}>
           <Maximize2 aria-hidden="true" className="size-4" />
@@ -4066,9 +4072,15 @@ function DocumentCanvasInner({
         />
       </div>
     ) : (
-      <Button variant="secondary" size="sm" className={COARSE_TALL} data-edit-entry="" onClick={openEditMode}>
+      <Button
+        variant="secondary"
+        size="sm"
+        className={cn(COARSE_TALL, entryInBar && "max-sm:min-w-11 max-sm:px-2.5!")}
+        data-edit-entry=""
+        onClick={openEditMode}
+      >
         <Maximize2 aria-hidden="true" className="size-4" />
-        {editStrings.entryButton}
+        {entryInBar ? <span className="max-sm:sr-only">{editStrings.entryButton}</span> : editStrings.entryButton}
       </Button>
     )
   ) : null;
@@ -4527,7 +4539,7 @@ function DocumentCanvasInner({
         <div className={cn("surface-card rounded-ios space-y-3", compact ? "mb-2 p-2" : "mb-3 p-3")}>
           {signatureControls}
           {placeControl}
-          {entry}
+          {entryInBar ? null : entry}
         </div>
       )}
 
@@ -4561,6 +4573,10 @@ function DocumentCanvasInner({
             >
               {signatureControls}
               {placeControl}
+              {entry}
+            </div>
+          ) : entryInBar && entry ? (
+            <div data-canvas-entry="" className="flex min-w-0 flex-1 items-center justify-center px-1">
               {entry}
             </div>
           ) : null}

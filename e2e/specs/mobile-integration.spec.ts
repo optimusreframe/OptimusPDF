@@ -14,13 +14,15 @@ import {
   type MobileProfile,
 } from "../helpers/mobile-sign";
 import { noHorizontalOverflow, openProDoc, openTab, visibleSheetHeight } from "../helpers/mobile-pro";
-import { cdpOf, scrollY, sheetPoint, touchDrag, touchTap, unfoldPalette, visibleBand } from "../helpers/touch-gestures";
+import { cdpOf, scrollY, sheetPoint, touchDrag, touchPinch, touchTap, unfoldPalette, visibleBand } from "../helpers/touch-gestures";
 
 /**
  * M4 · Integracion de las tres partes (lienzo compartido M3, PDF Pro M2, Firmar M1) en telefono e iPad.
  *  - Firmar DENTRO de PDF Pro (modo hospedado): la hoja se ve (antes 0-16 px a 375 y 393 px de ancho) y la paleta pliega.
  *  - El dock plegable de la paleta y «Continuar» pegado abajo no tapan la barra flotante del campo ni su tirador.
- *  - El dedo sigue desplazando la pagina con una herramienta armada, con la paleta plegada Y con ella abierta.
+ *  - Con una herramienta armada, con la paleta plegada Y con ella abierta, el dedo hace lo que dicen los dos modos de W3-A3:
+ *    por defecto («Un dedo dibuja» encendido) un dedo dibuja y DOS dedos desplazan la pagina; con la preferencia apagada
+ *    (`optimuspdf.sign.fingerDraw` = "0") un dedo que desliza desplaza la pagina y no crea nada.
  *  - «Subir» / «Bajar» de la lista de archivos con separacion de dedo; la hoja «Opciones» no se queda sobre el editor.
  * Tactil, headless; PDF sinteticos. Los gestos de dedo por CDP son de Chromium; el resto corre tambien en `webkit-ipad`.
  */
@@ -184,31 +186,84 @@ for (const profile of [SE_375, IPHONE_393] as MobileProfile[]) {
 }
 
 /* ------------------------------------------------------------------ *
- * El dedo sigue desplazando con la herramienta armada: paleta plegada y paleta abierta
+ * Herramienta armada: paleta plegada y paleta abierta, en los dos modos de «Un dedo dibuja» (W3-A3)
  * ------------------------------------------------------------------ */
 
-test.describe("Firmar · el dedo desplaza con una herramienta armada · 393x852", () => {
+test.describe("Firmar · un dedo y dos dedos con una herramienta armada · 393x852", () => {
   test.use(IPHONE_393.use);
 
+  const TEXT_FIELDS = '[data-element-kind="text"][data-drag-mode="move"]';
+
+  /** Abre Firmar con un contrato de 3 hojas, arma «Texto» (y deja la paleta plegada o abierta) y pone la hoja en pantalla. */
+  async function armText(page: Page, open: boolean, options: { fingerDraw?: boolean } = {}): Promise<void> {
+    if (options.fingerDraw === false) {
+      // La preferencia «Un dedo dibuja» apagada desde el principio (`"0"`; ausente = encendida).
+      await page.addInitScript(() => {
+        try {
+          window.localStorage.setItem("optimuspdf.sign.fingerDraw", "0");
+        } catch {
+          /* sin almacenamiento */
+        }
+      });
+    }
+    await openSign(page, [pdfFile(await makeContract("Contrato", 3))]);
+    await waitSheetReady(page);
+    const toolbar = await openPalette(page);
+    await toolbar.getByRole("button", { name: "Texto", exact: true }).click();
+    if (open) await unfoldPalette(page);
+    expect(await page.getByRole("toolbar", { name: SG.paletteLabel }).isVisible()).toBe(open);
+    await page.evaluate(() => document.querySelector('[data-canvas="host"]')?.scrollIntoView({ block: "start" }));
+    await page.evaluate(() => window.scrollBy(0, -60));
+    await page.waitForTimeout(300);
+  }
+
   for (const open of [false, true]) {
-    test(`paleta ${open ? "ABIERTA" : "plegada"}: deslizar sobre la hoja desplaza la pagina y no crea nada`, async ({ page, browserName }) => {
+    const palette = open ? "ABIERTA" : "plegada";
+
+    test(`paleta ${palette}, con «Un dedo dibuja» apagado: deslizar sobre la hoja desplaza la pagina y no crea nada`, async ({ page, browserName }) => {
       test.skip(browserName !== "chromium", "el dedo se emula por CDP (Input.dispatchTouchEvent), solo Chromium");
-      await openSign(page, [pdfFile(await makeContract("Contrato", 3))]);
-      await waitSheetReady(page);
-      const toolbar = await openPalette(page);
-      await toolbar.getByRole("button", { name: "Texto", exact: true }).click();
-      if (open) await unfoldPalette(page);
-      expect(await page.getByRole("toolbar", { name: SG.paletteLabel }).isVisible()).toBe(open);
-      await page.evaluate(() => document.querySelector('[data-canvas="host"]')?.scrollIntoView({ block: "start" }));
-      await page.evaluate(() => window.scrollBy(0, -60));
-      await page.waitForTimeout(300);
+      await armText(page, open, { fingerDraw: false });
+      await expect(page.locator("[data-finger-draw-toggle]")).toHaveAttribute("aria-checked", "false");
       const cdp = await cdpOf(page);
       const from = await sheetPoint(page, 0.5, 0.35);
       const before = await scrollY(page);
       await touchDrag(cdp, from, { x: from.x, y: from.y - 160 }, { steps: 10, stepMs: 12 });
       await page.waitForTimeout(500);
       expect((await scrollY(page)) - before, "la pagina se desplazo con el dedo").toBeGreaterThan(80);
-      await expect(page.locator('[data-element-kind="text"][data-drag-mode="move"]')).toHaveCount(0);
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(0);
+      await expect(page.locator('[data-canvas="host"]').first()).toHaveAttribute("data-tool", "text");
+    });
+
+    test(`paleta ${palette}, por defecto: un dedo que arrastra sobre la hoja crea el campo y la pagina no se desplaza`, async ({ page, browserName }) => {
+      test.skip(browserName !== "chromium", "el dedo se emula por CDP (Input.dispatchTouchEvent), solo Chromium");
+      await armText(page, open);
+      await expect(page.locator("[data-finger-draw-toggle]")).toHaveAttribute("aria-checked", "true");
+      await expect(page.locator('[data-canvas="host"]').first()).toHaveCSS("touch-action", "none");
+      const cdp = await cdpOf(page);
+      const from = await sheetPoint(page, 0.2, 0.35);
+      const before = await scrollY(page);
+      // El dedo sigue apoyado 600 ms para medir la pagina MIENTRAS dibuja (al soltar el campo se abre para escribir y el
+      // navegador puede acercarlo a la vista: eso no es el dedo desplazando).
+      const drag = touchDrag(cdp, from, { x: from.x + 150, y: from.y + 50 }, { steps: 10, stepMs: 14, endHoldMs: 600 });
+      await page.waitForTimeout(10 * 14 + 300);
+      const during = await scrollY(page);
+      await drag;
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(1);
+      expect(Math.abs(during - before), "la pagina no se desplazo mientras el dedo dibujaba").toBeLessThan(10);
+      await expect(page.locator('[data-canvas="host"]').first()).toHaveAttribute("data-tool", "text");
+    });
+
+    test(`paleta ${palette}, por defecto: dos dedos arrastrando desplazan la pagina y no crean nada`, async ({ page, browserName }) => {
+      test.skip(browserName !== "chromium", "el dedo se emula por CDP (Input.dispatchTouchEvent), solo Chromium");
+      await armText(page, open);
+      const cdp = await cdpOf(page);
+      const center = await sheetPoint(page, 0.5, 0.5);
+      const before = await scrollY(page);
+      // Misma separacion de dedos todo el gesto (sin pellizco): los dos suben 180 px.
+      await touchPinch(cdp, center, 120, 120, { steps: 12, stepMs: 14, drift: { x: 0, y: -180 } });
+      await page.waitForTimeout(500);
+      expect((await scrollY(page)) - before, "la pagina se desplazo con dos dedos").toBeGreaterThan(80);
+      await expect(page.locator(TEXT_FIELDS)).toHaveCount(0);
       await expect(page.locator('[data-canvas="host"]').first()).toHaveAttribute("data-tool", "text");
     });
   }

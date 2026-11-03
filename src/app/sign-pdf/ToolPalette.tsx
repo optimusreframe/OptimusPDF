@@ -395,7 +395,12 @@ export function ToolPalette({
             <ChevronUp aria-hidden="true" className="size-4 opacity-70" />
           </button>
           {armed ? (
-            /* Salida explicita de la herramienta armada (W3-A3): texto + icono, 48 px, junto al boton plegado. */
+            /*
+             * Salida explicita de la herramienta armada (W3-A3): texto + icono, 48 px, junto al boton plegado. En un telefono
+             * estrecho (< 440 px) solo el icono: «Continuar» (pegado abajo a la derecha, 111 px) comparte la fila y con el
+             * texto el boton le pisaba el borde (medido, solape con «Continuar»: a 393 px, 0,6 px con «Firma» y 17 px con
+             * «Iniciales»; a 375 px, 19 y 35 px).
+             */
             <button
               type="button"
               data-palette-exit=""
@@ -410,7 +415,7 @@ export function ToolPalette({
               )}
             >
               <MousePointer2 aria-hidden="true" className="size-5" />
-              <span className="max-[359px]:sr-only">{strings.toolSelect}</span>
+              <span className="max-[439px]:sr-only">{strings.toolSelect}</span>
             </button>
           ) : null}
         </div>
