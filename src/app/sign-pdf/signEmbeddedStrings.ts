@@ -145,6 +145,7 @@ export function withEmbeddedWording(language: Language): SignStrings {
   if (language === "en") {
     return {
       ...base,
+      embedded: true,
       applyAndDownload: "Finish and apply",
       finishAndDownload: "Apply to the document",
       editTextNote:
@@ -157,6 +158,7 @@ export function withEmbeddedWording(language: Language): SignStrings {
   }
   return {
     ...base,
+    embedded: true,
     applyAndDownload: "Finalizar y aplicar",
     finishAndDownload: "Aplicar al documento",
     editTextNote:

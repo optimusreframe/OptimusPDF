@@ -1,6 +1,8 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { clearAllDrafts, listDrafts, saveDraft } from "@/app/sign-pdf/signDrafts";
@@ -16,7 +18,8 @@ import {
 } from "@/app/sign-pdf/signFeatureFlags";
 import { clearVault, listVault, saveVaultEntry } from "@/app/sign-pdf/signVault";
 import { vaultInput } from "@/app/sign-pdf/vaultTestUtils";
-import { clearValueHistory, recordValue, suggestValues } from "@/lib/valueHistory";
+import { TAG_STRINGS } from "@/app/sign-pdf/tagStrings";
+import { addCustomTag, clearValueHistory, customTagNames, listRemembered, recordValue, suggestValues } from "@/lib/valueHistory";
 
 /**
  * «Borrar datos» de «Varios firmantes»: ahora tambien vacia el baul de firmas,
@@ -34,6 +37,19 @@ vi.mock("@/app/sign-pdf/signVault", async (importOriginal) => {
 });
 
 const strings = SIGN_STRINGS.es;
+
+/**
+ * `PrivacyNotice` trae el boton de «Datos recordados» (W3-A1), que lee el idioma del proveedor como en la app: se monta
+ * dentro de `LanguageProvider` (el idioma se fija a es para que el aviso sea determinista).
+ */
+function renderNotice(noticeStrings: ComponentProps<typeof PrivacyNotice>["strings"]) {
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
+  return render(
+    <LanguageProvider>
+      <PrivacyNotice strings={noticeStrings} />
+    </LanguageProvider>,
+  );
+}
 
 beforeEach(async () => {
   window.localStorage.clear();
@@ -76,7 +92,7 @@ async function confirmClear() {
 describe("PrivacyNotice — «Borrar datos»", () => {
   it("vacia valores, plantillas, borradores y firmas guardadas, y solo despues dice «Datos borrados»", async () => {
     await seedEverything();
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     await confirmClear();
     expect(await screen.findByText(strings.privacyDataCleared)).toBeTruthy();
 
@@ -98,7 +114,7 @@ describe("PrivacyNotice — «Borrar datos»", () => {
           release = () => void actual.clearVault().then(resolve);
         }),
     );
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     await confirmClear();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screen.queryByText(strings.privacyDataCleared)).toBeNull();
@@ -110,7 +126,7 @@ describe("PrivacyNotice — «Borrar datos»", () => {
   it("baul bloqueado: NO dice «Datos borrados», dice que fallo (role=status) y se puede reintentar", async () => {
     await seedEverything();
     vi.mocked(clearVault).mockResolvedValueOnce({ ok: false, reason: "unavailable" });
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     await confirmClear();
     const message = await screen.findByText(strings.vaultClearFailed(["vault"]));
     expect(message.getAttribute("role")).toBe("status");
@@ -127,14 +143,14 @@ describe("PrivacyNotice — «Borrar datos»", () => {
 
   it("borradores que no se pueden borrar: tambien se dice, y no se muestra el exito", async () => {
     vi.mocked(clearAllDrafts).mockResolvedValueOnce({ ok: false, reason: "unavailable" });
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     await confirmClear();
     expect(await screen.findByText(strings.vaultClearFailed(["drafts"]))).toBeTruthy();
     expect(screen.queryByText(strings.privacyDataCleared)).toBeNull();
   });
 
   it("el aviso vive en un role=status siempre montado (vacio antes de borrar)", () => {
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     const status = screen.getByRole("status");
     expect(status.textContent).toBe("");
   });
@@ -155,7 +171,7 @@ describe("PrivacyNotice — «Borrar datos»", () => {
       // Sin la marca de «aviso visto» el aviso arranca abierto.
       window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
       __resetSignPdfFeatureFlagsCacheForTests();
-      render(<PrivacyNotice strings={SIGN_STRINGS[language]} />);
+      renderNotice(SIGN_STRINGS[language]);
       // La primera vez se ve un resumen; el texto entero queda tras «Leer completo» (ER-03).
       fireEvent.click(screen.getByRole("button", { name: SIGN_STRINGS[language].privacyReadFull }));
     }
@@ -190,7 +206,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
 
   it("con «Leer completo» (primera vez) trae el interruptor «Guardar también las firmas recogidas…», ENCENDIDO por defecto", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     const toggle = screen.getByRole("checkbox", { name: privacy.signaturesLabel }) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
@@ -200,7 +216,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
   });
 
   it("con el aviso ya visto y cerrado no estorba; al abrirlo con «Cómo usamos tus datos» el interruptor esta ahi", () => {
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     expect(screen.queryByRole("checkbox", { name: privacy.signaturesLabel })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: strings.privacyNoticeToggle }));
     expect(screen.getByRole("checkbox", { name: privacy.signaturesLabel })).toBeTruthy();
@@ -208,7 +224,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
 
   it("apagarlo lo guarda en el ajuste (el mismo que Ajustes) y el texto del aviso lo refleja; volver a encenderlo lo revierte", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     expect(screen.getByText(new RegExp(privacy.noticeSignaturesOn.slice(0, 40)))).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: privacy.signaturesLabel }));
@@ -225,7 +241,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
     window.localStorage.setItem(SIGN_PDF_FEATURE_FLAGS_STORAGE_KEY, JSON.stringify({ signaturesInDraft: false }));
     __resetSignPdfFeatureFlagsCacheForTests();
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     expect((screen.getByRole("checkbox", { name: privacy.signaturesLabel }) as HTMLInputElement).checked).toBe(false);
   });
@@ -233,7 +249,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
   it("en ingles el interruptor y el texto salen en ingles, sin claves crudas", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
     const en = SIGN_STRINGS.en;
-    render(<PrivacyNotice strings={en} />);
+    renderNotice(en);
     fireEvent.click(screen.getByRole("button", { name: en.privacyReadFull }));
     expect(screen.getByRole("checkbox", { name: en.draftPrivacy.signaturesLabel })).toBeTruthy();
     expect(screen.getByText(en.draftPrivacy.signaturesHint)).toBeTruthy();
@@ -242,7 +258,7 @@ describe("PrivacyNotice — firmas en el borrador (F0 · U0.4)", () => {
 
   it("la caja del interruptor mide 44 px de alto y esta dentro del aviso", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
-    const { container } = render(<PrivacyNotice strings={strings} />);
+    const { container } = renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     const toggle = screen.getByRole("checkbox", { name: privacy.signaturesLabel });
     expect(toggle.closest(".min-h-11")).toBeTruthy();
@@ -255,7 +271,7 @@ describe("PrivacyNotice — resumen corto la primera vez (ER-03, auditoria movil
 
   it("la primera vez NO abre el texto entero: muestra un resumen con «Leer completo» y «Entendido»", () => {
     first();
-    const { container } = render(<PrivacyNotice strings={strings} />);
+    const { container } = renderNotice(strings);
     const summary = container.querySelector("[data-privacy-summary]")!;
     expect(summary.textContent).toContain(strings.privacySummary);
     expect(screen.queryByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeNull();
@@ -266,7 +282,7 @@ describe("PrivacyNotice — resumen corto la primera vez (ER-03, auditoria movil
 
   it("«Leer completo» abre el texto entero y cerrarlo recuerda que ya se vio", () => {
     first();
-    const { container } = render(<PrivacyNotice strings={strings} />);
+    const { container } = renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     expect(container.querySelector("[data-privacy-summary]")).toBeNull();
     expect(screen.getByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeTruthy();
@@ -277,19 +293,19 @@ describe("PrivacyNotice — resumen corto la primera vez (ER-03, auditoria movil
 
   it("«Entendido» cierra el resumen y recuerda que ya se vio: la siguiente visita no lo muestra", () => {
     first();
-    const view = render(<PrivacyNotice strings={strings} />);
+    const view = renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyUnderstood }));
     expect(view.container.querySelector("[data-privacy-summary]")).toBeNull();
     expect(window.localStorage.getItem("optimuspdf.sign-pdf.privacyNoticeSeen")).toBe("1");
     view.unmount();
-    const again = render(<PrivacyNotice strings={strings} />);
+    const again = renderNotice(strings);
     expect(again.container.querySelector("[data-privacy-summary]")).toBeNull();
     expect(screen.queryByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeNull();
   });
 
   it("abrir el texto con el icono «i» tambien sustituye al resumen", () => {
     first();
-    const { container } = render(<PrivacyNotice strings={strings} />);
+    const { container } = renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyNoticeToggle }));
     expect(container.querySelector("[data-privacy-summary]")).toBeNull();
     expect(screen.getByText(new RegExp(strings.privacyNoticeBody.slice(0, 40)))).toBeTruthy();
@@ -298,9 +314,62 @@ describe("PrivacyNotice — resumen corto la primera vez (ER-03, auditoria movil
   it("en ingles el resumen y sus botones salen en ingles", () => {
     first();
     const en = SIGN_STRINGS.en;
-    const { container } = render(<PrivacyNotice strings={en} />);
+    const { container } = renderNotice(en);
     expect(container.querySelector("[data-privacy-summary]")?.textContent).toContain(en.privacySummary);
     expect(screen.getByRole("button", { name: en.privacyReadFull })).toBeTruthy();
     expect(screen.getByRole("button", { name: en.privacyUnderstood })).toBeTruthy();
+  });
+});
+
+describe("PrivacyNotice — «Datos recordados» y la memoria por etiqueta (W3-A1)", () => {
+  const tagCopy = TAG_STRINGS.es;
+
+  it("el aviso abierto explica la memoria por etiqueta y el autorrelleno, en es y en en", () => {
+    window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
+    renderNotice(strings);
+    fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
+    expect(screen.getByText(tagCopy.privacyMemoryNote)).toBeTruthy();
+    // Ambos idiomas traen el parrafo y nombran la hoja donde se ve y se borra lo recordado.
+    expect(TAG_STRINGS.es.privacyMemoryNote).toContain(TAG_STRINGS.es.rememberedTitle);
+    expect(TAG_STRINGS.en.privacyMemoryNote).toContain(TAG_STRINGS.en.rememberedTitle);
+  });
+
+  it("la fila de privacidad trae «Datos recordados», que abre la hoja con lo guardado por etiqueta", async () => {
+    recordValue("nombre", "Ana Perez");
+    renderNotice(strings);
+    fireEvent.click(screen.getByRole("button", { name: tagCopy.rememberedButton }));
+    const dialog = await screen.findByRole("dialog", { name: tagCopy.rememberedTitle });
+    // La memoria se indexa por ETIQUETA (no por el rotulo): «nombre» queda bajo `insuredName1`.
+    expect(dialog.querySelector('[data-remembered-group="insuredName1"]')).toBeTruthy();
+    expect(within(dialog).getByText("Ana Perez")).toBeTruthy();
+  });
+
+  it("«Borrar todo» de la hoja vacia valores y etiquetas propias, y lo dice", async () => {
+    recordValue("nombre", "Ana Perez");
+    const zone = addCustomTag("Código de zona");
+    expect(zone).not.toBeNull();
+    recordValue(zone!, "Zona 4");
+    renderNotice(strings);
+    fireEvent.click(screen.getByRole("button", { name: tagCopy.rememberedButton }));
+    const dialog = await screen.findByRole("dialog", { name: tagCopy.rememberedTitle });
+    fireEvent.click(within(dialog).getByRole("button", { name: tagCopy.rememberedClearAll }));
+    const confirm = await screen.findByRole("dialog", { name: tagCopy.rememberedClearTitle });
+    fireEvent.click(within(confirm).getByRole("button", { name: tagCopy.rememberedClearConfirm }));
+    await waitFor(() => expect(listRemembered()).toEqual([]));
+    expect(customTagNames()).toEqual({});
+    expect(suggestValues("nombre", "")).toHaveLength(0);
+    expect(await screen.findByText(tagCopy.rememberedStatusCleared)).toBeTruthy();
+  });
+
+  it("«Borrar datos» del aviso tambien borra la memoria por etiqueta y los nombres de las etiquetas propias", async () => {
+    recordValue("direccion", "8775 Sartori St");
+    const zone = addCustomTag("Código de zona");
+    recordValue(zone!, "Zona 4");
+    expect(listRemembered().length).toBeGreaterThan(0);
+    renderNotice(strings);
+    await confirmClear();
+    expect(await screen.findByText(strings.privacyDataCleared)).toBeTruthy();
+    expect(listRemembered()).toEqual([]);
+    expect(customTagNames()).toEqual({});
   });
 });

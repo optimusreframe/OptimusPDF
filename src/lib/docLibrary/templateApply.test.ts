@@ -24,12 +24,26 @@ describe("applyTemplate: formato de Firmar", () => {
     expect(out.fields[1]).toMatchObject({ signerId: "signer2", pageIndex: 3, type: "signature" });
     expect(out.fields.filter((field) => field.type === "initials").map((field) => field.signerId)).toEqual(["signer1", "signer2"]);
     expect(out.textFields).toHaveLength(2);
-    // El tipo «text» NO se escribe (ausente = texto libre), igual que `instantiateTemplate`.
-    expect(out.textFields[0]).toEqual({ id: "tpl-t-1", pageIndex: 0, rect: R(0.1, 0.2, 0.3, 0.025), label: "Nombre", source: "manual", confidence: "high" });
+    // El tipo «text» NO se escribe (ausente = texto libre), igual que `instantiateTemplate`. El dato de la plantilla (`dataKey`)
+    // pasa a ser la ETIQUETA del campo (`tag`): nace etiquetado, listo para recordar y propagar.
+    expect(out.textFields[0]).toEqual({ id: "tpl-t-1", pageIndex: 0, rect: R(0.1, 0.2, 0.3, 0.025), label: "Nombre", source: "manual", confidence: "high", tag: "insuredName1" });
     expect(out.textFields[1]).toMatchObject({ type: "date", label: "Fecha" });
     expect(out.reviewFields).toEqual([]);
     expect(out.skippedPages).toEqual([]);
     expect(out.reviewPages).toEqual([]);
+  });
+
+  it("el campo de texto nace con la etiqueta de su `dataKey`; sin `dataKey` no lleva etiqueta", () => {
+    const template = templateFrom(
+      sampleDraft("doc-1", {
+        variants: { "2": variantOf([signField({ pageIndex: 3 })], [textField({ label: "Dirección", dataKey: "address" }), textField({ label: "Nota libre" })]) },
+      }),
+    );
+    const out = applyTemplate(template, { signers: 2 });
+    expect(out.textFields[0]).toMatchObject({ label: "Dirección", tag: "address" });
+    expect(out.textFields[1]).toMatchObject({ label: "Nota libre" });
+    expect(out.textFields[1]).not.toHaveProperty("tag");
+    expect(out.textMeta[out.textFields[0].id].dataKey).toBe("address");
   });
 
   it("mismo formato que las plantillas actuales de localStorage (instantiateTemplate)", () => {

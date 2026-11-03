@@ -338,6 +338,8 @@ export type SignStrings = {
   signAgainTitle: string;
   signAgainBody: string;
   signAgainAccept: string;
+  /** Solo lo pone `withEmbeddedWording`: dentro de PDF Pro lo firmado se aplica al documento, no se descarga. */
+  embedded?: boolean;
 
   /* --- Borradores locales (IndexedDB) --- */
   draftsButton: string;
@@ -1828,7 +1830,7 @@ const es: SignStrings = {
 
   signAgainTitle: "¿Firmar otro documento?",
   signAgainBody:
-    "Vuelve al paso de firmantes con la misma lista de personas ya cargada, para no tener que añadirlas de nuevo.",
+    "Vuelve al paso Documento con la misma lista de personas ya cargada, para no tener que añadirlas de nuevo.",
   signAgainAccept: "Sí, firmar otro con los mismos firmantes",
 
   draftsButton: "Ver borradores",
@@ -2715,7 +2717,7 @@ const en: SignStrings = {
 
   signAgainTitle: "Sign another document?",
   signAgainBody:
-    "Go back to the signers step with the same list of people already loaded, so you don't have to add them again.",
+    "Go back to the Document step with the same list of people already loaded, so you don't have to add them again.",
   signAgainAccept: "Yes, sign another with the same signers",
 
   draftsButton: "View drafts",

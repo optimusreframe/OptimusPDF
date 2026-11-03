@@ -159,18 +159,33 @@ function renderTool() {
   );
 }
 
-/** Entra con `?s=<id>` (se restaura sola), espera el borrador al dia y firma y descarga hasta la pantalla de resultado. */
-async function restoreAndFinish(id: string): Promise<void> {
+/**
+ * Desde W3-B2 el archivo se DESCARGA SOLO al llegar a la pantalla de resultado (`ToolShell.autoDownload`) y eso cuenta como la
+ * entrega: la espera del borrado ya empieza ahi (con «Deshacer» y la casilla como verdad). Las pruebas que miran la casilla en la
+ * pantalla de resultado (o que desmarcan / se van antes del plazo) alargan la espera para que el borrado no se adelante.
+ */
+function keepDeleteWaiting(): void {
+  __setDeliveredDeleteDelayForTests(60_000);
+}
+
+/** Entra con `?s=<id>` (se restaura sola) y espera el borrador al dia, listo para «Firmar y descargar». */
+async function restoreAndWaitReady(id: string): Promise<void> {
   window.history.replaceState(null, "", `/sign-pdf?s=${id}`);
   renderTool();
   await waitFor(() => expect(screen.queryByRole("navigation", { name: strings.documentsLabel }) ?? screen.queryByText(strings.applyAndDownload)).not.toBeNull());
   await waitFor(() => expect(hasPendingDraftWrite()).toBe(false), { timeout: 8000 });
+}
+
+/** Entra con `?s=<id>` (se restaura sola), espera el borrador al dia y firma y descarga hasta la pantalla de resultado. */
+async function restoreAndFinish(id: string): Promise<void> {
+  await restoreAndWaitReady(id);
   fireEvent.click(await screen.findByRole("button", { name: strings.applyAndDownload }));
   await screen.findByRole("button", { name: "Descargar" }, { timeout: 30_000 });
 }
 
 describe("pantalla de resultado de una ronda de VARIOS documentos (ZIP)", () => {
   it("trae la casilla «Borrar el borrador de esta firma (incluye las firmas guardadas en él)» MARCADA, dentro de la tarjeta de descarga", async () => {
+    keepDeleteWaiting();
     await seedSignedSession("s-mgl1a-1k3v9x2a");
     await restoreAndFinish("s-mgl1a-1k3v9x2a");
     const card = screen.getByRole("heading", { name: es.tool.doneTitle }).closest("section") as HTMLElement;
@@ -179,17 +194,25 @@ describe("pantalla de resultado de una ronda de VARIOS documentos (ZIP)", () => 
     expect(card.querySelector("[data-download-extras]")?.contains(box)).toBe(true);
   });
 
-  it("con la casilla marcada, «Descargar» entrega el ZIP Y borra el borrador de la sesion; la tarjeta de entrada ya no lo ofrece", async () => {
+  it("con la casilla marcada, la descarga automatica entrega el ZIP Y borra el borrador de la sesion; «Descargar» queda de respaldo y la tarjeta de entrada ya no lo ofrece", async () => {
     const id = "s-mgl1a-1k3v9x2a";
     await seedSignedSession(id);
-    await restoreAndFinish(id);
+    await restoreAndWaitReady(id);
+    // Antes de entregar, el borrador de la ronda sigue ahi.
     expect(await draftExists("session", id)).toBe(true);
+    fireEvent.click(await screen.findByRole("button", { name: strings.applyAndDownload }));
+    await screen.findByRole("button", { name: "Descargar" }, { timeout: 30_000 });
 
-    fireEvent.click(screen.getByRole("button", { name: "Descargar" }));
-    expect(downloadBlob).toHaveBeenCalledTimes(1);
+    // W3-B2: el ZIP se descarga solo al llegar al resultado (una vez) y eso cuenta como la entrega: el borrado sigue (con la espera).
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText(dp.deleteDone)).toBeTruthy());
     expect(await draftExists("session", id)).toBe(false);
     expect(await listAllDrafts()).toEqual([]);
+
+    // «Descargar» sigue ahi por si el navegador no dejo hacer la descarga sola: vuelve a entregar el mismo archivo.
+    fireEvent.click(screen.getByRole("button", { name: "Descargar" }));
+    expect(downloadBlob).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(downloadBlob).mock.calls[1][1]).toBe(vi.mocked(downloadBlob).mock.calls[0][1]);
 
     // «Empezar de nuevo»: la herramienta vacia ya no ofrece la ronda entregada.
     fireEvent.click(screen.getByRole("button", { name: "Empezar de nuevo" }));
@@ -197,31 +220,37 @@ describe("pantalla de resultado de una ronda de VARIOS documentos (ZIP)", () => 
     expect(screen.queryByRole("heading", { name: strings.resume.cardTitle })).toBeNull();
   });
 
-  it("con la casilla DESMARCADA, «Descargar» entrega el ZIP y CONSERVA el borrador (con la caducidad de 7 dias)", async () => {
+  it("con la casilla DESMARCADA durante la espera, la descarga ya hecha CONSERVA el borrador (con la caducidad de 7 dias)", async () => {
+    // La descarga automatica ya entrego el ZIP y el borrado espera su plazo; la casilla es la verdad: desmarcarla lo cancela.
+    keepDeleteWaiting();
     const id = "s-mgl1b-1k3v9x2a";
     await seedSignedSession(id);
     await restoreAndFinish(id);
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText(dp.deleteSoon)).toBeTruthy());
     fireEvent.click(screen.getByRole("checkbox", { name: dp.deleteLabelWithSignatures }));
-    fireEvent.click(screen.getByRole("button", { name: "Descargar" }));
-    expect(downloadBlob).toHaveBeenCalledTimes(1);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(await draftExists("session", id)).toBe(true);
     const [entry] = await listAllDrafts();
     expect(entry.kind === "session" && typeof entry.meta.expiresAt).toBe("string");
     expect(screen.queryByText(dp.deleteDone)).toBeNull();
+    expect(screen.getByText(dp.deleteKeptExpires)).toBeTruthy();
   });
 
-  it("irse sin descargar (Empezar de nuevo) NO borra el borrador: la ronda no se entrego", async () => {
+  it("irse (Empezar de nuevo) antes de que pase el plazo NO borra el borrador: la llegada del archivo no se puede confirmar", async () => {
+    // Con la descarga automatica ya hay una entrega, pero el borrado espera su plazo y se cancela si la persona se va antes.
+    keepDeleteWaiting();
     const id = "s-mgl1c-1k3v9x2a";
     await seedSignedSession(id);
     await restoreAndFinish(id);
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Empezar de nuevo" }));
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(downloadBlob).not.toHaveBeenCalled();
     expect(await draftExists("session", id)).toBe(true);
   });
 
   it("con el ajuste «guardar las firmas» apagado la casilla no promete firmas y no explica el plazo", async () => {
+    keepDeleteWaiting();
     setSignPdfFeatureFlag("signaturesInDraft", false);
     const id = "s-mgl1d-1k3v9x2a";
     await seedSignedSession(id);
@@ -232,23 +261,27 @@ describe("pantalla de resultado de una ronda de VARIOS documentos (ZIP)", () => 
 });
 
 describe("pantalla de resultado de UN documento", () => {
-  it("«Descargar» con la casilla marcada borra el borrador del documento suelto", async () => {
+  it("la descarga automatica con la casilla marcada borra el borrador del documento suelto; «Descargar» queda de respaldo", async () => {
     const { key } = await seedSignedDocument();
     window.history.replaceState(null, "", `/sign-pdf?s=${key}`);
     renderTool();
     await waitFor(() => expect(screen.queryByRole("button", { name: strings.applyAndDownload })).not.toBeNull());
     await waitFor(() => expect(hasPendingDraftWrite()).toBe(false), { timeout: 8000 });
+    // Antes de entregar, el borrador del documento sigue ahi.
+    expect(await draftExists("document", key)).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: strings.applyAndDownload }));
     // Un documento con varios firmantes pregunta por el prefijo del nombre antes de procesar.
     const prefixNo = await screen.findByRole("button", { name: strings.filenamePrefixNo }).catch(() => null);
     if (prefixNo) fireEvent.click(prefixNo);
     await screen.findByRole("button", { name: "Descargar" }, { timeout: 30_000 });
-    expect(screen.getByRole("checkbox", { name: dp.deleteLabelWithSignatures })).toBeTruthy();
-    expect(await draftExists("document", key)).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Descargar" }));
+    // W3-B2: el archivo se descarga solo al llegar al resultado y eso cuenta como la entrega: el borrado sigue (con la espera).
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText(dp.deleteDone)).toBeTruthy());
     expect(await draftExists("document", key)).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Descargar" }));
+    expect(downloadBlob).toHaveBeenCalledTimes(2);
   });
 });
 

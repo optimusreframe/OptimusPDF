@@ -157,6 +157,8 @@ function Harness({
 
 const palette = () => screen.getByRole("toolbar", { name: strings.paletteLabel });
 const editButton = () => within(palette()).queryByRole("button", { name: strings.toolEditText });
+/** «Seleccionar»: la salida de una herramienta (volver a pulsar la activa ya no la apaga, W3-A3). */
+const selectButton = () => within(palette()).getByRole("button", { name: strings.toolSelect });
 async function ready() {
   await waitFor(() => expect(screen.getByAltText(strings.documentTitle)).toBeTruthy());
 }
@@ -191,7 +193,10 @@ describe("la herramienta en la paleta", () => {
     expect(button.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(button);
     expect(editButton()!.getAttribute("aria-pressed")).toBe("true");
+    // Volver a pulsar la herramienta activa NO la apaga (W3-A3): la salida es «Seleccionar».
     fireEvent.click(editButton()!);
+    expect(editButton()!.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(selectButton());
     expect(editButton()!.getAttribute("aria-pressed")).toBe("false");
     fireEvent.keyDown(document.body, { key: "e" });
     expect(editButton()!.getAttribute("aria-pressed")).toBe("true");
@@ -388,7 +393,7 @@ describe("deshacer y rehacer", () => {
 
   it("fuera de la herramienta Ctrl+Z no toca las ediciones (el lienzo de siempre no tiene deshacer global)", async () => {
     const seen = await withOneEdit();
-    fireEvent.click(editButton()!); // vuelve a Seleccionar
+    fireEvent.click(selectButton()); // vuelve a Seleccionar
     const before = seen.length;
     fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
     await act(async () => {});
@@ -403,7 +408,7 @@ describe("convive con los huecos y el flujo de firma", () => {
     const host = document.querySelector('[data-canvas="host"]')!;
     expect(host.className).toContain("[&_.sign-field-box]:pointer-events-none");
     expect(document.querySelector('[data-element-kind="slot"]')).toBeTruthy();
-    fireEvent.click(editButton()!);
+    fireEvent.click(selectButton());
     expect(host.className).not.toContain("[&_.sign-field-box]:pointer-events-none");
   });
 

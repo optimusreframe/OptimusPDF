@@ -1,7 +1,9 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { ComponentProps } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { draftStatusLine } from "@/app/sign-pdf/draftStatus";
 import { clearLocalSignData } from "@/app/sign-pdf/clearLocalSignData";
@@ -24,6 +26,19 @@ import { es } from "@/lib/locales/es";
  * sesion completa), que el .zip exportado contiene los documentos y COMO
  * borrarlo; y «Borrar datos» vacia tambien las sesiones.
  */
+
+/**
+ * `PrivacyNotice` trae el boton de «Datos recordados» (W3-A1), que lee el idioma del proveedor como en la app: se monta
+ * dentro de `LanguageProvider` (el idioma se fija a es para que el aviso sea determinista).
+ */
+function renderNotice(noticeStrings: ComponentProps<typeof PrivacyNotice>["strings"]) {
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
+  return render(
+    <LanguageProvider>
+      <PrivacyNotice strings={noticeStrings} />
+    </LanguageProvider>,
+  );
+}
 
 const DB_NAME = "optimuspdf-sign-drafts";
 
@@ -169,7 +184,7 @@ describe("«Borrar datos» vacia tambien las sesiones", () => {
       textFieldsDetectedFor: null,
     });
     const strings = SIGN_STRINGS.es;
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyClearData }));
     const dialog = await screen.findByRole("dialog", { name: strings.privacyClearDataTitle });
     fireEvent.click(within(dialog).getByRole("button", { name: strings.privacyClearData }));
@@ -199,7 +214,7 @@ describe("«Borrar datos» vacia tambien las sesiones", () => {
       request.onerror = () => reject(request.error);
     });
     const strings = SIGN_STRINGS.es;
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyClearData }));
     const dialog = await screen.findByRole("dialog", { name: strings.privacyClearDataTitle });
     fireEvent.click(within(dialog).getByRole("button", { name: strings.privacyClearData }));

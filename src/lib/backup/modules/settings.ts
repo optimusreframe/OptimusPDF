@@ -126,7 +126,7 @@ function checkTagNames(raw: unknown): ValueHistoryTags {
 
 /**
  * `{ version: 1, entries }` -> historial saneado. La estructura de arriba es estricta (version, objeto, <= 200
- * etiquetas, <= 5 valores por etiqueta); dentro, un valor o una etiqueta que no vale se DESCARTA (`dropped`) sin tumbar
+ * etiquetas, <= 30 valores por etiqueta); dentro, un valor o una etiqueta que no vale se DESCARTA (`dropped`) sin tumbar
  * el resto. Etiquetas `__proto__`/`constructor`/`prototype` y valores demasiado largos no entran.
  */
 export function checkValueHistory(raw: unknown): ValueHistoryCheck {

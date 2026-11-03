@@ -17,6 +17,7 @@ import {
   type CaptureMap,
 } from "@/app/sign-pdf/SigningCeremony";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
+import { QUICK_SIGN_STRINGS } from "@/app/sign-pdf/fillMode/fillStrings";
 import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 import { fileKey } from "@/app/organize-pdf/pageToolkit";
 import {
@@ -182,14 +183,19 @@ function Harness({ file, onOptions, initialOptions }: HarnessProps) {
       setOptions((previous) => ({ ...previous, ...patch })),
     [],
   );
+  // `MultiFlow` recibe `strings` ya resuelto, pero pinta piezas compartidas
+  // que leen el idioma del contexto (p. ej. la hoja «Datos recordados» de la
+  // fila de privacidad): en la app siempre hay `<LanguageProvider>` encima.
   return (
-    <MultiFlow
-      file={file}
-      options={options}
-      setOptions={patchOptions}
-      onFinish={() => {}}
-      strings={strings}
-    />
+    <LanguageProvider>
+      <MultiFlow
+        file={file}
+        options={options}
+        setOptions={patchOptions}
+        onFinish={() => {}}
+        strings={strings}
+      />
+    </LanguageProvider>
   );
 }
 
@@ -557,7 +563,7 @@ describe("SignToolClient — flujo completo (firmar -> prompt -> aceptar)", () =
     });
   }
 
-  it("tras firmar y descargar, aceptar \"firmar otro\" vuelve a firmantes con el mismo roster y sin archivo", async () => {
+  it("tras firmar y descargar, aceptar \"firmar otro\" deja sin archivo y conserva el mismo roster (la ronda nueva arranca en Documento)", async () => {
     const file = await pdfFile("contrato.pdf");
     const { container } = render(
       <LanguageProvider>
@@ -622,16 +628,29 @@ describe("SignToolClient — flujo completo (firmar -> prompt -> aceptar)", () =
     expect(screen.queryByText(strings.signAgainTitle)).toBeNull();
 
     // ...pero con el roster de firmantes conservado: cargar otro archivo
-    // y el firmante ya esta ahi, sin tener que anadirlo de nuevo.
+    // y el firmante ya esta ahi, sin tener que anadirlo de nuevo. Quien
+    // firma ya estaba decidido, asi que la ronda nueva arranca en «Documento»
+    // (W3-B2) con la linea «Firman: Firmante 1 · Cambiar»; «Cambiar» da el
+    // paso Firmantes, donde el firmante sigue ahi.
     const secondFile = await pdfFile("anexo.pdf");
     fireEvent.change(pdfInput(container), { target: { files: [secondFile] } });
     await waitFor(() =>
       expect(
-        screen.getByRole("button", {
-          name: strings.removeSigner(strings.defaultSignerName(1)),
-        }),
+        screen.getByText(
+          QUICK_SIGN_STRINGS.es.signersRecap(strings.defaultSignerName(1)),
+        ),
       ).toBeTruthy(),
     );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `${QUICK_SIGN_STRINGS.es.signersChange}. ${QUICK_SIGN_STRINGS.es.signersChangeHint}`,
+      }),
+    );
+    expect(
+      screen.getByRole("button", {
+        name: strings.removeSigner(strings.defaultSignerName(1)),
+      }),
+    ).toBeTruthy();
   });
 });
 
@@ -1299,13 +1318,15 @@ describe("MultiFlow — la huella llega despues del trabajo de la persona", () =
       [],
     );
     return (
-      <MultiFlow
-        file={file}
-        options={options}
-        setOptions={patchOptions}
-        onFinish={() => {}}
-        strings={strings}
-      />
+      <LanguageProvider>
+        <MultiFlow
+          file={file}
+          options={options}
+          setOptions={patchOptions}
+          onFinish={() => {}}
+          strings={strings}
+        />
+      </LanguageProvider>
     );
   }
 

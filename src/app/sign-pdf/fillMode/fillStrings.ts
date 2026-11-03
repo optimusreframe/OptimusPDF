@@ -126,6 +126,9 @@ export type QuickSignStrings = {
   /** Pantalla final unica. */
   finalTitle: string;
   finalBody: (documents: number) => string;
+  /** Lo mismo dentro de PDF Pro: se aplica al documento, no se descarga. */
+  finalTitleApply: string;
+  finalBodyApply: (documents: number) => string;
   finalButton: string;
   finalRedo: string;
   /** Nombre accesible del bloque «Revisar y descargar». */
@@ -318,6 +321,11 @@ const QUICK_ES: QuickSignStrings = {
     documents === 1
       ? "Así quedará tu documento. Al tocar el botón se firma y se descarga."
       : `Así quedarán tus ${documents} documentos. Al tocar el botón se firman y se descargan.`,
+  finalTitleApply: "Revisa y aplica",
+  finalBodyApply: (documents) =>
+    documents === 1
+      ? "Así quedará tu documento. Al tocar el botón se firma y se aplica al documento."
+      : `Así quedarán tus ${documents} documentos. Al tocar el botón se firman y se aplican.`,
   finalButton: "Firmar y descargar",
   finalRedo: "Cambiar mi firma",
   finalRegion: "Revisar y descargar",
@@ -354,6 +362,11 @@ const QUICK_EN: QuickSignStrings = {
     documents === 1
       ? "This is how your document will look. Tapping the button signs it and downloads it."
       : `This is how your ${documents} documents will look. Tapping the button signs and downloads them.`,
+  finalTitleApply: "Review and apply",
+  finalBodyApply: (documents) =>
+    documents === 1
+      ? "This is how your document will look. Tapping the button signs it and applies it to the document."
+      : `This is how your ${documents} documents will look. Tapping the button signs and applies them.`,
   finalButton: "Sign and download",
   finalRedo: "Change my signature",
   finalRegion: "Review and download",

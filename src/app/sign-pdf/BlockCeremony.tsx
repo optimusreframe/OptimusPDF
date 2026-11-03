@@ -814,11 +814,11 @@ export function BlockCeremony({
           tabIndex={-1}
           className={cn("text-headline text-foreground", CEREMONY_HEADING_CLASS)}
         >
-          {merged ? quick.finalTitle : pending.length === 0 && !blocked ? strings.allSignedTitle : strings.ceremonyTitle}
+          {merged ? (strings.embedded ? quick.finalTitleApply : quick.finalTitle) : pending.length === 0 && !blocked ? strings.allSignedTitle : strings.ceremonyTitle}
         </h4>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           {merged
-            ? quick.finalBody(docs.length)
+            ? (strings.embedded ? quick.finalBodyApply(docs.length) : quick.finalBody(docs.length))
             : pending.length === 0 && !blocked
               ? strings.batchReadyBody(docs.length)
               : pending.length > 0

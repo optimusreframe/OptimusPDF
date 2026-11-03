@@ -208,6 +208,12 @@ const startsWith = (prefix: string) =>
 /** La barra flotante del elemento seleccionado. */
 const floatingBar = () => screen.getByRole("group", { name: BAR_NAME });
 
+/**
+ * W3-A3: la herramienta se queda armada tras colocar y, con ella armada, el hueco recien creado NO queda seleccionado
+ * (su barra taparia el sitio del siguiente toque). Para actuar sobre el hueco se le toca, como hace la persona.
+ */
+const selectPlacedSlot = (name: string = signatureLabel) => tapElement(screen.getByRole("group", { name }));
+
 /** Espera a que la vista previa simulada este montada. */
 /**
  * Captura los `window.setTimeout` de EXACTAMENTE `delayMs` en vez de
@@ -365,6 +371,9 @@ describe("DocumentCanvas (huecos de firma) — src/app/sign-pdf/DocumentCanvas.t
       screen.getByRole("button", { name: strings.addFieldHere }),
     );
     expect(last).toHaveLength(1);
+    // La herramienta sigue armada y el hueco nuevo no queda seleccionado: se toca para seleccionarlo.
+    expect(screen.queryByRole("group", { name: BAR_NAME })).toBeNull();
+    selectPlacedSlot();
 
     fireEvent.click(screen.getByRole("button", { name: startsWith(strings.removeField) }));
 
@@ -381,6 +390,7 @@ describe("DocumentCanvas (huecos de firma) — src/app/sign-pdf/DocumentCanvas.t
       await waitForPreview();
 
       fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+      selectPlacedSlot();
       fireEvent.click(screen.getByRole("button", { name: startsWith(strings.removeField) }));
 
       expect(last).toHaveLength(0);
@@ -396,6 +406,7 @@ describe("DocumentCanvas (huecos de firma) — src/app/sign-pdf/DocumentCanvas.t
 
       fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
       const originalId = last[0].id;
+      selectPlacedSlot();
       fireEvent.click(screen.getByRole("button", { name: startsWith(strings.removeField) }));
       expect(last).toHaveLength(0);
 
@@ -422,6 +433,7 @@ describe("DocumentCanvas (huecos de firma) — src/app/sign-pdf/DocumentCanvas.t
       await waitForPreview();
 
       fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+      selectPlacedSlot();
       fireEvent.click(screen.getByRole("button", { name: startsWith(strings.removeField) }));
 
       expect(last).toHaveLength(0);
@@ -436,6 +448,7 @@ describe("DocumentCanvas (huecos de firma) — src/app/sign-pdf/DocumentCanvas.t
       await waitForPreview();
 
       fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
+      selectPlacedSlot();
       fireEvent.keyDown(window, { key: "Delete" });
 
       expect(last).toHaveLength(0);
@@ -461,8 +474,7 @@ describe("DocumentCanvas (huecos de firma) — src/app/sign-pdf/DocumentCanvas.t
       screen.getByRole("radio", { name: ANA.name }).getAttribute("aria-checked"),
     ).toBe("false");
 
-    // Cada herramienta es de un solo uso: se vuelve a armar.
-    armTool(strings.fieldSignature);
+    // La herramienta sigue armada (W3-A3): no hace falta volver a elegirla.
     fireEvent.click(screen.getByRole("button", { name: strings.addFieldHere }));
 
     expect(last).toHaveLength(2);
@@ -1662,10 +1674,10 @@ describe("DocumentCanvas (lienzo unificado, W2-A) — src/app/sign-pdf/DocumentC
     expect(slots).toHaveLength(0);
     expect(texts).toHaveLength(1);
     expect(texts[0].source).toBe("manual");
-    // ...y la herramienta vuelve a Seleccionar.
+    // ...y la herramienta SIGUE armada (W3-A3): cambia solo cuando la persona elige otra.
     expect(
       within(palette())
-        .getByRole("button", { name: strings.toolSelect })
+        .getByRole("button", { name: strings.fieldTypeText })
         .getAttribute("aria-pressed"),
     ).toBe("true");
 
@@ -2272,7 +2284,7 @@ describe("DocumentCanvas — paleta de herramientas (W2-B)", () => {
     expect(toolButton(strings.fieldInitials).title).toContain(LUIS.name);
   });
 
-  it("cada herramienta crea el tipo correcto con un toque y con un arrastre, y vuelve a Seleccionar", async () => {
+  it("cada herramienta crea el tipo correcto con un toque y con un arrastre, y se queda armada hasta que se elige otra", async () => {
     let slots: SignatureField[] = [];
     let texts: DetectedField[] = [];
     render(
@@ -2296,7 +2308,9 @@ describe("DocumentCanvas — paleta de herramientas (W2-B)", () => {
       armTool(name);
       expect(pressed(name)).toBe("true");
       gesture();
-      expect(pressed(strings.toolSelect)).toBe("true");
+      // W3-A3: colocar NO devuelve a Seleccionar; la herramienta sigue armada.
+      expect(pressed(name)).toBe("true");
+      expect(pressed(strings.toolSelect)).toBe("false");
       // Un campo recien creado abre su editor: se cierra antes del siguiente gesto.
       fireEvent.keyDown(window, { key: "Escape" });
     }
@@ -2328,15 +2342,37 @@ describe("DocumentCanvas — paleta de herramientas (W2-B)", () => {
     expect((rect.width * HOST_WIDTH) / (rect.height * HOST_HEIGHT)).toBeCloseTo(1, 1);
   });
 
-  it("una casilla recien creada queda seleccionada y enfocada, sin abrir un editor", async () => {
+  it("una casilla recien creada con la herramienta armada no queda seleccionada ni enfocada y no abre un editor; tocarla la selecciona", async () => {
     render(<Harness tool="select" richFieldTypesEnabled />);
     await waitForPreview();
     armTool(strings.fieldTypeCheckbox);
     tapPage();
     expect(screen.queryByRole("textbox")).toBeNull();
-    await waitFor(() =>
-      expect(document.activeElement?.getAttribute("data-element-kind")).toBe("text"),
-    );
+    // La herramienta sigue armada y la casilla nueva no tapa el sitio del siguiente toque con su barra (W3-A3).
+    expect(pressed(strings.fieldTypeCheckbox)).toBe("true");
+    expect(screen.queryByRole("group", { name: BAR_NAME })).toBeNull();
+    const checkbox = document.querySelector<HTMLElement>('[data-element-kind="text"]')!;
+    expect(checkbox).toBeTruthy();
+    expect(document.activeElement).not.toBe(checkbox);
+    // Tocarla la selecciona como siempre (su barra aparece).
+    tapElement(checkbox);
+    await waitFor(() => expect(screen.getByRole("group", { name: BAR_NAME })).toBeTruthy());
+  });
+
+  it("la herramienta armada coloca varios elementos seguidos; Seleccionar la suelta y ya no crea", async () => {
+    let slots: SignatureField[] = [];
+    render(<Harness tool="select" onFieldsChange={(next) => (slots = next)} />);
+    await waitForPreview();
+    armTool(strings.fieldInitials);
+    tapPage(100, 100);
+    tapPage(300, 400);
+    tapPage(500, 700);
+    expect(slots.map((slot) => slot.type)).toEqual(["initials", "initials", "initials"]);
+    expect(pressed(strings.fieldInitials)).toBe("true");
+    armTool(strings.toolSelect);
+    tapPage(200, 200);
+    expect(slots).toHaveLength(3);
+    expect(pressed(strings.toolSelect)).toBe("true");
   });
 
   it("con Seleccionar, tocar la pagina vacia deselecciona (y cierra la barra)", async () => {
@@ -2423,12 +2459,25 @@ describe("DocumentCanvas — paleta de herramientas (W2-B)", () => {
       expect(pressed(strings.toolSelect)).toBe("true");
     });
 
-    it("volver a pulsar la herramienta activa regresa a Seleccionar", async () => {
+    it("volver a pulsar la herramienta activa NO la apaga (W3-A3): la salida explicita es Seleccionar", async () => {
       render(<Harness tool="select" />);
       await waitForPreview();
       armTool(strings.fieldTypeText);
       expect(pressed(strings.fieldTypeText)).toBe("true");
       armTool(strings.fieldTypeText);
+      expect(pressed(strings.fieldTypeText)).toBe("true");
+      armTool(strings.toolSelect);
+      expect(pressed(strings.toolSelect)).toBe("true");
+      expect(pressed(strings.fieldTypeText)).toBe("false");
+    });
+
+    it("repetir el atajo de la herramienta activa tampoco la apaga; V la suelta", async () => {
+      render(<Harness tool="select" />);
+      await waitForPreview();
+      fireEvent.keyDown(document.body, { key: "t" });
+      fireEvent.keyDown(document.body, { key: "t" });
+      expect(pressed(strings.fieldTypeText)).toBe("true");
+      fireEvent.keyDown(document.body, { key: "v" });
       expect(pressed(strings.toolSelect)).toBe("true");
     });
 
@@ -2924,23 +2973,33 @@ describe("DocumentCanvas — correcciones de la ronda 2 de W2-B", () => {
     fireEvent.click(within(palette()).getByRole("button", { name }));
 
   describe("scroll con un dedo y toque corto en vacio", () => {
-    it("GE-01: un dedo desplaza la pagina (pan-x pan-y) con Seleccionar Y con una herramienta armada; el lienzo solo se queda el gesto con zoom o con «Dibujar con el dedo»", async () => {
-      // Antes (W2-B) una herramienta armada dejaba `touch-none` en TODA la hoja: trampa de scroll (GE-01 de la auditoria).
+    it("GE-01 (W3-A3): con Seleccionar un dedo desplaza la pagina (pan-x pan-y); con una herramienta armada el lienzo se queda el gesto (touch-none: «Un dedo dibuja» viene encendido) y vuelve a desplazar al soltarla", async () => {
       render(<Harness tool="select" pinchZoomEnabled />);
       await waitForPreview();
       expect(hostOf().className).toContain("touch-pan-x");
       expect(hostOf().className).toContain("touch-pan-y");
       expect(hostOf().className).not.toContain("touch-none");
       pickTool(strings.fieldSignature);
-      // Herramienta armada: sigue desplazando (un toque coloca, mantener pulsado dibuja).
-      expect(hostOf().className).toContain("touch-pan-y");
-      expect(hostOf().className).not.toContain("touch-none");
+      // Herramienta armada con el dedo que dibuja: la hoja es `touch-none` ANTES del toque (en iOS no se cambia a mitad de gesto).
+      expect(hostOf().className).toContain("touch-none");
+      expect(hostOf().className).not.toContain("touch-pan-y");
       fireEvent.keyDown(window, { key: "Escape" });
       expect(hostOf().className).toContain("touch-pan-y");
+      expect(hostOf().className).not.toContain("touch-none");
       // Con zoom el lienzo mueve la hoja y, en su borde, la pagina (encadenado): `none`.
       fireEvent.click(screen.getByRole("button", { name: strings.zoomIn }));
       expect(hostOf().className).toContain("touch-none");
       expect(hostOf().className).not.toContain("touch-pan-y");
+    });
+
+    it("«Un dedo dibuja» apagado (gestureMode=auto): una herramienta armada sigue dejando que el dedo desplace (pan-x pan-y)", async () => {
+      render(<Harness tool="select" pinchZoomEnabled gestureMode="auto" />);
+      await waitForPreview();
+      pickTool(strings.fieldSignature);
+      // El modo de antes: un toque coloca, deslizar desplaza, mantener quieto y arrastrar dibuja.
+      expect(hostOf().className).toContain("touch-pan-x");
+      expect(hostOf().className).toContain("touch-pan-y");
+      expect(hostOf().className).not.toContain("touch-none");
     });
 
     it("gestureMode=draw: con una herramienta armada el dedo dibuja de inmediato (touch-none)", async () => {

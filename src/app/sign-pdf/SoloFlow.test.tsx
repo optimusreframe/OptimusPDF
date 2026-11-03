@@ -10,6 +10,7 @@ import {
 } from "@/app/sign-pdf/SignToolClient";
 import { documentContentKey } from "@/app/sign-pdf/documentKey";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
+import { QUICK_SIGN_STRINGS } from "@/app/sign-pdf/fillMode/fillStrings";
 import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 import { detectFields, type DetectedField } from "@/lib/pdf/detectFields";
 import { __resetValueHistoryCacheForTests } from "@/lib/valueHistory";
@@ -419,12 +420,19 @@ describe("SignToolClient — modo Solo yo de punta a punta (jsdom)", () => {
       fireEvent.click(screen.getByRole("button", { name: "Quitar" }));
       await waitFor(() => expect(input()).toBeTruthy());
       fireEvent.change(input(), { target: { files: [b] } });
-      // Vuelve al primer paso, con el firmante de siempre y sin nada de A.
+      // Quien firma ya estaba decidido: la ronda nueva arranca en «Documento» (W3-B2) con «Firman: Firmante 1 · Cambiar»;
+      // «Cambiar» da el paso Firmantes con el firmante de siempre, y de ahi se vuelve al documento sin nada de A.
       await waitFor(() =>
-        expect(
-          screen.getByRole("button", { name: strings.removeSigner(strings.defaultSignerName(1)) }),
-        ).toBeTruthy(),
+        expect(screen.getByText(QUICK_SIGN_STRINGS.es.signersRecap(strings.defaultSignerName(1)))).toBeTruthy(),
       );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: `${QUICK_SIGN_STRINGS.es.signersChange}. ${QUICK_SIGN_STRINGS.es.signersChangeHint}`,
+        }),
+      );
+      expect(
+        screen.getByRole("button", { name: strings.removeSigner(strings.defaultSignerName(1)) }),
+      ).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: `2. ${strings.stepDocument}` }));
       await screen.findByRole("toolbar", { name: strings.paletteLabel });
       expect(filled()).toHaveLength(0);

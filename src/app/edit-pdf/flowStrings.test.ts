@@ -103,7 +103,13 @@ describe("retirada del editor antiguo", () => {
 
   it("EditCanvas.tsx ya no existe y nadie lo importa", () => {
     expect(fs.existsSync(path.join(root, "app/edit-pdf/EditCanvas.tsx"))).toBe(false);
-    const offenders = files.filter((file) => /EditCanvas\b/.test(fs.readFileSync(file, "utf8")));
+    // La palabra entera: el componente retirado («EditCanvas», su import o su JSX). Un nombre local que solo la termina
+    // (`registerEditCanvas` en `DocumentCanvas.tsx`, el modo «Editar campos» de Firmar) no es el editor antiguo.
+    const retired = /\bEditCanvas\b/;
+    expect(retired.test('import { EditCanvas } from "./EditCanvas";')).toBe(true);
+    expect(retired.test("<EditCanvas pages={pages} />")).toBe(true);
+    expect(retired.test("const registerEditCanvas = editHost?.registerCanvas;")).toBe(false);
+    const offenders = files.filter((file) => retired.test(fs.readFileSync(file, "utf8")));
     expect(offenders).toEqual([]);
   });
 

@@ -230,4 +230,20 @@ describe("ninguna clave de localStorage de la app queda sin clasificar", () => {
     }
     expect(SETTINGS_NEVER_EXPORTED_KEYS).toContain("optimuspdf.lastBackup");
   });
+
+  it("las preferencias de interfaz de Firmar (un dedo dibuja, Editar campos, Rellenar, uso de plantillas) son de cada dispositivo y no viajan", () => {
+    const perDevice = [
+      "optimuspdf.sign.fingerDraw",
+      "optimuspdf.sign.fingerDrawHint",
+      "optimuspdf.sign.editFit",
+      "optimuspdf.sign.editOpen",
+      "optimuspdf.sign.fillReviewAuto",
+      "optimuspdf.sign.templateUse",
+    ];
+    for (const key of perDevice) {
+      expect(SETTINGS_NEVER_EXPORTED_KEYS, key).toContain(key);
+      expect(SETTINGS_WRITABLE_KEYS, key).not.toContain(key);
+      expect(settingDef(key), key).toBeUndefined();
+    }
+  });
 });

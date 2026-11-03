@@ -11,6 +11,7 @@ import {
 import type { CeremonyState } from "@/app/sign-pdf/blockModel";
 import { clearVault, saveVaultEntry } from "@/app/sign-pdf/signVault";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
+import { QUICK_SIGN_STRINGS } from "@/app/sign-pdf/fillMode/fillStrings";
 import { installCanvasStubs, pngDataUrl, vaultInput } from "@/app/sign-pdf/vaultTestUtils";
 import { __resetSignPdfFeatureFlagsCacheForTests } from "@/app/sign-pdf/signFeatureFlags";
 import type { SignatureDraft } from "@/app/sign-pdf/SignatureComposer";
@@ -153,14 +154,18 @@ describe("SigningCeremony — el turno guardado en la sesion sobrevive a remonta
     expect(heading(strings.handoffTitle("Luis"))).toBeTruthy();
   });
 
-  it("al salto «He terminado» de la ultima persona la ronda se cierra y un remontaje no la reabre", () => {
+  it("tras «Continuar» de la ultima persona la revision y la descarga son UNA pantalla y un remontaje no reabre el turno de Ana", () => {
     render(<SessionHost captures={{ [ANA.id]: ANA_DONE, [LUIS.id]: LUIS_DONE }} ceremony={LUIS_TURN} />);
     fireEvent.click(ready());
     fireEvent.click(continueButton());
-    fireEvent.click(screen.getByRole("button", { name: strings.reviewFinish }));
-    expect(stored()).toBe("none");
+    // W3-B2: sin tarjeta de revision del turno ni «He terminado»; «Revisa y descarga» trae la firma y «Firmar y descargar».
+    expect(screen.queryByRole("button", { name: strings.reviewFinish })).toBeNull();
+    expect(heading(QUICK_SIGN_STRINGS.es.finalTitle)).toBeTruthy();
+    expect((screen.getByRole("button", { name: strings.applyAndDownload }) as HTMLButtonElement).disabled).toBe(false);
+    // El turno guardado sigue siendo la revision de Luis: nada se cierra por un toque de mas.
+    expect(stored()).toBe("sg-2:review");
     remount();
-    expect(heading(strings.allSignedTitle)).toBeTruthy();
+    expect(heading(QUICK_SIGN_STRINGS.es.finalTitle)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana") })).toBeNull();
   });
 
@@ -180,6 +185,33 @@ describe("SigningCeremony — el turno guardado en la sesion sobrevive a remonta
     expect(stored()).toBe("sg-1:handoff");
     expect(screen.getByText(strings.turnOf(1, 2))).toBeTruthy();
     expect((screen.getByRole("button", { name: strings.applyAndDownload }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("SigningCeremony — una sola persona firma (W3-B2)", () => {
+  it("no se pinta el traspaso: va directo a la captura y dice que no hace falta pasar el dispositivo", () => {
+    render(
+      <LanguageProvider>
+        <SigningCeremony
+          signers={[ANA]}
+          fields={[field("f1", ANA.id)]}
+          captures={{}}
+          onCapturesChange={() => {}}
+          documentKey={DOC}
+          onFinish={() => {}}
+          strings={strings}
+        />
+      </LanguageProvider>,
+    );
+    expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana") })).toBeNull();
+    expect(heading(strings.captureTitle("Ana"))).toBeTruthy();
+    expect(screen.getByText(QUICK_SIGN_STRINGS.es.singleSigner)).toBeTruthy();
+  });
+
+  it("con dos personas el traspaso se mantiene y no sale esa nota", () => {
+    render(<SessionHost controlled={false} />);
+    expect(heading(strings.handoffTitle("Ana"))).toBeTruthy();
+    expect(screen.queryByText(QUICK_SIGN_STRINGS.es.singleSigner)).toBeNull();
   });
 });
 

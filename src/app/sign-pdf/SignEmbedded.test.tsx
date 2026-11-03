@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { SignEmbedded, type SignEmbeddedProps } from "@/app/sign-pdf/SignEmbedded";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { SIGN_EMBEDDED_STRINGS } from "@/app/sign-pdf/signEmbeddedStrings";
+import { QUICK_SIGN_STRINGS } from "@/app/sign-pdf/fillMode/fillStrings";
 import { installCanvasStubs } from "@/app/sign-pdf/vaultTestUtils";
 import { __resetSignPdfFeatureFlagsCacheForTests } from "@/app/sign-pdf/signFeatureFlags";
 import { clearVault, saveVaultEntry, dataUrlToVaultImage } from "@/app/sign-pdf/signVault";
@@ -161,7 +162,7 @@ async function addSlotFor(signerName: string) {
 }
 
 /** Cada firmante crea su firma tecleada (el compositor usa el canvas simulado). */
-async function ceremonyFor(names: string[]) {
+async function ceremonyFor(names: string[], finalTitle: string = QUICK_SIGN_STRINGS.es.finalTitleApply) {
   for (const name of names) {
     fireEvent.click((await screen.findAllByRole("button", { name: strings.handoffReady }))[0]);
     fireEvent.click(screen.getAllByRole("button", { name: strings.captureSignature })[0]);
@@ -169,18 +170,24 @@ async function ceremonyFor(names: string[]) {
     fireEvent.change(screen.getByLabelText(strings.typeLabel), { target: { value: name } });
     fireEvent.click(screen.getByRole("button", { name: strings.save }));
     fireEvent.click(await screen.findByRole("button", { name: strings.captureContinue }));
-    fireEvent.click(await screen.findByRole("button", { name: names.indexOf(name) < names.length - 1 ? strings.reviewNext : strings.reviewFinish }));
+    if (names.indexOf(name) < names.length - 1) {
+      fireEvent.click(await screen.findByRole("button", { name: strings.reviewNext }));
+    } else {
+      // W3-B2: con el ultimo firmante la revision y el boton final son UNA pantalla (no hay «He terminado»).
+      await screen.findByRole("heading", { name: finalTitle });
+      expect(screen.queryByRole("button", { name: strings.reviewFinish })).toBeNull();
+    }
   }
 }
 
-async function multiRoundReady(names: string[]) {
+async function multiRoundReady(names: string[], finalTitle?: string) {
   fireEvent.click(await screen.findByRole("tab", { name: strings.modeMulti }));
   for (let index = 0; index < names.length; index += 1) await addSignerNamed(index + 1, names[index]);
   fireEvent.click(screen.getByRole("button", { name: `2. ${strings.stepDocument}` }));
   await screen.findByRole("toolbar", { name: strings.paletteLabel });
   for (const name of names) await addSlotFor(name);
   fireEvent.click(screen.getByRole("button", { name: `3. ${strings.stepSign}` }));
-  await ceremonyFor(names);
+  await ceremonyFor(names, finalTitle);
 }
 
 describe("SignEmbedded: Varios firmantes (jsdom)", () => {
@@ -189,7 +196,7 @@ describe("SignEmbedded: Varios firmantes (jsdom)", () => {
     const { applied } = setup({ file });
     await screen.findByRole("toolbar", { name: strings.paletteLabel });
     await multiRoundReady(["Ana", "Luis"]);
-    await waitFor(() => expect(screen.getByText(strings.allSignedTitle)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(QUICK_SIGN_STRINGS.es.finalTitleApply)).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Finalizar y aplicar" }));
     await waitFor(() => expect(applied).toHaveLength(1));
     expect(applied[0].label).toBe("Firmado por Ana y Luis");
@@ -1017,7 +1024,8 @@ describe("SignEmbedded: equivalencia en Varios firmantes", () => {
   it("dos firmantes (sin registro de firmas, que lleva la hora): mismos bytes que la herramienta suelta", async () => {
     setSignPdfFeatureFlag("completionCertificate", false);
     const { file } = await contractFile(3);
-    // Herramienta suelta: la ronda se remata con «Firmar y descargar» y se elige no prefijar el nombre.
+    // Herramienta suelta: la ronda se remata con «Firmar y descargar» y se elige no prefijar el nombre. El archivo se descarga
+    // SOLO al llegar al resultado (W3-B2, `autoDownload`): no hace falta tocar «Descargar» (y tocarlo bajaria el archivo otra vez).
     const view = render(
       <LanguageProvider>
         <SignToolClient />
@@ -1025,10 +1033,9 @@ describe("SignEmbedded: equivalencia en Varios firmantes", () => {
     );
     fireEvent.change(view.container.querySelector('input[type="file"][accept*="pdf"]')!, { target: { files: [file] } });
     await screen.findByRole("toolbar", { name: strings.paletteLabel });
-    await multiRoundReady(["Ana", "Luis"]);
+    await multiRoundReady(["Ana", "Luis"], QUICK_SIGN_STRINGS.es.finalTitle);
     fireEvent.click(await screen.findByRole("button", { name: strings.applyAndDownload }));
     fireEvent.click(await screen.findByRole("button", { name: strings.filenamePrefixNo }));
-    fireEvent.click(await screen.findByRole("button", { name: "Descargar" }));
     await waitFor(() => expect(downloads.length).toBe(1));
     const suelta = await bytesOf(downloads[0].blob);
     view.unmount();

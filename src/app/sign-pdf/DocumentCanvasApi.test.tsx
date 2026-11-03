@@ -9,6 +9,7 @@ import {
   type GestureMode,
   type PlacementTool,
 } from "@/app/sign-pdf/DocumentCanvas";
+import { FINGER_DRAW_PREF_KEY } from "@/app/sign-pdf/canvasGestures";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import type { SignatureField, Signer } from "@/lib/pdf/sign";
 import type { DetectedField } from "@/lib/pdf/detectFields";
@@ -116,16 +117,33 @@ async function ready() {
 }
 
 describe("DocumentCanvasApi", () => {
-  it("expone el modo de gesto: `auto` por defecto y el de la prop si la hay", async () => {
+  it("expone el modo de gesto: `draw` por defecto («Un dedo dibuja» encendido), `auto` con el interruptor apagado y el de la prop si la hay", async () => {
     const apiRef = createRef<DocumentCanvasApi>();
-    const first = render(<Harness apiRef={apiRef} />);
-    await ready();
-    expect(apiRef.current?.getGestureMode()).toBe("auto");
-    first.unmount();
-    const second = render(<Harness apiRef={apiRef} gestureMode="draw" />);
-    await ready();
-    expect(apiRef.current?.getGestureMode()).toBe("draw");
-    second.unmount();
+    window.localStorage.removeItem(FINGER_DRAW_PREF_KEY);
+    try {
+      // Sin prop manda el interruptor, encendido de fabrica (W3-A3): el dedo dibuja.
+      const first = render(<Harness apiRef={apiRef} />);
+      await ready();
+      expect(apiRef.current?.getGestureMode()).toBe("draw");
+      first.unmount();
+      // Interruptor apagado (preferencia recordada): el modo de antes.
+      window.localStorage.setItem(FINGER_DRAW_PREF_KEY, "0");
+      const off = render(<Harness apiRef={apiRef} />);
+      await ready();
+      expect(apiRef.current?.getGestureMode()).toBe("auto");
+      off.unmount();
+      // Con la prop manda la prop, sea cual sea la preferencia.
+      const second = render(<Harness apiRef={apiRef} gestureMode="draw" />);
+      await ready();
+      expect(apiRef.current?.getGestureMode()).toBe("draw");
+      second.unmount();
+      const third = render(<Harness apiRef={apiRef} gestureMode="scroll" />);
+      await ready();
+      expect(apiRef.current?.getGestureMode()).toBe("scroll");
+      third.unmount();
+    } finally {
+      window.localStorage.removeItem(FINGER_DRAW_PREF_KEY);
+    }
   });
 
   it("getFreeRegion devuelve una caja finita dentro de la ventana", async () => {

@@ -20,6 +20,7 @@ import {
   type VaultEntry,
 } from "@/app/sign-pdf/signVault";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
+import { QUICK_SIGN_STRINGS } from "@/app/sign-pdf/fillMode/fillStrings";
 import {
   installCanvasStubs,
   pngDataUrl,
@@ -53,6 +54,7 @@ vi.mock("@/app/sign-pdf/signVault", async (importOriginal) => {
 });
 
 const strings = SIGN_STRINGS.es;
+const quick = QUICK_SIGN_STRINGS.es;
 
 const ANA: Signer = { id: "sg-1", name: "Ana Pérez", color: "#0d4bff" };
 const LUIS: Signer = { id: "sg-2", name: "Luis", color: "#0f9d68" };
@@ -336,14 +338,35 @@ describe("BlockCeremony — foco al cambiar de etapa y de turno (no se pierde en
     expect(document.activeElement).toBe(heading(strings.handoffTitle("Luis")));
   });
 
-  it("al terminar el ultimo turno el foco va al balance de la ronda", () => {
-    // El ultimo turno (Luis) con todo ya recogido: al terminarlo no queda nadie y el foco va al balance.
+  it("al terminar el ultimo turno el foco va al titulo de «Revisa y descarga» (una sola pantalla, sin «He terminado»)", () => {
+    // El ultimo turno (Luis) con todo ya recogido y nada que lo bloquee: al «Continuar» la revision y la descarga son UNA
+    // pantalla (W3-B2). La tarjeta de revision del turno no se pinta y el foco va al titulo de la tarjeta final.
     render(<Harness ceremony={LUIS_TURN} blocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} />);
     toCapture();
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
-    fireEvent.click(screen.getByRole("button", { name: strings.reviewFinish }));
-    expect(document.activeElement).toBe(heading(strings.allSignedTitle));
+    expect(screen.queryByRole("button", { name: strings.reviewFinish })).toBeNull();
+    expect(screen.queryByRole("heading", { name: strings.reviewTitle("Luis") })).toBeNull();
+    expect(document.activeElement).toBe(heading(quick.finalTitle));
     expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("con la entrega bloqueada la revision del turno sigue aparte: «He terminado» lleva el foco al balance de la ronda", () => {
+    // Con algo que bloquea la descarga no hay pantalla unica: se mantiene la tarjeta de revision y su «He terminado».
+    render(
+      <Harness
+        ceremony={LUIS_TURN}
+        blocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])}
+        blocked
+        blockerMessages={[strings.batchDocEmpty("Acta")]}
+      />,
+    );
+    toCapture();
+    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
+    fireEvent.click(screen.getByRole("button", { name: strings.reviewFinish }));
+    // El balance de la ronda (h4 de la tarjeta final) comparte rotulo con el h3 de la lista de turnos: se mira el elemento enfocado.
+    const active = document.activeElement as HTMLElement;
+    expect(active.tagName).toBe("H4");
+    expect(active.textContent).toBe(strings.ceremonyTitle);
   });
 
   it("«Estoy listo» de la lista de la ronda (goToTurn) mueve el foco al traspaso de ese turno", () => {
@@ -503,6 +526,79 @@ describe("BlockCeremony — firmas guardadas del baul", () => {
     render(<Harness />);
     toCapture();
     expect(screen.queryByRole("button", { name: strings.vaultUseSavedFor(strings.fieldSignature) })).toBeNull();
+  });
+});
+
+describe("BlockCeremony — «Firmar todo con mi firma guardada» y un solo firmante (W3-B2)", () => {
+  it("un toque pone firma e iniciales de la guardada en TODOS los grupos de Ana (no toca a Luis) y lleva a la revision", async () => {
+    const entry = await seed("Ana Pérez");
+    let last: SignerBlock[] = SAME_BLOCKS;
+    render(<Harness ceremony={ANA_TURN} onBlocks={(next) => (last = next)} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: quick.buttonShort }))[0]);
+
+    const ana = last.find((item) => item.id === "bk-1")!;
+    expect(ana.signature?.dataUrl).toBe(vaultImageToDataUrl(entry.signature!));
+    expect(ana.initials?.dataUrl).toBe(vaultImageToDataUrl(entry.initials!));
+    for (const doc of [A, B, C] as const) {
+      expect(ana.stamps[doc]).toBe(captureStamp(KEYS[doc], DOC_STATES[doc].fields, ANA.id));
+    }
+    // Luis no recibe la firma de Ana: su grupo sigue vacio.
+    const luis = last.find((item) => item.id === "bk-2")!;
+    expect(luis.signature).toBeNull();
+    expect(luis.initials).toBeNull();
+    expect(touchSpy.calls).toEqual([entry.id]);
+    // Nada se descarga ni se cierra: se pasa a la revision de Ana, con «Deshacer».
+    expect(heading(strings.reviewTitle("Ana Pérez"))).toBeTruthy();
+    expect(screen.getByRole("button", { name: quick.undo })).toBeTruthy();
+  });
+
+  it("«Deshacer» devuelve los trazos de Ana a como estaban y vuelve a la captura", async () => {
+    await seed("Ana Pérez");
+    let last: SignerBlock[] = SAME_BLOCKS;
+    render(<Harness ceremony={ANA_TURN} onBlocks={(next) => (last = next)} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: quick.buttonShort }))[0]);
+    expect(last.find((item) => item.id === "bk-1")!.signature).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: quick.undo }));
+    const ana = last.find((item) => item.id === "bk-1")!;
+    expect(ana.signature).toBeNull();
+    expect(ana.initials).toBeNull();
+    expect(Object.keys(ana.stamps)).toEqual([]);
+    expect(heading(strings.captureTitle("Ana Pérez"))).toBeTruthy();
+  });
+
+  it("solo rellena lo que falta: lo que Ana ya tenia vigente no se pisa", async () => {
+    await seed("Ana Pérez");
+    const withSignature = captureForBlock(SAME_BLOCKS, "bk-1", { signature: DRAFT }, ctxOf());
+    let last: SignerBlock[] = withSignature;
+    render(<Harness ceremony={ANA_TURN} blocks={withSignature} onBlocks={(next) => (last = next)} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: quick.buttonShort }))[0]);
+
+    const ana = last.find((item) => item.id === "bk-1")!;
+    expect(ana.signature?.dataUrl).toBe(DRAFT.dataUrl);
+    expect(ana.initials).not.toBeNull();
+  });
+
+  it("con UNA sola persona no se pinta el traspaso: va directo a la captura y dice por que", () => {
+    const solo = { [A]: docState([slot("a1", ANA.id)]) };
+    render(
+      <Harness
+        signers={[ANA]}
+        docs={[DOCS[0]]}
+        docStates={solo}
+        keys={{ [A]: KEYS[A] }}
+        blocks={[block("bk-1", ANA.id, [A], { auto: true })]}
+      />,
+    );
+    expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana Pérez") })).toBeNull();
+    expect(heading(strings.captureTitle("Ana Pérez"))).toBeTruthy();
+    expect(screen.getByText(quick.singleSigner)).toBeTruthy();
+  });
+
+  it("con dos personas el traspaso se mantiene y no sale la nota de una sola persona", () => {
+    render(<Harness />);
+    expect(heading(strings.handoffTitle("Ana Pérez"))).toBeTruthy();
+    expect(screen.queryByText(quick.singleSigner)).toBeNull();
   });
 });
 
@@ -780,6 +876,7 @@ function SessionHost({
   docs = DOCS,
   keys = KEYS,
   signers = [ANA, LUIS],
+  blocked = false,
   onCeremony,
 }: {
   initialBlocks?: SignerBlock[];
@@ -788,6 +885,8 @@ function SessionHost({
   docs?: DocRef[];
   keys?: Record<string, string | null>;
   signers?: Signer[];
+  /** La entrega esta bloqueada por otra razon: no hay pantalla unica «Revisa y descarga». */
+  blocked?: boolean;
   onCeremony?: (next: CeremonyState | null) => void;
 }) {
   const [blocks, setBlocks] = useState(initialBlocks);
@@ -807,8 +906,8 @@ function SessionHost({
         keys={keys}
         blocks={blocks}
         onBlocksChange={setBlocks}
-        blockerMessages={[]}
-        blocked={false}
+        blockerMessages={blocked ? [strings.batchDocEmpty("Acta")] : []}
+        blocked={blocked}
         onFinish={() => {}}
         strings={strings}
         ceremony={ceremony}
@@ -956,18 +1055,41 @@ describe("BlockCeremony — al completar un turno salta al siguiente firmante PE
     expect(stored()).toBe("sg-1:handoff");
   });
 
-  it("si despues del turno no queda nadie pendiente el boton dice «He terminado» y la ronda se cierra", () => {
+  it("si despues del turno no queda nadie pendiente la revision y la descarga son UNA pantalla: sin «He terminado», con «Firmar y descargar»", () => {
     render(<SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} initialCeremony={LUIS_TURN} />);
+    toCapture();
+    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
+    expect(screen.queryByRole("button", { name: strings.reviewNext })).toBeNull();
+    // W3-B2: la tarjeta de revision del turno (y su «He terminado») no se pinta; la tarjeta final trae la revision y el boton.
+    expect(screen.queryByRole("button", { name: strings.reviewFinish })).toBeNull();
+    expect(heading(quick.finalTitle)).toBeTruthy();
+    expect(finish().disabled).toBe(false);
+    expect(screen.getByRole("button", { name: quick.finalRedo })).toBeTruthy();
+    // El turno guardado sigue siendo la revision de Luis (no se cierra la ronda por un toque de mas)...
+    expect(stored()).toBe("sg-2:review");
+    // ...y remontar no resucita el turno de Ana: vuelve a la misma pantalla.
+    remount();
+    expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana Pérez") })).toBeNull();
+    expect(heading(quick.finalTitle)).toBeTruthy();
+    expect(finish().disabled).toBe(false);
+  });
+
+  it("con la entrega bloqueada, despues del ultimo turno el boton dice «He terminado» y la ronda se cierra", () => {
+    // Sin pantalla unica (algo bloquea la descarga) la revision del turno sigue siendo su propia tarjeta.
+    render(
+      <SessionHost initialBlocks={signed(SAME_BLOCKS, ["bk-1", "bk-2"])} initialCeremony={LUIS_TURN} blocked />,
+    );
     toCapture();
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     expect(screen.queryByRole("button", { name: strings.reviewNext })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: strings.reviewFinish }));
     expect(stored()).toBe("none");
-    expect(heading(strings.allSignedTitle)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: strings.reviewTitle("Luis") })).toBeNull();
     // Y remontar despues de cerrar la ronda tampoco resucita el turno de Ana.
     remount();
     expect(screen.queryByRole("heading", { name: strings.handoffTitle("Ana Pérez") })).toBeNull();
-    expect(heading(strings.allSignedTitle)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: strings.reviewTitle("Luis") })).toBeNull();
+    expect(stored()).toBe("none");
   });
 });
 

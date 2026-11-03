@@ -6,6 +6,7 @@ import { MultiFlow, type SignToolOptions } from "@/app/sign-pdf/SignToolClient";
 import { SigningCeremony, captureStamp, type CaptureMap } from "@/app/sign-pdf/SigningCeremony";
 import { documentContentKey } from "@/app/sign-pdf/documentKey";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
+import { QUICK_SIGN_STRINGS } from "@/app/sign-pdf/fillMode/fillStrings";
 import { useCeremonyFocus } from "@/app/sign-pdf/useCeremonyFocus";
 import {
   __resetSignPdfFeatureFlagsCacheForTests,
@@ -141,14 +142,15 @@ describe("SigningCeremony — el foco no cae a <body> al cambiar de etapa o de t
   });
 
   it("«Continuar» -> encabezado de la revision", () => {
-    render(<Ceremony ceremony={ANA_TURN} />);
+    // Luis aun no ha firmado: la revision de Ana es su propia tarjeta (con todos firmados seria la pantalla unica, ver abajo).
+    render(<Ceremony ceremony={ANA_TURN} captures={{ [ANA.id]: signedAll()[ANA.id] }} />);
     fireEvent.click(readyButtons()[0]);
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     expect(document.activeElement).toBe(heading(strings.reviewTitle("Ana")));
   });
 
   it("«Rehacer» -> vuelve al encabezado de la captura", () => {
-    render(<Ceremony ceremony={ANA_TURN} />);
+    render(<Ceremony ceremony={ANA_TURN} captures={{ [ANA.id]: signedAll()[ANA.id] }} />);
     fireEvent.click(readyButtons()[0]);
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
     fireEvent.click(screen.getByRole("button", { name: strings.reviewRedo }));
@@ -164,13 +166,22 @@ describe("SigningCeremony — el foco no cae a <body> al cambiar de etapa o de t
     expect(document.activeElement).toBe(heading(strings.handoffTitle("Luis")));
   });
 
-  it("al pasar el ultimo turno -> balance de la ronda", () => {
-    // El ultimo turno (Luis) con todo ya recogido: al terminarlo no queda nadie y el foco va al balance.
+  it("al pasar el ultimo turno -> titulo de «Revisa y descarga» (una sola pantalla, sin «He terminado»)", () => {
+    // El ultimo turno (Luis) con todo ya recogido: al «Continuar» no queda nadie y la revision y la descarga son UNA pantalla
+    // (W3-B2). La tarjeta de revision del turno no se pinta y el foco va al titulo de la tarjeta final (el balance de la ronda).
     render(<Ceremony ceremony={LUIS_TURN} />);
     fireEvent.click(readyButtons()[0]);
     fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
-    fireEvent.click(screen.getByRole("button", { name: strings.reviewFinish }));
-    expect(document.activeElement).toBe(heading(strings.allSignedTitle));
+    expect(screen.queryByRole("button", { name: strings.reviewFinish })).toBeNull();
+    expect(document.activeElement).toBe(heading(QUICK_SIGN_STRINGS.es.finalTitle));
+  });
+
+  it("«Cambiar mi firma» de «Revisa y descarga» -> vuelve al encabezado de la captura", () => {
+    render(<Ceremony ceremony={LUIS_TURN} />);
+    fireEvent.click(readyButtons()[0]);
+    fireEvent.click(screen.getByRole("button", { name: strings.captureContinue }));
+    fireEvent.click(screen.getByRole("button", { name: QUICK_SIGN_STRINGS.es.finalRedo }));
+    expect(document.activeElement).toBe(heading(strings.captureTitle("Luis")));
   });
 
   it("goToTurn desde la lista de la ronda -> traspaso de ese firmante", () => {
@@ -280,7 +291,11 @@ async function settled() {
 
 describe("MultiFlow — el foco no se pierde al llegar al ultimo / primer paso", () => {
   it("al montar en cualquier paso no se roba el foco", async () => {
-    render(<Flow step="document" />);
+    render(
+      <LanguageProvider>
+        <Flow step="document" />
+      </LanguageProvider>,
+    );
     await settled();
     expect(document.activeElement).toBe(document.body);
   });

@@ -1,7 +1,9 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ComponentProps } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { StripSavedSignatures } from "@/app/sign-pdf/StripSavedSignatures";
 import { SIGN_STRINGS } from "@/app/sign-pdf/strings";
 import { clearAllDrafts, listDrafts, listSessionDrafts, saveDraft, saveSessionDraft } from "@/app/sign-pdf/signDrafts";
@@ -45,6 +47,19 @@ async function seedStrokes() {
     textFieldsDetectedFor: null,
   };
   await saveDraft(params);
+}
+
+/**
+ * `PrivacyNotice` trae el boton de «Datos recordados» (W3-A1), que lee el idioma del proveedor como en la app: se monta
+ * dentro de `LanguageProvider` (el idioma se fija a es para que el aviso sea determinista).
+ */
+function renderNotice(noticeStrings: ComponentProps<typeof PrivacyNotice>["strings"]) {
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "es");
+  return render(
+    <LanguageProvider>
+      <PrivacyNotice strings={noticeStrings} />
+    </LanguageProvider>,
+  );
 }
 
 beforeEach(async () => {
@@ -125,7 +140,7 @@ describe("el aviso de privacidad de Firmar trae el boton", () => {
 
   it("esta dentro del aviso abierto, junto al interruptor, con el interruptor encendido y apagado", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
-    const { container } = render(<PrivacyNotice strings={strings} />);
+    const { container } = renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     const card = container.querySelector(".surface-card")!;
     const button = screen.getByRole("button", { name: strings.draftPrivacy.clearStrokesButton });
@@ -136,7 +151,7 @@ describe("el aviso de privacidad de Firmar trae el boton", () => {
 
   it("con el interruptor apagado el texto dice que lo ya guardado conserva sus firmas hasta que caduquen o las quites", () => {
     window.localStorage.removeItem("optimuspdf.sign-pdf.privacyNoticeSeen");
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     fireEvent.click(screen.getByRole("button", { name: strings.privacyReadFull }));
     fireEvent.click(screen.getByRole("checkbox", { name: strings.draftPrivacy.signaturesLabel }));
     expect(document.body.textContent).toContain("Los borradores ya guardados conservan sus firmas hasta que caduquen o las quites");
@@ -144,7 +159,7 @@ describe("el aviso de privacidad de Firmar trae el boton", () => {
 
   it("con el aviso cerrado no hay boton (solo vive dentro del aviso)", () => {
     window.localStorage.setItem("optimuspdf.sign-pdf.privacyNoticeSeen", "1");
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     expect(screen.queryByRole("button", { name: strings.draftPrivacy.clearStrokesButton })).toBeNull();
   });
 });

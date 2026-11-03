@@ -280,10 +280,39 @@ describe("determinismo", () => {
 describe("ocrToBoxes", () => {
   it("palabras con confianza; lineas sin palabras; solo texto plano", () => {
     const bbox = { x0: 0, y0: 0, x1: 10, y1: 10 };
-    expect(ocrToBoxes({ text: "", width: 1, height: 1, lines: [{ text: "a b", confidence: 80, bbox, words: [{ text: "a", confidence: 80, bbox }, { text: "b", confidence: 70, bbox }] }] })).toHaveLength(2);
+    // Dos palabras de la misma linea, cada una en su sitio (las que se tapan casi del todo se toman por la misma lectura repetida).
+    const wordA = { text: "a", confidence: 80, bbox };
+    const wordB = { text: "b", confidence: 70, bbox: { x0: 20, y0: 0, x1: 30, y1: 10 } };
+    expect(ocrToBoxes({ text: "", width: 1, height: 1, lines: [{ text: "a b", confidence: 80, bbox: { x0: 0, y0: 0, x1: 30, y1: 10 }, words: [wordA, wordB] }] })).toEqual([
+      expect.objectContaining({ text: "a", confidence: 80 }),
+      expect.objectContaining({ text: "b", confidence: 70 }),
+    ]);
     expect(ocrToBoxes({ text: "", width: 1, height: 1, lines: [{ text: "linea", confidence: 80, bbox, words: [] }] })).toEqual([expect.objectContaining({ text: "linea", confidence: 80 })]);
     expect(ocrToBoxes({ text: "Phone: 305-555-0142", width: 1, height: 1, lines: [] }).length).toBeGreaterThan(0);
     expect(ocrToBoxes({ text: "  ", width: 1, height: 1, lines: [] })).toEqual([]);
+  });
+
+  it("el mismo texto leido dos veces (cajas que se tapan) se queda una sola vez, la de mayor confianza", () => {
+    const bbox = { x0: 0, y0: 0, x1: 10, y1: 10 };
+    const twice = ocrToBoxes({
+      text: "",
+      width: 1,
+      height: 1,
+      lines: [{ text: "a b", confidence: 80, bbox, words: [{ text: "a", confidence: 80, bbox }, { text: "b", confidence: 70, bbox }] }],
+    });
+    expect(twice).toEqual([expect.objectContaining({ text: "a", confidence: 80 })]);
+    // Dos LINEAS que se tapan: se conserva la mas fiable entera.
+    const lineBox = { x0: 0, y0: 0, x1: 100, y1: 10 };
+    const lines = ocrToBoxes({
+      text: "",
+      width: 1,
+      height: 1,
+      lines: [
+        { text: "Policy Number: 12345", confidence: 60, bbox: lineBox, words: [] },
+        { text: "Policy Number: 12345", confidence: 92, bbox: { ...lineBox, x0: 1 }, words: [] },
+      ],
+    });
+    expect(lines).toEqual([expect.objectContaining({ text: "Policy Number: 12345", confidence: 92 })]);
   });
 });
 

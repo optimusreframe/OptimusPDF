@@ -647,11 +647,11 @@ export function SigningCeremony({
           tabIndex={-1}
           className={cn("text-headline text-foreground", CEREMONY_HEADING_CLASS)}
         >
-          {merged ? quick.finalTitle : pending.length === 0 ? strings.allSignedTitle : strings.ceremonyTitle}
+          {merged ? (strings.embedded ? quick.finalTitleApply : quick.finalTitle) : pending.length === 0 ? strings.allSignedTitle : strings.ceremonyTitle}
         </h4>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           {merged
-            ? quick.finalBody(1)
+            ? (strings.embedded ? quick.finalBodyApply(1) : quick.finalBody(1))
             : pending.length === 0
               ? strings.allSignedBody
               : strings.pendingBody(pending.length)}

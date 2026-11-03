@@ -437,16 +437,42 @@ describe("historial de valores (opcional)", () => {
     expect(Object.getPrototypeOf(stored.entries)).toBe(Object.prototype);
   });
 
-  it("topes del almacen: > 200 etiquetas o > 5 valores por etiqueta invalida el archivo; version o forma distinta, tambien", async () => {
+  it("topes del almacen: > 200 etiquetas o > 30 valores por etiqueta (antes 5) invalida el archivo; version o forma distinta, tambien", async () => {
     const many = Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`e${i}`, [{ value: "valor", lastUsedAt: iso }]]));
     expect(checkValueHistory({ version: 1, entries: many })).toEqual({ ok: false });
-    const crowded = { a: Array.from({ length: 6 }, (_, i) => ({ value: `valor ${i}`, lastUsedAt: iso })) };
+    const listOf = (count: number) => ({ a: Array.from({ length: count }, (_, i) => ({ value: `valor ${i}`, lastUsedAt: iso })) });
+    // Justo en el tope (30 valores por etiqueta) entra; uno mas invalida el archivo entero.
+    expect(checkValueHistory({ version: 1, entries: listOf(30) })).toMatchObject({ ok: true, labels: 1, values: 30, dropped: 0 });
+    const crowded = listOf(31);
     expect(checkValueHistory({ version: 1, entries: crowded })).toEqual({ ok: false });
     expect(checkValueHistory({ version: 2, entries: {} })).toEqual({ ok: false });
     expect(checkValueHistory({ version: 1, entries: [] })).toEqual({ ok: false });
     expect(checkValueHistory(null)).toEqual({ ok: false });
     expect((planSettingsImport(await withHistory(history(many))).valueHistory)).toMatchObject({ status: "invalid" });
     expect((planSettingsImport(await withHistory("{no json")).valueHistory)).toMatchObject({ status: "invalid" });
+  });
+
+  it("`uses`, `pinned` y `tags` (opcionales): se conservan los validos y se ignoran los raros sin tumbar la entrada", async () => {
+    const checked = checkValueHistory({
+      version: 1,
+      entries: {
+        "custom.zone_code": [
+          { value: "Zona 7", lastUsedAt: iso, uses: 4, pinned: true },
+          { value: "Zona 8", lastUsedAt: iso, uses: "muchos", pinned: "si" },
+          { value: "Zona 9", lastUsedAt: iso, uses: 1 },
+        ],
+      },
+      tags: { "custom.zone_code": "Código de zona", address: "No es propia", "custom.Mal Nombre": "x", __proto__: "x" },
+    });
+    expect(checked).toMatchObject({ ok: true, labels: 1, values: 3, dropped: 0 });
+    if (!checked.ok) return;
+    expect(checked.entries["custom.zone_code"]).toEqual([
+      { value: "Zona 7", lastUsedAt: iso, uses: 4, pinned: true },
+      { value: "Zona 8", lastUsedAt: iso },
+      { value: "Zona 9", lastUsedAt: iso },
+    ]);
+    // Solo viajan los nombres de etiquetas propias (`custom.*` con forma de clave).
+    expect(checked.tags).toEqual({ "custom.zone_code": "Código de zona" });
   });
 
   it("`replace` sobre un historial invalido o ausente no escribe nada", async () => {

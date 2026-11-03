@@ -289,6 +289,17 @@ export const SETTINGS_NEVER_EXPORTED_KEYS: readonly string[] = [
   "optimuspdf.imageQuality",
   // Escanear a PDF: captura automatica, rafaga y ultimo modo (de CADA dispositivo: camara y pantalla distintas), no viaja.
   "optimuspdf.scan.prefs",
+  // Firmar (Ola 3): preferencias y pistas de interfaz de CADA dispositivo (puntero tactil o raton, tamaño de pantalla); no llevan datos
+  // de la persona y no viajan. «Un dedo dibuja» y su pista de la primera vez:
+  "optimuspdf.sign.fingerDraw",
+  "optimuspdf.sign.fingerDrawHint",
+  // Modo «Editar campos»: ajuste de la hoja (alto/ancho) y «Abrir así siempre en este dispositivo»:
+  "optimuspdf.sign.editFit",
+  "optimuspdf.sign.editOpen",
+  // Modo «Rellenar»: «Revisar los autorrellenados» (si falta, se revisan: nunca saltarse algo en silencio):
+  "optimuspdf.sign.fillReviewAuto",
+  // Hoja «Plantillas»: ids opacos de plantilla + fecha de ultimo uso, solo para ordenar la lista en ESTE navegador:
+  "optimuspdf.sign.templateUse",
 ];
 
 /** Comparacion estable de dos valores de ajuste (el objeto con las claves en cualquier orden). */

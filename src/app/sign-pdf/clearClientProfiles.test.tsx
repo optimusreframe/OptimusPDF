@@ -1,5 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ComponentProps } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PrivacyNotice } from "@/app/sign-pdf/PrivacyNotice";
 import { clearLocalSignData } from "@/app/sign-pdf/clearLocalSignData";
@@ -14,6 +15,18 @@ import { CLIENT_PROFILES_STORAGE_KEY, __resetClientProfilesCacheForTests, listCl
  * «Borrar datos» borra tambien los PERFILES DE CLIENTE (PII del autorrelleno): el boton de Firmar PDF (`PrivacyNotice`), el de
  * Ajustes («Borrar datos locales») y `clearLocalSignData`. Solo se dice «borrado» si de verdad no queda ninguno.
  */
+
+/**
+ * `PrivacyNotice` trae el boton de «Datos recordados» (W3-A1), que lee el idioma del proveedor como en la app: se monta
+ * dentro de `LanguageProvider` (el `beforeEach` deja el idioma en es).
+ */
+function renderNotice(noticeStrings: ComponentProps<typeof PrivacyNotice>["strings"]) {
+  return render(
+    <LanguageProvider>
+      <PrivacyNotice strings={noticeStrings} />
+    </LanguageProvider>,
+  );
+}
 
 const strings = SIGN_STRINGS.es;
 
@@ -55,7 +68,7 @@ describe("PrivacyNotice (Firmar PDF)", () => {
 
   it("«Borrar datos» elimina los perfiles y despues dice «Datos borrados»", async () => {
     seed();
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     await confirmClear();
     expect(await screen.findByText(strings.privacyDataCleared)).toBeTruthy();
     expect(listClientProfiles()).toEqual([]);
@@ -72,7 +85,7 @@ describe("PrivacyNotice (Firmar PDF)", () => {
         real.removeItem(key);
       },
     });
-    render(<PrivacyNotice strings={strings} />);
+    renderNotice(strings);
     await confirmClear();
     expect(await screen.findByText(strings.vaultClearFailed(["clientProfiles"]))).toBeTruthy();
     expect(screen.queryByText(strings.privacyDataCleared)).toBeNull();
